@@ -22,8 +22,9 @@ npm install @modelcontextprotocol/sdk
 ### Creating a Client
 
 ```typescript
-import { Client } from "@modelcontextprotocol/sdk/client";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { ListResourcesResultSchema, ReadResourceResultSchema } from "@modelcontextprotocol/sdk/types.js";
 
 const transport = new StdioClientTransport({
   command: "path/to/server",
