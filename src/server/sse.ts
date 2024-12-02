@@ -103,7 +103,7 @@ export class SSEServerTransport implements Transport {
           throw new Error("Unsupported rawBody type. rawBody must be one of 'Buffer' or 'string'");
         }
       } else {
-        body = rawBody ?? await getRawBody(req, {
+        body = await getRawBody(req, {
           limit: MAXIMUM_MESSAGE_SIZE,
           encoding: ct.parameters.charset ?? "utf-8",
         });
