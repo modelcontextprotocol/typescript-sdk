@@ -68,6 +68,8 @@ export class SSEServerTransport implements Transport {
   async handlePostMessage(
     req: IncomingMessage,
     res: ServerResponse,
+    rawBody?: string | Buffer,
+    bodyEncoding?: BufferEncoding
   ): Promise<void> {
     if (!this._sseResponse) {
       const message = "SSE connection not established";
@@ -82,10 +84,30 @@ export class SSEServerTransport implements Transport {
         throw new Error(`Unsupported content-type: ${ct}`);
       }
 
-      body = await getRawBody(req, {
-        limit: MAXIMUM_MESSAGE_SIZE,
-        encoding: ct.parameters.charset ?? "utf-8",
-      });
+      if (rawBody) {
+        if (typeof rawBody === 'string') {
+          body = rawBody;
+        } else if (Buffer.isBuffer(rawBody)) {
+          if (bodyEncoding) {
+            body = rawBody.toString(bodyEncoding);
+          } else if (ct.parameters.charset) {
+            if (Buffer.isEncoding(ct.parameters.charset)) {
+              body = rawBody.toString(ct.parameters.charset as BufferEncoding);
+            } else {
+              throw new Error('Unsupported buffer encoding: ${ct.parameters.charset}')
+            }
+          } else {
+            body = rawBody.toString('utf8');
+          }
+        } else {
+          throw new Error("Unsupported rawBody type. rawBody must be one of 'Buffer' or 'string'");
+        }
+      } else {
+        body = await getRawBody(req, {
+          limit: MAXIMUM_MESSAGE_SIZE,
+          encoding: ct.parameters.charset ?? "utf-8",
+        });
+      }
     } catch (error) {
       res.writeHead(400).end(String(error));
       this.onerror?.(error as Error);
