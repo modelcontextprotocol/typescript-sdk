@@ -68,6 +68,7 @@ export class SSEServerTransport implements Transport {
   async handlePostMessage(
     req: IncomingMessage,
     res: ServerResponse,
+    rawBody?: string
   ): Promise<void> {
     if (!this._sseResponse) {
       const message = "SSE connection not established";
@@ -82,7 +83,7 @@ export class SSEServerTransport implements Transport {
         throw new Error(`Unsupported content-type: ${ct}`);
       }
 
-      body = await getRawBody(req, {
+      body = rawBody ?? await getRawBody(req, {
         limit: MAXIMUM_MESSAGE_SIZE,
         encoding: ct.parameters.charset ?? "utf-8",
       });
