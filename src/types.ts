@@ -753,15 +753,6 @@ export const CallToolResultSchema = ResultSchema.extend({
 });
 
 /**
- * CallToolResultSchema extended with backwards compatibility to protocol version 2024-10-07.
- */
-export const CompatibilityCallToolResultSchema = CallToolResultSchema.or(
-  ResultSchema.extend({
-    toolResult: z.unknown(),
-  }),
-);
-
-/**
  * Used by the client to invoke a tool provided by the server.
  */
 export const CallToolRequestSchema = RequestSchema.extend({
@@ -1195,9 +1186,6 @@ export type Tool = z.infer<typeof ToolSchema>;
 export type ListToolsRequest = z.infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = z.infer<typeof ListToolsResultSchema>;
 export type CallToolResult = z.infer<typeof CallToolResultSchema>;
-export type CompatibilityCallToolResult = z.infer<
-  typeof CompatibilityCallToolResultSchema
->;
 export type CallToolRequest = z.infer<typeof CallToolRequestSchema>;
 export type ToolListChangedNotification = z.infer<
   typeof ToolListChangedNotificationSchema
