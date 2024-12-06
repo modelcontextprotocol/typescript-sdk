@@ -68,6 +68,7 @@ export class SSEServerTransport implements Transport {
   async handlePostMessage(
     req: IncomingMessage,
     res: ServerResponse,
+    parsedBody?: unknown,
   ): Promise<void> {
     if (!this._sseResponse) {
       const message = "SSE connection not established";
@@ -75,14 +76,14 @@ export class SSEServerTransport implements Transport {
       throw new Error(message);
     }
 
-    let body: string;
+    let body: string | unknown;
     try {
       const ct = contentType.parse(req.headers["content-type"] ?? "");
       if (ct.type !== "application/json") {
         throw new Error(`Unsupported content-type: ${ct}`);
       }
 
-      body = await getRawBody(req, {
+      body = parsedBody ?? await getRawBody(req, {
         limit: MAXIMUM_MESSAGE_SIZE,
         encoding: ct.parameters.charset ?? "utf-8",
       });
@@ -93,7 +94,7 @@ export class SSEServerTransport implements Transport {
     }
 
     try {
-      await this.handleMessage(JSON.parse(body));
+      await this.handleMessage(typeof body === 'string'? JSON.parse(body): body);
     } catch {
       res.writeHead(400).end(`Invalid message: ${body}`);
       return;
