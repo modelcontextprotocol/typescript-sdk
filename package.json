@@ -32,7 +32,9 @@
     "client": "tsx src/cli.ts client"
   },
   "dependencies": {
+    "@types/cross-spawn": "^6.0.6",
     "content-type": "^1.0.5",
+    "cross-spawn": "^7.0.6",
     "raw-body": "^3.0.0",
     "zod": "^3.23.8"
   },
