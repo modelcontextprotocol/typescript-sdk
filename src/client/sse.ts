@@ -1,5 +1,10 @@
+import eventsource from "eventsource";
+
 import { Transport } from "../shared/transport.js";
 import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
+
+// @ts-expect-error
+global.EventSource = eventsource;
 
 /**
  * Client transport for SSE: this will connect to a server using Server-Sent Events for receiving
