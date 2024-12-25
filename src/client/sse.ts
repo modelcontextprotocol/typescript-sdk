@@ -12,13 +12,15 @@ export class SSEClientTransport implements Transport {
   private _endpoint?: URL;
   private _abortController?: AbortController;
   private _url: URL;
-
+  private _token: string | undefined;
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
 
-  constructor(url: URL) {
+  constructor(url: URL, token?: string) {
     this._url = url;
+    this._token = token
+
   }
 
   start(): Promise<void> {
@@ -90,10 +92,12 @@ export class SSEClientTransport implements Transport {
     }
 
     try {
+
       const response = await fetch(this._endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(this._token && { "Authorization": `Bearer ${this._token}` }),
         },
         body: JSON.stringify(message),
         signal: this._abortController?.signal,
