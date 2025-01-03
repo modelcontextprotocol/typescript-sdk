@@ -1,7 +1,9 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "outDir": "./dist/esm"
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "outDir": "./dist/cjs"
   },
   "exclude": ["**/*.test.ts"]
 }
