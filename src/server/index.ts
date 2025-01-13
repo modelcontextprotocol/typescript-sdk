@@ -1,4 +1,5 @@
 import {
+  mergeCapabilities,
   Protocol,
   ProtocolOptions,
   RequestOptions,
@@ -32,7 +33,7 @@ export type ServerOptions = ProtocolOptions & {
   /**
    * Capabilities to advertise as being supported by this server.
    */
-  capabilities: ServerCapabilities;
+  capabilities?: ServerCapabilities;
 
   /**
    * Optional instructions describing how to use the server and its features.
@@ -89,11 +90,11 @@ export class Server<
    */
   constructor(
     private _serverInfo: Implementation,
-    options: ServerOptions,
+    options?: ServerOptions,
   ) {
     super(options);
-    this._capabilities = options.capabilities;
-    this._instructions = options.instructions;
+    this._capabilities = options?.capabilities ?? {};
+    this._instructions = options?.instructions;
 
     this.setRequestHandler(InitializeRequestSchema, (request) =>
       this._oninitialize(request),
@@ -101,6 +102,21 @@ export class Server<
     this.setNotificationHandler(InitializedNotificationSchema, () =>
       this.oninitialized?.(),
     );
+  }
+
+  /**
+   * Registers new capabilities. This can only be called before connecting to a transport.
+   *
+   * The new capabilities will be merged with any existing capabilities previously given (e.g., at initialization).
+   */
+  public registerCapabilities(capabilities: ServerCapabilities): void {
+    if (this.transport) {
+      throw new Error(
+        "Cannot register capabilities after connecting to transport",
+      );
+    }
+
+    this._capabilities = mergeCapabilities(this._capabilities, capabilities);
   }
 
   protected assertCapabilityForMethod(method: RequestT["method"]): void {
