@@ -478,6 +478,7 @@ test("should handle server cancelling a request", async () => {
   // Request should be rejected
   await expect(createMessagePromise).rejects.toBe("Cancelled by test");
 });
+
 test("should handle request timeout", async () => {
   const server = new Server(
     {

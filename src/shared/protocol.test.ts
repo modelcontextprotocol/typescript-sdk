@@ -1,13 +1,15 @@
-import { Protocol } from "./protocol.js";
-import { Transport } from "./transport.js";
+import { ZodType, z } from "zod";
 import {
-  McpError,
+  ClientCapabilities,
   ErrorCode,
+  McpError,
+  Notification,
   Request,
   Result,
-  Notification,
+  ServerCapabilities,
 } from "../types.js";
-import { ZodType, z } from "zod";
+import { Protocol, mergeCapabilities } from "./protocol.js";
+import { Transport } from "./transport.js";
 
 // Mock Transport class
 class MockTransport implements Transport {
@@ -59,5 +61,91 @@ describe("protocol tests", () => {
     await protocol.connect(transport);
     await transport.close();
     expect(oncloseMock).toHaveBeenCalled();
+  });
+});
+
+describe("mergeCapabilities", () => {
+  it("should merge client capabilities", () => {
+    const base: ClientCapabilities = {
+      sampling: {},
+      roots: {
+        listChanged: true,
+      },
+    };
+
+    const additional: ClientCapabilities = {
+      experimental: {
+        feature: true,
+      },
+      roots: {
+        newProp: true,
+      },
+    };
+
+    const merged = mergeCapabilities(base, additional);
+    expect(merged).toEqual({
+      sampling: {},
+      roots: {
+        listChanged: true,
+        newProp: true,
+      },
+      experimental: {
+        feature: true,
+      },
+    });
+  });
+
+  it("should merge server capabilities", () => {
+    const base: ServerCapabilities = {
+      logging: {},
+      prompts: {
+        listChanged: true,
+      },
+    };
+
+    const additional: ServerCapabilities = {
+      resources: {
+        subscribe: true,
+      },
+      prompts: {
+        newProp: true,
+      },
+    };
+
+    const merged = mergeCapabilities(base, additional);
+    expect(merged).toEqual({
+      logging: {},
+      prompts: {
+        listChanged: true,
+        newProp: true,
+      },
+      resources: {
+        subscribe: true,
+      },
+    });
+  });
+
+  it("should override existing values with additional values", () => {
+    const base: ServerCapabilities = {
+      prompts: {
+        listChanged: false,
+      },
+    };
+
+    const additional: ServerCapabilities = {
+      prompts: {
+        listChanged: true,
+      },
+    };
+
+    const merged = mergeCapabilities(base, additional);
+    expect(merged.prompts!.listChanged).toBe(true);
+  });
+
+  it("should handle empty objects", () => {
+    const base = {};
+    const additional = {};
+    const merged = mergeCapabilities(base, additional);
+    expect(merged).toEqual({});
   });
 });

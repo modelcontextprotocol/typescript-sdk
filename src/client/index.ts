@@ -1,4 +1,5 @@
 import {
+  mergeCapabilities,
   Protocol,
   ProtocolOptions,
   RequestOptions,
@@ -44,7 +45,7 @@ export type ClientOptions = ProtocolOptions & {
   /**
    * Capabilities to advertise as being supported by this client.
    */
-  capabilities: ClientCapabilities;
+  capabilities?: ClientCapabilities;
 };
 
 /**
@@ -90,10 +91,25 @@ export class Client<
    */
   constructor(
     private _clientInfo: Implementation,
-    options: ClientOptions,
+    options?: ClientOptions,
   ) {
     super(options);
-    this._capabilities = options.capabilities;
+    this._capabilities = options?.capabilities ?? {};
+  }
+
+  /**
+   * Registers new capabilities. This can only be called before connecting to a transport.
+   *
+   * The new capabilities will be merged with any existing capabilities previously given (e.g., at initialization).
+   */
+  public registerCapabilities(capabilities: ClientCapabilities): void {
+    if (this.transport) {
+      throw new Error(
+        "Cannot register capabilities after connecting to transport",
+      );
+    }
+
+    this._capabilities = mergeCapabilities(this._capabilities, capabilities);
   }
 
   protected assertCapability(

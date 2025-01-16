@@ -48,7 +48,8 @@
   "dependencies": {
     "content-type": "^1.0.5",
     "raw-body": "^3.0.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.24.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.8.0",
