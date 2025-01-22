@@ -445,6 +445,27 @@ node dist/index.js
 
 This will start your server using the compiled JavaScript files in the `dist` directory.
 
+### Running with MCP Inspector
+
+To run your server with the MCP Inspector, follow these steps:
+
+1. Install the MCP Inspector globally using npm:
+   ```bash
+   npm install -g @modelcontextprotocol/inspector
+   ```
+
+2. Start your MCP server:
+   ```bash
+   npm run start
+   ```
+
+3. In a separate terminal, start the MCP Inspector and connect it to your running server:
+   ```bash
+   npx @modelcontextprotocol/inspector npm run -s start
+   ```
+
+This will start the MCP Inspector and connect it to your running server, allowing you to inspect and interact with your server's resources, tools, and prompts.
+
 ## Documentation
 
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
