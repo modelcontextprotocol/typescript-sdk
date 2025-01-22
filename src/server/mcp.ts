@@ -37,6 +37,11 @@ import {
   PromptArgument,
   GetPromptResult,
   ReadResourceResult,
+  ListAgentsRequestSchema,
+  RunAgentRequestSchema,
+  Agent,
+  ListAgentsResult,
+  RunAgentResult,
 } from "../types.js";
 import { Completable, CompletableDef } from "./completable.js";
 import { UriTemplate, Variables } from "../shared/uriTemplate.js";
@@ -60,6 +65,7 @@ export class McpServer {
   } = {};
   private _registeredTools: { [name: string]: RegisteredTool } = {};
   private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+  private _registeredAgents: { [name: string]: RegisteredAgent } = {};
 
   constructor(serverInfo: Implementation, options?: ServerOptions) {
     this.server = new Server(serverInfo, options);
@@ -87,12 +93,12 @@ export class McpServer {
     if (this._toolHandlersInitialized) {
       return;
     }
-    
+
     this.server.assertCanSetRequestHandler(
-      ListToolsRequestSchema.shape.method.value,
+      ListToolsRequestSchema.shape.method.value
     );
     this.server.assertCanSetRequestHandler(
-      CallToolRequestSchema.shape.method.value,
+      CallToolRequestSchema.shape.method.value
     );
 
     this.server.registerCapabilities({
@@ -111,9 +117,9 @@ export class McpServer {
                 ? (zodToJsonSchema(tool.inputSchema) as Tool["inputSchema"])
                 : EMPTY_OBJECT_JSON_SCHEMA,
             };
-          },
+          }
         ),
-      }),
+      })
     );
 
     this.server.setRequestHandler(
@@ -123,18 +129,18 @@ export class McpServer {
         if (!tool) {
           throw new McpError(
             ErrorCode.InvalidParams,
-            `Tool ${request.params.name} not found`,
+            `Tool ${request.params.name} not found`
           );
         }
 
         if (tool.inputSchema) {
           const parseResult = await tool.inputSchema.safeParseAsync(
-            request.params.arguments,
+            request.params.arguments
           );
           if (!parseResult.success) {
             throw new McpError(
               ErrorCode.InvalidParams,
-              `Invalid arguments for tool ${request.params.name}: ${parseResult.error.message}`,
+              `Invalid arguments for tool ${request.params.name}: ${parseResult.error.message}`
             );
           }
 
@@ -169,7 +175,7 @@ export class McpServer {
             };
           }
         }
-      },
+      }
     );
 
     this._toolHandlersInitialized = true;
@@ -177,7 +183,7 @@ export class McpServer {
 
   private setCompletionRequestHandler() {
     this.server.assertCanSetRequestHandler(
-      CompleteRequestSchema.shape.method.value,
+      CompleteRequestSchema.shape.method.value
     );
 
     this.server.setRequestHandler(
@@ -193,22 +199,22 @@ export class McpServer {
           default:
             throw new McpError(
               ErrorCode.InvalidParams,
-              `Invalid completion reference: ${request.params.ref}`,
+              `Invalid completion reference: ${request.params.ref}`
             );
         }
-      },
+      }
     );
   }
 
   private async handlePromptCompletion(
     request: CompleteRequest,
-    ref: PromptReference,
+    ref: PromptReference
   ): Promise<CompleteResult> {
     const prompt = this._registeredPrompts[ref.name];
     if (!prompt) {
       throw new McpError(
         ErrorCode.InvalidParams,
-        `Prompt ${request.params.ref.name} not found`,
+        `Prompt ${request.params.ref.name} not found`
       );
     }
 
@@ -228,10 +234,10 @@ export class McpServer {
 
   private async handleResourceCompletion(
     request: CompleteRequest,
-    ref: ResourceReference,
+    ref: ResourceReference
   ): Promise<CompleteResult> {
     const template = Object.values(this._registeredResourceTemplates).find(
-      (t) => t.resourceTemplate.uriTemplate.toString() === ref.uri,
+      (t) => t.resourceTemplate.uriTemplate.toString() === ref.uri
     );
 
     if (!template) {
@@ -242,12 +248,12 @@ export class McpServer {
 
       throw new McpError(
         ErrorCode.InvalidParams,
-        `Resource template ${request.params.ref.uri} not found`,
+        `Resource template ${request.params.ref.uri} not found`
       );
     }
 
     const completer = template.resourceTemplate.completeCallback(
-      request.params.argument.name,
+      request.params.argument.name
     );
     if (!completer) {
       return EMPTY_COMPLETION_RESULT;
@@ -265,13 +271,13 @@ export class McpServer {
     }
 
     this.server.assertCanSetRequestHandler(
-      ListResourcesRequestSchema.shape.method.value,
+      ListResourcesRequestSchema.shape.method.value
     );
     this.server.assertCanSetRequestHandler(
-      ListResourceTemplatesRequestSchema.shape.method.value,
+      ListResourceTemplatesRequestSchema.shape.method.value
     );
     this.server.assertCanSetRequestHandler(
-      ReadResourceRequestSchema.shape.method.value,
+      ReadResourceRequestSchema.shape.method.value
     );
 
     this.server.registerCapabilities({
@@ -286,12 +292,12 @@ export class McpServer {
             uri,
             name: resource.name,
             ...resource.metadata,
-          }),
+          })
         );
 
         const templateResources: Resource[] = [];
         for (const template of Object.values(
-          this._registeredResourceTemplates,
+          this._registeredResourceTemplates
         )) {
           if (!template.resourceTemplate.listCallback) {
             continue;
@@ -307,14 +313,14 @@ export class McpServer {
         }
 
         return { resources: [...resources, ...templateResources] };
-      },
+      }
     );
 
     this.server.setRequestHandler(
       ListResourceTemplatesRequestSchema,
       async () => {
         const resourceTemplates = Object.entries(
-          this._registeredResourceTemplates,
+          this._registeredResourceTemplates
         ).map(([name, template]) => ({
           name,
           uriTemplate: template.resourceTemplate.uriTemplate.toString(),
@@ -322,7 +328,7 @@ export class McpServer {
         }));
 
         return { resourceTemplates };
-      },
+      }
     );
 
     this.server.setRequestHandler(
@@ -338,10 +344,10 @@ export class McpServer {
 
         // Then check templates
         for (const template of Object.values(
-          this._registeredResourceTemplates,
+          this._registeredResourceTemplates
         )) {
           const variables = template.resourceTemplate.uriTemplate.match(
-            uri.toString(),
+            uri.toString()
           );
           if (variables) {
             return template.readCallback(uri, variables, extra);
@@ -350,13 +356,13 @@ export class McpServer {
 
         throw new McpError(
           ErrorCode.InvalidParams,
-          `Resource ${uri} not found`,
+          `Resource ${uri} not found`
         );
-      },
+      }
     );
 
     this.setCompletionRequestHandler();
-    
+
     this._resourceHandlersInitialized = true;
   }
 
@@ -368,10 +374,10 @@ export class McpServer {
     }
 
     this.server.assertCanSetRequestHandler(
-      ListPromptsRequestSchema.shape.method.value,
+      ListPromptsRequestSchema.shape.method.value
     );
     this.server.assertCanSetRequestHandler(
-      GetPromptRequestSchema.shape.method.value,
+      GetPromptRequestSchema.shape.method.value
     );
 
     this.server.registerCapabilities({
@@ -390,9 +396,9 @@ export class McpServer {
                 ? promptArgumentsFromSchema(prompt.argsSchema)
                 : undefined,
             };
-          },
+          }
         ),
-      }),
+      })
     );
 
     this.server.setRequestHandler(
@@ -402,18 +408,18 @@ export class McpServer {
         if (!prompt) {
           throw new McpError(
             ErrorCode.InvalidParams,
-            `Prompt ${request.params.name} not found`,
+            `Prompt ${request.params.name} not found`
           );
         }
 
         if (prompt.argsSchema) {
           const parseResult = await prompt.argsSchema.safeParseAsync(
-            request.params.arguments,
+            request.params.arguments
           );
           if (!parseResult.success) {
             throw new McpError(
               ErrorCode.InvalidParams,
-              `Invalid arguments for prompt ${request.params.name}: ${parseResult.error.message}`,
+              `Invalid arguments for prompt ${request.params.name}: ${parseResult.error.message}`
             );
           }
 
@@ -424,12 +430,75 @@ export class McpServer {
           const cb = prompt.callback as PromptCallback<undefined>;
           return await Promise.resolve(cb(extra));
         }
-      },
+      }
     );
 
     this.setCompletionRequestHandler();
-    
+
     this._promptHandlersInitialized = true;
+  }
+
+  private _agentHandlersInitialized = false;
+
+  private setAgentRequestHandlers() {
+    if (this._agentHandlersInitialized) {
+      return;
+    }
+
+    this.server.assertCanSetRequestHandler(
+      ListAgentsRequestSchema.shape.method.value
+    );
+    this.server.assertCanSetRequestHandler(
+      RunAgentRequestSchema.shape.method.value
+    );
+
+    this.server.registerCapabilities({
+      agents: {},
+    });
+
+    this.server.setRequestHandler(
+      ListAgentsRequestSchema,
+      (): ListAgentsResult => ({
+        agents: Object.entries(this._registeredAgents).map(
+          ([name, agent]): Agent => {
+            return {
+              name,
+              description: agent.description,
+            };
+          }
+        ),
+      })
+    );
+
+    this.server.setRequestHandler(
+      RunAgentRequestSchema,
+      async (request, extra): Promise<RunAgentResult> => {
+        const agent = this._registeredAgents[request.params.name];
+        if (!agent) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `Agent ${request.params.name} not found`
+          );
+        }
+
+        const cb = agent.callback as AgentCallback<undefined>;
+        try {
+          return await Promise.resolve(cb(extra));
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: error instanceof Error ? error.message : String(error),
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    this._agentHandlersInitialized = true;
   }
 
   /**
@@ -444,7 +513,7 @@ export class McpServer {
     name: string,
     uri: string,
     metadata: ResourceMetadata,
-    readCallback: ReadResourceCallback,
+    readCallback: ReadResourceCallback
   ): void;
 
   /**
@@ -453,7 +522,7 @@ export class McpServer {
   resource(
     name: string,
     template: ResourceTemplate,
-    readCallback: ReadResourceTemplateCallback,
+    readCallback: ReadResourceTemplateCallback
   ): void;
 
   /**
@@ -463,7 +532,7 @@ export class McpServer {
     name: string,
     template: ResourceTemplate,
     metadata: ResourceMetadata,
-    readCallback: ReadResourceTemplateCallback,
+    readCallback: ReadResourceTemplateCallback
   ): void;
 
   resource(
@@ -521,7 +590,7 @@ export class McpServer {
   tool<Args extends ZodRawShape>(
     name: string,
     paramsSchema: Args,
-    cb: ToolCallback<Args>,
+    cb: ToolCallback<Args>
   ): void;
 
   /**
@@ -531,7 +600,7 @@ export class McpServer {
     name: string,
     description: string,
     paramsSchema: Args,
-    cb: ToolCallback<Args>,
+    cb: ToolCallback<Args>
   ): void;
 
   tool(name: string, ...rest: unknown[]): void {
@@ -576,7 +645,7 @@ export class McpServer {
   prompt<Args extends PromptArgsRawShape>(
     name: string,
     argsSchema: Args,
-    cb: PromptCallback<Args>,
+    cb: PromptCallback<Args>
   ): void;
 
   /**
@@ -586,7 +655,7 @@ export class McpServer {
     name: string,
     description: string,
     argsSchema: Args,
-    cb: PromptCallback<Args>,
+    cb: PromptCallback<Args>
   ): void;
 
   prompt(name: string, ...rest: unknown[]): void {
@@ -613,13 +682,41 @@ export class McpServer {
 
     this.setPromptRequestHandlers();
   }
+
+  /**
+   * Registers a agent `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   */
+  agent<Args extends ZodRawShape>(
+    name: string,
+    description: string,
+    cb: AgentCallback<Args>
+  ): void;
+
+  agent(name: string, ...rest: unknown[]): void {
+    if (this._registeredTools[name]) {
+      throw new Error(`Agent ${name} is already registered`);
+    }
+
+    let description: string | undefined;
+    if (typeof rest[0] === "string") {
+      description = rest.shift() as string;
+    }
+
+    const cb = rest[0] as AgentCallback<ZodRawShape | undefined>;
+    this._registeredTools[name] = {
+      description,
+      callback: cb,
+    };
+
+    this.setAgentRequestHandlers();
+  }
 }
 
 /**
  * A callback to complete one variable within a resource template's URI template.
  */
 export type CompleteResourceTemplateCallback = (
-  value: string,
+  value: string
 ) => string[] | Promise<string[]>;
 
 /**
@@ -643,7 +740,7 @@ export class ResourceTemplate {
       complete?: {
         [variable: string]: CompleteResourceTemplateCallback;
       };
-    },
+    }
   ) {
     this._uriTemplate =
       typeof uriTemplate === "string"
@@ -669,7 +766,7 @@ export class ResourceTemplate {
    * Gets the callback for completing a specific URI template variable, if one was provided.
    */
   completeCallback(
-    variable: string,
+    variable: string
   ): CompleteResourceTemplateCallback | undefined {
     return this._callbacks.complete?.[variable];
   }
@@ -684,7 +781,7 @@ export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
   Args extends ZodRawShape
     ? (
         args: z.objectOutputType<Args, ZodTypeAny>,
-        extra: RequestHandlerExtra,
+        extra: RequestHandlerExtra
       ) => CallToolResult | Promise<CallToolResult>
     : (extra: RequestHandlerExtra) => CallToolResult | Promise<CallToolResult>;
 
@@ -692,6 +789,24 @@ type RegisteredTool = {
   description?: string;
   inputSchema?: AnyZodObject;
   callback: ToolCallback<undefined | ZodRawShape>;
+};
+
+/**
+ * Callback for a agent handler registered with Server.agent().
+ *
+ * Parameters will include tool arguments, if applicable, as well as other request handler context.
+ */
+export type AgentCallback<Args extends undefined | ZodRawShape = undefined> =
+  Args extends ZodRawShape
+    ? (
+        args: z.objectOutputType<Args, ZodTypeAny>,
+        extra: RequestHandlerExtra
+      ) => CallToolResult | Promise<CallToolResult>
+    : (extra: RequestHandlerExtra) => CallToolResult | Promise<CallToolResult>;
+
+type RegisteredAgent = {
+  description?: string;
+  callback: AgentCallback<undefined | ZodRawShape>;
 };
 
 const EMPTY_OBJECT_JSON_SCHEMA = {
@@ -707,7 +822,7 @@ export type ResourceMetadata = Omit<Resource, "uri" | "name">;
  * Callback to list all resources matching a given template.
  */
 export type ListResourcesCallback = (
-  extra: RequestHandlerExtra,
+  extra: RequestHandlerExtra
 ) => ListResourcesResult | Promise<ListResourcesResult>;
 
 /**
@@ -715,7 +830,7 @@ export type ListResourcesCallback = (
  */
 export type ReadResourceCallback = (
   uri: URL,
-  extra: RequestHandlerExtra,
+  extra: RequestHandlerExtra
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 type RegisteredResource = {
@@ -730,7 +845,7 @@ type RegisteredResource = {
 export type ReadResourceTemplateCallback = (
   uri: URL,
   variables: Variables,
-  extra: RequestHandlerExtra,
+  extra: RequestHandlerExtra
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 type RegisteredResourceTemplate = {
@@ -746,11 +861,11 @@ type PromptArgsRawShape = {
 };
 
 export type PromptCallback<
-  Args extends undefined | PromptArgsRawShape = undefined,
+  Args extends undefined | PromptArgsRawShape = undefined
 > = Args extends PromptArgsRawShape
   ? (
       args: z.objectOutputType<Args, ZodTypeAny>,
-      extra: RequestHandlerExtra,
+      extra: RequestHandlerExtra
     ) => GetPromptResult | Promise<GetPromptResult>
   : (extra: RequestHandlerExtra) => GetPromptResult | Promise<GetPromptResult>;
 
@@ -761,14 +876,14 @@ type RegisteredPrompt = {
 };
 
 function promptArgumentsFromSchema(
-  schema: ZodObject<PromptArgsRawShape>,
+  schema: ZodObject<PromptArgsRawShape>
 ): PromptArgument[] {
   return Object.entries(schema.shape).map(
     ([name, field]): PromptArgument => ({
       name,
       description: field.description,
       required: !field.isOptional(),
-    }),
+    })
   );
 }
 

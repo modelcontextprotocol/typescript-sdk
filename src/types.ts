@@ -29,7 +29,7 @@ const BaseRequestParamsSchema = z
            */
           progressToken: z.optional(ProgressTokenSchema),
         })
-        .passthrough(),
+        .passthrough()
     ),
   })
   .passthrough();
@@ -214,7 +214,7 @@ export const ClientCapabilitiesSchema = z
            */
           listChanged: z.optional(z.boolean()),
         })
-        .passthrough(),
+        .passthrough()
     ),
   })
   .passthrough();
@@ -258,7 +258,7 @@ export const ServerCapabilitiesSchema = z
            */
           listChanged: z.optional(z.boolean()),
         })
-        .passthrough(),
+        .passthrough()
     ),
     /**
      * Present if the server offers any resources to read.
@@ -276,7 +276,7 @@ export const ServerCapabilitiesSchema = z
            */
           listChanged: z.optional(z.boolean()),
         })
-        .passthrough(),
+        .passthrough()
     ),
     /**
      * Present if the server offers any tools to call.
@@ -289,7 +289,20 @@ export const ServerCapabilitiesSchema = z
            */
           listChanged: z.optional(z.boolean()),
         })
-        .passthrough(),
+        .passthrough()
+    ),
+    /**
+     * Present if the server offers any agent to run.
+     */
+    agents: z.optional(
+      z
+        .object({
+          /**
+           * Whether this server supports issuing notifications for changes to the agent list.
+           */
+          listChanged: z.optional(z.boolean()),
+        })
+        .passthrough()
     ),
   })
   .passthrough();
@@ -480,7 +493,7 @@ export const ListResourcesResultSchema = PaginatedResultSchema.extend({
 export const ListResourceTemplatesRequestSchema = PaginatedRequestSchema.extend(
   {
     method: z.literal("resources/templates/list"),
-  },
+  }
 );
 
 /**
@@ -508,7 +521,7 @@ export const ReadResourceRequestSchema = RequestSchema.extend({
  */
 export const ReadResourceResultSchema = ResultSchema.extend({
   contents: z.array(
-    z.union([TextResourceContentsSchema, BlobResourceContentsSchema]),
+    z.union([TextResourceContentsSchema, BlobResourceContentsSchema])
   ),
 });
 
@@ -747,7 +760,7 @@ export const ListToolsResultSchema = PaginatedResultSchema.extend({
  */
 export const CallToolResultSchema = ResultSchema.extend({
   content: z.array(
-    z.union([TextContentSchema, ImageContentSchema, EmbeddedResourceSchema]),
+    z.union([TextContentSchema, ImageContentSchema, EmbeddedResourceSchema])
   ),
   isError: z.boolean().default(false).optional(),
 });
@@ -758,7 +771,7 @@ export const CallToolResultSchema = ResultSchema.extend({
 export const CompatibilityCallToolResultSchema = CallToolResultSchema.or(
   ResultSchema.extend({
     toolResult: z.unknown(),
-  }),
+  })
 );
 
 /**
@@ -919,7 +932,7 @@ export const CreateMessageResultSchema = ResultSchema.extend({
    * The reason why sampling stopped.
    */
   stopReason: z.optional(
-    z.enum(["endTurn", "stopSequence", "maxTokens"]).or(z.string()),
+    z.enum(["endTurn", "stopSequence", "maxTokens"]).or(z.string())
   ),
   role: z.enum(["user", "assistant"]),
   content: z.discriminatedUnion("type", [
@@ -1040,6 +1053,65 @@ export const RootsListChangedNotificationSchema = NotificationSchema.extend({
   method: z.literal("notifications/roots/list_changed"),
 });
 
+/* Agents */
+/**
+ * Definition for an agent the client can run.
+ */
+export const AgentSchema = z
+  .object({
+    /**
+     * The name of the agent.
+     */
+    name: z.string(),
+    /**
+     * A human-readable description of the agent.
+     */
+    description: z.optional(z.string()),
+  })
+  .passthrough();
+
+/**
+ * Sent from the client to request a list of agents the server has.
+ */
+export const ListAgentsRequestSchema = PaginatedRequestSchema.extend({
+  method: z.literal("agents/list"),
+});
+
+/**
+ * The server's response to a agents/list request from the client.
+ */
+export const ListAgentsResultSchema = PaginatedResultSchema.extend({
+  agents: z.array(AgentSchema),
+});
+
+/**
+ * The server's response to a agent run.
+ */
+export const RunAgentResultSchema = ResultSchema.extend({
+  content: z.array(
+    z.union([TextContentSchema, ImageContentSchema, EmbeddedResourceSchema])
+  ),
+  isError: z.boolean().default(false).optional(),
+});
+
+/**
+ * Used by the client to run an agent provided by the server.
+ */
+export const RunAgentRequestSchema = RequestSchema.extend({
+  method: z.literal("agents/run"),
+  params: BaseRequestParamsSchema.extend({
+    name: z.string(),
+    arguments: z.optional(z.record(z.unknown())),
+  }),
+});
+
+/**
+ * An optional notification from the server to the client, informing it that the list of agents it offers has changed. This may be issued by servers without any previous subscription from the client.
+ */
+export const AgentListChangedNotificationSchema = NotificationSchema.extend({
+  method: z.literal("notifications/agents/list_changed"),
+});
+
 /* Client messages */
 export const ClientRequestSchema = z.union([
   PingRequestSchema,
@@ -1055,6 +1127,8 @@ export const ClientRequestSchema = z.union([
   UnsubscribeRequestSchema,
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListAgentsRequestSchema,
+  RunAgentRequestSchema,
 ]);
 
 export const ClientNotificationSchema = z.union([
@@ -1085,6 +1159,7 @@ export const ServerNotificationSchema = z.union([
   ResourceListChangedNotificationSchema,
   ToolListChangedNotificationSchema,
   PromptListChangedNotificationSchema,
+  AgentListChangedNotificationSchema,
 ]);
 
 export const ServerResultSchema = z.union([
@@ -1098,13 +1173,15 @@ export const ServerResultSchema = z.union([
   ReadResourceResultSchema,
   CallToolResultSchema,
   ListToolsResultSchema,
+  ListAgentsResultSchema,
+  RunAgentResultSchema,
 ]);
 
 export class McpError extends Error {
   constructor(
     public readonly code: number,
     message: string,
-    public readonly data?: unknown,
+    public readonly data?: unknown
   ) {
     super(`MCP error ${code}: ${message}`);
   }
@@ -1150,7 +1227,9 @@ export type ClientCapabilities = Infer<typeof ClientCapabilitiesSchema>;
 export type InitializeRequest = Infer<typeof InitializeRequestSchema>;
 export type ServerCapabilities = Infer<typeof ServerCapabilitiesSchema>;
 export type InitializeResult = Infer<typeof InitializeResultSchema>;
-export type InitializedNotification = Infer<typeof InitializedNotificationSchema>;
+export type InitializedNotification = Infer<
+  typeof InitializedNotificationSchema
+>;
 
 /* Ping */
 export type PingRequest = Infer<typeof PingRequestSchema>;
@@ -1171,14 +1250,22 @@ export type Resource = Infer<typeof ResourceSchema>;
 export type ResourceTemplate = Infer<typeof ResourceTemplateSchema>;
 export type ListResourcesRequest = Infer<typeof ListResourcesRequestSchema>;
 export type ListResourcesResult = Infer<typeof ListResourcesResultSchema>;
-export type ListResourceTemplatesRequest = Infer<typeof ListResourceTemplatesRequestSchema>;
-export type ListResourceTemplatesResult = Infer<typeof ListResourceTemplatesResultSchema>;
+export type ListResourceTemplatesRequest = Infer<
+  typeof ListResourceTemplatesRequestSchema
+>;
+export type ListResourceTemplatesResult = Infer<
+  typeof ListResourceTemplatesResultSchema
+>;
 export type ReadResourceRequest = Infer<typeof ReadResourceRequestSchema>;
 export type ReadResourceResult = Infer<typeof ReadResourceResultSchema>;
-export type ResourceListChangedNotification = Infer<typeof ResourceListChangedNotificationSchema>;
+export type ResourceListChangedNotification = Infer<
+  typeof ResourceListChangedNotificationSchema
+>;
 export type SubscribeRequest = Infer<typeof SubscribeRequestSchema>;
 export type UnsubscribeRequest = Infer<typeof UnsubscribeRequestSchema>;
-export type ResourceUpdatedNotification = Infer<typeof ResourceUpdatedNotificationSchema>;
+export type ResourceUpdatedNotification = Infer<
+  typeof ResourceUpdatedNotificationSchema
+>;
 
 /* Prompts */
 export type PromptArgument = Infer<typeof PromptArgumentSchema>;
@@ -1191,21 +1278,29 @@ export type ImageContent = Infer<typeof ImageContentSchema>;
 export type EmbeddedResource = Infer<typeof EmbeddedResourceSchema>;
 export type PromptMessage = Infer<typeof PromptMessageSchema>;
 export type GetPromptResult = Infer<typeof GetPromptResultSchema>;
-export type PromptListChangedNotification = Infer<typeof PromptListChangedNotificationSchema>;
+export type PromptListChangedNotification = Infer<
+  typeof PromptListChangedNotificationSchema
+>;
 
 /* Tools */
 export type Tool = Infer<typeof ToolSchema>;
 export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
 export type CallToolResult = Infer<typeof CallToolResultSchema>;
-export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
+export type CompatibilityCallToolResult = Infer<
+  typeof CompatibilityCallToolResultSchema
+>;
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
-export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
+export type ToolListChangedNotification = Infer<
+  typeof ToolListChangedNotificationSchema
+>;
 
 /* Logging */
 export type LoggingLevel = Infer<typeof LoggingLevelSchema>;
 export type SetLevelRequest = Infer<typeof SetLevelRequestSchema>;
-export type LoggingMessageNotification = Infer<typeof LoggingMessageNotificationSchema>;
+export type LoggingMessageNotification = Infer<
+  typeof LoggingMessageNotificationSchema
+>;
 
 /* Sampling */
 export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
@@ -1222,7 +1317,9 @@ export type CompleteResult = Infer<typeof CompleteResultSchema>;
 export type Root = Infer<typeof RootSchema>;
 export type ListRootsRequest = Infer<typeof ListRootsRequestSchema>;
 export type ListRootsResult = Infer<typeof ListRootsResultSchema>;
-export type RootsListChangedNotification = Infer<typeof RootsListChangedNotificationSchema>;
+export type RootsListChangedNotification = Infer<
+  typeof RootsListChangedNotificationSchema
+>;
 
 /* Client messages */
 export type ClientRequest = Infer<typeof ClientRequestSchema>;
@@ -1233,3 +1330,13 @@ export type ClientResult = Infer<typeof ClientResultSchema>;
 export type ServerRequest = Infer<typeof ServerRequestSchema>;
 export type ServerNotification = Infer<typeof ServerNotificationSchema>;
 export type ServerResult = Infer<typeof ServerResultSchema>;
+
+/* Agents */
+export type Agent = Infer<typeof AgentSchema>;
+export type ListAgentsRequest = Infer<typeof ListAgentsRequestSchema>;
+export type ListAgentsResult = Infer<typeof ListAgentsResultSchema>;
+export type RunAgentRequest = Infer<typeof RunAgentRequestSchema>;
+export type RunAgentResult = Infer<typeof RunAgentResultSchema>;
+export type AgentListChangedNotification = Infer<
+  typeof AgentListChangedNotificationSchema
+>;
