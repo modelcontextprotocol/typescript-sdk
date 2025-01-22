@@ -70,6 +70,11 @@ server.resource(
     }]
   })
 );
+
+// Connect to a transport
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+const transport = new StdioServerTransport();
+await server.connect(transport);
 ```
 
 ## What is MCP?
@@ -385,7 +390,6 @@ const client = new Client(
       resources: {},
       tools: {}
     }
-  }
 );
 
 await client.connect(transport);
@@ -409,6 +413,37 @@ const result = await client.callTool("example-tool", {
   arg1: "value"
 });
 ```
+
+## Running Your Server
+
+### Development Mode
+
+To run your server in development mode, you can use the following command:
+
+```bash
+npm run dev
+```
+
+This will start your server with hot-reloading enabled, so any changes you make to your code will automatically restart the server.
+
+### Claude Desktop Integration
+
+To integrate your server with Claude Desktop, follow these steps:
+
+1. Install Claude Desktop from the official website.
+2. Configure Claude Desktop to connect to your MCP server by specifying the server's address and port.
+3. Start your MCP server and ensure it is running.
+4. Launch Claude Desktop and verify the connection to your MCP server.
+
+### Direct Execution
+
+To run your server directly, use the following command:
+
+```bash
+node dist/index.js
+```
+
+This will start your server using the compiled JavaScript files in the `dist` directory.
 
 ## Documentation
 
