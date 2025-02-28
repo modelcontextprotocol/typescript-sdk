@@ -88,6 +88,11 @@ export type RequestHandlerExtra = {
    * An abort signal used to communicate if the request was cancelled from the sender's side.
    */
   signal: AbortSignal;
+
+  /**
+   * The session ID from the transport, if available.
+   */
+  sessionId?: string;
 };
 
 /**
@@ -307,9 +312,15 @@ export abstract class Protocol<
     const abortController = new AbortController();
     this._requestHandlerAbortControllers.set(request.id, abortController);
 
+    // Create extra object with both abort signal and sessionId from transport
+    const extra: RequestHandlerExtra = {
+      signal: abortController.signal,
+      sessionId: this._transport?.sessionId,
+    };
+
     // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
     Promise.resolve()
-      .then(() => handler(request, { signal: abortController.signal }))
+      .then(() => handler(request, extra))
       .then(
         (result) => {
           if (abortController.signal.aborted) {

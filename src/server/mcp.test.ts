@@ -323,6 +323,59 @@ describe("tool()", () => {
     mcpServer.tool("tool2", () => ({ content: [] }));
   });
 
+  test("should pass sessionId to tool callback via RequestHandlerExtra", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client(
+      {
+        name: "test client",
+        version: "1.0",
+      },
+      {
+        capabilities: {
+          tools: {},
+        },
+      },
+    );
+
+    let receivedSessionId: string | undefined;
+    mcpServer.tool("test-tool", async (extra) => {
+      receivedSessionId = extra.sessionId;
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Test response",
+          },
+        ],
+      };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    // Set a test sessionId on the server transport
+    serverTransport.sessionId = "test-session-123";
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "test-tool",
+        },
+      },
+      CallToolResultSchema,
+    );
+
+    expect(receivedSessionId).toBe("test-session-123");
+  });
+
   test("should allow client to call server tools", async () => {
     const mcpServer = new McpServer({
       name: "test server",

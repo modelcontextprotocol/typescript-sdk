@@ -41,4 +41,9 @@ export interface Transport {
    * Callback for when a message (request or response) is received over the connection.
    */
   onmessage?: (message: JSONRPCMessage) => void;
+
+  /**
+   * The session ID generated for this connection.
+   */
+  sessionId?: string;
 }
