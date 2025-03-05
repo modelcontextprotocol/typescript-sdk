@@ -224,8 +224,12 @@ const server = new McpServer({
 
 const app = express();
 
+let transportMap = new Map();
+
 app.get("/sse", async (req, res) => {
   const transport = new SSEServerTransport("/messages", res);
+  const sessionId = transport.sessionId;
+  transportMap.set(sessionId, transport);
   await server.connect(transport);
 });
 
@@ -233,6 +237,17 @@ app.post("/messages", async (req, res) => {
   // Note: to support multiple simultaneous connections, these messages will
   // need to be routed to a specific matching transport. (This logic isn't
   // implemented here, for simplicity.)
+
+  const sessionId = req.query.sessionId;
+  if (!sessionId) {
+    return res.status(400).json({ error: "SessionId is not found" });
+  }
+    
+  const transport = transportMap.get(sessionId);
+  if (!transport) {
+    return res.redirect("/sse");
+  }
+
   await transport.handlePostMessage(req, res);
 });
 
