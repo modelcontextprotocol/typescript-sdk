@@ -61,21 +61,21 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
   const baseUrl = issuer.href.endsWith('/') ? issuer.href : `${issuer.href}/`;
   
   const metadata = {
-     issuer: issuer.href,
-     service_documentation: options.serviceDocumentationUrl?.href,
+    issuer: issuer.href,
+    service_documentation: options.serviceDocumentationUrl?.href,
   
-     authorization_endpoint: `${baseUrl}authorize`,
-     response_types_supported: ["code"],
-     code_challenge_methods_supported: ["S256"],
+    authorization_endpoint: `${baseUrl}authorize`,
+    response_types_supported: ["code"],
+    code_challenge_methods_supported: ["S256"],
   
-     token_endpoint: `${baseUrl}token`,
-     token_endpoint_auth_methods_supported: ["none"],
-     grant_types_supported: ["authorization_code", "refresh_token"],
+    token_endpoint: `${baseUrl}token`,
+    token_endpoint_auth_methods_supported: ["none"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
   
-     revocation_endpoint: revocation_endpoint ? `${baseUrl}revoke` : undefined,
-     revocation_endpoint_auth_methods_supported: revocation_endpoint ? ["client_secret_post"] : undefined,
+    revocation_endpoint: revocation_endpoint ? `${baseUrl}revoke` : undefined,
+    revocation_endpoint_auth_methods_supported: revocation_endpoint ? ["client_secret_post"] : undefined,
   
-     registration_endpoint: registration_endpoint ? `${baseUrl}register` : undefined,
+    registration_endpoint: registration_endpoint ? `${baseUrl}register` : undefined,
   };
 
   const router = express.Router();
