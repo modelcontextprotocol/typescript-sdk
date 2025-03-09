@@ -229,6 +229,13 @@ let transportMap = new Map();
 app.get("/sse", async (req, res) => {
   const transport = new SSEServerTransport("/messages", res);
   const sessionId = transport.sessionId;
+
+  // Set the onclose handler to remove the transport from the transportMap
+  transport.onclose = () => {
+    transportMap.delete(sessionId);
+    console.log(`Transport ${sessionId} has been closed.`);
+  };
+  
   transportMap.set(sessionId, transport);
   await server.connect(transport);
 });
