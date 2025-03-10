@@ -13,6 +13,8 @@
 - [Running Your Server](#running-your-server)
   - [stdio](#stdio)
   - [HTTP with SSE](#http-with-sse)
+  - [HTTP on Edge](#http-on-edge)
+  - [Cloudflare Worker](#cloudflare-worker)
   - [Testing and Debugging](#testing-and-debugging)
 - [Examples](#examples)
   - [Echo Server](#echo-server)
@@ -238,6 +240,97 @@ app.post("/messages", async (req, res) => {
 
 app.listen(3001);
 ```
+
+### HTTP on Edge
+
+For Edge based environments (Vercel, Cloudflare Workers) you can use the SSEEdgeTransport
+which returns a SSE response and accepts normal HTTP requests.
+
+For example using Hono inside of a Cloudflare Worker:
+
+```typescript
+import { Hono } from 'hono';
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { SSEEdgeTransport } from "@modelcontextprotocol/sdk/server/sseEdge.js";
+
+const server = new McpServer({
+  name: "example-server",
+  version: "1.0.0"
+});
+
+// ... set up server resources, tools, and prompts ...
+
+const app = new Hono();
+app.get('/sse', async (c) => {
+  const uuid = crypto.randomUUID();
+  const transport = new SSEEdgeTransport('/messages', uuid);
+  return transport.sseResponse
+});
+
+app.post('/messages', async (c) => {
+  // Note: to support multiple simultaneous connections, these messages will
+  // need to be routed to a specific matching transport. (This logic isn't
+  // implemented here, for simplicity.)
+  await transport.handlePostMessage(req, res);
+})
+
+export default {
+	fetch: app.fetch,
+} satisfies ExportedHandler;
+```
+
+### Cloudflare Worker with Durable Object
+
+This makes it possible to keep track of MCP Servers with Durable Objects relatively easily.
+
+```ts
+import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { DurableObject } from 'cloudflare:workers';
+import { SSEEdgeTransport } from "@modelcontextprotocol/sdk/server/sseEdge.js";
+import { Hono } from 'hono';
+
+export class McpObject extends DurableObject {
+	private transport?: SSEEdgeTransport;
+	private server: McpServer;
+
+	constructor(ctx: DurableObjectState, env: any) {
+		super(ctx, env);
+		this.server = createMcpServer();
+	}
+
+	override async fetch(request: Request) {
+		const url = new URL(request.url);
+		// Create the transport if it doesn't exist
+		if (!this.transport) {
+			this.transport = new SSEEdgeTransport('/message', this.ctx.id.toString());
+		}
+
+		if (request.method === 'GET' && url.pathname.endsWith('/sse')) {
+			await this.server.connect(this.transport);
+			return this.transport.sseResponse;
+		}
+
+		if (request.method === 'POST' && url.pathname.endsWith('/message')) {
+			return this.transport.handlePostMessage(request);
+		}
+
+		return new Response('Not found', { status: 404 });
+	}
+}
+
+//---------- Define worker
+const app = new Hono();
+app.all('*', async (c) => {
+	const sessionId = c.req.query('sessionId');
+	const object = c.env.MCP_OBJECT.get(
+		sessionId ? c.env.MCP_OBJECT.idFromString(sessionId) : c.env.MCP_OBJECT.newUniqueId(),
+	);
+	return object.fetch(c.req.raw);
+});
+
+export default {
+	fetch: app.fetch,
+} satisfies ExportedHandler;
 
 ### Testing and Debugging
 
