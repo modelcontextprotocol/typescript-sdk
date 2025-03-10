@@ -14,7 +14,7 @@
   - [stdio](#stdio)
   - [HTTP with SSE](#http-with-sse)
   - [HTTP on Edge](#http-on-edge)
-  - [Cloudflare Worker](#cloudflare-worker)
+  - [Cloudflare Worker](#cloudflare-worker-with-durable-object)
   - [Testing and Debugging](#testing-and-debugging)
 - [Examples](#examples)
   - [Echo Server](#echo-server)
