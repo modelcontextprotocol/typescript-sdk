@@ -18,6 +18,13 @@ export type AuthRouterOptions = {
   issuerUrl: URL;
 
   /**
+   * The base URL of the authorization server to use for the metadata endpoints.
+   * 
+   * If not provided, the issuer URL will be used as the base URL.
+   */
+  baseUrl?: URL;
+
+  /**
    * An optional URL of a page containing human-readable information that developers might want or need to know when using the authorization server.
    */
   serviceDocumentationUrl?: URL;
@@ -41,6 +48,7 @@ export type AuthRouterOptions = {
  */
 export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
   const issuer = options.issuerUrl;
+  const baseUrl = options.baseUrl;
 
   // Technically RFC 8414 does not permit a localhost HTTPS exemption, but this will be necessary for ease of testing
   if (issuer.protocol !== "https:" && issuer.hostname !== "localhost" && issuer.hostname !== "127.0.0.1") {
@@ -62,18 +70,18 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
     issuer: issuer.href,
     service_documentation: options.serviceDocumentationUrl?.href,
 
-    authorization_endpoint: new URL(authorization_endpoint, issuer).href,
+    authorization_endpoint: new URL(authorization_endpoint, baseUrl || issuer).href,
     response_types_supported: ["code"],
     code_challenge_methods_supported: ["S256"],
 
-    token_endpoint: new URL(token_endpoint, issuer).href,
+    token_endpoint: new URL(token_endpoint, baseUrl || issuer).href,
     token_endpoint_auth_methods_supported: ["client_secret_post"],
     grant_types_supported: ["authorization_code", "refresh_token"],
 
-    revocation_endpoint: revocation_endpoint ? new URL(revocation_endpoint, issuer).href : undefined,
+    revocation_endpoint: revocation_endpoint ? new URL(revocation_endpoint, baseUrl || issuer).href : undefined,
     revocation_endpoint_auth_methods_supported: revocation_endpoint ? ["client_secret_post"] : undefined,
 
-    registration_endpoint: registration_endpoint ? new URL(registration_endpoint, issuer).href : undefined,
+    registration_endpoint: registration_endpoint ? new URL(registration_endpoint, baseUrl || issuer).href : undefined,
   };
 
   const router = express.Router();

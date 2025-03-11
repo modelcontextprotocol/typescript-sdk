@@ -36,7 +36,7 @@ export interface OAuthServerProvider {
   /**
    * Exchanges an authorization code for an access token.
    */
-  exchangeAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<OAuthTokens>;
+  exchangeAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string, codeVerifier?: string): Promise<OAuthTokens>;
 
   /**
    * Exchanges a refresh token for an access token.
@@ -54,4 +54,13 @@ export interface OAuthServerProvider {
    * If the given token is invalid or already revoked, this method should do nothing.
    */
   revokeToken?(client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest): Promise<void>;
+
+  /**
+   * Whether to skip local PKCE validation.
+   * 
+   * If true, the server will not perform PKCE validation locally and will pass the code_verifier to the upstream server.
+   * 
+   * NOTE: This should only be true if the upstream server is performing the actual PKCE validation.
+   */
+  skipLocalPkceValidation?: boolean;
 }
