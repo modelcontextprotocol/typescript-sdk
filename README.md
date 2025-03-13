@@ -223,9 +223,10 @@ const server = new McpServer({
 // ... set up server resources, tools, and prompts ...
 
 const app = express();
+let transport: SSEServerTransport;
 
 app.get("/sse", async (req, res) => {
-  const transport = new SSEServerTransport("/messages", res);
+  transport = new SSEServerTransport("/messages", res);
   await server.connect(transport);
 });
 
