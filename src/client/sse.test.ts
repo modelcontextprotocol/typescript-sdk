@@ -56,6 +56,8 @@ describe("SSEClientTransport", () => {
       baseUrl = new URL(`http://127.0.0.1:${addr.port}`);
       done();
     });
+
+    jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(async () => {
