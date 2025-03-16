@@ -1,0 +1,46 @@
+name: Static Checks
+on:
+  workflow_call:
+permissions:
+      contents: read
+jobs:
+  lint:
+    name: ESLint Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Run linter
+        run: npm run lint
+
+  tsc:
+    name: TS Types Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Run Tsc
+        run: npm run type-check
+
+  build:
+    name: Build App Check
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: "--max_old_space_size=4096"
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Build App
+        run: npm run build

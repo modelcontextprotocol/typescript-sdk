@@ -1,0 +1,19 @@
+name: Unit Tests
+permissions:
+  contents: write
+on:
+  workflow_call:
+jobs:
+  tests:
+    name: Jest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+    
+      - name: Run tests
+        run: npm run test
+
