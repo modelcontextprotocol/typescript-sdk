@@ -4,8 +4,8 @@ import { BrowserContextTransport } from './browser-context-transport.js';
 
 // Mock MessageChannel and MessagePort since they're browser APIs not available in Node.js test environment
 class MockMessagePort {
-  onmessage: ((event: { data: any }) => void) | null = null;
-  onmessageerror: ((event: any) => void) | null = null;
+  onmessage: ((event: { data: JSONRPCMessage | unknown }) => void) | null = null;
+  onmessageerror: ((event: unknown) => void) | null = null;
   
   private _otherPort?: MockMessagePort;
   private _started = false;
@@ -26,7 +26,7 @@ class MockMessagePort {
     this._otherPort = undefined;
   }
   
-  postMessage(data: any) {
+  postMessage(data: JSONRPCMessage) {
     if (this._closed) {
       throw new Error('Cannot post message on closed port');
     }
@@ -60,24 +60,6 @@ class MockMessageChannel {
   }
 }
 
-// Mock iframe window and postMessage
-class MockWindow {
-  private eventHandlers: Record<string, Array<(event: any) => void>> = {};
-  
-  addEventListener(type: string, handler: (event: any) => void) {
-    if (!this.eventHandlers[type]) {
-      this.eventHandlers[type] = [];
-    }
-    this.eventHandlers[type].push(handler);
-  }
-  
-  dispatchEvent(type: string, event: any) {
-    if (this.eventHandlers[type]) {
-      this.eventHandlers[type].forEach(handler => handler(event));
-    }
-  }
-}
-
 class MockIframe {
   contentWindow: {
     postMessage: jest.Mock;
@@ -92,7 +74,7 @@ class MockIframe {
 
 // Mock Worker
 class MockWorker {
-  onmessage: ((event: { data: any }) => void) | null = null;
+  onmessage: ((event: { data: unknown }) => void) | null = null;
   postMessage: jest.Mock;
   
   constructor() {
@@ -100,7 +82,7 @@ class MockWorker {
   }
   
   // Helper to simulate receiving a message
-  simulateMessage(data: any) {
+  simulateMessage(data: unknown) {
     if (this.onmessage) {
       this.onmessage({ data });
     }
@@ -108,10 +90,7 @@ class MockWorker {
 }
 
 // Replace global MessageChannel with our mock implementation for testing
-global.MessageChannel = MockMessageChannel as any;
-
-// Type for Jest done callback
-type DoneCallback = (error?: any) => void;
+global.MessageChannel = MockMessageChannel as unknown as typeof MessageChannel;
 
 describe('BrowserContextTransport', () => {
   let transport1: BrowserContextTransport;
@@ -120,6 +99,7 @@ describe('BrowserContextTransport', () => {
   let mockPort2: MockMessagePort;
   
   beforeEach(() => {
+    // Arrange - Global setup for most tests
     const channel = new MockMessageChannel();
     mockPort1 = channel.port1;
     mockPort2 = channel.port2;
@@ -133,60 +113,95 @@ describe('BrowserContextTransport', () => {
   });
   
   describe('constructor', () => {
-    it('should set the sessionId', () => {
-      // Check that sessionId matches the expected format (timestamp in base36-randomsuffix)
+    it('should generate a valid session ID in the expected format', () => {
+      // Arrange - Handled in beforeEach
+      
+      // Act - Constructor already called in beforeEach
+      
+      // Assert
       expect(transport1.sessionId).toMatch(/^[a-z0-9]+-[a-z0-9]+$/);
     });
     
-    it('should throw an error if port is not provided', () => {
+    it('should throw an error when port is not provided', () => {
+      // Arrange
+      
+      // Act & Assert - Combine for exception testing
       expect(() => new BrowserContextTransport(null as unknown as MessagePort)).toThrow('MessagePort is required');
     });
     
-    it('should setup event listeners on the port', () => {
+    it('should set up event listeners on the provided MessagePort', () => {
+      // Arrange - Handled in beforeEach
+      
+      // Act - Constructor already called in beforeEach
+      
+      // Assert
       expect(mockPort1.onmessage).not.toBeNull();
       expect(mockPort1.onmessageerror).not.toBeNull();
     });
   });
   
-  describe('createChannelPair', () => {
-    it('should create a pair of connected transports', () => {
+  describe('createChannelPair static method', () => {
+    it('should create two connected BrowserContextTransport instances', () => {
+      // Arrange
+      
+      // Act
       const [t1, t2] = BrowserContextTransport.createChannelPair();
+      
+      // Assert
       expect(t1).toBeInstanceOf(BrowserContextTransport);
       expect(t2).toBeInstanceOf(BrowserContextTransport);
     });
     
-    it('should use the same session ID for both transports', () => {
+    it('should assign the same session ID to both transport instances', () => {
+      // Arrange
+      
+      // Act
       const [t1, t2] = BrowserContextTransport.createChannelPair();
+      
+      // Assert
       expect(t1.sessionId).toBe(t2.sessionId);
       expect(t1.sessionId).toMatch(/^[a-z0-9]+-[a-z0-9]+$/);
     });
   });
   
-  describe('start', () => {
-    it('should start the MessagePort', async () => {
+  describe('start method', () => {
+    it('should call start on the underlying MessagePort', async () => {
+      // Arrange
       const startSpy = jest.spyOn(mockPort1, 'start');
+      
+      // Act
       await transport1.start();
+      
+      // Assert
       expect(startSpy).toHaveBeenCalled();
     });
     
-    it('should throw if already started', async () => {
+    it('should reject when called multiple times on the same transport', async () => {
+      // Arrange
       await transport1.start();
+      
+      // Act & Assert
       await expect(transport1.start()).rejects.toThrow('already started');
     });
     
-    it('should throw if closed', async () => {
+    it('should reject when called on a closed transport', async () => {
+      // Arrange
       await transport1.close();
+      
+      // Act & Assert
       await expect(transport1.start()).rejects.toThrow('closed');
     });
   });
   
-  describe('send', () => {
+  describe('send method', () => {
     beforeEach(async () => {
+      // Additional setup for send tests
       await transport1.start();
       await transport2.start();
     });
     
-    it('should send a message through the MessagePort', async () => {
+    it('should forward messages to the underlying MessagePort', async () => {
+      // Arrange
       const postMessageSpy = jest.spyOn(mockPort1, 'postMessage');
       const message: JSONRPCMessage = {
         jsonrpc: '2.0',
@@ -195,11 +210,15 @@ describe('BrowserContextTransport', () => {
         id: 1
       };
       
+      // Act
       await transport1.send(message);
+      
+      // Assert
       expect(postMessageSpy).toHaveBeenCalledWith(message);
     });
     
-    it('should throw if transport is closed', async () => {
+    it('should reject when sending messages on a closed transport', async () => {
+      // Arrange
       await transport1.close();
       const message: JSONRPCMessage = {
         jsonrpc: '2.0',
@@ -207,10 +226,12 @@ describe('BrowserContextTransport', () => {
         id: 2
       };
       
+      // Act & Assert
       await expect(transport1.send(message)).rejects.toThrow('closed');
     });
     
-    it('should call onerror and reject if postMessage throws', async () => {
+    it('should call onerror handler and reject when underlying postMessage throws', async () => {
+      // Arrange
       const error = new Error('Test error');
       jest.spyOn(mockPort1, 'postMessage').mockImplementation(() => {
         throw error;
@@ -225,29 +246,45 @@ describe('BrowserContextTransport', () => {
         id: 3
       };
       
+      // Act & Assert
       await expect(transport1.send(message)).rejects.toThrow('Test error');
       expect(onErrorSpy).toHaveBeenCalledWith(error);
     });
   });
   
-  describe('close', () => {
-    it('should close the MessagePort', async () => {
+  describe('close method', () => {
+    it('should call close on the underlying MessagePort', async () => {
+      // Arrange
       const closeSpy = jest.spyOn(mockPort1, 'close');
+      
+      // Act
       await transport1.close();
+      
+      // Assert
       expect(closeSpy).toHaveBeenCalled();
     });
     
-    it('should call onclose if defined', async () => {
+    it('should trigger the onclose callback when defined', async () => {
+      // Arrange
       const onCloseSpy = jest.fn();
       transport1.onclose = onCloseSpy;
+      
+      // Act
       await transport1.close();
+      
+      // Assert
       expect(onCloseSpy).toHaveBeenCalled();
     });
     
-    it('should be idempotent', async () => {
+    it('should be safe to call multiple times without triggering multiple close events', async () => {
+      // Arrange
       const closeSpy = jest.spyOn(mockPort1, 'close');
+      
+      // Act
       await transport1.close();
       await transport1.close();
+      
+      // Assert
       expect(closeSpy).toHaveBeenCalledTimes(1);
     });
   });
@@ -263,6 +300,7 @@ describe('BrowserContextTransport', () => {
     };
     
     beforeEach(async () => {
+      // Arrange - Additional setup for message handling tests
       onMessageSpy = jest.fn();
       onErrorSpy = jest.fn();
       transport1.onmessage = onMessageSpy;
@@ -271,36 +309,48 @@ describe('BrowserContextTransport', () => {
       await transport2.start();
     });
     
-    it('should receive messages from the other transport', (done: DoneCallback) => {
+    it('should receive and forward messages from the connected transport', (done) => {
+      // Arrange - Already set up in beforeEach
+      
+      // Act
       transport2.send(validMessage);
       
-      // Use setTimeout to wait for the async message delivery
+      // Assert - Using setTimeout to wait for async message delivery
       setTimeout(() => {
         expect(onMessageSpy).toHaveBeenCalledWith(validMessage);
         done();
       }, 10);
     });
     
-    it('should call onerror if message parsing fails', () => {
-      // Manually trigger onmessage with invalid data
+    it('should trigger onerror when receiving invalid message data', () => {
+      // Arrange - Already set up in beforeEach
+      
+      // Act
       mockPort1.onmessage!({ data: 'not a valid JSON-RPC message' });
+      
+      // Assert
       expect(onErrorSpy).toHaveBeenCalledWith(expect.objectContaining({
         message: expect.stringContaining('Failed to parse message')
       }));
     });
     
-    it('should call onerror on messageerror event', () => {
+    it('should trigger onerror when receiving a messageerror event', () => {
+      // Arrange
       const errorEvent = { type: 'messageerror', data: 'some error' };
+      
+      // Act
       mockPort1.onmessageerror!(errorEvent);
       
+      // Assert
       expect(onErrorSpy).toHaveBeenCalledWith(expect.objectContaining({
         message: expect.stringContaining('MessagePort error')
       }));
     });
   });
   
-  describe('end-to-end test', () => {
-    it('should allow bidirectional communication', (done: DoneCallback) => {
+  describe('bidirectional communication', () => {
+    it('should support two-way asynchronous communication between transports', (done) => {
+      // Arrange
       // Define test message types based on a subset of JSONRPCMessage
       type RequestMessage = {
         jsonrpc: string;
@@ -334,6 +384,7 @@ describe('BrowserContextTransport', () => {
         }
       };
       
+      // Act
       transport1.start().then(() => {
         transport2.start().then(() => {
           // Send messages from transport1 to transport2
@@ -378,6 +429,7 @@ describe('BrowserContextTransport', () => {
         });
       });
       
+      // Assert - Function to check results
       function checkResults() {
         expect(messages1.length).toBe(3);
         expect(messages2.length).toBe(3);
@@ -395,26 +447,24 @@ describe('BrowserContextTransport', () => {
   
   describe('iframe integration', () => {
     let mockIframe: MockIframe;
-    let mockMainWindow: MockWindow;
     let channel: MockMessageChannel;
     let parentTransport: BrowserContextTransport;
     
     beforeEach(() => {
-      // Setup parent window context
+      // Arrange - Setup for iframe tests
       mockIframe = new MockIframe();
-      mockMainWindow = new MockWindow();
       channel = new MockMessageChannel();
       
       // Create transport in parent window
       parentTransport = new BrowserContextTransport(channel.port1 as unknown as MessagePort);
     });
     
-    it('should verify the iframe example from README works correctly', (done: DoneCallback) => {
-      // This test verifies the pattern shown in the README
-      
+    it('should facilitate communication between parent window and iframe contexts', (done) => {
+      // Arrange
       // 1. Parent context creates channel and transport
       expect(parentTransport).toBeInstanceOf(BrowserContextTransport);
       
+      // Act
       // 2. Parent sends port2 to iframe
       mockIframe.contentWindow.postMessage('init', '*', [channel.port2]);
       expect(mockIframe.contentWindow.postMessage).toHaveBeenCalledWith('init', '*', [channel.port2]);
@@ -457,7 +507,7 @@ describe('BrowserContextTransport', () => {
             });
             parentReceivedResponse = true;
             
-            // Verify bidirectional communication worked
+            // Assert
             setTimeout(() => {
               expect(iframeReceivedMessage).toBe(true);
               expect(parentReceivedResponse).toBe(true);
@@ -474,13 +524,13 @@ describe('BrowserContextTransport', () => {
     });
   });
   
-  describe('worker integration', () => {
+  describe('web worker integration', () => {
     let mockWorker: MockWorker;
     let channel: MockMessageChannel;
     let mainThreadTransport: BrowserContextTransport;
     
     beforeEach(() => {
-      // Setup main thread context
+      // Arrange - Setup for worker tests
       mockWorker = new MockWorker();
       channel = new MockMessageChannel();
       
@@ -488,12 +538,12 @@ describe('BrowserContextTransport', () => {
       mainThreadTransport = new BrowserContextTransport(channel.port1 as unknown as MessagePort);
     });
     
-    it('should verify the worker example from README works correctly', (done: DoneCallback) => {
-      // This test verifies the pattern shown in the README
-      
+    it('should facilitate communication between main thread and worker thread', (done) => {
+      // Arrange
       // 1. Main thread creates channel and transport
       expect(mainThreadTransport).toBeInstanceOf(BrowserContextTransport);
       
+      // Act
       // 2. Main thread sends port2 to worker
       mockWorker.postMessage('init', [channel.port2]);
       expect(mockWorker.postMessage).toHaveBeenCalledWith('init', [channel.port2]);
@@ -537,7 +587,7 @@ describe('BrowserContextTransport', () => {
             });
             mainThreadReceivedResponse = true;
             
-            // Verify bidirectional communication worked
+            // Assert
             setTimeout(() => {
               expect(workerReceivedMessage).toBe(true);
               expect(mainThreadReceivedResponse).toBe(true);
