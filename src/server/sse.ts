@@ -53,6 +53,11 @@ export class SSEServerTransport implements Transport {
       `event: endpoint\ndata: ${encodeURI(this._endpoint)}?sessionId=${this._sessionId}\n\n`,
     );
 
+    // Support bun runtime which requires a follow-up message to be sent
+    if (process.versions.bun) {
+      this.res.write(`event: log\ndata: bun runtime compatibility message\n\n`);
+    }
+
     this._sseResponse = this.res;
     this.res.on("close", () => {
       this._sseResponse = undefined;
