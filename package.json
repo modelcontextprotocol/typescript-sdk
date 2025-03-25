@@ -1,21 +1,33 @@
 {
   "name": "@modelcontextprotocol/sdk",
-  "version": "1.0.3",
+  "version": "1.7.0",
   "description": "Model Context Protocol implementation for TypeScript",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
   "homepage": "https://modelcontextprotocol.io",
   "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "modelcontextprotocol",
+    "mcp"
+  ],
   "exports": {
-    "./*": "./dist/*"
+    "./*": {
+      "import": "./dist/esm/*",
+      "require": "./dist/cjs/*"
+    }
   },
   "typesVersions": {
     "*": {
       "*": [
-        "./dist/*"
+        "./dist/esm/*"
       ]
     }
   },
@@ -23,8 +35,10 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
-    "prepack": "tsc",
+    "build": "npm run build:esm && npm run build:cjs",
+    "build:esm": "tsc -p tsconfig.prod.json && echo '{\"type\": \"module\"}' > dist/esm/package.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json",
+    "prepack": "npm run build:esm && npm run build:cjs",
     "lint": "eslint src/",
     "test": "jest",
     "start": "npm run server",
@@ -35,22 +49,30 @@
     "@types/cross-spawn": "^6.0.6",
     "content-type": "^1.0.5",
     "cross-spawn": "^7.0.6",
+    "cors": "^2.8.5",
+    "eventsource": "^3.0.2",
+    "express": "^5.0.1",
+    "express-rate-limit": "^7.5.0",
+    "pkce-challenge": "^4.1.0",
     "raw-body": "^3.0.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.24.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.8.0",
+    "@jest-mock/express": "^3.0.0",
     "@types/content-type": "^1.1.8",
+    "@types/cors": "^2.8.17",
     "@types/eslint__js": "^8.42.3",
     "@types/eventsource": "^1.1.15",
-    "@types/express": "^4.17.21",
+    "@types/express": "^5.0.0",
     "@types/jest": "^29.5.12",
     "@types/node": "^22.0.2",
+    "@types/supertest": "^6.0.2",
     "@types/ws": "^8.5.12",
     "eslint": "^9.8.0",
-    "eventsource": "^2.0.2",
-    "express": "^4.19.2",
     "jest": "^29.7.0",
+    "supertest": "^7.0.0",
     "ts-jest": "^29.2.4",
     "tsx": "^4.16.5",
     "typescript": "^5.5.4",

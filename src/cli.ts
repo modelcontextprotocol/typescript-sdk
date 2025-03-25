@@ -1,8 +1,5 @@
-import EventSource from "eventsource";
 import WebSocket from "ws";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(global as any).EventSource = EventSource;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (global as any).WebSocket = WebSocket;
 

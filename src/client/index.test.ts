@@ -36,6 +36,7 @@ test("should initialize with matching protocol version", async () => {
               name: "test",
               version: "1.0",
             },
+            instructions: "test instructions",
           },
         });
       }
@@ -66,6 +67,9 @@ test("should initialize with matching protocol version", async () => {
       }),
     }),
   );
+
+  // Should have the instructions returned
+  expect(client.getInstructions()).toEqual("test instructions");
 });
 
 test("should initialize with supported older protocol version", async () => {
@@ -111,6 +115,9 @@ test("should initialize with supported older protocol version", async () => {
     name: "test",
     version: "1.0",
   });
+
+  // Expect no instructions
+  expect(client.getInstructions()).toBeUndefined();
 });
 
 test("should reject unsupported protocol version", async () => {

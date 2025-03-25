@@ -1,6 +1,7 @@
 import { ZodLiteral, ZodObject, ZodType, z } from "zod";
 import {
   CancelledNotificationSchema,
+  ClientCapabilities,
   ErrorCode,
   JSONRPCError,
   JSONRPCNotification,
@@ -15,6 +16,7 @@ import {
   Request,
   RequestId,
   Result,
+  ServerCapabilities,
 } from "../types.js";
 import { Transport } from "./transport.js";
 
@@ -62,6 +64,20 @@ export type RequestOptions = {
    * If not specified, `DEFAULT_REQUEST_TIMEOUT_MSEC` will be used as the timeout.
    */
   timeout?: number;
+
+  /**
+   * If true, receiving a progress notification will reset the request timeout.
+   * This is useful for long-running operations that send periodic progress updates.
+   * Default: false
+   */
+  resetTimeoutOnProgress?: boolean;
+
+  /**
+   * Maximum total time (in milliseconds) to wait for a response.
+   * If exceeded, an McpError with code `RequestTimeout` will be raised, regardless of progress notifications.
+   * If not specified, there is no maximum total timeout.
+   */
+  maxTotalTimeout?: number;
 };
 
 /**
@@ -72,6 +88,22 @@ export type RequestHandlerExtra = {
    * An abort signal used to communicate if the request was cancelled from the sender's side.
    */
   signal: AbortSignal;
+
+  /**
+   * The session ID from the transport, if available.
+   */
+  sessionId?: string;
+};
+
+/**
+ * Information about a request's timeout state
+ */
+type TimeoutInfo = {
+  timeoutId: ReturnType<typeof setTimeout>;
+  startTime: number;
+  timeout: number;
+  maxTotalTimeout?: number;
+  onTimeout: () => void;
 };
 
 /**
@@ -103,6 +135,7 @@ export abstract class Protocol<
     (response: JSONRPCResponse | Error) => void
   > = new Map();
   private _progressHandlers: Map<number, ProgressCallback> = new Map();
+  private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
 
   /**
    * Callback for when the connection is closed for any reason.
@@ -145,6 +178,48 @@ export abstract class Protocol<
       // Automatic pong by default.
       (_request) => ({}) as SendResultT,
     );
+  }
+
+  private _setupTimeout(
+    messageId: number,
+    timeout: number,
+    maxTotalTimeout: number | undefined,
+    onTimeout: () => void
+  ) {
+    this._timeoutInfo.set(messageId, {
+      timeoutId: setTimeout(onTimeout, timeout),
+      startTime: Date.now(),
+      timeout,
+      maxTotalTimeout,
+      onTimeout
+    });
+  }
+
+  private _resetTimeout(messageId: number): boolean {
+    const info = this._timeoutInfo.get(messageId);
+    if (!info) return false;
+
+    const totalElapsed = Date.now() - info.startTime;
+    if (info.maxTotalTimeout && totalElapsed >= info.maxTotalTimeout) {
+      this._timeoutInfo.delete(messageId);
+      throw new McpError(
+        ErrorCode.RequestTimeout,
+        "Maximum total timeout exceeded",
+        { maxTotalTimeout: info.maxTotalTimeout, totalElapsed }
+      );
+    }
+
+    clearTimeout(info.timeoutId);
+    info.timeoutId = setTimeout(info.onTimeout, info.timeout);
+    return true;
+  }
+
+  private _cleanupTimeout(messageId: number) {
+    const info = this._timeoutInfo.get(messageId);
+    if (info) {
+      clearTimeout(info.timeoutId);
+      this._timeoutInfo.delete(messageId);
+    }
   }
 
   /**
@@ -237,9 +312,15 @@ export abstract class Protocol<
     const abortController = new AbortController();
     this._requestHandlerAbortControllers.set(request.id, abortController);
 
+    // Create extra object with both abort signal and sessionId from transport
+    const extra: RequestHandlerExtra = {
+      signal: abortController.signal,
+      sessionId: this._transport?.sessionId,
+    };
+
     // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
     Promise.resolve()
-      .then(() => handler(request, { signal: abortController.signal }))
+      .then(() => handler(request, extra))
       .then(
         (result) => {
           if (abortController.signal.aborted) {
@@ -278,23 +359,31 @@ export abstract class Protocol<
   }
 
   private _onprogress(notification: ProgressNotification): void {
-    const { progress, total, progressToken } = notification.params;
-    const handler = this._progressHandlers.get(Number(progressToken));
-    if (handler === undefined) {
-      this._onerror(
-        new Error(
-          `Received a progress notification for an unknown token: ${JSON.stringify(notification)}`,
-        ),
-      );
+    const { progressToken, ...params } = notification.params;
+    const messageId = Number(progressToken);
+    
+    const handler = this._progressHandlers.get(messageId);
+    if (!handler) {
+      this._onerror(new Error(`Received a progress notification for an unknown token: ${JSON.stringify(notification)}`));
       return;
     }
 
-    handler({ progress, total });
+    const responseHandler = this._responseHandlers.get(messageId);
+    if (this._timeoutInfo.has(messageId) && responseHandler) {
+      try {
+        this._resetTimeout(messageId);
+      } catch (error) {
+        responseHandler(error as Error);
+        return;
+      }
+    }
+
+    handler(params);
   }
 
   private _onresponse(response: JSONRPCResponse | JSONRPCError): void {
-    const messageId = response.id;
-    const handler = this._responseHandlers.get(Number(messageId));
+    const messageId = Number(response.id);
+    const handler = this._responseHandlers.get(messageId);
     if (handler === undefined) {
       this._onerror(
         new Error(
@@ -304,8 +393,10 @@ export abstract class Protocol<
       return;
     }
 
-    this._responseHandlers.delete(Number(messageId));
-    this._progressHandlers.delete(Number(messageId));
+    this._responseHandlers.delete(messageId);
+    this._progressHandlers.delete(messageId);
+    this._cleanupTimeout(messageId);
+
     if ("result" in response) {
       handler(response);
     } else {
@@ -391,32 +482,10 @@ export abstract class Protocol<
         };
       }
 
-      let timeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
-
-      this._responseHandlers.set(messageId, (response) => {
-        if (timeoutId !== undefined) {
-          clearTimeout(timeoutId);
-        }
-
-        if (options?.signal?.aborted) {
-          return;
-        }
-
-        if (response instanceof Error) {
-          return reject(response);
-        }
-
-        try {
-          const result = resultSchema.parse(response.result);
-          resolve(result);
-        } catch (error) {
-          reject(error);
-        }
-      });
-
       const cancel = (reason: unknown) => {
         this._responseHandlers.delete(messageId);
         this._progressHandlers.delete(messageId);
+        this._cleanupTimeout(messageId);
 
         this._transport
           ?.send({
@@ -434,30 +503,38 @@ export abstract class Protocol<
         reject(reason);
       };
 
-      options?.signal?.addEventListener("abort", () => {
-        if (timeoutId !== undefined) {
-          clearTimeout(timeoutId);
+      this._responseHandlers.set(messageId, (response) => {
+        if (options?.signal?.aborted) {
+          return;
         }
 
+        if (response instanceof Error) {
+          return reject(response);
+        }
+
+        try {
+          const result = resultSchema.parse(response.result);
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      });
+
+      options?.signal?.addEventListener("abort", () => {
         cancel(options?.signal?.reason);
       });
 
       const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
-      timeoutId = setTimeout(
-        () =>
-          cancel(
-            new McpError(ErrorCode.RequestTimeout, "Request timed out", {
-              timeout,
-            }),
-          ),
-        timeout,
-      );
+      const timeoutHandler = () => cancel(new McpError(
+        ErrorCode.RequestTimeout,
+        "Request timed out",
+        { timeout }
+      ));
+
+      this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler);
 
       this._transport.send(jsonrpcRequest).catch((error) => {
-        if (timeoutId !== undefined) {
-          clearTimeout(timeoutId);
-        }
-
+        this._cleanupTimeout(messageId);
         reject(error);
       });
     });
@@ -512,6 +589,17 @@ export abstract class Protocol<
   }
 
   /**
+   * Asserts that a request handler has not already been set for the given method, in preparation for a new one being automatically installed.
+   */
+  assertCanSetRequestHandler(method: string): void {
+    if (this._requestHandlers.has(method)) {
+      throw new Error(
+        `A request handler for ${method} already exists, which would be overridden`,
+      );
+    }
+  }
+
+  /**
    * Registers a handler to invoke when this protocol object receives a notification with the given method.
    *
    * Note that this will replace any previous notification handler for the same method.
@@ -537,4 +625,20 @@ export abstract class Protocol<
   removeNotificationHandler(method: string): void {
     this._notificationHandlers.delete(method);
   }
+}
+
+export function mergeCapabilities<
+  T extends ServerCapabilities | ClientCapabilities,
+>(base: T, additional: T): T {
+  return Object.entries(additional).reduce(
+    (acc, [key, value]) => {
+      if (value && typeof value === "object") {
+        acc[key] = acc[key] ? { ...acc[key], ...value } : value;
+      } else {
+        acc[key] = value;
+      }
+      return acc;
+    },
+    { ...base },
+  );
 }

@@ -1,4 +1,5 @@
 import {
+  mergeCapabilities,
   Protocol,
   ProtocolOptions,
   RequestOptions,
@@ -44,7 +45,7 @@ export type ClientOptions = ProtocolOptions & {
   /**
    * Capabilities to advertise as being supported by this client.
    */
-  capabilities: ClientCapabilities;
+  capabilities?: ClientCapabilities;
 };
 
 /**
@@ -84,16 +85,32 @@ export class Client<
   private _serverCapabilities?: ServerCapabilities;
   private _serverVersion?: Implementation;
   private _capabilities: ClientCapabilities;
+  private _instructions?: string;
 
   /**
    * Initializes this client with the given name and version information.
    */
   constructor(
     private _clientInfo: Implementation,
-    options: ClientOptions,
+    options?: ClientOptions,
   ) {
     super(options);
-    this._capabilities = options.capabilities;
+    this._capabilities = options?.capabilities ?? {};
+  }
+
+  /**
+   * Registers new capabilities. This can only be called before connecting to a transport.
+   *
+   * The new capabilities will be merged with any existing capabilities previously given (e.g., at initialization).
+   */
+  public registerCapabilities(capabilities: ClientCapabilities): void {
+    if (this.transport) {
+      throw new Error(
+        "Cannot register capabilities after connecting to transport",
+      );
+    }
+
+    this._capabilities = mergeCapabilities(this._capabilities, capabilities);
   }
 
   protected assertCapability(
@@ -136,6 +153,8 @@ export class Client<
       this._serverCapabilities = result.capabilities;
       this._serverVersion = result.serverInfo;
 
+      this._instructions = result.instructions;
+
       await this.notification({
         method: "notifications/initialized",
       });
@@ -158,6 +177,13 @@ export class Client<
    */
   getServerVersion(): Implementation | undefined {
     return this._serverVersion;
+  }
+
+  /**
+   * After initialization has completed, this may be populated with information about the server's instructions.
+   */
+  getInstructions(): string | undefined {
+    return this._instructions;
   }
 
   protected assertCapabilityForMethod(method: RequestT["method"]): void {

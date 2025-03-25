@@ -1,10 +1,10 @@
 import { ChildProcess, IOType } from "node:child_process";
 import spawn from "cross-spawn";
 import process from "node:process";
-import { ReadBuffer, serializeMessage } from "../shared/stdio.js";
-import { JSONRPCMessage } from "../types.js";
-import { Transport } from "../shared/transport.js";
 import { Stream } from "node:stream";
+import { ReadBuffer, serializeMessage } from "../shared/stdio.js";
+import { Transport } from "../shared/transport.js";
+import { JSONRPCMessage } from "../types.js";
 
 export type StdioServerParameters = {
   /**
@@ -30,6 +30,13 @@ export type StdioServerParameters = {
    * The default is "inherit", meaning messages to stderr will be printed to the parent process's stderr.
    */
   stderr?: IOType | Stream | number;
+
+  /**
+   * The working directory to use when spawning the process.
+   *
+   * If not specified, the current working directory will be inherited.
+   */
+  cwd?: string;
 };
 
 /**
@@ -115,6 +122,7 @@ export class StdioClientTransport implements Transport {
           shell: false,
           signal: this._abortController.signal,
           windowsHide: process.platform === "win32" && isElectron(),
+          cwd: this._serverParams.cwd,
         }
       );
 
