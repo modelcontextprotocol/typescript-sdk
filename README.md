@@ -13,6 +13,7 @@
 - [Running Your Server](#running-your-server)
   - [stdio](#stdio)
   - [HTTP with SSE](#http-with-sse)
+  - [Browser Context Transport](#browser-context-transport)
   - [Testing and Debugging](#testing-and-debugging)
 - [Examples](#examples)
   - [Echo Server](#echo-server)
@@ -248,6 +249,29 @@ app.post("/messages", async (req: Request, res: Response) => {
 });
 
 app.listen(3001);
+```
+
+### Browser Context Transport
+
+For in-browser applications, use the BrowserContextTransport to enable communication between browser contexts (same window, iframes, or web workers):
+
+```typescript
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { BrowserContextTransport } from "@modelcontextprotocol/sdk/browser-context-transport.js";
+
+// Create paired transports
+const [clientTransport, serverTransport] = BrowserContextTransport.createChannelPair();
+
+// Set up server
+const server = new McpServer({
+  name: "browser-server",
+  version: "1.0.0"
+});
+
+// Connect server to its transport
+await server.connect(serverTransport);
+
+// The clientTransport can be used with an MCP client
 ```
 
 ### Testing and Debugging
