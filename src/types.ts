@@ -36,6 +36,7 @@ const BaseRequestParamsSchema = z
 
 export const RequestSchema = z.object({
   method: z.string(),
+  headers: z.optional(z.record(z.union([z.string(), z.number(), z.boolean()]))),
   params: z.optional(BaseRequestParamsSchema),
 });
 

@@ -143,7 +143,7 @@ export class McpServer {
           const args = parseResult.data;
           const cb = tool.callback as ToolCallback<ZodRawShape>;
           try {
-            return await Promise.resolve(cb(args, extra));
+            return await Promise.resolve(cb(args, extra, request.headers));
           } catch (error) {
             return {
               content: [
@@ -158,7 +158,7 @@ export class McpServer {
         } else {
           const cb = tool.callback as ToolCallback<undefined>;
           try {
-            return await Promise.resolve(cb(extra));
+            return await Promise.resolve(cb(extra, request.headers));
           } catch (error) {
             return {
               content: [
@@ -695,8 +695,9 @@ export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
     ? (
         args: z.objectOutputType<Args, ZodTypeAny>,
         extra: RequestHandlerExtra,
+        headers: Record<string, string | number | boolean> | undefined
       ) => CallToolResult | Promise<CallToolResult>
-    : (extra: RequestHandlerExtra) => CallToolResult | Promise<CallToolResult>;
+    : (extra: RequestHandlerExtra, headers: Record<string, string | number | boolean> | undefined) => CallToolResult | Promise<CallToolResult>;
 
 type RegisteredTool = {
   description?: string;
