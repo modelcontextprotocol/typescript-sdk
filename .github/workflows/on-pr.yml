@@ -1,0 +1,18 @@
+name: On PR
+permissions: write-all
+on:
+  pull_request:
+jobs:
+  security:
+    name: Security Checks
+    uses: ./.github/workflows/_security-checks.yml
+
+  static-checks:
+    name: Static Checks
+    uses: ./.github/workflows/_static-checks.yml
+    secrets: inherit
+
+  unit-tests:
+    name: Unit Tests
+    uses: ./.github/workflows/_unit-tests.yml
+    secrets: inherit
