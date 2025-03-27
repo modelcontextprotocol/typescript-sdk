@@ -118,7 +118,7 @@ export class StdioClientTransport implements Transport {
         this._serverParams.args ?? [],
         {
           env: this._serverParams.env ?? getDefaultEnvironment(),
-          stdio: ["pipe", "pipe", this._serverParams.stderr ?? "inherit"],
+          stdio: ["pipe", "pipe", this._serverParams.stderr ?? "pipe"],
           shell: false,
           signal: this._abortController.signal,
           windowsHide: process.platform === "win32" && isElectron(),
@@ -158,6 +158,25 @@ export class StdioClientTransport implements Transport {
       this._process.stdout?.on("error", (error) => {
         this.onerror?.(error);
       });
+
+      // Create a separate channel for logging
+      const logChannel = new Stream.PassThrough();
+      
+      // Handle log messages based on their level
+      logChannel.on("data", (chunk) => {
+        const log = chunk.toString();
+        if (log.toLowerCase().includes("error")) {
+          // Error logs go to stderr
+          process.stderr.write(log);
+          this.onerror?.(new Error(log));
+        } else {
+          // Info logs go to stdout, prefixed to distinguish from JSON-RPC messages
+          process.stdout.write(`[LOG] ${log}`);
+        }
+      });
+
+      // Pipe stderr to log channel
+      this._process.stderr?.pipe(logChannel);
     });
   }
 
