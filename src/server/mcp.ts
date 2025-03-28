@@ -42,7 +42,6 @@ type RenderApi = {
 type McpServerOptions<T extends Record<string, any> = Record<string, any>> =
   ServerOptions & {
   render?: (api: RenderApi, args: T) => void | Promise<void>;
-  locked?: boolean;
 };
 
 /**
@@ -73,13 +72,7 @@ export class McpServer<RenderArgs extends Record<string, any> = Record<string, a
   constructor(serverInfo: Implementation, options?: McpServerOptions<RenderArgs>) {
     this.server = new Server(serverInfo, options);
     this._renderFunction = options?.render;
-    this._locked = options?.locked ?? false;
-
-    if (this._locked && !this._renderFunction) {
-      throw new Error(
-        "McpServer is locked, but no render function was provided. No resources, tools, or prompts can be registered.",
-      );
-    }
+    this._locked = Boolean(this._renderFunction);
   }
 
   /**
