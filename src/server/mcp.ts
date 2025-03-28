@@ -43,6 +43,11 @@ import { UriTemplate, Variables } from "../shared/uriTemplate.js";
 import { RequestHandlerExtra } from "../shared/protocol.js";
 import { Transport } from "../shared/transport.js";
 
+type McpServerOptions = ServerOptions & {
+  render?: <T extends Record<string, any>>(inserts: any, args: T) => void;
+  locked?: boolean;
+}
+
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
@@ -60,9 +65,11 @@ export class McpServer {
   } = {};
   private _registeredTools: { [name: string]: RegisteredTool } = {};
   private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+  private _options?: McpServerOptions
 
-  constructor(serverInfo: Implementation, options?: ServerOptions) {
+  constructor(serverInfo: Implementation, options?: McpServerOptions) {
     this.server = new Server(serverInfo, options);
+    this._options = options
   }
 
   /**
@@ -87,7 +94,7 @@ export class McpServer {
     if (this._toolHandlersInitialized) {
       return;
     }
-    
+
     this.server.assertCanSetRequestHandler(
       ListToolsRequestSchema.shape.method.value,
     );
@@ -96,7 +103,9 @@ export class McpServer {
     );
 
     this.server.registerCapabilities({
-      tools: {},
+      tools: {
+        listChanged: true
+      },
     });
 
     this.server.setRequestHandler(
@@ -285,7 +294,9 @@ export class McpServer {
     );
 
     this.server.registerCapabilities({
-      resources: {},
+      resources: {
+        listChanged: true
+      },
     });
 
     this.server.setRequestHandler(
@@ -366,7 +377,7 @@ export class McpServer {
     );
 
     this.setCompletionRequestHandler();
-    
+
     this._resourceHandlersInitialized = true;
   }
 
@@ -385,7 +396,9 @@ export class McpServer {
     );
 
     this.server.registerCapabilities({
-      prompts: {},
+      prompts: {
+        listChanged: true
+      },
     });
 
     this.server.setRequestHandler(
@@ -438,8 +451,23 @@ export class McpServer {
     );
 
     this.setCompletionRequestHandler();
-    
+
     this._promptHandlersInitialized = true;
+  }
+
+  /**
+   * These are called after a render() method has added, removed, or updated any prompts/resources/tools
+   */
+  private emitPromptsChangedEvent(/* todo: how to track changes? */) {
+    // todo send notification event
+  }
+
+  private emitResourcesChangedEvent(/* todo: how to track changes? */) {
+    // todo send notification event
+  }
+
+  private emitToolsChangedEvent(/* todo: how to track changes? */) {
+    // todo send notification event
   }
 
   /**
