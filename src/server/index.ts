@@ -29,6 +29,10 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "../types.js";
 
+// Export server transports
+export { StdioServerTransport } from "./stdio.js";
+export { WebSocketServerTransport } from "./websocket.js";
+
 export type ServerOptions = ProtocolOptions & {
   /**
    * Capabilities to advertise as being supported by this server.
