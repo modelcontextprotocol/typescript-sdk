@@ -60,11 +60,12 @@ export class SSEServerTransport implements Transport {
     });
   }
 
-  /**
+   /**
    * Handles incoming POST messages.
    *
    * This should be called when a POST request is made to send a message to the server.
    */
+
   async handlePostMessage(
     req: IncomingMessage,
     res: ServerResponse,
@@ -76,17 +77,29 @@ export class SSEServerTransport implements Transport {
       throw new Error(message);
     }
 
-    let body: string | unknown;
+    let body: unknown;
     try {
-      const ct = contentType.parse(req.headers["content-type"] ?? "");
-      if (ct.type !== "application/json") {
-        throw new Error(`Unsupported content-type: ${ct}`);
-      }
+      // Handle for case when parsed body if available
+      if (parsedBody !== undefined) {
+        body = parsedBody;
+      } else if ((req as any).body !== undefined) {
+        // Look for body from req object
+        body = (req as any).body;
+      } else {
+        // Fallback
+        const ct = contentType.parse(req.headers["content-type"] ?? "");
+        if (ct.type !== "application/json") {
+          throw new Error(`Unsupported content-type: ${ct}`);
+        }
 
-      body = parsedBody ?? await getRawBody(req, {
-        limit: MAXIMUM_MESSAGE_SIZE,
-        encoding: ct.parameters.charset ?? "utf-8",
-      });
+        const rawBody = await getRawBody(req, {
+          limit: MAXIMUM_MESSAGE_SIZE,
+          encoding: ct.parameters.charset ?? "utf-8",
+        });
+        
+        // Parse string body as JSON
+        body = JSON.parse(rawBody.toString());
+      }
     } catch (error) {
       res.writeHead(400).end(String(error));
       this.onerror?.(error as Error);
@@ -95,8 +108,8 @@ export class SSEServerTransport implements Transport {
 
     try {
       await this.handleMessage(typeof body === 'string' ? JSON.parse(body) : body);
-    } catch {
-      res.writeHead(400).end(`Invalid message: ${body}`);
+    } catch (error) {
+      res.writeHead(400).end(`Invalid message: ${JSON.stringify(body)}`);
       return;
     }
 
