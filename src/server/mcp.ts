@@ -1,47 +1,37 @@
-import { Server, ServerOptions } from "./index.js";
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { Server, ServerOptions } from './index.js'
+import { zodToJsonSchema } from 'zod-to-json-schema'
+import { AnyZodObject, z, ZodObject, ZodOptional, ZodRawShape, ZodString, ZodType, ZodTypeAny, ZodTypeDef } from 'zod'
 import {
-  z,
-  ZodRawShape,
-  ZodObject,
-  ZodString,
-  AnyZodObject,
-  ZodTypeAny,
-  ZodType,
-  ZodTypeDef,
-  ZodOptional,
-} from "zod";
-import {
-  Implementation,
-  Tool,
-  ListToolsResult,
+  CallToolRequestSchema,
   CallToolResult,
-  McpError,
-  ErrorCode,
   CompleteRequest,
+  CompleteRequestSchema,
   CompleteResult,
-  PromptReference,
-  ResourceReference,
-  Resource,
+  ErrorCode,
+  GetPromptRequestSchema,
+  GetPromptResult,
+  Implementation,
+  ListPromptsRequestSchema,
+  ListPromptsResult,
+  ListResourcesRequestSchema,
   ListResourcesResult,
   ListResourceTemplatesRequestSchema,
-  ReadResourceRequestSchema,
   ListToolsRequestSchema,
-  CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ListPromptsRequestSchema,
-  GetPromptRequestSchema,
-  CompleteRequestSchema,
-  ListPromptsResult,
+  ListToolsResult,
+  McpError,
   Prompt,
   PromptArgument,
-  GetPromptResult,
+  PromptReference,
+  ReadResourceRequestSchema,
   ReadResourceResult,
-} from "../types.js";
-import { Completable, CompletableDef } from "./completable.js";
-import { UriTemplate, Variables } from "../shared/uriTemplate.js";
-import { RequestHandlerExtra } from "../shared/protocol.js";
-import { Transport } from "../shared/transport.js";
+  Resource,
+  ResourceReference,
+  Tool
+} from '../types.js'
+import { Completable, CompletableDef } from './completable.js'
+import { UriTemplate, Variables } from '../shared/uriTemplate.js'
+import { RequestHandlerExtra } from '../shared/protocol.js'
+import { Transport } from '../shared/transport.js'
 
 type RenderApi = {
   resource: McpServer["resource"];
@@ -507,93 +497,13 @@ export class McpServer<RenderArgs extends Record<string, any> = Record<string, a
         uriOrTemplate: string | ResourceTemplate,
         ...rest: unknown[]
       ): void => {
-        let metadata: ResourceMetadata | undefined;
-        if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !(rest[0] instanceof Function)) {
-           metadata = rest.shift() as ResourceMetadata;
-        }
-
-        const readCallback = rest[0] as
-          | ReadResourceCallback
-          | ReadResourceTemplateCallback;
-
-        if (typeof uriOrTemplate === "string") {
-          if (newResources[uriOrTemplate]) {
-            console.warn(
-              `Resource URI '${uriOrTemplate}' defined multiple times within the same render cycle. Last definition wins.`,
-            );
-          }
-          newResources[uriOrTemplate] = {
-            name,
-            metadata,
-            readCallback: readCallback as ReadResourceCallback,
-          };
-        } else {
-          if (newResourceTemplates[name]) {
-            console.warn(
-              `Resource template '${name}' defined multiple times within the same render cycle. Last definition wins.`,
-            );
-          }
-          newResourceTemplates[name] = {
-            resourceTemplate: uriOrTemplate,
-            metadata,
-            readCallback: readCallback as ReadResourceTemplateCallback,
-          };
-        }
+        addResources(newResources, newResourceTemplates, name, uriOrTemplate, ...rest)
       },
       tool: (name: string, ...rest: unknown[]): void => {
-        if (newTools[name]) {
-          console.warn(
-            `Tool '${name}' defined multiple times within the same render cycle. Last definition wins.`,
-          );
-        }
-
-        let description: string | undefined;
-        if (typeof rest[0] === "string") {
-          description = rest.shift() as string;
-        }
-
-        let paramsSchema: ZodRawShape | undefined;
-        // Check if the next item is an object but not the callback function
-        if (rest.length > 1 && typeof rest[0] === 'object' && rest[0] !== null && !(rest[0] instanceof Function)) {
-          paramsSchema = rest.shift() as ZodRawShape;
-        }
-
-        const cb = rest[0] as ToolCallback<ZodRawShape | undefined>;
-        newTools[name] = {
-          description,
-          inputSchema:
-            paramsSchema === undefined ? undefined : z.object(paramsSchema),
-          callback: cb,
-        };
+        addTool(newTools, name, ...rest)
       },
       prompt: (name: string, ...rest: unknown[]): void => {
-        if (newPrompts[name]) {
-          console.warn(
-            `Prompt '${name}' defined multiple times within the same render cycle. Last definition wins.`,
-          );
-        }
-
-        let description: string | undefined;
-        if (typeof rest[0] === "string") {
-          description = rest.shift() as string;
-        }
-
-        let argsSchema: PromptArgsRawShape | undefined;
-         // Check if the next item is an object but not the callback function
-        if (rest.length > 1 && typeof rest[0] === 'object' && rest[0] !== null && !(rest[0] instanceof Function)) {
-           argsSchema = rest.shift() as PromptArgsRawShape;
-        }
-
-
-        const cb = rest[0] as PromptCallback<
-          PromptArgsRawShape | undefined
-        >;
-        newPrompts[name] = {
-          description,
-          argsSchema:
-            argsSchema === undefined ? undefined : z.object(argsSchema),
-          callback: cb,
-        };
+        addPrompt(newPrompts, name, ...rest)
       },
     };
 
@@ -686,37 +596,7 @@ export class McpServer<RenderArgs extends Record<string, any> = Record<string, a
       );
     }
 
-    let metadata: ResourceMetadata | undefined;
-    // Check if the first rest arg is metadata (object, not function)
-    if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !(rest[0] instanceof Function)) {
-        metadata = rest.shift() as ResourceMetadata;
-    }
-
-    const readCallback = rest[0] as
-      | ReadResourceCallback
-      | ReadResourceTemplateCallback;
-
-    if (typeof uriOrTemplate === "string") {
-      if (this._registeredResources[uriOrTemplate]) {
-        throw new Error(`Resource ${uriOrTemplate} is already registered`);
-      }
-
-      this._registeredResources[uriOrTemplate] = {
-        name,
-        metadata,
-        readCallback: readCallback as ReadResourceCallback,
-      };
-    } else {
-      if (this._registeredResourceTemplates[name]) {
-        throw new Error(`Resource template ${name} is already registered`);
-      }
-
-      this._registeredResourceTemplates[name] = {
-        resourceTemplate: uriOrTemplate,
-        metadata,
-        readCallback: readCallback as ReadResourceTemplateCallback,
-      };
-    }
+    addResources(this._registeredResources, this._registeredResourceTemplates, name, uriOrTemplate, ...rest)
 
     this.setResourceRequestHandlers()
     this.server.sendResourceListChanged()
@@ -762,23 +642,7 @@ export class McpServer<RenderArgs extends Record<string, any> = Record<string, a
       );
     }
 
-    let description: string | undefined;
-    if (typeof rest[0] === "string") {
-      description = rest.shift() as string;
-    }
-
-    let paramsSchema: ZodRawShape | undefined;
-    if (rest.length > 1) {
-      paramsSchema = rest.shift() as ZodRawShape;
-    }
-
-    const cb = rest[0] as ToolCallback<ZodRawShape | undefined>;
-    this._registeredTools[name] = {
-      description,
-      inputSchema:
-        paramsSchema === undefined ? undefined : z.object(paramsSchema),
-      callback: cb,
-    };
+    addTool(this._registeredTools, name, ...rest)
 
     this.setToolRequestHandlers();
     this.server.sendToolListChanged();
@@ -824,26 +688,86 @@ export class McpServer<RenderArgs extends Record<string, any> = Record<string, a
       );
     }
 
-    let description: string | undefined;
-    if (typeof rest[0] === "string") {
-      description = rest.shift() as string;
-    }
-
-    let argsSchema: PromptArgsRawShape | undefined;
-    if (rest.length > 1) {
-      argsSchema = rest.shift() as PromptArgsRawShape;
-    }
-
-    const cb = rest[0] as PromptCallback<PromptArgsRawShape | undefined>;
-    this._registeredPrompts[name] = {
-      description,
-      argsSchema: argsSchema === undefined ? undefined : z.object(argsSchema),
-      callback: cb,
-    };
+    addPrompt(this._registeredPrompts, name, ...rest)
 
     this.setPromptRequestHandlers();
     this.server.sendPromptListChanged()
   }
+}
+
+function addResources(resources: { [p: string]: RegisteredResource }, resourceTemplates: {
+  [p: string]: RegisteredResourceTemplate
+}, name: string, uriOrTemplate: string | ResourceTemplate, ...rest: unknown[]) {
+  let metadata: ResourceMetadata | undefined;
+  // Check if the first rest arg is metadata (object, not function)
+  if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !(rest[0] instanceof Function)) {
+    metadata = rest.shift() as ResourceMetadata;
+  }
+
+  const readCallback = rest[0] as
+    | ReadResourceCallback
+    | ReadResourceTemplateCallback;
+
+  if (typeof uriOrTemplate === "string") {
+    if (resources[uriOrTemplate]) {
+      throw new Error(`Resource ${uriOrTemplate} is already registered`);
+    }
+
+    resources[uriOrTemplate] = {
+      name,
+      metadata,
+      readCallback: readCallback as ReadResourceCallback,
+    };
+  } else {
+    if (resourceTemplates[name]) {
+      throw new Error(`Resource template ${name} is already registered`);
+    }
+
+    resourceTemplates[name] = {
+      resourceTemplate: uriOrTemplate,
+      metadata,
+      readCallback: readCallback as ReadResourceTemplateCallback,
+    };
+  }
+}
+
+function addTool(tools: { [p: string]: RegisteredTool }, name: string, ...rest: unknown[]) {
+  let description: string | undefined;
+  if (typeof rest[0] === "string") {
+    description = rest.shift() as string;
+  }
+
+  let paramsSchema: ZodRawShape | undefined;
+  if (rest.length > 1) {
+    paramsSchema = rest.shift() as ZodRawShape;
+  }
+
+  const cb = rest[0] as ToolCallback<ZodRawShape | undefined>;
+  tools[name] = {
+    description,
+    inputSchema:
+      paramsSchema === undefined ? undefined : z.object(paramsSchema),
+    callback: cb,
+  };
+}
+
+function addPrompt(prompts: { [p: string]: RegisteredPrompt }, name: string, ...rest: unknown[]) {
+  let description: string | undefined;
+  if (typeof rest[0] === "string") {
+    description = rest.shift() as string;
+  }
+
+  let argsSchema: PromptArgsRawShape | undefined;
+  if (rest.length > 1) {
+    argsSchema = rest.shift() as PromptArgsRawShape;
+  }
+
+  const cb = rest[0] as PromptCallback<PromptArgsRawShape | undefined>;
+  prompts[name] = {
+    description,
+    argsSchema: argsSchema === undefined ? undefined : z.object(argsSchema),
+    callback: cb,
+  };
 }
 
 // --- Helper Function for Change Detection ---
@@ -879,7 +803,7 @@ function mapKeys<V>(obj: Record<string, V>, keyMapper: (value: V, key: string) =
 }
 
 
-// --- Constants and Type Definitions (mostly unchanged) ---
+// --- Constants and Type Definitions ---
 
 /**
  * A callback to complete one variable within a resource template's URI template.
