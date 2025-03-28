@@ -39,8 +39,7 @@ type RenderApi = {
   prompt: McpServer["prompt"];
 };
 
-type McpServerOptions<T extends Record<string, any> = Record<string, any>> =
-  ServerOptions & {
+type McpServerOptions<T> = ServerOptions & {
   render?: (api: RenderApi, args: T) => void | Promise<void>;
 };
 
@@ -49,7 +48,7 @@ type McpServerOptions<T extends Record<string, any> = Record<string, any>> =
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * Server instance available via the `server` property.
  */
-export class McpServer<RenderArgs extends Record<string, any> = Record<string, any>> {
+export class McpServer<RenderArgs extends Record<string, unknown> | undefined = undefined> {
   /**
    * The underlying Server instance, useful for advanced operations like sending notifications.
    */
@@ -67,7 +66,7 @@ export class McpServer<RenderArgs extends Record<string, any> = Record<string, a
     args: RenderArgs,
   ) => void | Promise<void>;
   private readonly _locked: boolean;
-  private _isFirstRender: boolean = true;
+  private _isConnected: boolean = true;
 
   constructor(serverInfo: Implementation, options?: McpServerOptions<RenderArgs>) {
     this.server = new Server(serverInfo, options);
@@ -81,6 +80,7 @@ export class McpServer<RenderArgs extends Record<string, any> = Record<string, a
    * The `server` object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
    */
   async connect(transport: Transport): Promise<void> {
+    this._isConnected = true
     return await this.server.connect(transport);
   }
 
@@ -529,15 +529,12 @@ export class McpServer<RenderArgs extends Record<string, any> = Record<string, a
     this.setPromptRequestHandlers();
     this.setResourceRequestHandlers();
 
-    // Emit change events only if state *actually* changed and it's not the first render
-    if (!this._isFirstRender) {
+    // Emit change events if we have a transport to emit to
+    if (!this._isConnected) {
       if (toolsChanged) this.server.sendToolListChanged()
       if (promptsChanged) this.server.sendPromptListChanged()
       if (resourcesChanged) this.server.sendResourceListChanged()
     }
-
-    // --- 6. Mark first render as complete ---
-    this._isFirstRender = false;
   }
 
   /**
