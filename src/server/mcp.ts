@@ -43,17 +43,24 @@ import { UriTemplate, Variables } from "../shared/uriTemplate.js";
 import { RequestHandlerExtra } from "../shared/protocol.js";
 import { Transport } from "../shared/transport.js";
 
-type McpServerOptions = ServerOptions & {
-  render?: <T extends Record<string, any>>(inserts: any, args: T) => void;
+type RenderApi = {
+  resource: McpServer["resource"];
+  tool: McpServer["tool"];
+  prompt: McpServer["prompt"];
+};
+
+type McpServerOptions<T extends Record<string, any> = Record<string, any>> =
+  ServerOptions & {
+  render?: (api: RenderApi, args: T) => void | Promise<void>;
   locked?: boolean;
-}
+};
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * Server instance available via the `server` property.
  */
-export class McpServer {
+export class McpServer<RenderArgs extends Record<string, any> = Record<string, any>> {
   /**
    * The underlying Server instance, useful for advanced operations like sending notifications.
    */
@@ -65,11 +72,24 @@ export class McpServer {
   } = {};
   private _registeredTools: { [name: string]: RegisteredTool } = {};
   private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
-  private _options?: McpServerOptions
 
-  constructor(serverInfo: Implementation, options?: McpServerOptions) {
+  private readonly _renderFunction?: (
+    api: RenderApi,
+    args: RenderArgs,
+  ) => void | Promise<void>;
+  private readonly _locked: boolean;
+  private _isFirstRender: boolean = true;
+
+  constructor(serverInfo: Implementation, options?: McpServerOptions<RenderArgs>) {
     this.server = new Server(serverInfo, options);
-    this._options = options
+    this._renderFunction = options?.render;
+    this._locked = options?.locked ?? false;
+
+    if (this._locked && !this._renderFunction) {
+      throw new Error(
+        "McpServer is locked, but no render function was provided. No resources, tools, or prompts can be registered.",
+      );
+    }
   }
 
   /**
@@ -456,27 +476,176 @@ export class McpServer {
   }
 
   /**
-   * These are called after a render() method has added, removed, or updated any prompts/resources/tools
+   * Clears existing resources, tools, and prompts, then runs the configured `render` function
+   * to define a new set based on the provided arguments.
+   * If the set of registered items changes compared to the previous state (and it's not the first render),
+   * appropriate `/listChanged` notifications are sent.
+   *
+   * @param args Arguments to pass to the configured `render` function.
+   * @throws Error if no `render` function was provided in the constructor options.
    */
-  private emitPromptsChangedEvent(/* todo: how to track changes? */) {
-    // todo send notification event
-  }
+  async render(args: RenderArgs): Promise<void> {
+    if (!this._renderFunction) {
+      throw new Error(
+        "Cannot call render(). No render function was provided during McpServer initialization.",
+      );
+    }
 
-  private emitResourcesChangedEvent(/* todo: how to track changes? */) {
-    // todo send notification event
-  }
+    // --- 1. Prepare for new render ---
+    const newResources: { [uri: string]: RegisteredResource } = {};
+    const newResourceTemplates: { [name: string]: RegisteredResourceTemplate } =
+      {};
+    const newTools: { [name: string]: RegisteredTool } = {};
+    const newPrompts: { [name: string]: RegisteredPrompt } = {};
 
-  private emitToolsChangedEvent(/* todo: how to track changes? */) {
-    // todo send notification event
+    // --- 2. Create temporary registration API for the render function ---
+    // These functions capture the definitions into the 'new*' objects above.
+    // They mirror the public API but don't check for locking or emit events immediately.
+    const renderApi: RenderApi = {
+      resource: (
+        name: string,
+        uriOrTemplate: string | ResourceTemplate,
+        ...rest: unknown[]
+      ): void => {
+        let metadata: ResourceMetadata | undefined;
+        if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !(rest[0] instanceof Function)) {
+           metadata = rest.shift() as ResourceMetadata;
+        }
+
+        const readCallback = rest[0] as
+          | ReadResourceCallback
+          | ReadResourceTemplateCallback;
+
+        if (typeof uriOrTemplate === "string") {
+          if (newResources[uriOrTemplate]) {
+            console.warn(
+              `Resource URI '${uriOrTemplate}' defined multiple times within the same render cycle. Last definition wins.`,
+            );
+          }
+          newResources[uriOrTemplate] = {
+            name,
+            metadata,
+            readCallback: readCallback as ReadResourceCallback,
+          };
+        } else {
+          if (newResourceTemplates[name]) {
+            console.warn(
+              `Resource template '${name}' defined multiple times within the same render cycle. Last definition wins.`,
+            );
+          }
+          newResourceTemplates[name] = {
+            resourceTemplate: uriOrTemplate,
+            metadata,
+            readCallback: readCallback as ReadResourceTemplateCallback,
+          };
+        }
+      },
+      tool: (name: string, ...rest: unknown[]): void => {
+        if (newTools[name]) {
+          console.warn(
+            `Tool '${name}' defined multiple times within the same render cycle. Last definition wins.`,
+          );
+        }
+
+        let description: string | undefined;
+        if (typeof rest[0] === "string") {
+          description = rest.shift() as string;
+        }
+
+        let paramsSchema: ZodRawShape | undefined;
+        // Check if the next item is an object but not the callback function
+        if (rest.length > 1 && typeof rest[0] === 'object' && rest[0] !== null && !(rest[0] instanceof Function)) {
+          paramsSchema = rest.shift() as ZodRawShape;
+        }
+
+        const cb = rest[0] as ToolCallback<ZodRawShape | undefined>;
+        newTools[name] = {
+          description,
+          inputSchema:
+            paramsSchema === undefined ? undefined : z.object(paramsSchema),
+          callback: cb,
+        };
+      },
+      prompt: (name: string, ...rest: unknown[]): void => {
+        if (newPrompts[name]) {
+          console.warn(
+            `Prompt '${name}' defined multiple times within the same render cycle. Last definition wins.`,
+          );
+        }
+
+        let description: string | undefined;
+        if (typeof rest[0] === "string") {
+          description = rest.shift() as string;
+        }
+
+        let argsSchema: PromptArgsRawShape | undefined;
+         // Check if the next item is an object but not the callback function
+        if (rest.length > 1 && typeof rest[0] === 'object' && rest[0] !== null && !(rest[0] instanceof Function)) {
+           argsSchema = rest.shift() as PromptArgsRawShape;
+        }
+
+
+        const cb = rest[0] as PromptCallback<
+          PromptArgsRawShape | undefined
+        >;
+        newPrompts[name] = {
+          description,
+          argsSchema:
+            argsSchema === undefined ? undefined : z.object(argsSchema),
+          callback: cb,
+        };
+      },
+    };
+
+    // --- 3. Execute the user's render function ---
+    this._renderFunction(renderApi, args)
+
+    // --- 4. Compare old state with new state ---
+    const toolsChanged = haveKeysChanged(this._registeredTools, newTools);
+    const promptsChanged = haveKeysChanged(this._registeredPrompts, newPrompts);
+    const resourcesChanged = haveKeysChanged(
+      {
+        ...this._registeredResources,
+        ...mapKeys(this._registeredResourceTemplates, (t) => t.resourceTemplate.uriTemplate.toString()) // Use template URI for comparison consistency if needed, or just name
+      },
+      {
+        ...newResources,
+        ...mapKeys(newResourceTemplates, (t) => t.resourceTemplate.uriTemplate.toString())
+      }
+    ) || haveKeysChanged(this._registeredResourceTemplates, newResourceTemplates); // Also check template names directly
+
+    // --- 5. Always update internal state (currently we're not emitting events for changes in parameters or descriptions
+    // of tools, but we should at least store the new values
+    this._registeredTools = newTools;
+    this._registeredPrompts = newPrompts;
+    this._registeredResources = newResources;
+    this._registeredResourceTemplates = newResourceTemplates;
+
+    // Ensure handlers are set up
+    this.setToolRequestHandlers();
+    this.setPromptRequestHandlers();
+    this.setResourceRequestHandlers();
+
+    // Emit change events only if state *actually* changed and it's not the first render
+    if (!this._isFirstRender) {
+      if (toolsChanged) this.server.sendToolListChanged()
+      if (promptsChanged) this.server.sendPromptListChanged()
+      if (resourcesChanged) this.server.sendResourceListChanged()
+    }
+
+    // --- 6. Mark first render as complete ---
+    this._isFirstRender = false;
   }
 
   /**
    * Registers a resource `name` at a fixed URI, which will use the given callback to respond to read requests.
+   * @throws Error if the server is locked.
    */
   resource(name: string, uri: string, readCallback: ReadResourceCallback): void;
 
   /**
    * Registers a resource `name` at a fixed URI with metadata, which will use the given callback to respond to read requests.
+   * @throws Error if the server is locked.
    */
   resource(
     name: string,
@@ -487,6 +656,7 @@ export class McpServer {
 
   /**
    * Registers a resource `name` with a template pattern, which will use the given callback to respond to read requests.
+   * @throws Error if the server is locked.
    */
   resource(
     name: string,
@@ -496,6 +666,7 @@ export class McpServer {
 
   /**
    * Registers a resource `name` with a template pattern and metadata, which will use the given callback to respond to read requests.
+   * @throws Error if the server is locked.
    */
   resource(
     name: string,
@@ -509,9 +680,16 @@ export class McpServer {
     uriOrTemplate: string | ResourceTemplate,
     ...rest: unknown[]
   ): void {
+    if (this._locked) {
+      throw new Error(
+        "Server is locked. Resources can only be registered via the render() method.",
+      );
+    }
+
     let metadata: ResourceMetadata | undefined;
-    if (typeof rest[0] === "object") {
-      metadata = rest.shift() as ResourceMetadata;
+    // Check if the first rest arg is metadata (object, not function)
+    if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !(rest[0] instanceof Function)) {
+        metadata = rest.shift() as ResourceMetadata;
     }
 
     const readCallback = rest[0] as
@@ -540,21 +718,25 @@ export class McpServer {
       };
     }
 
-    this.setResourceRequestHandlers();
+    this.setResourceRequestHandlers()
+    this.server.sendResourceListChanged()
   }
 
   /**
    * Registers a zero-argument tool `name`, which will run the given function when the client calls it.
+   * @throws Error if the server is locked.
    */
   tool(name: string, cb: ToolCallback): void;
 
   /**
    * Registers a zero-argument tool `name` (with a description) which will run the given function when the client calls it.
+   * @throws Error if the server is locked.
    */
   tool(name: string, description: string, cb: ToolCallback): void;
 
   /**
    * Registers a tool `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   * @throws Error if the server is locked.
    */
   tool<Args extends ZodRawShape>(
     name: string,
@@ -564,6 +746,7 @@ export class McpServer {
 
   /**
    * Registers a tool `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   * @throws Error if the server is locked.
    */
   tool<Args extends ZodRawShape>(
     name: string,
@@ -573,8 +756,10 @@ export class McpServer {
   ): void;
 
   tool(name: string, ...rest: unknown[]): void {
-    if (this._registeredTools[name]) {
-      throw new Error(`Tool ${name} is already registered`);
+    if (this._locked) {
+      throw new Error(
+        "Server is locked. Tools can only be registered via the render() method.",
+      );
     }
 
     let description: string | undefined;
@@ -596,20 +781,24 @@ export class McpServer {
     };
 
     this.setToolRequestHandlers();
+    this.server.sendToolListChanged();
   }
 
   /**
    * Registers a zero-argument prompt `name`, which will run the given function when the client calls it.
+   * @throws Error if the server is locked.
    */
   prompt(name: string, cb: PromptCallback): void;
 
   /**
    * Registers a zero-argument prompt `name` (with a description) which will run the given function when the client calls it.
+   * @throws Error if the server is locked.
    */
   prompt(name: string, description: string, cb: PromptCallback): void;
 
   /**
    * Registers a prompt `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   * @throws Error if the server is locked.
    */
   prompt<Args extends PromptArgsRawShape>(
     name: string,
@@ -619,6 +808,7 @@ export class McpServer {
 
   /**
    * Registers a prompt `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   * @throws Error if the server is locked.
    */
   prompt<Args extends PromptArgsRawShape>(
     name: string,
@@ -628,8 +818,10 @@ export class McpServer {
   ): void;
 
   prompt(name: string, ...rest: unknown[]): void {
-    if (this._registeredPrompts[name]) {
-      throw new Error(`Prompt ${name} is already registered`);
+    if (this._locked) {
+      throw new Error(
+        "Server is locked. Prompts can only be registered via the render() method.",
+      );
     }
 
     let description: string | undefined;
@@ -650,8 +842,44 @@ export class McpServer {
     };
 
     this.setPromptRequestHandlers();
+    this.server.sendPromptListChanged()
   }
 }
+
+// --- Helper Function for Change Detection ---
+
+/** Checks if the keys of two objects are different. */
+function haveKeysChanged(oldObj: object, newObj: object): boolean {
+  const oldKeys = Object.keys(oldObj).sort();
+  const newKeys = Object.keys(newObj).sort();
+
+  if (oldKeys.length !== newKeys.length) {
+    return true;
+  }
+
+  for (let i = 0; i < oldKeys.length; i++) {
+    if (oldKeys[i] !== newKeys[i]) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** Helper to map object keys while preserving values. */
+function mapKeys<V>(obj: Record<string, V>, keyMapper: (value: V, key: string) => string): Record<string, V> {
+    const result: Record<string, V> = {};
+    for(const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+            const newKey = keyMapper(obj[key], key);
+            result[newKey] = obj[key];
+        }
+    }
+    return result;
+}
+
+
+// --- Constants and Type Definitions (mostly unchanged) ---
 
 /**
  * A callback to complete one variable within a resource template's URI template.
