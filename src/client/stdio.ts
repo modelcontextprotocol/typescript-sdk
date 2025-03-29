@@ -117,7 +117,7 @@ export class StdioClientTransport implements Transport {
         this._serverParams.command,
         this._serverParams.args ?? [],
         {
-          env: this._serverParams.env ?? getDefaultEnvironment(),
+          env: { ...getDefaultEnvironment(), ...(this._serverParams.env ?? {}) },
           stdio: ["pipe", "pipe", this._serverParams.stderr ?? "inherit"],
           shell: false,
           signal: this._abortController.signal,
