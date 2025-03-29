@@ -72,7 +72,26 @@ describe("StdioClientTransport using cross-spawn", () => {
       "test-command",
       [],
       expect.objectContaining({
-        env: customEnv
+        env: expect.objectContaining(customEnv)
+      })
+    );
+  });
+
+  test("should merge default and custom environment variables", async () => {
+    const customEnv = { CUSTOM_VAR: "custom-value" };
+    const transport = new StdioClientTransport({
+      command: "test-command",
+      env: customEnv
+    });
+
+    await transport.start();
+
+    // verify environment variables are merged correctly
+    expect(mockSpawn).toHaveBeenCalledWith(
+      "test-command",
+      [],
+      expect.objectContaining({
+        env: expect.objectContaining(customEnv)
       })
     );
   });

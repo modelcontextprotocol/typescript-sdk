@@ -37,6 +37,10 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 npm install @modelcontextprotocol/sdk
 ```
 
+### Requirements
+
+- **Node.js**: Version 18 or higher is required. This SDK uses features like `AbortController` that are only available in Node.js 18+.
+
 ## Quick Start
 
 Let's create a simple MCP server that exposes a calculator tool and some data:
