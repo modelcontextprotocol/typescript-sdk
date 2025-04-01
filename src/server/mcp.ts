@@ -100,14 +100,11 @@ export class McpServer {
       CallToolRequestSchema.shape.method.value,
     );
 
-    // Register capabilities only if not already registered
-    if (!this.server.capabilities.tools) {
         this.server.registerCapabilities({
             tools: {
                 listChanged: true,
             },
         });
-    }
 
     this.server.setRequestHandler(
       ListToolsRequestSchema,
@@ -294,14 +291,11 @@ export class McpServer {
       ReadResourceRequestSchema.shape.method.value,
     );
 
-    // Register capabilities only if not already registered
-    if (!this.server.capabilities.resources) {
         this.server.registerCapabilities({
             resources: {
                 listChanged: true,
             },
         });
-    }
 
     this.server.setRequestHandler(
       ListResourcesRequestSchema,
@@ -399,14 +393,11 @@ export class McpServer {
       GetPromptRequestSchema.shape.method.value,
     );
 
-    // Register capabilities only if not already registered
-    if (!this.server.capabilities.prompts) {
         this.server.registerCapabilities({
             prompts: {
                 listChanged: true,
             },
         });
-    }
 
     this.server.setRequestHandler(
       ListPromptsRequestSchema,
@@ -502,14 +493,7 @@ export class McpServer {
     ...rest: unknown[]
   ): void {
     let metadata: ResourceMetadata | undefined;
-    // Check if the first rest arg is metadata (object, not function, not array)
-    if (
-      rest.length > 1 &&
-      typeof rest[0] === "object" &&
-      rest[0] !== null &&
-      !Array.isArray(rest[0]) &&
-      !(rest[0] instanceof Function)
-    ) {
+    if (typeof rest[0] === "object") {
       metadata = rest.shift() as ResourceMetadata;
     }
 
@@ -519,8 +503,9 @@ export class McpServer {
 
     if (typeof uriOrTemplate === "string") {
       if (this._registeredResources[uriOrTemplate]) {
-        console.warn(`Resource ${uriOrTemplate} is already registered. Overwriting.`);
+        throw new Error(`Resource ${uriOrTemplate} is already registered`);
       }
+
       this._registeredResources[uriOrTemplate] = {
         name,
         metadata,
@@ -528,8 +513,9 @@ export class McpServer {
       };
     } else {
       if (this._registeredResourceTemplates[name]) {
-         console.warn(`Resource template ${name} is already registered. Overwriting.`);
+        throw new Error(`Resource template ${name} is already registered`);
       }
+
       this._registeredResourceTemplates[name] = {
         resourceTemplate: uriOrTemplate,
         metadata,
@@ -602,7 +588,7 @@ export class McpServer {
 
   tool(name: string, ...rest: unknown[]): void {
     if (this._registeredTools[name]) {
-        console.warn(`Tool ${name} is already registered. Overwriting.`);
+      throw new Error(`Tool ${name} is already registered`);
     }
 
     let description: string | undefined;
@@ -676,7 +662,7 @@ export class McpServer {
 
   prompt(name: string, ...rest: unknown[]): void {
     if (this._registeredPrompts[name]) {
-      console.warn(`Prompt ${name} is already registered. Overwriting.`);
+      throw new Error(`Prompt ${name} is already registered`);
     }
 
     let description: string | undefined;
@@ -718,8 +704,6 @@ export class McpServer {
       return false;
   }
 }
-
-// --- Constants and Type Definitions ---
 
 /**
  * A callback to complete one variable within a resource template's URI template.
