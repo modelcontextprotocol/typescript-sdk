@@ -490,6 +490,57 @@ export class McpServer {
     uriOrTemplate: string | ResourceTemplate,
     ...rest: unknown[]
   ): void {
+    this._setResource(name, uriOrTemplate, rest, false);
+  }
+  
+  /**
+   * Updates a resource `name` at a fixed URI, which will use the given callback to respond to read requests.
+   */
+  updateResource(name: string, uri: string, readCallback: ReadResourceCallback): void;
+
+  /**
+   * Updates a resource `name` at a fixed URI with metadata, which will use the given callback to respond to read requests.
+   */
+  updateResource(
+    name: string,
+    uri: string,
+    metadata: ResourceMetadata,
+    readCallback: ReadResourceCallback,
+  ): void;
+
+  /**
+   * Updates a resource `name` with a template pattern, which will use the given callback to respond to read requests.
+   */
+  updateResource(
+    name: string,
+    template: ResourceTemplate,
+    readCallback: ReadResourceTemplateCallback,
+  ): void;
+
+  /**
+   * Updates a resource `name` with a template pattern and metadata, which will use the given callback to respond to read requests.
+   */
+  updateResource(
+    name: string,
+    template: ResourceTemplate,
+    metadata: ResourceMetadata,
+    readCallback: ReadResourceTemplateCallback,
+  ): void;
+
+  updateResource(
+    name: string,
+    uriOrTemplate: string | ResourceTemplate,
+    ...rest: unknown[]
+  ): void {
+    this._setResource(name, uriOrTemplate, rest, true);
+  }
+  
+  private _setResource(
+    name: string,
+    uriOrTemplate: string | ResourceTemplate,
+    rest: unknown[],
+    update: boolean
+  ): void {
     let metadata: ResourceMetadata | undefined;
     if (typeof rest[0] === "object") {
       metadata = rest.shift() as ResourceMetadata;
@@ -500,8 +551,14 @@ export class McpServer {
       | ReadResourceTemplateCallback;
 
     if (typeof uriOrTemplate === "string") {
-      if (this._registeredResources[uriOrTemplate]) {
-        throw new Error(`Resource ${uriOrTemplate} is already registered`);
+      if (update) {
+        if (!this._registeredResources[uriOrTemplate]) {
+          throw new Error(`Resource ${uriOrTemplate} is not registered`);
+        }
+      } else {
+        if (this._registeredResources[uriOrTemplate]) {
+          throw new Error(`Resource ${uriOrTemplate} is already registered`);
+        }
       }
 
       this._registeredResources[uriOrTemplate] = {
@@ -510,8 +567,14 @@ export class McpServer {
         readCallback: readCallback as ReadResourceCallback,
       };
     } else {
-      if (this._registeredResourceTemplates[name]) {
-        throw new Error(`Resource template ${name} is already registered`);
+      if (update) {
+        if (!this._registeredResourceTemplates[name]) {
+          throw new Error(`Resource template ${name} is not registered`);
+        }
+      } else {
+        if (this._registeredResourceTemplates[name]) {
+          throw new Error(`Resource template ${name} is already registered`);
+        }
       }
 
       this._registeredResourceTemplates[name] = {
@@ -585,8 +648,55 @@ export class McpServer {
   ): void;
 
   tool(name: string, ...rest: unknown[]): void {
-    if (this._registeredTools[name]) {
-      throw new Error(`Tool ${name} is already registered`);
+    this._setTool(name, rest, false);
+  }
+  
+  /**
+   * Updates a zero-argument tool `name`, which will run the given function when the client calls it.
+   */
+  updateTool(name: string, cb: ToolCallback): void;
+
+  /**
+   * Updates a zero-argument tool `name` (with a description) which will run the given function when the client calls it.
+   */
+  updateTool(name: string, description: string, cb: ToolCallback): void;
+
+  /**
+   * Updates a tool `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   */
+  updateTool<Args extends ZodRawShape>(
+    name: string,
+    paramsSchema: Args,
+    cb: ToolCallback<Args>,
+  ): void;
+
+  /**
+   * Updates a tool `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   */
+  updateTool<Args extends ZodRawShape>(
+    name: string,
+    description: string,
+    paramsSchema: Args,
+    cb: ToolCallback<Args>,
+  ): void;
+
+  updateTool(name: string, ...rest: unknown[]): void {
+    this._setTool(name, rest, true);
+  }
+  
+  private _setTool(
+    name: string,
+    rest: unknown[],
+    update: boolean
+  ): void {
+    if (update) {
+      if (!this._registeredTools[name]) {
+        throw new Error(`Tool ${name} is not registered`);
+      }
+    } else {
+      if (this._registeredTools[name]) {
+        throw new Error(`Tool ${name} is already registered`);
+      }
     }
 
     let description: string | undefined;
@@ -659,8 +769,55 @@ export class McpServer {
   ): void;
 
   prompt(name: string, ...rest: unknown[]): void {
-    if (this._registeredPrompts[name]) {
-      throw new Error(`Prompt ${name} is already registered`);
+    this._setPrompt(name, rest, false);
+  }
+  
+  /**
+   * Updates a zero-argument prompt `name`, which will run the given function when the client calls it.
+   */
+  updatePrompt(name: string, cb: PromptCallback): void;
+
+  /**
+   * Updates a zero-argument prompt `name` (with a description) which will run the given function when the client calls it.
+   */
+  updatePrompt(name: string, description: string, cb: PromptCallback): void;
+
+  /**
+   * Updates a prompt `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   */
+  updatePrompt<Args extends PromptArgsRawShape>(
+    name: string,
+    argsSchema: Args,
+    cb: PromptCallback<Args>,
+  ): void;
+
+  /**
+   * Updates a prompt `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   */
+  updatePrompt<Args extends PromptArgsRawShape>(
+    name: string,
+    description: string,
+    argsSchema: Args,
+    cb: PromptCallback<Args>,
+  ): void;
+
+  updatePrompt(name: string, ...rest: unknown[]): void {
+    this._setPrompt(name, rest, true);
+  }
+  
+  private _setPrompt(
+    name: string,
+    rest: unknown[],
+    update: boolean
+  ): void {
+    if (update) {
+      if (!this._registeredPrompts[name]) {
+        throw new Error(`Prompt ${name} is not registered`);
+      }
+    } else {
+      if (this._registeredPrompts[name]) {
+        throw new Error(`Prompt ${name} is already registered`);
+      }
     }
 
     let description: string | undefined;
