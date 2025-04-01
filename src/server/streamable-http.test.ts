@@ -69,7 +69,7 @@ describe("StreamableHTTPServerTransport", () => {
       expect(mockResponse.writeHead).toHaveBeenCalledWith(
         200,
         expect.objectContaining({
-          "Mcp-Session-Id": transport.sessionId,
+          "mcp-session-id": transport.sessionId,
         })
       );
     });

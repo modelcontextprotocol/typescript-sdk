@@ -113,7 +113,7 @@ export class StreamableHTTPServerTransport implements Transport {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
-      "Mcp-Session-Id": this._sessionId,
+      "mcp-session-id": this._sessionId,
     });
 
     const connection: StreamConnection = {
@@ -214,7 +214,7 @@ export class StreamableHTTPServerTransport implements Transport {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             Connection: "keep-alive",
-            "Mcp-Session-Id": this._sessionId,
+            "mcp-session-id": this._sessionId,
           });
 
           const connectionId = randomUUID();
@@ -249,7 +249,7 @@ export class StreamableHTTPServerTransport implements Transport {
           // use direct JSON response
           res.writeHead(200, {
             "Content-Type": "application/json",
-            "Mcp-Session-Id": this._sessionId,
+            "mcp-session-id": this._sessionId,
           });
           
           // handle each message
