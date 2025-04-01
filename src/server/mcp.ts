@@ -72,9 +72,6 @@ export class McpServer {
    * The `server` object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
    */
   async connect(transport: Transport): Promise<void> {
-    transport.onClose(() => {
-      this._isConnected = false;
-    });
     this._isConnected = true;
     return await this.server.connect(transport);
   }
@@ -83,6 +80,7 @@ export class McpServer {
    * Closes the connection.
    */
   async close(): Promise<void> {
+    this._isConnected = false;
     await this.server.close();
   }
 
@@ -100,11 +98,11 @@ export class McpServer {
       CallToolRequestSchema.shape.method.value,
     );
 
-        this.server.registerCapabilities({
-            tools: {
-                listChanged: true,
-            },
-        });
+    this.server.registerCapabilities({
+      tools: {
+        listChanged: true
+      }
+    })
 
     this.server.setRequestHandler(
       ListToolsRequestSchema,
@@ -291,11 +289,11 @@ export class McpServer {
       ReadResourceRequestSchema.shape.method.value,
     );
 
-        this.server.registerCapabilities({
-            resources: {
-                listChanged: true,
-            },
-        });
+    this.server.registerCapabilities({
+      resources: {
+        listChanged: true
+      }
+    })
 
     this.server.setRequestHandler(
       ListResourcesRequestSchema,
@@ -393,11 +391,11 @@ export class McpServer {
       GetPromptRequestSchema.shape.method.value,
     );
 
-        this.server.registerCapabilities({
-            prompts: {
-                listChanged: true,
-            },
-        });
+    this.server.registerCapabilities({
+      prompts: {
+        listChanged: true
+      }
+    })
 
     this.server.setRequestHandler(
       ListPromptsRequestSchema,
@@ -525,7 +523,7 @@ export class McpServer {
 
     this.setResourceRequestHandlers();
     if (this._isConnected) {
-       this.server.sendResourceListChanged();
+      this.server.sendResourceListChanged();
     }
   }
 
@@ -542,19 +540,19 @@ export class McpServer {
    */
   removeResource(name: string): boolean;
   removeResource(uriOrName: string): boolean {
-      let removed = false;
-      if (this._registeredResources[uriOrName]) {
-          delete this._registeredResources[uriOrName];
-          removed = true;
-      } else if (this._registeredResourceTemplates[uriOrName]) {
-          delete this._registeredResourceTemplates[uriOrName];
-          removed = true;
-      }
+    let removed = false;
+    if (this._registeredResources[uriOrName]) {
+      delete this._registeredResources[uriOrName];
+      removed = true;
+    } else if (this._registeredResourceTemplates[uriOrName]) {
+      delete this._registeredResourceTemplates[uriOrName];
+      removed = true;
+    }
 
-      if (removed && this._isConnected) {
-          this.server.sendResourceListChanged();
-      }
-      return removed;
+    if (removed && this._isConnected) {
+      this.server.sendResourceListChanged();
+    }
+    return removed;
   }
 
   /**
@@ -621,14 +619,14 @@ export class McpServer {
    * @returns True if the tool was found and removed, false otherwise.
    */
   removeTool(name: string): boolean {
-      if (this._registeredTools[name]) {
-          delete this._registeredTools[name];
-          if (this._isConnected) {
-              this.server.sendToolListChanged();
-          }
-          return true;
+    if (this._registeredTools[name]) {
+      delete this._registeredTools[name];
+      if (this._isConnected) {
+        this.server.sendToolListChanged();
       }
-      return false;
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -684,7 +682,7 @@ export class McpServer {
 
     this.setPromptRequestHandlers();
     if (this._isConnected) {
-       this.server.sendPromptListChanged()
+      this.server.sendPromptListChanged()
     }
   }
 
@@ -694,14 +692,14 @@ export class McpServer {
    * @returns True if the prompt was found and removed, false otherwise.
    */
   removePrompt(name: string): boolean {
-      if (this._registeredPrompts[name]) {
-          delete this._registeredPrompts[name];
-          if (this._isConnected) {
-              this.server.sendPromptListChanged();
-          }
-          return true;
+    if (this._registeredPrompts[name]) {
+      delete this._registeredPrompts[name]
+      if (this._isConnected) {
+        this.server.sendPromptListChanged()
       }
-      return false;
+      return true
+    }
+    return false
   }
 }
 
