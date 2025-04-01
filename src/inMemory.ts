@@ -7,10 +7,10 @@ import { JSONRPCMessage } from "./types.js";
 export class InMemoryTransport implements Transport {
   private _otherTransport?: InMemoryTransport;
   private _messageQueue: JSONRPCMessage[] = [];
+  _messageBuffer: JSONRPCMessage[] = [];
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage) => void;
   sessionId?: string;
 
   /**
@@ -51,5 +51,9 @@ export class InMemoryTransport implements Transport {
     } else {
       this._otherTransport._messageQueue.push(message);
     }
+  }
+
+  onmessage(message: JSONRPCMessage) {
+    this._messageBuffer.push(message)
   }
 }

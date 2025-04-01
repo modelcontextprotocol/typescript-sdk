@@ -60,7 +60,6 @@ export class McpServer {
   } = {};
   private _registeredTools: { [name: string]: RegisteredTool } = {};
   private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
-  private _isConnected: boolean = false;
 
   constructor(serverInfo: Implementation, options?: ServerOptions) {
     this.server = new Server(serverInfo, options);
@@ -72,7 +71,6 @@ export class McpServer {
    * The `server` object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
    */
   async connect(transport: Transport): Promise<void> {
-    this._isConnected = true;
     return await this.server.connect(transport);
   }
 
@@ -80,7 +78,6 @@ export class McpServer {
    * Closes the connection.
    */
   async close(): Promise<void> {
-    this._isConnected = false;
     await this.server.close();
   }
 
@@ -585,7 +582,7 @@ export class McpServer {
     }
 
     this.setResourceRequestHandlers();
-    if (this._isConnected) {
+    if (this.isConnected()) {
       this.server.sendResourceListChanged();
     }
   }
@@ -612,7 +609,7 @@ export class McpServer {
       removed = true;
     }
 
-    if (removed && this._isConnected) {
+    if (removed && this.isConnected()) {
       this.server.sendResourceListChanged();
     }
     return removed;
@@ -718,7 +715,7 @@ export class McpServer {
     };
 
     this.setToolRequestHandlers();
-    if (this._isConnected) {
+    if (this.isConnected()) {
       this.server.sendToolListChanged();
     }
   }
@@ -731,7 +728,7 @@ export class McpServer {
   removeTool(name: string): boolean {
     if (this._registeredTools[name]) {
       delete this._registeredTools[name];
-      if (this._isConnected) {
+      if (this.isConnected()) {
         this.server.sendToolListChanged();
       }
       return true;
@@ -838,7 +835,7 @@ export class McpServer {
     };
 
     this.setPromptRequestHandlers();
-    if (this._isConnected) {
+    if (this.isConnected()) {
       this.server.sendPromptListChanged()
     }
   }
@@ -851,12 +848,20 @@ export class McpServer {
   removePrompt(name: string): boolean {
     if (this._registeredPrompts[name]) {
       delete this._registeredPrompts[name]
-      if (this._isConnected) {
+      if (this.isConnected()) {
         this.server.sendPromptListChanged()
       }
       return true
     }
     return false
+  }
+
+  /**
+   * Checks if the server is connected to a transport.
+   * @returns True if the server is connected
+   */
+  isConnected() {
+    return this.server.transport !== undefined
   }
 }
 
