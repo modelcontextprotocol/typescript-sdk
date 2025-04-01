@@ -11,7 +11,6 @@ import {
   ListPromptsResultSchema,
   GetPromptResultSchema,
   CompleteResultSchema,
-  ToolListChangedNotificationSchema,
   Notification,
 } from "../types.js";
 import { ResourceTemplate } from "./mcp.js";
@@ -860,320 +859,355 @@ describe("resource()", () => {
     expect(result.resources[0].uri).toBe("test://resource");
   });
 
-  // test("should update resource with uri", async () => {
-  //   const mcpServer = new McpServer({
-  //     name: "test server",
-  //     version: "1.0",
-  //   });
-  //   const client = new Client({
-  //     name: "test client",
-  //     version: "1.0",
-  //   });
-  //
-  //   // Register initial resource
-  //   mcpServer.resource("test", "test://resource", async () => ({
-  //     contents: [
-  //       {
-  //         uri: "test://resource",
-  //         text: "Initial content",
-  //       },
-  //     ],
-  //   }));
-  //
-  //   // Update the resource
-  //   mcpServer.updateResource("test", "test://resource", async () => ({
-  //     contents: [
-  //       {
-  //         uri: "test://resource",
-  //         text: "Updated content",
-  //       },
-  //     ],
-  //   }));
-  //
-  //   const [clientTransport, serverTransport] =
-  //     InMemoryTransport.createLinkedPair();
-  //
-  //   await Promise.all([
-  //     client.connect(clientTransport),
-  //     mcpServer.connect(serverTransport),
-  //   ]);
-  //
-  //   // Read the resource and verify we get the updated content
-  //   const result = await client.request(
-  //     {
-  //       method: "resources/read",
-  //       params: {
-  //         uri: "test://resource",
-  //       },
-  //     },
-  //     ReadResourceResultSchema,
-  //   );
-  //
-  //   expect(result.contents).toHaveLength(1);
-  //   expect(result.contents[0].text).toBe("Updated content");
-  // });
-  //
-  // test("should update resource template", async () => {
-  //   const mcpServer = new McpServer({
-  //     name: "test server",
-  //     version: "1.0",
-  //   });
-  //   const client = new Client({
-  //     name: "test client",
-  //     version: "1.0",
-  //   });
-  //
-  //   // Register initial resource template
-  //   mcpServer.resource(
-  //     "test",
-  //     new ResourceTemplate("test://resource/{id}", { list: undefined }),
-  //     async (uri) => ({
-  //       contents: [
-  //         {
-  //           uri: uri.href,
-  //           text: "Initial content",
-  //         },
-  //       ],
-  //     }),
-  //   );
-  //
-  //   // Update the resource template
-  //   mcpServer.updateResource(
-  //     "test",
-  //     new ResourceTemplate("test://resource/{id}", { list: undefined }),
-  //     async (uri) => ({
-  //       contents: [
-  //         {
-  //           uri: uri.href,
-  //           text: "Updated content",
-  //         },
-  //       ],
-  //     }),
-  //   );
-  //
-  //   const [clientTransport, serverTransport] =
-  //     InMemoryTransport.createLinkedPair();
-  //
-  //   await Promise.all([
-  //     client.connect(clientTransport),
-  //     mcpServer.connect(serverTransport),
-  //   ]);
-  //
-  //   // Read the resource and verify we get the updated content
-  //   const result = await client.request(
-  //     {
-  //       method: "resources/read",
-  //       params: {
-  //         uri: "test://resource/123",
-  //       },
-  //     },
-  //     ReadResourceResultSchema,
-  //   );
-  //
-  //   expect(result.contents).toHaveLength(1);
-  //   expect(result.contents[0].text).toBe("Updated content");
-  // });
-  //
-  // test("should throw when updating non-existent resource", () => {
-  //   const mcpServer = new McpServer({
-  //     name: "test server",
-  //     version: "1.0",
-  //   });
-  //
-  //   // Attempt to update a non-existent static resource
-  //   expect(() => {
-  //     mcpServer.updateResource("test", "test://nonexistent", async () => ({
-  //       contents: [
-  //         {
-  //           uri: "test://nonexistent",
-  //           text: "Updated content",
-  //         },
-  //       ],
-  //     }));
-  //   }).toThrow(/not registered/);
-  //
-  //   // Attempt to update a non-existent resource template
-  //   expect(() => {
-  //     mcpServer.updateResource(
-  //       "nonexistent",
-  //       new ResourceTemplate("test://nonexistent/{id}", { list: undefined }),
-  //       async () => ({
-  //         contents: [
-  //           {
-  //             uri: "test://nonexistent/123",
-  //             text: "Updated content",
-  //           },
-  //         ],
-  //       }),
-  //     );
-  //   }).toThrow(/not registered/);
-  // });
-  //
-  // test("should send resource list changed notification when connected", async () => {
-  //   const mcpServer = new McpServer({
-  //     name: "test server",
-  //     version: "1.0",
-  //   });
-  //
-  //   // Add spy to the sendResourceListChanged method
-  //   const spy = jest.spyOn(mcpServer.server, "sendResourceListChanged");
-  //
-  //   // Register initial resource
-  //   mcpServer.resource("test", "test://resource", async () => ({
-  //     contents: [
-  //       {
-  //         uri: "test://resource",
-  //         text: "Test content",
-  //       },
-  //     ],
-  //   }));
-  //
-  //   // Not connected yet, should not send notification
-  //   expect(spy).not.toHaveBeenCalled();
-  //
-  //   const [, serverTransport] = InMemoryTransport.createLinkedPair();
-  //   await mcpServer.connect(serverTransport);
-  //
-  //   // Now update the resource while connected
-  //   mcpServer.updateResource("test", "test://resource", async () => ({
-  //     contents: [
-  //       {
-  //         uri: "test://resource",
-  //         text: "Updated content",
-  //       },
-  //     ],
-  //   }));
-  //
-  //   // Should have sent notification
-  //   expect(spy).toHaveBeenCalledTimes(1);
-  //
-  //   // Clean up
-  //   spy.mockRestore();
-  // });
-  //
-  // test("should remove resource and send notification when connected", async () => {
-  //   const mcpServer = new McpServer({
-  //     name: "test server",
-  //     version: "1.0",
-  //   });
-  //   const client = new Client({
-  //     name: "test client",
-  //     version: "1.0",
-  //   });
-  //
-  //   // Register initial resources
-  //   mcpServer.resource("resource1", "test://resource1", async () => ({
-  //     contents: [{ uri: "test://resource1", text: "Resource 1 content" }],
-  //   }));
-  //
-  //   mcpServer.resource("resource2", "test://resource2", async () => ({
-  //     contents: [{ uri: "test://resource2", text: "Resource 2 content" }],
-  //   }));
-  //
-  //   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  //
-  //   await Promise.all([
-  //     client.connect(clientTransport),
-  //     mcpServer.connect(serverTransport),
-  //   ]);
-  //
-  //   // Verify both resources are registered
-  //   let result = await client.request(
-  //     { method: "resources/list" },
-  //     ListResourcesResultSchema,
-  //   );
-  //
-  //   expect(result.resources).toHaveLength(2);
-  //
-  //   // Add spy to the sendResourceListChanged method
-  //   const spy = jest.spyOn(mcpServer.server, "sendResourceListChanged");
-  //
-  //   // Remove a resource
-  //   const removed = mcpServer.removeResource("test://resource1");
-  //   expect(removed).toBe(true);
-  //
-  //   // Should have sent notification
-  //   expect(spy).toHaveBeenCalledTimes(1);
-  //
-  //   // Verify the resource was removed
-  //   result = await client.request(
-  //     { method: "resources/list" },
-  //     ListResourcesResultSchema,
-  //   );
-  //
-  //   expect(result.resources).toHaveLength(1);
-  //   expect(result.resources[0].uri).toBe("test://resource2");
-  //
-  //   // Removing a non-existent resource should return false and not send notification
-  //   spy.mockClear();
-  //   const notRemoved = mcpServer.removeResource("test://nonexistent");
-  //   expect(notRemoved).toBe(false);
-  //   expect(spy).not.toHaveBeenCalled();
-  //
-  //   // Clean up
-  //   spy.mockRestore();
-  // });
-  //
-  // test("should remove resource template and send notification when connected", async () => {
-  //   const mcpServer = new McpServer({
-  //     name: "test server",
-  //     version: "1.0",
-  //   });
-  //   const client = new Client({
-  //     name: "test client",
-  //     version: "1.0",
-  //   });
-  //
-  //   // Register resource template
-  //   mcpServer.resource(
-  //     "template",
-  //     new ResourceTemplate("test://resource/{id}", { list: undefined }),
-  //     async (uri) => ({
-  //       contents: [
-  //         {
-  //           uri: uri.href,
-  //           text: "Template content",
-  //         },
-  //       ],
-  //     }),
-  //   );
-  //
-  //   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  //
-  //   await Promise.all([
-  //     client.connect(clientTransport),
-  //     mcpServer.connect(serverTransport),
-  //   ]);
-  //
-  //   // Verify template is registered
-  //   const result = await client.request(
-  //     { method: "resources/templates/list" },
-  //     ListResourceTemplatesResultSchema,
-  //   );
-  //
-  //   expect(result.resourceTemplates).toHaveLength(1);
-  //
-  //   // Add spy to the sendResourceListChanged method
-  //   const spy = jest.spyOn(mcpServer.server, "sendResourceListChanged");
-  //
-  //   // Remove the template
-  //   const removed = mcpServer.removeResource("template");
-  //   expect(removed).toBe(true);
-  //
-  //   // Should have sent notification
-  //   expect(spy).toHaveBeenCalledTimes(1);
-  //
-  //   // Verify the template was removed
-  //   const result2 = await client.request(
-  //     { method: "resources/templates/list" },
-  //     ListResourceTemplatesResultSchema,
-  //   );
-  //
-  //   expect(result2.resourceTemplates).toHaveLength(0);
-  //
-  //   // Clean up
-  //   spy.mockRestore();
-  // });
+  test("should update resource with uri", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial resource
+    mcpServer.resource("test", "test://resource", async () => ({
+      contents: [
+        {
+          uri: "test://resource",
+          text: "Initial content",
+        },
+      ],
+    }));
+
+    // Update the resource
+    mcpServer.updateResource("test", "test://resource", async () => ({
+      contents: [
+        {
+          uri: "test://resource",
+          text: "Updated content",
+        },
+      ],
+    }));
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Read the resource and verify we get the updated content
+    const result = await client.request(
+      {
+        method: "resources/read",
+        params: {
+          uri: "test://resource",
+        },
+      },
+      ReadResourceResultSchema,
+    );
+
+    expect(result.contents).toHaveLength(1);
+    expect(result.contents[0].text).toBe("Updated content");
+
+    // Update happened before transport was connected, so no notifications should be expected
+    expect(notifications).toHaveLength(0);
+  });
+
+  test("should update resource template", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial resource template
+    mcpServer.resource(
+      "test",
+      new ResourceTemplate("test://resource/{id}", { list: undefined }),
+      async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            text: "Initial content",
+          },
+        ],
+      }),
+    );
+
+    // Update the resource template
+    mcpServer.updateResource(
+      "test",
+      new ResourceTemplate("test://resource/{id}", { list: undefined }),
+      async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            text: "Updated content",
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Read the resource and verify we get the updated content
+    const result = await client.request(
+      {
+        method: "resources/read",
+        params: {
+          uri: "test://resource/123",
+        },
+      },
+      ReadResourceResultSchema,
+    );
+
+    expect(result.contents).toHaveLength(1);
+    expect(result.contents[0].text).toBe("Updated content");
+
+    // Update happened before transport was connected, so no notifications should be expected
+    expect(notifications).toHaveLength(0);
+  });
+
+  test("should throw when updating non-existent resource", () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    // Attempt to update a non-existent static resource
+    expect(() => {
+      mcpServer.updateResource("test", "test://nonexistent", async () => ({
+        contents: [
+          {
+            uri: "test://nonexistent",
+            text: "Updated content",
+          },
+        ],
+      }));
+    }).toThrow(/not registered/);
+
+    // Attempt to update a non-existent resource template
+    expect(() => {
+      mcpServer.updateResource(
+        "nonexistent",
+        new ResourceTemplate("test://nonexistent/{id}", { list: undefined }),
+        async () => ({
+          contents: [
+            {
+              uri: "test://nonexistent/123",
+              text: "Updated content",
+            },
+          ],
+        }),
+      );
+    }).toThrow(/not registered/);
+  });
+
+  test("should send resource list changed notification when connected", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial resource
+    mcpServer.resource("test", "test://resource", async () => ({
+      contents: [
+        {
+          uri: "test://resource",
+          text: "Test content",
+        },
+      ],
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    expect(notifications).toHaveLength(0);
+
+    // Now update the resource while connected
+    mcpServer.updateResource("test", "test://resource", async () => ({
+      contents: [
+        {
+          uri: "test://resource",
+          text: "Updated content",
+        },
+      ],
+    }));
+
+    // Yield event loop to let the notification fly
+    await new Promise(process.nextTick);
+
+    expect(notifications).toMatchObject([
+      { method: "notifications/resources/list_changed" }
+    ]);
+  });
+
+  test("should remove resource and send notification when connected", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial resources
+    mcpServer.resource("resource1", "test://resource1", async () => ({
+      contents: [{ uri: "test://resource1", text: "Resource 1 content" }],
+    }));
+
+    mcpServer.resource("resource2", "test://resource2", async () => ({
+      contents: [{ uri: "test://resource2", text: "Resource 2 content" }],
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Verify both resources are registered
+    let result = await client.request(
+      { method: "resources/list" },
+      ListResourcesResultSchema,
+    );
+
+    expect(result.resources).toHaveLength(2);
+
+    expect(notifications).toHaveLength(0);
+
+    // Remove a resource
+    const removed = mcpServer.removeResource("test://resource1");
+    expect(removed).toBe(true);
+
+    // Yield event loop to let the notification fly
+    await new Promise(process.nextTick);
+
+    // Should have sent notification
+    expect(notifications).toMatchObject([
+      { method: "notifications/resources/list_changed" }
+    ]);
+
+    // Verify the resource was removed
+    result = await client.request(
+      { method: "resources/list" },
+      ListResourcesResultSchema,
+    );
+
+    expect(result.resources).toHaveLength(1);
+    expect(result.resources[0].uri).toBe("test://resource2");
+
+    // Removing a non-existent resource should return false but not send notification
+    const notificationCount = notifications.length;
+    const notRemoved = mcpServer.removeResource("test://nonexistent");
+    expect(notRemoved).toBe(false);
+
+    // No new notifications should have been sent
+    await new Promise(process.nextTick);
+    expect(notifications.length).toBe(notificationCount);
+  });
+
+  test("should remove resource template and send notification when connected", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register resource template
+    mcpServer.resource(
+      "template",
+      new ResourceTemplate("test://resource/{id}", { list: undefined }),
+      async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            text: "Template content",
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Verify template is registered
+    const result = await client.request(
+      { method: "resources/templates/list" },
+      ListResourceTemplatesResultSchema,
+    );
+
+    expect(result.resourceTemplates).toHaveLength(1);
+    expect(notifications).toHaveLength(0);
+
+    // Remove the template
+    const removed = mcpServer.removeResource("template");
+    expect(removed).toBe(true);
+
+    // Yield event loop to let the notification fly
+    await new Promise(process.nextTick);
+
+    // Should have sent notification
+    expect(notifications).toMatchObject([
+      { method: "notifications/resources/list_changed" }
+    ]);
+
+    // Verify the template was removed
+    const result2 = await client.request(
+      { method: "resources/templates/list" },
+      ListResourceTemplatesResultSchema,
+    );
+
+    expect(result2.resourceTemplates).toHaveLength(0);
+  });
 
   test("should register resource with metadata", async () => {
     const mcpServer = new McpServer({
@@ -1711,301 +1745,331 @@ describe("prompt()", () => {
     expect(result.prompts[0].name).toBe("test");
     expect(result.prompts[0].arguments).toBeUndefined();
   });
+  test("should update existing prompt", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
 
-  // test("should update existing prompt", async () => {
-  //   const mcpServer = new McpServer({
-  //     name: "test server",
-  //     version: "1.0",
-  //   });
-  //   const client = new Client({
-  //     name: "test client",
-  //     version: "1.0",
-  //   });
-  //
-  //   // Register initial prompt
-  //   mcpServer.prompt("test", async () => ({
-  //     messages: [
-  //       {
-  //         role: "assistant",
-  //         content: {
-  //           type: "text",
-  //           text: "Initial response",
-  //         },
-  //       },
-  //     ],
-  //   }));
-  //
-  //   // Update the prompt
-  //   mcpServer.updatePrompt("test", async () => ({
-  //     messages: [
-  //       {
-  //         role: "assistant",
-  //         content: {
-  //           type: "text",
-  //           text: "Updated response",
-  //         },
-  //       },
-  //     ],
-  //   }));
-  //
-  //   const [clientTransport, serverTransport] =
-  //     InMemoryTransport.createLinkedPair();
-  //
-  //   await Promise.all([
-  //     client.connect(clientTransport),
-  //     mcpServer.connect(serverTransport),
-  //   ]);
-  //
-  //   // Call the prompt and verify we get the updated response
-  //   const result = await client.request(
-  //     {
-  //       method: "prompts/get",
-  //       params: {
-  //         name: "test",
-  //       },
-  //     },
-  //     GetPromptResultSchema,
-  //   );
-  //
-  //   expect(result.messages).toHaveLength(1);
-  //   expect(result.messages[0].content.text).toBe("Updated response");
-  // });
-  //
-  // test("should update prompt with schema", async () => {
-  //   const mcpServer = new McpServer({
-  //     name: "test server",
-  //     version: "1.0",
-  //   });
-  //   const client = new Client({
-  //     name: "test client",
-  //     version: "1.0",
-  //   });
-  //
-  //   // Register initial prompt
-  //   mcpServer.prompt(
-  //     "test",
-  //     {
-  //       name: z.string(),
-  //     },
-  //     async ({ name }) => ({
-  //       messages: [
-  //         {
-  //           role: "assistant",
-  //           content: {
-  //             type: "text",
-  //             text: `Initial: ${name}`,
-  //           },
-  //         },
-  //       ],
-  //     }),
-  //   );
-  //
-  //   // Update the prompt with a different schema
-  //   mcpServer.updatePrompt(
-  //     "test",
-  //     {
-  //       name: z.string(),
-  //       value: z.string(),
-  //     },
-  //     async ({ name, value }) => ({
-  //       messages: [
-  //         {
-  //           role: "assistant",
-  //           content: {
-  //             type: "text",
-  //             text: `Updated: ${name}, ${value}`,
-  //           },
-  //         },
-  //       ],
-  //     }),
-  //   );
-  //
-  //   const [clientTransport, serverTransport] =
-  //     InMemoryTransport.createLinkedPair();
-  //
-  //   await Promise.all([
-  //     client.connect(clientTransport),
-  //     mcpServer.connect(serverTransport),
-  //   ]);
-  //
-  //   // Verify the schema was updated
-  //   const listResult = await client.request(
-  //     {
-  //       method: "prompts/list",
-  //     },
-  //     ListPromptsResultSchema,
-  //   );
-  //
-  //   expect(listResult.prompts[0].arguments).toHaveLength(2);
-  //   expect(listResult.prompts[0].arguments?.map(a => a.name).sort()).toEqual(["name", "value"]);
-  //
-  //   // Call the prompt with the new schema
-  //   const getResult = await client.request(
-  //     {
-  //       method: "prompts/get",
-  //       params: {
-  //         name: "test",
-  //         arguments: {
-  //           name: "test",
-  //           value: "value",
-  //         },
-  //       },
-  //     },
-  //     GetPromptResultSchema,
-  //   );
-  //
-  //   expect(getResult.messages).toHaveLength(1);
-  //   expect(getResult.messages[0].content.text).toBe("Updated: test, value");
-  // });
-  //
-  // test("should throw when updating non-existent prompt", () => {
-  //   const mcpServer = new McpServer({
-  //     name: "test server",
-  //     version: "1.0",
-  //   });
-  //
-  //   expect(() => {
-  //     mcpServer.updatePrompt("nonexistent", async () => ({
-  //       messages: [
-  //         {
-  //           role: "assistant",
-  //           content: {
-  //             type: "text",
-  //             text: "Updated response",
-  //           },
-  //         },
-  //       ],
-  //     }));
-  //   }).toThrow(/not registered/);
-  // });
-  //
-  // test("should send prompt list changed notification when connected", async () => {
-  //   const mcpServer = new McpServer({
-  //     name: "test server",
-  //     version: "1.0",
-  //   });
-  //
-  //   // Add spy to the sendPromptListChanged method
-  //   const spy = jest.spyOn(mcpServer.server, "sendPromptListChanged");
-  //
-  //   // Register initial prompt
-  //   mcpServer.prompt("test", async () => ({
-  //     messages: [
-  //       {
-  //         role: "assistant",
-  //         content: {
-  //           type: "text",
-  //           text: "Test response",
-  //         },
-  //       },
-  //     ],
-  //   }));
-  //
-  //   // Not connected yet, should not send notification
-  //   expect(spy).not.toHaveBeenCalled();
-  //
-  //   const [, serverTransport] = InMemoryTransport.createLinkedPair();
-  //   await mcpServer.connect(serverTransport);
-  //
-  //   // Now update the prompt while connected
-  //   mcpServer.updatePrompt("test", async () => ({
-  //     messages: [
-  //       {
-  //         role: "assistant",
-  //         content: {
-  //           type: "text",
-  //           text: "Updated response",
-  //         },
-  //       },
-  //     ],
-  //   }));
-  //
-  //   // Should have sent notification
-  //   expect(spy).toHaveBeenCalledTimes(1);
-  //
-  //   // Clean up
-  //   spy.mockRestore();
-  // });
-  //
-  // test("should remove prompt and send notification when connected", async () => {
-  //   const mcpServer = new McpServer({
-  //     name: "test server",
-  //     version: "1.0",
-  //   });
-  //   const client = new Client({
-  //     name: "test client",
-  //     version: "1.0",
-  //   });
-  //
-  //   // Register initial prompts
-  //   mcpServer.prompt("prompt1", async () => ({
-  //     messages: [
-  //       {
-  //         role: "assistant",
-  //         content: {
-  //           type: "text",
-  //           text: "Prompt 1 response",
-  //         },
-  //       },
-  //     ],
-  //   }));
-  //
-  //   mcpServer.prompt("prompt2", async () => ({
-  //     messages: [
-  //       {
-  //         role: "assistant",
-  //         content: {
-  //           type: "text",
-  //           text: "Prompt 2 response",
-  //         },
-  //       },
-  //     ],
-  //   }));
-  //
-  //   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  //
-  //   await Promise.all([
-  //     client.connect(clientTransport),
-  //     mcpServer.connect(serverTransport),
-  //   ]);
-  //
-  //   // Verify both prompts are registered
-  //   let result = await client.request(
-  //     { method: "prompts/list" },
-  //     ListPromptsResultSchema,
-  //   );
-  //
-  //   expect(result.prompts).toHaveLength(2);
-  //   expect(result.prompts.map(p => p.name).sort()).toEqual(["prompt1", "prompt2"]);
-  //
-  //   // Add spy to the sendPromptListChanged method
-  //   const spy = jest.spyOn(mcpServer.server, "sendPromptListChanged");
-  //
-  //   // Remove a prompt
-  //   const removed = mcpServer.removePrompt("prompt1");
-  //   expect(removed).toBe(true);
-  //
-  //   // Should have sent notification
-  //   expect(spy).toHaveBeenCalledTimes(1);
-  //
-  //   // Verify the prompt was removed
-  //   result = await client.request(
-  //     { method: "prompts/list" },
-  //     ListPromptsResultSchema,
-  //   );
-  //
-  //   expect(result.prompts).toHaveLength(1);
-  //   expect(result.prompts[0].name).toBe("prompt2");
-  //
-  //   // Removing a non-existent prompt should return false and not send notification
-  //   spy.mockClear();
-  //   const notRemoved = mcpServer.removePrompt("nonexistent");
-  //   expect(notRemoved).toBe(false);
-  //   expect(spy).not.toHaveBeenCalled();
-  //
-  //   // Clean up
-  //   spy.mockRestore();
-  // });
+    // Register initial prompt
+    mcpServer.prompt("test", async () => ({
+      messages: [
+        {
+          role: "assistant",
+          content: {
+            type: "text",
+            text: "Initial response",
+          },
+        },
+      ],
+    }));
+
+    // Update the prompt
+    mcpServer.updatePrompt("test", async () => ({
+      messages: [
+        {
+          role: "assistant",
+          content: {
+            type: "text",
+            text: "Updated response",
+          },
+        },
+      ],
+    }));
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Call the prompt and verify we get the updated response
+    const result = await client.request(
+      {
+        method: "prompts/get",
+        params: {
+          name: "test",
+        },
+      },
+      GetPromptResultSchema,
+    );
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].content.text).toBe("Updated response");
+
+    // Update happened before transport was connected, so no notifications should be expected
+    expect(notifications).toHaveLength(0);
+  });
+
+  test("should update prompt with schema", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial prompt
+    mcpServer.prompt(
+      "test",
+      {
+        name: z.string(),
+      },
+      async ({ name }) => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: `Initial: ${name}`,
+            },
+          },
+        ],
+      }),
+    );
+
+    // Update the prompt with a different schema
+    mcpServer.updatePrompt(
+      "test",
+      {
+        name: z.string(),
+        value: z.string(),
+      },
+      async ({ name, value }) => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: `Updated: ${name}, ${value}`,
+            },
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Verify the schema was updated
+    const listResult = await client.request(
+      {
+        method: "prompts/list",
+      },
+      ListPromptsResultSchema,
+    );
+
+    expect(listResult.prompts[0].arguments).toHaveLength(2);
+    expect(listResult.prompts[0].arguments?.map(a => a.name).sort()).toEqual(["name", "value"]);
+
+    // Call the prompt with the new schema
+    const getResult = await client.request(
+      {
+        method: "prompts/get",
+        params: {
+          name: "test",
+          arguments: {
+            name: "test",
+            value: "value",
+          },
+        },
+      },
+      GetPromptResultSchema,
+    );
+
+    expect(getResult.messages).toHaveLength(1);
+    expect(getResult.messages[0].content.text).toBe("Updated: test, value");
+
+    // Update happened before transport was connected, so no notifications should be expected
+    expect(notifications).toHaveLength(0);
+  });
+
+  test("should throw when updating non-existent prompt", () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    expect(() => {
+      mcpServer.updatePrompt("nonexistent", async () => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: "Updated response",
+            },
+          },
+        ],
+      }));
+    }).toThrow(/not registered/);
+  });
+
+  test("should send prompt list changed notification when connected", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial prompt
+    mcpServer.prompt("test", async () => ({
+      messages: [
+        {
+          role: "assistant",
+          content: {
+            type: "text",
+            text: "Test response",
+          },
+        },
+      ],
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    expect(notifications).toHaveLength(0);
+
+    // Now update the prompt while connected
+    mcpServer.updatePrompt("test", async () => ({
+      messages: [
+        {
+          role: "assistant",
+          content: {
+            type: "text",
+            text: "Updated response",
+          },
+        },
+      ],
+    }));
+
+    // Yield event loop to let the notification fly
+    await new Promise(process.nextTick);
+
+    expect(notifications).toMatchObject([
+      { method: "notifications/prompts/list_changed" }
+    ]);
+  });
+
+  test("should remove prompt and send notification when connected", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial prompts
+    mcpServer.prompt("prompt1", async () => ({
+      messages: [
+        {
+          role: "assistant",
+          content: {
+            type: "text",
+            text: "Prompt 1 response",
+          },
+        },
+      ],
+    }));
+
+    mcpServer.prompt("prompt2", async () => ({
+      messages: [
+        {
+          role: "assistant",
+          content: {
+            type: "text",
+            text: "Prompt 2 response",
+          },
+        },
+      ],
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Verify both prompts are registered
+    let result = await client.request(
+      { method: "prompts/list" },
+      ListPromptsResultSchema,
+    );
+
+    expect(result.prompts).toHaveLength(2);
+    expect(result.prompts.map(p => p.name).sort()).toEqual(["prompt1", "prompt2"]);
+
+    expect(notifications).toHaveLength(0);
+
+    // Remove a prompt
+    const removed = mcpServer.removePrompt("prompt1");
+    expect(removed).toBe(true);
+
+    // Yield event loop to let the notification fly
+    await new Promise(process.nextTick);
+
+    // Should have sent notification
+    expect(notifications).toMatchObject([
+      { method: "notifications/prompts/list_changed" }
+    ]);
+
+    // Verify the prompt was removed
+    result = await client.request(
+      { method: "prompts/list" },
+      ListPromptsResultSchema,
+    );
+
+    expect(result.prompts).toHaveLength(1);
+    expect(result.prompts[0].name).toBe("prompt2");
+
+    // Removing a non-existent prompt should return false but not send notification
+    const notificationCount = notifications.length;
+    const notRemoved = mcpServer.removePrompt("nonexistent");
+    expect(notRemoved).toBe(false);
+
+    // No new notifications should have been sent
+    await new Promise(process.nextTick);
+    expect(notifications.length).toBe(notificationCount);
+  });
 
   test("should register prompt with args schema", async () => {
     const mcpServer = new McpServer({
