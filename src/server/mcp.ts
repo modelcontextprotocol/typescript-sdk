@@ -43,22 +43,12 @@ import { UriTemplate, Variables } from "../shared/uriTemplate.js";
 import { RequestHandlerExtra } from "../shared/protocol.js";
 import { Transport } from "../shared/transport.js";
 
-type RenderApi = {
-  resource: McpServer["resource"];
-  tool: McpServer["tool"];
-  prompt: McpServer["prompt"];
-};
-
-type McpServerOptions<T> = ServerOptions & {
-  render?: (api: RenderApi, args: T) => void | Promise<void>;
-};
-
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * Server instance available via the `server` property.
  */
-export class McpServer<RenderArgs extends Record<string, unknown> | undefined = undefined> {
+export class McpServer {
   /**
    * The underlying Server instance, useful for advanced operations like sending notifications.
    */
@@ -70,18 +60,10 @@ export class McpServer<RenderArgs extends Record<string, unknown> | undefined = 
   } = {};
   private _registeredTools: { [name: string]: RegisteredTool } = {};
   private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+  private _isConnected: boolean = false;
 
-  private readonly _renderFunction?: (
-    api: RenderApi,
-    args: RenderArgs,
-  ) => void | Promise<void>;
-  private readonly _locked: boolean;
-  private _isConnected: boolean = true;
-
-  constructor(serverInfo: Implementation, options?: McpServerOptions<RenderArgs>) {
+  constructor(serverInfo: Implementation, options?: ServerOptions) {
     this.server = new Server(serverInfo, options);
-    this._renderFunction = options?.render;
-    this._locked = Boolean(this._renderFunction);
   }
 
   /**
@@ -90,7 +72,10 @@ export class McpServer<RenderArgs extends Record<string, unknown> | undefined = 
    * The `server` object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
    */
   async connect(transport: Transport): Promise<void> {
-    this._isConnected = true
+    transport.onClose(() => {
+      this._isConnected = false;
+    });
+    this._isConnected = true;
     return await this.server.connect(transport);
   }
 
@@ -115,11 +100,14 @@ export class McpServer<RenderArgs extends Record<string, unknown> | undefined = 
       CallToolRequestSchema.shape.method.value,
     );
 
-    this.server.registerCapabilities({
-      tools: {
-        listChanged: true
-      },
-    });
+    // Register capabilities only if not already registered
+    if (!this.server.capabilities.tools) {
+        this.server.registerCapabilities({
+            tools: {
+                listChanged: true,
+            },
+        });
+    }
 
     this.server.setRequestHandler(
       ListToolsRequestSchema,
@@ -306,11 +294,14 @@ export class McpServer<RenderArgs extends Record<string, unknown> | undefined = 
       ReadResourceRequestSchema.shape.method.value,
     );
 
-    this.server.registerCapabilities({
-      resources: {
-        listChanged: true
-      },
-    });
+    // Register capabilities only if not already registered
+    if (!this.server.capabilities.resources) {
+        this.server.registerCapabilities({
+            resources: {
+                listChanged: true,
+            },
+        });
+    }
 
     this.server.setRequestHandler(
       ListResourcesRequestSchema,
@@ -408,11 +399,14 @@ export class McpServer<RenderArgs extends Record<string, unknown> | undefined = 
       GetPromptRequestSchema.shape.method.value,
     );
 
-    this.server.registerCapabilities({
-      prompts: {
-        listChanged: true
-      },
-    });
+    // Register capabilities only if not already registered
+    if (!this.server.capabilities.prompts) {
+        this.server.registerCapabilities({
+            prompts: {
+                listChanged: true,
+            },
+        });
+    }
 
     this.server.setRequestHandler(
       ListPromptsRequestSchema,
@@ -469,93 +463,12 @@ export class McpServer<RenderArgs extends Record<string, unknown> | undefined = 
   }
 
   /**
-   * Clears existing resources, tools, and prompts, then runs the configured `render` function
-   * to define a new set based on the provided arguments.
-   * If the set of registered items changes compared to the previous state (and it's not the first render),
-   * appropriate `/listChanged` notifications are sent.
-   *
-   * @param args Arguments to pass to the configured `render` function.
-   * @throws Error if no `render` function was provided in the constructor options.
-   */
-  async render(args: RenderArgs): Promise<void> {
-    if (!this._renderFunction) {
-      throw new Error(
-        "Cannot call render(). No render function was provided during McpServer initialization.",
-      );
-    }
-
-    // --- 1. Prepare for new render ---
-    const newResources: { [uri: string]: RegisteredResource } = {};
-    const newResourceTemplates: { [name: string]: RegisteredResourceTemplate } =
-      {};
-    const newTools: { [name: string]: RegisteredTool } = {};
-    const newPrompts: { [name: string]: RegisteredPrompt } = {};
-
-    // --- 2. Create temporary registration API for the render function ---
-    // These functions capture the definitions into the 'new*' objects above.
-    // They mirror the public API but don't check for locking or emit events immediately.
-    const renderApi: RenderApi = {
-      resource: (
-        name: string,
-        uriOrTemplate: string | ResourceTemplate,
-        ...rest: unknown[]
-      ): void => {
-        addResources(newResources, newResourceTemplates, name, uriOrTemplate, ...rest)
-      },
-      tool: (name: string, ...rest: unknown[]): void => {
-        addTool(newTools, name, ...rest)
-      },
-      prompt: (name: string, ...rest: unknown[]): void => {
-        addPrompt(newPrompts, name, ...rest)
-      },
-    };
-
-    // --- 3. Execute the user's render function ---
-    this._renderFunction(renderApi, args)
-
-    // --- 4. Compare old state with new state ---
-    const toolsChanged = haveKeysChanged(this._registeredTools, newTools);
-    const promptsChanged = haveKeysChanged(this._registeredPrompts, newPrompts);
-    const resourcesChanged = haveKeysChanged(
-      {
-        ...this._registeredResources,
-        ...mapKeys(this._registeredResourceTemplates, (t) => t.resourceTemplate.uriTemplate.toString()) // Use template URI for comparison consistency if needed, or just name
-      },
-      {
-        ...newResources,
-        ...mapKeys(newResourceTemplates, (t) => t.resourceTemplate.uriTemplate.toString())
-      }
-    ) || haveKeysChanged(this._registeredResourceTemplates, newResourceTemplates); // Also check template names directly
-
-    // --- 5. Always update internal state (currently we're not emitting events for changes in parameters or descriptions
-    // of tools, but we should at least store the new values
-    this._registeredTools = newTools;
-    this._registeredPrompts = newPrompts;
-    this._registeredResources = newResources;
-    this._registeredResourceTemplates = newResourceTemplates;
-
-    // Ensure handlers are set up
-    this.setToolRequestHandlers();
-    this.setPromptRequestHandlers();
-    this.setResourceRequestHandlers();
-
-    // Emit change events if we have a transport to emit to
-    if (!this._isConnected) {
-      if (toolsChanged) this.server.sendToolListChanged()
-      if (promptsChanged) this.server.sendPromptListChanged()
-      if (resourcesChanged) this.server.sendResourceListChanged()
-    }
-  }
-
-  /**
    * Registers a resource `name` at a fixed URI, which will use the given callback to respond to read requests.
-   * @throws Error if the server is locked.
    */
   resource(name: string, uri: string, readCallback: ReadResourceCallback): void;
 
   /**
    * Registers a resource `name` at a fixed URI with metadata, which will use the given callback to respond to read requests.
-   * @throws Error if the server is locked.
    */
   resource(
     name: string,
@@ -566,7 +479,6 @@ export class McpServer<RenderArgs extends Record<string, unknown> | undefined = 
 
   /**
    * Registers a resource `name` with a template pattern, which will use the given callback to respond to read requests.
-   * @throws Error if the server is locked.
    */
   resource(
     name: string,
@@ -576,7 +488,6 @@ export class McpServer<RenderArgs extends Record<string, unknown> | undefined = 
 
   /**
    * Registers a resource `name` with a template pattern and metadata, which will use the given callback to respond to read requests.
-   * @throws Error if the server is locked.
    */
   resource(
     name: string,
@@ -590,33 +501,88 @@ export class McpServer<RenderArgs extends Record<string, unknown> | undefined = 
     uriOrTemplate: string | ResourceTemplate,
     ...rest: unknown[]
   ): void {
-    if (this._locked) {
-      throw new Error(
-        "Server is locked. Resources can only be registered via the render() method.",
-      );
+    let metadata: ResourceMetadata | undefined;
+    // Check if the first rest arg is metadata (object, not function, not array)
+    if (
+      rest.length > 1 &&
+      typeof rest[0] === "object" &&
+      rest[0] !== null &&
+      !Array.isArray(rest[0]) &&
+      !(rest[0] instanceof Function)
+    ) {
+      metadata = rest.shift() as ResourceMetadata;
     }
 
-    addResources(this._registeredResources, this._registeredResourceTemplates, name, uriOrTemplate, ...rest)
+    const readCallback = rest[0] as
+      | ReadResourceCallback
+      | ReadResourceTemplateCallback;
 
-    this.setResourceRequestHandlers()
-    this.server.sendResourceListChanged()
+    if (typeof uriOrTemplate === "string") {
+      if (this._registeredResources[uriOrTemplate]) {
+        console.warn(`Resource ${uriOrTemplate} is already registered. Overwriting.`);
+      }
+      this._registeredResources[uriOrTemplate] = {
+        name,
+        metadata,
+        readCallback: readCallback as ReadResourceCallback,
+      };
+    } else {
+      if (this._registeredResourceTemplates[name]) {
+         console.warn(`Resource template ${name} is already registered. Overwriting.`);
+      }
+      this._registeredResourceTemplates[name] = {
+        resourceTemplate: uriOrTemplate,
+        metadata,
+        readCallback: readCallback as ReadResourceTemplateCallback,
+      };
+    }
+
+    this.setResourceRequestHandlers();
+    if (this._isConnected) {
+       this.server.sendResourceListChanged();
+    }
+  }
+
+   /**
+   * Removes a previously registered static resource.
+   * @param uri The exact URI of the resource to remove.
+   * @returns True if the resource was found and removed, false otherwise.
+   */
+  removeResource(uri: string): boolean;
+  /**
+   * Removes a previously registered resource template.
+   * @param name The name of the resource template to remove.
+   * @returns True if the resource template was found and removed, false otherwise.
+   */
+  removeResource(name: string): boolean;
+  removeResource(uriOrName: string): boolean {
+      let removed = false;
+      if (this._registeredResources[uriOrName]) {
+          delete this._registeredResources[uriOrName];
+          removed = true;
+      } else if (this._registeredResourceTemplates[uriOrName]) {
+          delete this._registeredResourceTemplates[uriOrName];
+          removed = true;
+      }
+
+      if (removed && this._isConnected) {
+          this.server.sendResourceListChanged();
+      }
+      return removed;
   }
 
   /**
    * Registers a zero-argument tool `name`, which will run the given function when the client calls it.
-   * @throws Error if the server is locked.
    */
   tool(name: string, cb: ToolCallback): void;
 
   /**
    * Registers a zero-argument tool `name` (with a description) which will run the given function when the client calls it.
-   * @throws Error if the server is locked.
    */
   tool(name: string, description: string, cb: ToolCallback): void;
 
   /**
    * Registers a tool `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
-   * @throws Error if the server is locked.
    */
   tool<Args extends ZodRawShape>(
     name: string,
@@ -626,7 +592,6 @@ export class McpServer<RenderArgs extends Record<string, unknown> | undefined = 
 
   /**
    * Registers a tool `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
-   * @throws Error if the server is locked.
    */
   tool<Args extends ZodRawShape>(
     name: string,
@@ -636,33 +601,62 @@ export class McpServer<RenderArgs extends Record<string, unknown> | undefined = 
   ): void;
 
   tool(name: string, ...rest: unknown[]): void {
-    if (this._locked) {
-      throw new Error(
-        "Server is locked. Tools can only be registered via the render() method.",
-      );
+    if (this._registeredTools[name]) {
+        console.warn(`Tool ${name} is already registered. Overwriting.`);
     }
 
-    addTool(this._registeredTools, name, ...rest)
+    let description: string | undefined;
+    if (typeof rest[0] === "string") {
+      description = rest.shift() as string;
+    }
+
+    let paramsSchema: ZodRawShape | undefined;
+    if (rest.length > 1) {
+      paramsSchema = rest.shift() as ZodRawShape;
+    }
+
+    const cb = rest[0] as ToolCallback<ZodRawShape | undefined>;
+    this._registeredTools[name] = {
+      description,
+      inputSchema:
+        paramsSchema === undefined ? undefined : z.object(paramsSchema),
+      callback: cb,
+    };
 
     this.setToolRequestHandlers();
-    this.server.sendToolListChanged();
+    if (this._isConnected) {
+      this.server.sendToolListChanged();
+    }
+  }
+
+  /**
+   * Removes a previously registered tool.
+   * @param name The name of the tool to remove.
+   * @returns True if the tool was found and removed, false otherwise.
+   */
+  removeTool(name: string): boolean {
+      if (this._registeredTools[name]) {
+          delete this._registeredTools[name];
+          if (this._isConnected) {
+              this.server.sendToolListChanged();
+          }
+          return true;
+      }
+      return false;
   }
 
   /**
    * Registers a zero-argument prompt `name`, which will run the given function when the client calls it.
-   * @throws Error if the server is locked.
    */
   prompt(name: string, cb: PromptCallback): void;
 
   /**
    * Registers a zero-argument prompt `name` (with a description) which will run the given function when the client calls it.
-   * @throws Error if the server is locked.
    */
   prompt(name: string, description: string, cb: PromptCallback): void;
 
   /**
    * Registers a prompt `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
-   * @throws Error if the server is locked.
    */
   prompt<Args extends PromptArgsRawShape>(
     name: string,
@@ -672,7 +666,6 @@ export class McpServer<RenderArgs extends Record<string, unknown> | undefined = 
 
   /**
    * Registers a prompt `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
-   * @throws Error if the server is locked.
    */
   prompt<Args extends PromptArgsRawShape>(
     name: string,
@@ -682,126 +675,49 @@ export class McpServer<RenderArgs extends Record<string, unknown> | undefined = 
   ): void;
 
   prompt(name: string, ...rest: unknown[]): void {
-    if (this._locked) {
-      throw new Error(
-        "Server is locked. Prompts can only be registered via the render() method.",
-      );
+    if (this._registeredPrompts[name]) {
+      console.warn(`Prompt ${name} is already registered. Overwriting.`);
     }
 
-    addPrompt(this._registeredPrompts, name, ...rest)
+    let description: string | undefined;
+    if (typeof rest[0] === "string") {
+      description = rest.shift() as string;
+    }
+
+    let argsSchema: PromptArgsRawShape | undefined;
+    if (rest.length > 1) {
+      argsSchema = rest.shift() as PromptArgsRawShape;
+    }
+
+    const cb = rest[0] as PromptCallback<PromptArgsRawShape | undefined>;
+    this._registeredPrompts[name] = {
+      description,
+      argsSchema: argsSchema === undefined ? undefined : z.object(argsSchema),
+      callback: cb,
+    };
 
     this.setPromptRequestHandlers();
-    this.server.sendPromptListChanged()
-  }
-}
-
-function addResources(resources: { [p: string]: RegisteredResource }, resourceTemplates: {
-  [p: string]: RegisteredResourceTemplate
-}, name: string, uriOrTemplate: string | ResourceTemplate, ...rest: unknown[]) {
-  let metadata: ResourceMetadata | undefined;
-  // Check if the first rest arg is metadata (object, not function)
-  if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !(rest[0] instanceof Function)) {
-    metadata = rest.shift() as ResourceMetadata;
-  }
-
-  const readCallback = rest[0] as
-    | ReadResourceCallback
-    | ReadResourceTemplateCallback;
-
-  if (typeof uriOrTemplate === "string") {
-    if (resources[uriOrTemplate]) {
-      throw new Error(`Resource ${uriOrTemplate} is already registered`);
-    }
-
-    resources[uriOrTemplate] = {
-      name,
-      metadata,
-      readCallback: readCallback as ReadResourceCallback,
-    };
-  } else {
-    if (resourceTemplates[name]) {
-      throw new Error(`Resource template ${name} is already registered`);
-    }
-
-    resourceTemplates[name] = {
-      resourceTemplate: uriOrTemplate,
-      metadata,
-      readCallback: readCallback as ReadResourceTemplateCallback,
-    };
-  }
-}
-
-function addTool(tools: { [p: string]: RegisteredTool }, name: string, ...rest: unknown[]) {
-  let description: string | undefined;
-  if (typeof rest[0] === "string") {
-    description = rest.shift() as string;
-  }
-
-  let paramsSchema: ZodRawShape | undefined;
-  if (rest.length > 1) {
-    paramsSchema = rest.shift() as ZodRawShape;
-  }
-
-  const cb = rest[0] as ToolCallback<ZodRawShape | undefined>;
-  tools[name] = {
-    description,
-    inputSchema:
-      paramsSchema === undefined ? undefined : z.object(paramsSchema),
-    callback: cb,
-  };
-}
-
-function addPrompt(prompts: { [p: string]: RegisteredPrompt }, name: string, ...rest: unknown[]) {
-  let description: string | undefined;
-  if (typeof rest[0] === "string") {
-    description = rest.shift() as string;
-  }
-
-  let argsSchema: PromptArgsRawShape | undefined;
-  if (rest.length > 1) {
-    argsSchema = rest.shift() as PromptArgsRawShape;
-  }
-
-  const cb = rest[0] as PromptCallback<PromptArgsRawShape | undefined>;
-  prompts[name] = {
-    description,
-    argsSchema: argsSchema === undefined ? undefined : z.object(argsSchema),
-    callback: cb,
-  };
-}
-
-// --- Helper Function for Change Detection ---
-
-/** Checks if the keys of two objects are different. */
-function haveKeysChanged(oldObj: object, newObj: object): boolean {
-  const oldKeys = Object.keys(oldObj).sort();
-  const newKeys = Object.keys(newObj).sort();
-
-  if (oldKeys.length !== newKeys.length) {
-    return true;
-  }
-
-  for (let i = 0; i < oldKeys.length; i++) {
-    if (oldKeys[i] !== newKeys[i]) {
-      return true;
+    if (this._isConnected) {
+       this.server.sendPromptListChanged()
     }
   }
 
-  return false;
+  /**
+   * Removes a previously registered prompt.
+   * @param name The name of the prompt to remove.
+   * @returns True if the prompt was found and removed, false otherwise.
+   */
+  removePrompt(name: string): boolean {
+      if (this._registeredPrompts[name]) {
+          delete this._registeredPrompts[name];
+          if (this._isConnected) {
+              this.server.sendPromptListChanged();
+          }
+          return true;
+      }
+      return false;
+  }
 }
-
-/** Helper to map object keys while preserving values. */
-function mapKeys<V>(obj: Record<string, V>, keyMapper: (value: V, key: string) => string): Record<string, V> {
-    const result: Record<string, V> = {};
-    for(const key in obj) {
-        if (Object.prototype.hasOwnProperty.call(obj, key)) {
-            const newKey = keyMapper(obj[key], key);
-            result[newKey] = obj[key];
-        }
-    }
-    return result;
-}
-
 
 // --- Constants and Type Definitions ---
 
