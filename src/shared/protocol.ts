@@ -1,4 +1,4 @@
-import { ZodLiteral, ZodObject, ZodType, z } from "zod";
+import { ZodLiteral, ZodObject, ZodType, z, ZodTypeAny } from "zod";
 import {
   CancelledNotificationSchema,
   ClientCapabilities,
@@ -15,6 +15,7 @@ import {
   ProgressNotificationSchema,
   Request,
   RequestId,
+  RequestIdSchema,
   Result,
   ServerCapabilities,
 } from "../types.js";
@@ -169,9 +170,21 @@ export abstract class Protocol<
       controller?.abort(notification.params.reason);
     });
 
-    this.setNotificationHandler(ProgressNotificationSchema, (notification) => {
-      this._onprogress(notification as unknown as ProgressNotification);
-    });
+    // Register the internal _onprogress handler DIRECTLY, bypassing the
+    // complex parsing wrapper logic added for general handlers,
+    // as we know the exact structure we need for progress notifications.
+    this._notificationHandlers.set(
+        ProgressNotificationSchema.shape.method.value,
+        async (rawNotification: JSONRPCNotification) => {
+            try {
+                // Directly parse the known ProgressNotificationSchema
+                const parsedNotification = ProgressNotificationSchema.parse(rawNotification);
+                this._onprogress(parsedNotification);
+            } catch (e) {
+                this._onerror(new Error(`Invalid progress notification structure: ${e instanceof Error ? e.message : String(e)}. Notification ignored. Raw: ${JSON.stringify(rawNotification)}`));
+            }
+        }
+    );
 
     this.setRequestHandler(
       PingRequestSchema,
@@ -566,6 +579,9 @@ export abstract class Protocol<
   setRequestHandler<
     T extends ZodObject<{
       method: ZodLiteral<string>;
+      jsonrpc?: ZodLiteral<"2.0">;
+      id?: z.ZodUnion<[z.ZodString, z.ZodNumber]>;
+      params?: ZodTypeAny;
     }>,
   >(
     requestSchema: T,
@@ -576,9 +592,31 @@ export abstract class Protocol<
   ): void {
     const method = requestSchema.shape.method.value;
     this.assertRequestHandlerCapability(method);
-    this._requestHandlers.set(method, (request, extra) =>
-      Promise.resolve(handler(requestSchema.parse(request), extra)),
-    );
+
+    this._requestHandlers.set(method, async (rawRequest: JSONRPCRequest, extra: RequestHandlerExtra): Promise<SendResultT> => {
+      const parsingSchemaDefinition = {
+        jsonrpc: z.literal("2.0" as const),
+        id: RequestIdSchema, 
+        method: z.literal(method),
+        params: requestSchema.shape.params 
+                  ? requestSchema.shape.params 
+                  : z.unknown().optional(),  
+      };
+      const finalParsingSchema = z.object(parsingSchemaDefinition).passthrough();
+
+      let parsedRequest: z.infer<T>;
+      try {
+        parsedRequest = await finalParsingSchema.parseAsync(rawRequest) as z.infer<T>;
+      } catch (e) {
+        if (e instanceof z.ZodError) {
+          const errorDetails = e.errors.map(err => `${err.path.join('.') || 'params'}: ${err.message}`).join('; ');
+          throw new McpError(ErrorCode.InvalidParams, `Invalid request structure for method ${method}: ${errorDetails}`, e.flatten());
+        }
+        throw e;
+      }
+
+      return await Promise.resolve(handler(parsedRequest, extra));
+    });
   }
 
   /**
@@ -607,16 +645,39 @@ export abstract class Protocol<
   setNotificationHandler<
     T extends ZodObject<{
       method: ZodLiteral<string>;
+      jsonrpc?: ZodLiteral<"2.0">;
+      params?: ZodTypeAny;
     }>,
   >(
     notificationSchema: T,
     handler: (notification: z.infer<T>) => void | Promise<void>,
   ): void {
-    this._notificationHandlers.set(
-      notificationSchema.shape.method.value,
-      (notification) =>
-        Promise.resolve(handler(notificationSchema.parse(notification))),
-    );
+    const method = notificationSchema.shape.method.value;
+
+    this._notificationHandlers.set(method, async (rawNotification: JSONRPCNotification): Promise<void> => {
+         const parsingSchemaDefinition = {
+            jsonrpc: z.literal("2.0" as const),
+            method: z.literal(method),
+            params: notificationSchema.shape.params
+                      ? notificationSchema.shape.params 
+                      : z.unknown().optional(),   
+         };
+         const finalParsingSchema = z.object(parsingSchemaDefinition).passthrough();
+
+         let parsedNotification: z.infer<T>;
+         try {
+             parsedNotification = await finalParsingSchema.parseAsync(rawNotification) as z.infer<T>;
+         } catch (e) {
+             if (e instanceof z.ZodError) {
+                 this._onerror(new Error(`Invalid notification structure for ${method}: ${e.message}. Notification ignored.`));
+                 return;
+             }
+             this._onerror(new Error(`Unexpected error parsing notification ${method}: ${e instanceof Error ? e.message : String(e)}`));
+             return;
+         }
+
+         await Promise.resolve(handler(parsedNotification));
+    });
   }
 
   /**
