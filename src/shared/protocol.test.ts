@@ -7,6 +7,7 @@ import {
   Request,
   Result,
   ServerCapabilities,
+  JSONRPCRequest,
 } from "../types.js";
 import { Protocol, mergeCapabilities } from "./protocol.js";
 import { Transport } from "./transport.js";
@@ -16,6 +17,7 @@ class MockTransport implements Transport {
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: unknown) => void;
+  sessionId?: string;
 
   async start(): Promise<void> {}
   async close(): Promise<void> {
@@ -218,6 +220,75 @@ describe("protocol tests", () => {
       await expect(requestPromise).resolves.toEqual({ result: "success" });
     });
   });
+
+  describe("request handler params preservation", () => {
+    let protocol: Protocol<Request, Notification, Result>;
+    let transport: MockTransport;
+
+    beforeEach(() => {
+      transport = new MockTransport();
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })();
+      protocol.connect(transport);
+    });
+
+    it("should preserve request params when passed to handler via setRequestHandler", async () => {
+      const testMethod = "test/paramsMethod";
+      const testParams = { key1: "value1", key2: 123 };
+      const testId = 99;
+
+      const requestSchema = z.object({
+        method: z.literal(testMethod),
+        params: z.object({
+          key1: z.string(),
+          key2: z.number(),
+        }),
+      });
+
+      const mockHandler = jest.fn().mockResolvedValue({ success: true });
+
+      protocol.setRequestHandler(requestSchema, mockHandler);
+
+      const rawIncomingRequest: JSONRPCRequest = {
+        jsonrpc: "2.0",
+        id: testId,
+        method: testMethod,
+        params: testParams,
+      };
+
+      if (!transport.onmessage) {
+        throw new Error("transport.onmessage was not set by protocol.connect()");
+      }
+      transport.onmessage(rawIncomingRequest);
+
+      await new Promise(setImmediate);
+
+      expect(mockHandler).toHaveBeenCalledTimes(1);
+
+      const handlerArg = mockHandler.mock.calls[0][0];
+      const handlerExtraArg = mockHandler.mock.calls[0][1];
+
+      expect(handlerArg).toEqual(
+        expect.objectContaining({
+          jsonrpc: "2.0",
+          id: testId,
+          method: testMethod,
+          params: testParams,
+        })
+      );
+
+      expect(handlerExtraArg).toEqual(
+        expect.objectContaining({
+          signal: expect.any(AbortSignal),
+          sessionId: transport.sessionId,
+        })
+      );
+    });
+  });
+
 });
 
 describe("mergeCapabilities", () => {
