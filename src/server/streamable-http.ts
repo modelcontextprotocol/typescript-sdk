@@ -44,6 +44,11 @@ export interface StreamableHTTPServerTransportOptions {
  * const statelessTransport = new StreamableHTTPServerTransport("/mcp", {
  *   enableSessionManagement: false
  * });
+ * 
+ * // Using with pre-parsed request body
+ * app.post('/mcp', (req, res) => {
+ *   transport.handleRequest(req, res, req.body);
+ * });
  * ```
  * 
  * In stateful mode:
@@ -91,7 +96,7 @@ export class StreamableHTTPServerTransport implements Transport {
   /**
    * Handles an incoming HTTP request, whether GET or POST
    */
-  async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  async handleRequest(req: IncomingMessage, res: ServerResponse, parsedBody?: unknown): Promise<void> {
     // Only validate session ID for non-initialization requests when session management is enabled
     if (this._enableSessionManagement) {
       const sessionId = req.headers["mcp-session-id"];
@@ -132,7 +137,7 @@ export class StreamableHTTPServerTransport implements Transport {
     if (req.method === "GET") {
       await this.handleGetRequest(req, res);
     } else if (req.method === "POST") {
-      await this.handlePostRequest(req, res);
+      await this.handlePostRequest(req, res, parsedBody);
     } else if (req.method === "DELETE") {
       await this.handleDeleteRequest(req, res);
     } else {
@@ -213,7 +218,7 @@ export class StreamableHTTPServerTransport implements Transport {
   /**
    * Handles POST requests containing JSON-RPC messages
    */
-  private async handlePostRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  private async handlePostRequest(req: IncomingMessage, res: ServerResponse, parsedBody?: unknown): Promise<void> {
     try {
       // validate the Accept header
       const acceptHeader = req.headers.accept;
@@ -243,13 +248,18 @@ export class StreamableHTTPServerTransport implements Transport {
         return;
       }
 
-      const parsedCt = contentType.parse(ct);
-      const body = await getRawBody(req, {
-        limit: MAXIMUM_MESSAGE_SIZE,
-        encoding: parsedCt.parameters.charset ?? "utf-8",
-      });
+      let rawMessage;
+      if (parsedBody !== undefined) {
+        rawMessage = parsedBody;
+      } else {
+        const parsedCt = contentType.parse(ct);
+        const body = await getRawBody(req, {
+          limit: MAXIMUM_MESSAGE_SIZE,
+          encoding: parsedCt.parameters.charset ?? "utf-8",
+        });
+        rawMessage = JSON.parse(body.toString());
+      }
 
-      const rawMessage = JSON.parse(body.toString());
       let messages: JSONRPCMessage[];
       
       // handle batch and single messages

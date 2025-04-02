@@ -674,4 +674,118 @@ describe("StreamableHTTPServerTransport", () => {
       expect(onErrorMock).toHaveBeenCalled();
     });
   });
+
+  describe("Handling Pre-Parsed Body", () => {
+    it("should accept pre-parsed request body", async () => {
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "initialize",
+        params: { 
+          clientInfo: { name: "test-client", version: "1.0" },
+          protocolVersion: "2025-03-26"
+        },
+        id: "pre-parsed-test",
+      };
+
+      // Create a request without actual body content
+      const req = createMockRequest({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept": "application/json",
+        },
+        // No body provided here - it will be passed as parsedBody
+      });
+
+      const onMessageMock = jest.fn();
+      transport.onmessage = onMessageMock;
+
+      // Pass the pre-parsed body directly
+      await transport.handleRequest(req, mockResponse, message);
+
+      // Verify the message was processed correctly
+      expect(onMessageMock).toHaveBeenCalledWith(message);
+      expect(mockResponse.writeHead).toHaveBeenCalledWith(
+        200,
+        expect.objectContaining({
+          "Content-Type": "application/json",
+        })
+      );
+    });
+
+    it("should handle pre-parsed batch messages", async () => {
+      const batchMessages: JSONRPCMessage[] = [
+        { 
+          jsonrpc: "2.0", 
+          method: "method1", 
+          params: { data: "test1" },
+          id: "batch1" 
+        },
+        { 
+          jsonrpc: "2.0", 
+          method: "method2", 
+          params: { data: "test2" },
+          id: "batch2" 
+        },
+      ];
+
+      // Create a request without actual body content
+      const req = createMockRequest({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept": "text/event-stream",
+          "mcp-session-id": transport.sessionId,
+        },
+        // No body provided here - it will be passed as parsedBody
+      });
+
+      const onMessageMock = jest.fn();
+      transport.onmessage = onMessageMock;
+
+      // Pass the pre-parsed body directly
+      await transport.handleRequest(req, mockResponse, batchMessages);
+
+      // Should be called for each message in the batch
+      expect(onMessageMock).toHaveBeenCalledTimes(2);
+      expect(onMessageMock).toHaveBeenCalledWith(batchMessages[0]);
+      expect(onMessageMock).toHaveBeenCalledWith(batchMessages[1]);
+    });
+
+    it("should prefer pre-parsed body over request body", async () => {
+      const requestBodyMessage: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "fromRequestBody",
+        params: {},
+        id: "request-body",
+      };
+
+      const parsedBodyMessage: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "fromParsedBody",
+        params: {},
+        id: "parsed-body",
+      };
+
+      // Create a request with actual body content
+      const req = createMockRequest({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept": "application/json",
+        },
+        body: JSON.stringify(requestBodyMessage),
+      });
+
+      const onMessageMock = jest.fn();
+      transport.onmessage = onMessageMock;
+
+      // Pass the pre-parsed body directly
+      await transport.handleRequest(req, mockResponse, parsedBodyMessage);
+
+      // Should use the parsed body instead of the request body
+      expect(onMessageMock).toHaveBeenCalledWith(parsedBodyMessage);
+      expect(onMessageMock).not.toHaveBeenCalledWith(requestBodyMessage);
+    });
+  });
 }); 
