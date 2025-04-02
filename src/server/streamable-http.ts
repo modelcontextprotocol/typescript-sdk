@@ -19,8 +19,43 @@ interface StreamConnection {
 }
 
 /**
+ * Configuration options for StreamableHTTPServerTransport
+ */
+export interface StreamableHTTPServerTransportOptions {
+  /**
+   * Whether to enable session management through mcp-session-id headers
+   * When set to false, the transport operates in stateless mode without session validation
+   * @default true
+   */
+  enableSessionManagement?: boolean;
+}
+
+/**
  * Server transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
  * It supports both SSE streaming and direct HTTP responses, with session management and message resumability.
+ * 
+ * Usage example:
+ * 
+ * ```typescript
+ * // Stateful mode (default) - with session management
+ * const statefulTransport = new StreamableHTTPServerTransport("/mcp");
+ * 
+ * // Stateless mode - without session management
+ * const statelessTransport = new StreamableHTTPServerTransport("/mcp", {
+ *   enableSessionManagement: false
+ * });
+ * ```
+ * 
+ * In stateful mode:
+ * - Session ID is generated and included in response headers
+ * - Session ID is always included in initialization responses
+ * - Requests with invalid session IDs are rejected with 404 Not Found
+ * - Non-initialization requests without a session ID are rejected with 400 Bad Request
+ * - State is maintained in-memory (connections, message history)
+ * 
+ * In stateless mode:
+ * - Session ID is only included in initialization responses
+ * - No session validation is performed
  */
 export class StreamableHTTPServerTransport implements Transport {
   private _connections: Map<string, StreamConnection> = new Map();
@@ -31,13 +66,15 @@ export class StreamableHTTPServerTransport implements Transport {
   }> = new Map();
   private _started: boolean = false;
   private _requestConnections: Map<string, string> = new Map(); // request ID to connection ID mapping
+  private _enableSessionManagement: boolean;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
 
-  constructor(private _endpoint: string) {
+  constructor(private _endpoint: string, options?: StreamableHTTPServerTransportOptions) {
     this._sessionId = randomUUID();
+    this._enableSessionManagement = options?.enableSessionManagement !== false;
   }
 
   /**
@@ -55,18 +92,41 @@ export class StreamableHTTPServerTransport implements Transport {
    * Handles an incoming HTTP request, whether GET or POST
    */
   async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    // validate the session ID
-    const sessionId = req.headers["mcp-session-id"];
-    if (sessionId && (Array.isArray(sessionId) ? sessionId[0] : sessionId) !== this._sessionId) {
-      res.writeHead(404).end(JSON.stringify({
-        jsonrpc: "2.0",
-        error: {
-          code: -32001,
-          message: "Session not found"
-        },
-        id: null
-      }));
-      return;
+    // Only validate session ID for non-initialization requests when session management is enabled
+    if (this._enableSessionManagement) {
+      const sessionId = req.headers["mcp-session-id"];
+      
+      // Check if this might be an initialization request
+      const isInitializationRequest = req.method === "POST" && 
+        req.headers["content-type"]?.includes("application/json");
+      
+      if (isInitializationRequest) {
+        // For POST requests with JSON content, we need to check if it's an initialization request
+        // This will be done in handlePostRequest, as we need to parse the body
+        // Continue processing normally
+      } else if (!sessionId) {
+        // Non-initialization requests without a session ID should return 400 Bad Request
+        res.writeHead(400).end(JSON.stringify({
+          jsonrpc: "2.0",
+          error: {
+            code: -32000,
+            message: "Bad Request: Mcp-Session-Id header is required"
+          },
+          id: null
+        }));
+        return;
+      } else if ((Array.isArray(sessionId) ? sessionId[0] : sessionId) !== this._sessionId) {
+        // Reject requests with invalid session ID with 404 Not Found
+        res.writeHead(404).end(JSON.stringify({
+          jsonrpc: "2.0",
+          error: {
+            code: -32001,
+            message: "Session not found"
+          },
+          id: null
+        }));
+        return;
+      }
     }
 
     if (req.method === "GET") {
@@ -109,12 +169,19 @@ export class StreamableHTTPServerTransport implements Transport {
     const lastEventId = req.headers["last-event-id"];
     const lastEventIdStr = Array.isArray(lastEventId) ? lastEventId[0] : lastEventId;
 
-    res.writeHead(200, {
+    // Prepare response headers
+    const headers: Record<string, string> = {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
-      "mcp-session-id": this._sessionId,
-    });
+    };
+    
+    // Only include session ID header if session management is enabled
+    if (this._enableSessionManagement) {
+      headers["mcp-session-id"] = this._sessionId;
+    }
+
+    res.writeHead(200, headers);
 
     const connection: StreamConnection = {
       response: res,
@@ -192,6 +259,12 @@ export class StreamableHTTPServerTransport implements Transport {
         messages = [JSONRPCMessageSchema.parse(rawMessage)];
       }
 
+      // Check if this is an initialization request
+      // https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle/
+      const isInitializationRequest = messages.some(
+        msg => 'method' in msg && msg.method === 'initialize' && 'id' in msg
+      );
+
       // check if it contains requests
       const hasRequests = messages.some(msg => 'method' in msg && 'id' in msg);
       const hasOnlyNotificationsOrResponses = messages.every(msg => 
@@ -210,12 +283,19 @@ export class StreamableHTTPServerTransport implements Transport {
         const useSSE = acceptHeader.includes("text/event-stream");
         
         if (useSSE) {
-          res.writeHead(200, {
+          const headers: Record<string, string> = {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             Connection: "keep-alive",
-            "mcp-session-id": this._sessionId,
-          });
+          };
+          
+          // Only include session ID header if session management is enabled
+          // Always include session ID for initialization requests
+          if (this._enableSessionManagement || isInitializationRequest) {
+            headers["mcp-session-id"] = this._sessionId;
+          }
+
+          res.writeHead(200, headers);
 
           const connectionId = randomUUID();
           const connection: StreamConnection = {
@@ -247,10 +327,17 @@ export class StreamableHTTPServerTransport implements Transport {
           });
         } else {
           // use direct JSON response
-          res.writeHead(200, {
+          const headers: Record<string, string> = {
             "Content-Type": "application/json",
-            "mcp-session-id": this._sessionId,
-          });
+          };
+          
+          // Only include session ID header if session management is enabled
+          // Always include session ID for initialization requests
+          if (this._enableSessionManagement || isInitializationRequest) {
+            headers["mcp-session-id"] = this._sessionId;
+          }
+
+          res.writeHead(200, headers);
           
           // handle each message
           for (const message of messages) {
