@@ -478,7 +478,7 @@ const prompt = await client.getPrompt("example-prompt", {
 const resources = await client.listResources();
 
 // Read a resource
-const resource = await client.readResource("file:///example.txt");
+const resource = await client.readResource({uri: "file:///example.txt"});
 
 // Call a tool
 const result = await client.callTool({
