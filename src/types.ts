@@ -667,6 +667,23 @@ export const ImageContentSchema = z
   .passthrough();
 
 /**
+ * An Audio provided to or from an LLM.
+ */
+export const AudioContentSchema = z
+  .object({
+    type: z.literal("audio"),
+    /**
+     * The base64-encoded audio data.
+     */
+    data: z.string().base64(),
+    /**
+     * The MIME type of the audio. Different providers may support different audio types.
+     */
+    mimeType: z.string(),
+  })
+  .passthrough();
+
+/**
  * The contents of a resource, embedded into a prompt or tool call result.
  */
 export const EmbeddedResourceSchema = z
@@ -685,6 +702,7 @@ export const PromptMessageSchema = z
     content: z.union([
       TextContentSchema,
       ImageContentSchema,
+      AudioContentSchema,
       EmbeddedResourceSchema,
     ]),
   })
@@ -753,7 +771,7 @@ export const ListToolsResultSchema = PaginatedResultSchema.extend({
  */
 export const CallToolResultSchema = ResultSchema.extend({
   content: z.array(
-    z.union([TextContentSchema, ImageContentSchema, EmbeddedResourceSchema]),
+    z.union([TextContentSchema, ImageContentSchema, AudioContentSchema, EmbeddedResourceSchema]),
   ),
   isError: z.boolean().default(false).optional(),
 });
@@ -877,7 +895,7 @@ export const ModelPreferencesSchema = z
 export const SamplingMessageSchema = z
   .object({
     role: z.enum(["user", "assistant"]),
-    content: z.union([TextContentSchema, ImageContentSchema]),
+    content: z.union([TextContentSchema, ImageContentSchema, AudioContentSchema]),
   })
   .passthrough();
 
@@ -931,6 +949,7 @@ export const CreateMessageResultSchema = ResultSchema.extend({
   content: z.discriminatedUnion("type", [
     TextContentSchema,
     ImageContentSchema,
+    AudioContentSchema
   ]),
 });
 
@@ -1195,6 +1214,7 @@ export type ListPromptsResult = Infer<typeof ListPromptsResultSchema>;
 export type GetPromptRequest = Infer<typeof GetPromptRequestSchema>;
 export type TextContent = Infer<typeof TextContentSchema>;
 export type ImageContent = Infer<typeof ImageContentSchema>;
+export type AudioContent = Infer<typeof AudioContentSchema>;
 export type EmbeddedResource = Infer<typeof EmbeddedResourceSchema>;
 export type PromptMessage = Infer<typeof PromptMessageSchema>;
 export type GetPromptResult = Infer<typeof GetPromptResultSchema>;
