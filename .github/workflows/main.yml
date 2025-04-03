@@ -46,7 +46,6 @@ jobs:
 
       - run: npm ci
 
-      # TODO: Add --provenance once the repo is public
-      - run: npm publish --access public
+      - run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
