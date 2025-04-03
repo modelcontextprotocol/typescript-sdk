@@ -20,7 +20,7 @@ export class ReadBuffer {
       return null;
     }
 
-    const line = this._buffer.toString("utf8", 0, index);
+    const line = this._buffer.toString("utf8", 0, index).replace(/\r$/, '');
     this._buffer = this._buffer.subarray(index + 1);
     return deserializeMessage(line);
   }
