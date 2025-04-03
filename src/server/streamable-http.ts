@@ -28,6 +28,12 @@ export interface StreamableHTTPServerTransportOptions {
    * @default true
    */
   enableSessionManagement?: boolean;
+
+  /**
+   * Custom headers to be included in all responses
+   * These headers will be added to both SSE and regular HTTP responses
+   */
+  customHeaders?: Record<string, string>;
 }
 
 /**
@@ -72,6 +78,7 @@ export class StreamableHTTPServerTransport implements Transport {
   private _started: boolean = false;
   private _requestConnections: Map<string, string> = new Map(); // request ID to connection ID mapping
   private _enableSessionManagement: boolean;
+  private _customHeaders: Record<string, string>;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -80,6 +87,7 @@ export class StreamableHTTPServerTransport implements Transport {
   constructor(private _endpoint: string, options?: StreamableHTTPServerTransportOptions) {
     this._sessionId = randomUUID();
     this._enableSessionManagement = options?.enableSessionManagement !== false;
+    this._customHeaders = options?.customHeaders || {};
   }
 
   /**
@@ -111,7 +119,7 @@ export class StreamableHTTPServerTransport implements Transport {
         // Continue processing normally
       } else if (!sessionId) {
         // Non-initialization requests without a session ID should return 400 Bad Request
-        res.writeHead(400).end(JSON.stringify({
+        res.writeHead(400, this._customHeaders).end(JSON.stringify({
           jsonrpc: "2.0",
           error: {
             code: -32000,
@@ -122,7 +130,7 @@ export class StreamableHTTPServerTransport implements Transport {
         return;
       } else if ((Array.isArray(sessionId) ? sessionId[0] : sessionId) !== this._sessionId) {
         // Reject requests with invalid session ID with 404 Not Found
-        res.writeHead(404).end(JSON.stringify({
+        res.writeHead(404, this._customHeaders).end(JSON.stringify({
           jsonrpc: "2.0",
           error: {
             code: -32001,
@@ -141,7 +149,7 @@ export class StreamableHTTPServerTransport implements Transport {
     } else if (req.method === "DELETE") {
       await this.handleDeleteRequest(req, res);
     } else {
-      res.writeHead(405).end(JSON.stringify({
+      res.writeHead(405, this._customHeaders).end(JSON.stringify({
         jsonrpc: "2.0",
         error: {
           code: -32000,
@@ -159,7 +167,7 @@ export class StreamableHTTPServerTransport implements Transport {
     // validate the Accept header
     const acceptHeader = req.headers.accept;
     if (!acceptHeader || !acceptHeader.includes("text/event-stream")) {
-      res.writeHead(406).end(JSON.stringify({
+      res.writeHead(406, this._customHeaders).end(JSON.stringify({
         jsonrpc: "2.0",
         error: {
           code: -32000,
@@ -176,6 +184,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
     // Prepare response headers
     const headers: Record<string, string> = {
+      ...this._customHeaders,
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
@@ -294,6 +303,7 @@ export class StreamableHTTPServerTransport implements Transport {
         
         if (useSSE) {
           const headers: Record<string, string> = {
+            ...this._customHeaders,
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             Connection: "keep-alive",
@@ -338,6 +348,7 @@ export class StreamableHTTPServerTransport implements Transport {
         } else {
           // use direct JSON response
           const headers: Record<string, string> = {
+            ...this._customHeaders,
             "Content-Type": "application/json",
           };
           
