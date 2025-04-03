@@ -49,8 +49,17 @@ export class SSEServerTransport implements Transport {
     });
 
     // Send the endpoint event
+    /**
+     * Determine the appropriate separator for adding the sessionId parameter.
+     * Uses '&' if the endpoint already contains a query parameter (has a '?'),
+     * otherwise uses '?' to start the query string.
+     * 
+     * Note: This approach works for standard endpoints but doesn't handle
+     * the edge case where '?' might be part of the path itself.
+     */
+    const separator = this._endpoint.includes('?') ? '&' : '?';
     this.res.write(
-      `event: endpoint\ndata: ${encodeURI(this._endpoint)}?sessionId=${this._sessionId}\n\n`,
+      `event: endpoint\ndata: ${encodeURI(this._endpoint)}${separator}sessionId=${this._sessionId}\n\n`,
     );
 
     this._sseResponse = this.res;
