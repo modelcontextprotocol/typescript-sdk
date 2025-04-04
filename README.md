@@ -379,6 +379,68 @@ server.tool(
 
 ## Advanced Usage
 
+### Dynamic Servers
+
+If you want to offer an initial set of tools/prompts/resources, but later add additional ones based on user action or external state change, you can add/update/remove them _after_ the Server is connected. This will automatically emit the corresponding `listChanged` notificaions:
+
+```ts
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+
+const server = new McpServer({
+  name: "Dynamic Example",
+  version: "1.0.0"
+});
+
+server.tool(
+  "listMessages",
+  { channel: z.string() },
+  async ({ channel }) => ({
+    content: [{ type: "text", text: await listMessages(channel) }]
+  })
+);
+
+server.tool(
+  "upgradeAuth",
+  { permission: z.enum(["write', vadmin"])},
+  upgradeAuth
+)
+
+// Connect with the existing set of tools
+const transport = new StdioServerTransport();
+await server.connect(transport);
+
+// Any mutations after connection result in `listChanged` notifications so the client knows to refresh
+async function upgradeAuth({permission}) {
+  const { ok, err, previous } = await upgradeAuthAndStoreToken(permission)
+
+  if (!ok) return {content: [{ type: "text", text: `Error: ${err}` }]}
+
+  // If we previously had read-only access, we need to add 'putMessage' now we can use it
+  if (previous === "read") {
+    server.tool(
+      "putMessage",
+      { channel: z.string(), message: z.string() },
+      async ({ channel, message }) => ({
+        content: [{ type: "text", text: await putMessage(channel, string) }]
+      })
+    );
+  }
+
+  // If we've just upgraded to 'write' permissions, we can still call 'upgradeAuth' but can only upgrade to 'admin' 
+  if (permission === 'write') {
+    server.updateTool(
+      "upgradeAuth",
+      { permission: z.enum(["admin"])}, // change param validation
+      upgradeAuth
+    )
+  } else {
+    // If we're on admin, we no longer have anywhere to upgrade to
+    server.removeTool("upgradeAuth")
+  }
+}
+```
+
 ### Low-Level Server
 
 For more control, you can use the low-level Server class directly:
