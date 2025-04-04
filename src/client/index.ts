@@ -28,6 +28,7 @@ import {
   ListResourceTemplatesRequest,
   ListResourceTemplatesResultSchema,
   ListToolsRequest,
+  ListToolsResult,
   ListToolsResultSchema,
   LoggingLevel,
   Notification,
@@ -76,7 +77,7 @@ export type ClientOptions = ProtocolOptions & {
 export class Client<
   RequestT extends Request = Request,
   NotificationT extends Notification = Notification,
-  ResultT extends Result = Result,
+  ResultT extends Result = Result
 > extends Protocol<
   ClientRequest | RequestT,
   ClientNotification | NotificationT,
@@ -88,14 +89,37 @@ export class Client<
   private _instructions?: string;
 
   /**
+   * Callback for when the server indicates that the tools list has changed.
+   * Client should typically refresh its list of tools in response.
+   */
+  onToolListChanged?: (tools?: ListToolsResult["tools"]) => void;
+
+  /**
    * Initializes this client with the given name and version information.
    */
-  constructor(
-    private _clientInfo: Implementation,
-    options?: ClientOptions,
-  ) {
+  constructor(private _clientInfo: Implementation, options?: ClientOptions) {
     super(options);
     this._capabilities = options?.capabilities ?? {};
+
+    // Set up notification handlers
+    this.setNotificationHandler(
+      "notifications/tools/list_changed",
+      async () => {
+        // Automatically refresh the tools list when the server indicates a change
+        try {
+          // Only refresh if the server supports tools
+          if (this._serverCapabilities?.tools) {
+            const result = await this.listTools();
+            // Call the user's callback with the updated tools list
+            this.onToolListChanged?.(result.tools);
+          }
+        } catch (error) {
+          console.error("Failed to refresh tools list:", error);
+          // Still call the callback even if refresh failed
+          this.onToolListChanged?.(undefined);
+        }
+      }
+    );
   }
 
   /**
@@ -106,7 +130,7 @@ export class Client<
   public registerCapabilities(capabilities: ClientCapabilities): void {
     if (this.transport) {
       throw new Error(
-        "Cannot register capabilities after connecting to transport",
+        "Cannot register capabilities after connecting to transport"
       );
     }
 
@@ -115,11 +139,11 @@ export class Client<
 
   protected assertCapability(
     capability: keyof ServerCapabilities,
-    method: string,
+    method: string
   ): void {
     if (!this._serverCapabilities?.[capability]) {
       throw new Error(
-        `Server does not support ${capability} (required for ${method})`,
+        `Server does not support ${String(capability)} (required for ${method})`
       );
     }
   }
@@ -137,7 +161,7 @@ export class Client<
             clientInfo: this._clientInfo,
           },
         },
-        InitializeResultSchema,
+        InitializeResultSchema
       );
 
       if (result === undefined) {
@@ -146,7 +170,7 @@ export class Client<
 
       if (!SUPPORTED_PROTOCOL_VERSIONS.includes(result.protocolVersion)) {
         throw new Error(
-          `Server's protocol version is not supported: ${result.protocolVersion}`,
+          `Server's protocol version is not supported: ${result.protocolVersion}`
         );
       }
 
@@ -191,7 +215,7 @@ export class Client<
       case "logging/setLevel":
         if (!this._serverCapabilities?.logging) {
           throw new Error(
-            `Server does not support logging (required for ${method})`,
+            `Server does not support logging (required for ${method})`
           );
         }
         break;
@@ -200,7 +224,7 @@ export class Client<
       case "prompts/list":
         if (!this._serverCapabilities?.prompts) {
           throw new Error(
-            `Server does not support prompts (required for ${method})`,
+            `Server does not support prompts (required for ${method})`
           );
         }
         break;
@@ -212,7 +236,7 @@ export class Client<
       case "resources/unsubscribe":
         if (!this._serverCapabilities?.resources) {
           throw new Error(
-            `Server does not support resources (required for ${method})`,
+            `Server does not support resources (required for ${method})`
           );
         }
 
@@ -221,7 +245,7 @@ export class Client<
           !this._serverCapabilities.resources.subscribe
         ) {
           throw new Error(
-            `Server does not support resource subscriptions (required for ${method})`,
+            `Server does not support resource subscriptions (required for ${method})`
           );
         }
 
@@ -231,7 +255,7 @@ export class Client<
       case "tools/list":
         if (!this._serverCapabilities?.tools) {
           throw new Error(
-            `Server does not support tools (required for ${method})`,
+            `Server does not support tools (required for ${method})`
           );
         }
         break;
@@ -239,7 +263,7 @@ export class Client<
       case "completion/complete":
         if (!this._serverCapabilities?.prompts) {
           throw new Error(
-            `Server does not support prompts (required for ${method})`,
+            `Server does not support prompts (required for ${method})`
           );
         }
         break;
@@ -255,13 +279,23 @@ export class Client<
   }
 
   protected assertNotificationCapability(
-    method: NotificationT["method"],
+    method: NotificationT["method"]
   ): void {
     switch (method as ClientNotification["method"]) {
       case "notifications/roots/list_changed":
         if (!this._capabilities.roots?.listChanged) {
           throw new Error(
-            `Client does not support roots list changed notifications (required for ${method})`,
+            `Client does not support roots list changed notifications (required for ${method})`
+          );
+        }
+        break;
+
+      case "notifications/tools/list_changed":
+        if (!this._capabilities.tools?.listChanged) {
+          throw new Error(
+            `Client does not support tools capability (required for ${String(
+              method
+            )})`
           );
         }
         break;
@@ -285,7 +319,7 @@ export class Client<
       case "sampling/createMessage":
         if (!this._capabilities.sampling) {
           throw new Error(
-            `Client does not support sampling capability (required for ${method})`,
+            `Client does not support sampling capability (required for ${method})`
           );
         }
         break;
@@ -293,7 +327,7 @@ export class Client<
       case "roots/list":
         if (!this._capabilities.roots) {
           throw new Error(
-            `Client does not support roots capability (required for ${method})`,
+            `Client does not support roots capability (required for ${method})`
           );
         }
         break;
@@ -312,7 +346,7 @@ export class Client<
     return this.request(
       { method: "completion/complete", params },
       CompleteResultSchema,
-      options,
+      options
     );
   }
 
@@ -320,84 +354,84 @@ export class Client<
     return this.request(
       { method: "logging/setLevel", params: { level } },
       EmptyResultSchema,
-      options,
+      options
     );
   }
 
   async getPrompt(
     params: GetPromptRequest["params"],
-    options?: RequestOptions,
+    options?: RequestOptions
   ) {
     return this.request(
       { method: "prompts/get", params },
       GetPromptResultSchema,
-      options,
+      options
     );
   }
 
   async listPrompts(
     params?: ListPromptsRequest["params"],
-    options?: RequestOptions,
+    options?: RequestOptions
   ) {
     return this.request(
       { method: "prompts/list", params },
       ListPromptsResultSchema,
-      options,
+      options
     );
   }
 
   async listResources(
     params?: ListResourcesRequest["params"],
-    options?: RequestOptions,
+    options?: RequestOptions
   ) {
     return this.request(
       { method: "resources/list", params },
       ListResourcesResultSchema,
-      options,
+      options
     );
   }
 
   async listResourceTemplates(
     params?: ListResourceTemplatesRequest["params"],
-    options?: RequestOptions,
+    options?: RequestOptions
   ) {
     return this.request(
       { method: "resources/templates/list", params },
       ListResourceTemplatesResultSchema,
-      options,
+      options
     );
   }
 
   async readResource(
     params: ReadResourceRequest["params"],
-    options?: RequestOptions,
+    options?: RequestOptions
   ) {
     return this.request(
       { method: "resources/read", params },
       ReadResourceResultSchema,
-      options,
+      options
     );
   }
 
   async subscribeResource(
     params: SubscribeRequest["params"],
-    options?: RequestOptions,
+    options?: RequestOptions
   ) {
     return this.request(
       { method: "resources/subscribe", params },
       EmptyResultSchema,
-      options,
+      options
     );
   }
 
   async unsubscribeResource(
     params: UnsubscribeRequest["params"],
-    options?: RequestOptions,
+    options?: RequestOptions
   ) {
     return this.request(
       { method: "resources/unsubscribe", params },
       EmptyResultSchema,
-      options,
+      options
     );
   }
 
@@ -406,27 +440,43 @@ export class Client<
     resultSchema:
       | typeof CallToolResultSchema
       | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
-    options?: RequestOptions,
+    options?: RequestOptions
   ) {
     return this.request(
       { method: "tools/call", params },
       resultSchema,
-      options,
+      options
     );
   }
 
   async listTools(
     params?: ListToolsRequest["params"],
-    options?: RequestOptions,
+    options?: RequestOptions
   ) {
     return this.request(
       { method: "tools/list", params },
       ListToolsResultSchema,
-      options,
+      options
     );
+  }
+
+  /**
+   * Registers a callback to be called when the server indicates that
+   * the tools list has changed. The callback should typically refresh the tools list.
+   *
+   * @param callback Function to call when tools list changes
+   */
+  setToolListChangedCallback(
+    callback: (tools?: ListToolsResult["tools"]) => void
+  ): void {
+    this.onToolListChanged = callback;
   }
 
   async sendRootsListChanged() {
     return this.notification({ method: "notifications/roots/list_changed" });
+  }
+
+  async sendToolListChanged() {
+    return this.notification({ method: "notifications/tools/list_changed" });
   }
 }
