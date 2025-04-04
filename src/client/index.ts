@@ -407,9 +407,10 @@ export class Client<
       | typeof CallToolResultSchema
       | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
     options?: RequestOptions,
+    headers?: Record<string, string | boolean | number>
   ) {
     return this.request(
-      { method: "tools/call", params },
+      { method: "tools/call", params, headers },
       resultSchema,
       options,
     );
