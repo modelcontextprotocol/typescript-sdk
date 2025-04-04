@@ -87,7 +87,7 @@ export class McpServer {
     if (this._toolHandlersInitialized) {
       return;
     }
-    
+
     this.server.assertCanSetRequestHandler(
       ListToolsRequestSchema.shape.method.value,
     );
@@ -96,8 +96,10 @@ export class McpServer {
     );
 
     this.server.registerCapabilities({
-      tools: {},
-    });
+      tools: {
+        listChanged: true
+      }
+    })
 
     this.server.setRequestHandler(
       ListToolsRequestSchema,
@@ -285,8 +287,10 @@ export class McpServer {
     );
 
     this.server.registerCapabilities({
-      resources: {},
-    });
+      resources: {
+        listChanged: true
+      }
+    })
 
     this.server.setRequestHandler(
       ListResourcesRequestSchema,
@@ -366,7 +370,7 @@ export class McpServer {
     );
 
     this.setCompletionRequestHandler();
-    
+
     this._resourceHandlersInitialized = true;
   }
 
@@ -385,8 +389,10 @@ export class McpServer {
     );
 
     this.server.registerCapabilities({
-      prompts: {},
-    });
+      prompts: {
+        listChanged: true
+      }
+    })
 
     this.server.setRequestHandler(
       ListPromptsRequestSchema,
@@ -438,7 +444,7 @@ export class McpServer {
     );
 
     this.setCompletionRequestHandler();
-    
+
     this._promptHandlersInitialized = true;
   }
 
@@ -481,6 +487,57 @@ export class McpServer {
     uriOrTemplate: string | ResourceTemplate,
     ...rest: unknown[]
   ): void {
+    this._setResource(name, uriOrTemplate, rest, false);
+  }
+  
+  /**
+   * Updates a resource `name` at a fixed URI, which will use the given callback to respond to read requests.
+   */
+  updateResource(name: string, uri: string, readCallback: ReadResourceCallback): void;
+
+  /**
+   * Updates a resource `name` at a fixed URI with metadata, which will use the given callback to respond to read requests.
+   */
+  updateResource(
+    name: string,
+    uri: string,
+    metadata: ResourceMetadata,
+    readCallback: ReadResourceCallback,
+  ): void;
+
+  /**
+   * Updates a resource `name` with a template pattern, which will use the given callback to respond to read requests.
+   */
+  updateResource(
+    name: string,
+    template: ResourceTemplate,
+    readCallback: ReadResourceTemplateCallback,
+  ): void;
+
+  /**
+   * Updates a resource `name` with a template pattern and metadata, which will use the given callback to respond to read requests.
+   */
+  updateResource(
+    name: string,
+    template: ResourceTemplate,
+    metadata: ResourceMetadata,
+    readCallback: ReadResourceTemplateCallback,
+  ): void;
+
+  updateResource(
+    name: string,
+    uriOrTemplate: string | ResourceTemplate,
+    ...rest: unknown[]
+  ): void {
+    this._setResource(name, uriOrTemplate, rest, true);
+  }
+  
+  private _setResource(
+    name: string,
+    uriOrTemplate: string | ResourceTemplate,
+    rest: unknown[],
+    update: boolean
+  ): void {
     let metadata: ResourceMetadata | undefined;
     if (typeof rest[0] === "object") {
       metadata = rest.shift() as ResourceMetadata;
@@ -491,8 +548,14 @@ export class McpServer {
       | ReadResourceTemplateCallback;
 
     if (typeof uriOrTemplate === "string") {
-      if (this._registeredResources[uriOrTemplate]) {
-        throw new Error(`Resource ${uriOrTemplate} is already registered`);
+      if (update) {
+        if (!this._registeredResources[uriOrTemplate]) {
+          throw new Error(`Resource ${uriOrTemplate} is not registered`);
+        }
+      } else {
+        if (this._registeredResources[uriOrTemplate]) {
+          throw new Error(`Resource ${uriOrTemplate} is already registered`);
+        }
       }
 
       this._registeredResources[uriOrTemplate] = {
@@ -501,8 +564,14 @@ export class McpServer {
         readCallback: readCallback as ReadResourceCallback,
       };
     } else {
-      if (this._registeredResourceTemplates[name]) {
-        throw new Error(`Resource template ${name} is already registered`);
+      if (update) {
+        if (!this._registeredResourceTemplates[name]) {
+          throw new Error(`Resource template ${name} is not registered`);
+        }
+      } else {
+        if (this._registeredResourceTemplates[name]) {
+          throw new Error(`Resource template ${name} is already registered`);
+        }
       }
 
       this._registeredResourceTemplates[name] = {
@@ -513,6 +582,37 @@ export class McpServer {
     }
 
     this.setResourceRequestHandlers();
+    if (this.isConnected()) {
+      this.server.sendResourceListChanged();
+    }
+  }
+
+   /**
+   * Removes a previously registered static resource.
+   * @param uri The exact URI of the resource to remove.
+   * @returns True if the resource was found and removed, false otherwise.
+   */
+  removeResource(uri: string): boolean;
+  /**
+   * Removes a previously registered resource template.
+   * @param name The name of the resource template to remove.
+   * @returns True if the resource template was found and removed, false otherwise.
+   */
+  removeResource(name: string): boolean;
+  removeResource(uriOrName: string): boolean {
+    let removed = false;
+    if (this._registeredResources[uriOrName]) {
+      delete this._registeredResources[uriOrName];
+      removed = true;
+    } else if (this._registeredResourceTemplates[uriOrName]) {
+      delete this._registeredResourceTemplates[uriOrName];
+      removed = true;
+    }
+
+    if (removed && this.isConnected()) {
+      this.server.sendResourceListChanged();
+    }
+    return removed;
   }
 
   /**
@@ -545,8 +645,55 @@ export class McpServer {
   ): void;
 
   tool(name: string, ...rest: unknown[]): void {
-    if (this._registeredTools[name]) {
-      throw new Error(`Tool ${name} is already registered`);
+    this._setTool(name, rest, false);
+  }
+  
+  /**
+   * Updates a zero-argument tool `name`, which will run the given function when the client calls it.
+   */
+  updateTool(name: string, cb: ToolCallback): void;
+
+  /**
+   * Updates a zero-argument tool `name` (with a description) which will run the given function when the client calls it.
+   */
+  updateTool(name: string, description: string, cb: ToolCallback): void;
+
+  /**
+   * Updates a tool `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   */
+  updateTool<Args extends ZodRawShape>(
+    name: string,
+    paramsSchema: Args,
+    cb: ToolCallback<Args>,
+  ): void;
+
+  /**
+   * Updates a tool `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   */
+  updateTool<Args extends ZodRawShape>(
+    name: string,
+    description: string,
+    paramsSchema: Args,
+    cb: ToolCallback<Args>,
+  ): void;
+
+  updateTool(name: string, ...rest: unknown[]): void {
+    this._setTool(name, rest, true);
+  }
+  
+  private _setTool(
+    name: string,
+    rest: unknown[],
+    update: boolean
+  ): void {
+    if (update) {
+      if (!this._registeredTools[name]) {
+        throw new Error(`Tool ${name} is not registered`);
+      }
+    } else {
+      if (this._registeredTools[name]) {
+        throw new Error(`Tool ${name} is already registered`);
+      }
     }
 
     let description: string | undefined;
@@ -568,6 +715,25 @@ export class McpServer {
     };
 
     this.setToolRequestHandlers();
+    if (this.isConnected()) {
+      this.server.sendToolListChanged();
+    }
+  }
+
+  /**
+   * Removes a previously registered tool.
+   * @param name The name of the tool to remove.
+   * @returns True if the tool was found and removed, false otherwise.
+   */
+  removeTool(name: string): boolean {
+    if (this._registeredTools[name]) {
+      delete this._registeredTools[name];
+      if (this.isConnected()) {
+        this.server.sendToolListChanged();
+      }
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -600,8 +766,55 @@ export class McpServer {
   ): void;
 
   prompt(name: string, ...rest: unknown[]): void {
-    if (this._registeredPrompts[name]) {
-      throw new Error(`Prompt ${name} is already registered`);
+    this._setPrompt(name, rest, false);
+  }
+  
+  /**
+   * Updates a zero-argument prompt `name`, which will run the given function when the client calls it.
+   */
+  updatePrompt(name: string, cb: PromptCallback): void;
+
+  /**
+   * Updates a zero-argument prompt `name` (with a description) which will run the given function when the client calls it.
+   */
+  updatePrompt(name: string, description: string, cb: PromptCallback): void;
+
+  /**
+   * Updates a prompt `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   */
+  updatePrompt<Args extends PromptArgsRawShape>(
+    name: string,
+    argsSchema: Args,
+    cb: PromptCallback<Args>,
+  ): void;
+
+  /**
+   * Updates a prompt `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   */
+  updatePrompt<Args extends PromptArgsRawShape>(
+    name: string,
+    description: string,
+    argsSchema: Args,
+    cb: PromptCallback<Args>,
+  ): void;
+
+  updatePrompt(name: string, ...rest: unknown[]): void {
+    this._setPrompt(name, rest, true);
+  }
+  
+  private _setPrompt(
+    name: string,
+    rest: unknown[],
+    update: boolean
+  ): void {
+    if (update) {
+      if (!this._registeredPrompts[name]) {
+        throw new Error(`Prompt ${name} is not registered`);
+      }
+    } else {
+      if (this._registeredPrompts[name]) {
+        throw new Error(`Prompt ${name} is already registered`);
+      }
     }
 
     let description: string | undefined;
@@ -622,6 +835,33 @@ export class McpServer {
     };
 
     this.setPromptRequestHandlers();
+    if (this.isConnected()) {
+      this.server.sendPromptListChanged()
+    }
+  }
+
+  /**
+   * Removes a previously registered prompt.
+   * @param name The name of the prompt to remove.
+   * @returns True if the prompt was found and removed, false otherwise.
+   */
+  removePrompt(name: string): boolean {
+    if (this._registeredPrompts[name]) {
+      delete this._registeredPrompts[name]
+      if (this.isConnected()) {
+        this.server.sendPromptListChanged()
+      }
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Checks if the server is connected to a transport.
+   * @returns True if the server is connected
+   */
+  isConnected() {
+    return this.server.transport !== undefined
   }
 }
 
