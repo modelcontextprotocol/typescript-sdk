@@ -145,10 +145,10 @@ describe("tool()", () => {
 
     mcpServer.tool(
       "test",
-      {
+      z.object({
         name: z.string(),
         value: z.number(),
-      },
+      }),
       async ({ name, value }) => ({
         content: [
           {
@@ -244,10 +244,10 @@ describe("tool()", () => {
 
     mcpServer.tool(
       "test",
-      {
+      z.object({
         name: z.string(),
         value: z.number(),
-      },
+      }),
       async ({ name, value }) => ({
         content: [
           {
@@ -397,9 +397,9 @@ describe("tool()", () => {
     mcpServer.tool(
       "test",
       "Test tool",
-      {
+      z.object({
         input: z.string(),
-      },
+      }),
       async ({ input }) => ({
         content: [
           {
@@ -1126,10 +1126,10 @@ describe("prompt()", () => {
 
     mcpServer.prompt(
       "test",
-      {
+      z.object({
         name: z.string(),
         value: z.string(),
-      },
+      }),
       async ({ name, value }) => ({
         messages: [
           {
@@ -1228,10 +1228,10 @@ describe("prompt()", () => {
 
     mcpServer.prompt(
       "test",
-      {
+      z.object({
         name: z.string(),
         value: z.string().min(3),
-      },
+      }),
       async ({ name, value }) => ({
         messages: [
           {
@@ -1345,7 +1345,7 @@ describe("prompt()", () => {
     // This should succeed
     mcpServer.prompt(
       "echo",
-      { message: z.string() },
+      z.object({ message: z.string() }),
       ({ message }) => ({
         messages: [{
           role: "user",
@@ -1386,7 +1386,7 @@ describe("prompt()", () => {
     // Register a prompt with completion
     mcpServer.prompt(
       "echo",
-      { message: completable(z.string(), () => ["hello", "world"]) },
+      z.object({ message: completable(z.string(), () => ["hello", "world"]) }),
       ({ message }) => ({
         messages: [{
           role: "user",
@@ -1470,9 +1470,9 @@ describe("prompt()", () => {
 
     mcpServer.prompt(
       "test-prompt",
-      {
+      z.object({
         name: completable(z.string(), () => ["Alice", "Bob", "Charlie"]),
-      },
+      }),
       async ({ name }) => ({
         messages: [
           {
@@ -1535,11 +1535,11 @@ describe("prompt()", () => {
 
     mcpServer.prompt(
       "test-prompt",
-      {
+      z.object({
         name: completable(z.string(), (test) =>
           ["Alice", "Bob", "Charlie"].filter((value) => value.startsWith(test)),
         ),
-      },
+      }),
       async ({ name }) => ({
         messages: [
           {
