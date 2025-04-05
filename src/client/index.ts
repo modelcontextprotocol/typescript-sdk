@@ -124,7 +124,7 @@ export class Client<
     }
   }
 
-  override async connect(transport: Transport): Promise<void> {
+  override async connect(transport: Transport, options?: RequestOptions): Promise<void> {
     await super.connect(transport);
 
     try {
@@ -138,6 +138,7 @@ export class Client<
           },
         },
         InitializeResultSchema,
+        options
       );
 
       if (result === undefined) {
