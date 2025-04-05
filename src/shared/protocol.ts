@@ -364,12 +364,6 @@ export abstract class Protocol<
   private _onprogress(notification: ProgressNotification): void {
     const { progressToken, ...params } = notification.params;
     const messageId = Number(progressToken);
-    
-    const handler = this._progressHandlers.get(messageId);
-    if (!handler) {
-      this._onerror(new Error(`Received a progress notification for an unknown token: ${JSON.stringify(notification)}`));
-      return;
-    }
 
     const responseHandler = this._responseHandlers.get(messageId);
     const timeoutInfo = this._timeoutInfo.get(messageId);
@@ -383,7 +377,10 @@ export abstract class Protocol<
       }
     }
 
-    handler(params);
+    const handler = this._progressHandlers.get(messageId);
+    if (handler) {
+      handler(params);
+    }
   }
 
   private _onresponse(response: JSONRPCResponse | JSONRPCError): void {
