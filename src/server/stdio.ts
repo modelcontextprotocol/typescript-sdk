@@ -21,6 +21,7 @@ export class StdioServerTransport implements Transport {
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
+  user?: unknown;
 
   // Arrow functions to bind `this` properly, while maintaining function identity.
   _ondata = (chunk: Buffer) => {
@@ -73,7 +74,7 @@ export class StdioServerTransport implements Transport {
       // This prevents interfering with other parts of the application that might be using stdin
       this._stdin.pause();
     }
-    
+
     // Clear the buffer and notify closure
     this._readBuffer.clear();
     this.onclose?.();

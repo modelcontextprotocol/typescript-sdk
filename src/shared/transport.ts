@@ -46,4 +46,9 @@ export interface Transport {
    * The session ID generated for this connection.
    */
   sessionId?: string;
+
+  /**
+   * The authenticated user for this transport session.
+   */
+  user?: unknown;
 }

@@ -12,5 +12,6 @@ export default {
   transformIgnorePatterns: [
     "/node_modules/(?!eventsource)/"
   ],
+  collectCoverageFrom: ["src/**/*.ts"],
   testPathIgnorePatterns: ["/node_modules/", "/dist/"],
 };

@@ -12,6 +12,7 @@ export class InMemoryTransport implements Transport {
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
   sessionId?: string;
+  user?: unknown;
 
   /**
    * Creates a pair of linked in-memory transports that can communicate with each other. One should be passed to a Client and one to a Server.

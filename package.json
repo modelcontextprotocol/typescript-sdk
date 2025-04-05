@@ -41,6 +41,7 @@
     "prepack": "npm run build:esm && npm run build:cjs",
     "lint": "eslint src/",
     "test": "jest",
+    "coverage": "jest --coverage",
     "start": "npm run server",
     "server": "tsx watch --clear-screen=false src/cli.ts server",
     "client": "tsx src/cli.ts client"

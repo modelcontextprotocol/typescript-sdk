@@ -54,12 +54,17 @@ export class McpServer {
    */
   public readonly server: Server;
 
-  private _registeredResources: { [uri: string]: RegisteredResource } = {};
-  private _registeredResourceTemplates: {
+  protected _registeredResources: { [uri: string]: RegisteredResource } = {};
+  protected _registeredResourceTemplates: {
     [name: string]: RegisteredResourceTemplate;
   } = {};
-  private _registeredTools: { [name: string]: RegisteredTool } = {};
-  private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+  protected _registeredTools: { [name: string]: RegisteredTool } = {};
+  protected _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+
+  protected _toolHandlersInitialized = false;
+  protected _completionHandlerInitialized = false;
+  protected _resourceHandlersInitialized = false;
+  protected _promptHandlersInitialized = false;
 
   constructor(serverInfo: Implementation, options?: ServerOptions) {
     this.server = new Server(serverInfo, options);
@@ -81,13 +86,11 @@ export class McpServer {
     await this.server.close();
   }
 
-  private _toolHandlersInitialized = false;
-
   private setToolRequestHandlers() {
     if (this._toolHandlersInitialized) {
       return;
     }
-    
+
     this.server.assertCanSetRequestHandler(
       ListToolsRequestSchema.shape.method.value,
     );
@@ -177,8 +180,6 @@ export class McpServer {
     this._toolHandlersInitialized = true;
   }
 
-  private _completionHandlerInitialized = false;
-
   private setCompletionRequestHandler() {
     if (this._completionHandlerInitialized) {
       return;
@@ -266,8 +267,6 @@ export class McpServer {
     const suggestions = await completer(request.params.argument.value);
     return createCompletionResult(suggestions);
   }
-
-  private _resourceHandlersInitialized = false;
 
   private setResourceRequestHandlers() {
     if (this._resourceHandlersInitialized) {
@@ -366,11 +365,9 @@ export class McpServer {
     );
 
     this.setCompletionRequestHandler();
-    
+
     this._resourceHandlersInitialized = true;
   }
-
-  private _promptHandlersInitialized = false;
 
   private setPromptRequestHandlers() {
     if (this._promptHandlersInitialized) {
@@ -438,7 +435,7 @@ export class McpServer {
     );
 
     this.setCompletionRequestHandler();
-    
+
     this._promptHandlersInitialized = true;
   }
 
@@ -770,7 +767,7 @@ type RegisteredPrompt = {
   callback: PromptCallback<undefined | PromptArgsRawShape>;
 };
 
-function promptArgumentsFromSchema(
+export function promptArgumentsFromSchema(
   schema: ZodObject<PromptArgsRawShape>,
 ): PromptArgument[] {
   return Object.entries(schema.shape).map(
