@@ -12,7 +12,7 @@
     "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.10.0"
   },
   "keywords": [
     "modelcontextprotocol",
