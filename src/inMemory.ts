@@ -1,16 +1,22 @@
 import { Transport } from "./shared/transport.js";
 import { JSONRPCMessage } from "./types.js";
+import { AuthInfo } from "./server/auth/types.js";
+
+interface QueuedMessage {
+  message: JSONRPCMessage;
+  authInfo?: AuthInfo;
+}
 
 /**
  * In-memory transport for creating clients and servers that talk to each other within the same process.
  */
 export class InMemoryTransport implements Transport {
   private _otherTransport?: InMemoryTransport;
-  private _messageQueue: JSONRPCMessage[] = [];
+  private _messageQueue: QueuedMessage[] = [];
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage) => void;
+  onmessage?: (message: JSONRPCMessage, authInfo?: AuthInfo) => void;
   sessionId?: string;
 
   /**
@@ -27,10 +33,8 @@ export class InMemoryTransport implements Transport {
   async start(): Promise<void> {
     // Process any messages that were queued before start was called
     while (this._messageQueue.length > 0) {
-      const message = this._messageQueue.shift();
-      if (message) {
-        this.onmessage?.(message);
-      }
+      const queuedMessage = this._messageQueue.shift()!;
+      this.onmessage?.(queuedMessage.message, queuedMessage.authInfo);
     }
   }
 
@@ -42,14 +46,22 @@ export class InMemoryTransport implements Transport {
   }
 
   async send(message: JSONRPCMessage): Promise<void> {
+    return this.sendWithAuth(message);
+  }
+
+  /**
+   * Sends a message with optional auth info.
+   * This is useful for testing authentication scenarios.
+   */
+  async sendWithAuth(message: JSONRPCMessage, authInfo?: AuthInfo): Promise<void> {
     if (!this._otherTransport) {
       throw new Error("Not connected");
     }
 
     if (this._otherTransport.onmessage) {
-      this._otherTransport.onmessage(message);
+      this._otherTransport.onmessage(message, authInfo);
     } else {
-      this._otherTransport._messageQueue.push(message);
+      this._otherTransport._messageQueue.push({ message, authInfo });
     }
   }
 }

@@ -4,6 +4,7 @@ import { Transport } from "../shared/transport.js";
 import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 import getRawBody from "raw-body";
 import contentType from "content-type";
+import { AuthInfo } from "./auth/types.js";
 
 const MAXIMUM_MESSAGE_SIZE = "4mb";
 
@@ -18,7 +19,7 @@ export class SSEServerTransport implements Transport {
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage) => void;
+  onmessage?: (message: JSONRPCMessage, authInfo?: AuthInfo) => void;
 
   /**
    * Creates a new SSE server transport, which will direct the client to POST messages to the relative or absolute URL identified by `_endpoint`.
@@ -66,7 +67,7 @@ export class SSEServerTransport implements Transport {
    * This should be called when a POST request is made to send a message to the server.
    */
   async handlePostMessage(
-    req: IncomingMessage,
+    req: IncomingMessage & { auth?: AuthInfo },
     res: ServerResponse,
     parsedBody?: unknown,
   ): Promise<void> {
@@ -75,6 +76,7 @@ export class SSEServerTransport implements Transport {
       res.writeHead(500).end(message);
       throw new Error(message);
     }
+    const authInfo: AuthInfo | undefined = req.auth;
 
     let body: string | unknown;
     try {
@@ -94,7 +96,7 @@ export class SSEServerTransport implements Transport {
     }
 
     try {
-      await this.handleMessage(typeof body === 'string' ? JSON.parse(body) : body);
+      await this.handleMessage(typeof body === 'string' ? JSON.parse(body) : body, authInfo);
     } catch {
       res.writeHead(400).end(`Invalid message: ${body}`);
       return;
@@ -106,7 +108,7 @@ export class SSEServerTransport implements Transport {
   /**
    * Handle a client message, regardless of how it arrived. This can be used to inform the server of messages that arrive via a means different than HTTP POST.
    */
-  async handleMessage(message: unknown): Promise<void> {
+  async handleMessage(message: unknown, authInfo?: AuthInfo): Promise<void> {
     let parsedMessage: JSONRPCMessage;
     try {
       parsedMessage = JSONRPCMessageSchema.parse(message);
@@ -115,7 +117,7 @@ export class SSEServerTransport implements Transport {
       throw error;
     }
 
-    this.onmessage?.(parsedMessage);
+    this.onmessage?.(parsedMessage, authInfo);
   }
 
   async close(): Promise<void> {

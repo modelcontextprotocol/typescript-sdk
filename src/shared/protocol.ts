@@ -19,6 +19,7 @@ import {
   ServerCapabilities,
 } from "../types.js";
 import { Transport } from "./transport.js";
+import { AuthInfo } from "../server/auth/types.js";
 
 /**
  * Callback for progress notifications.
@@ -88,6 +89,11 @@ export type RequestHandlerExtra = {
    * An abort signal used to communicate if the request was cancelled from the sender's side.
    */
   signal: AbortSignal;
+
+  /**
+   * Information about a validated access token, provided to request handlers.
+   */
+  authInfo?: AuthInfo;
 
   /**
    * The session ID from the transport, if available.
@@ -240,11 +246,11 @@ export abstract class Protocol<
       this._onerror(error);
     };
 
-    this._transport.onmessage = (message) => {
+    this._transport.onmessage = (message, authInfo) => {
       if (!("method" in message)) {
         this._onresponse(message);
       } else if ("id" in message) {
-        this._onrequest(message);
+        this._onrequest(message, authInfo);
       } else {
         this._onnotification(message);
       }
@@ -290,7 +296,7 @@ export abstract class Protocol<
       );
   }
 
-  private _onrequest(request: JSONRPCRequest): void {
+  private _onrequest(request: JSONRPCRequest, authInfo?: AuthInfo): void {
     const handler =
       this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
 
@@ -319,6 +325,7 @@ export abstract class Protocol<
     const extra: RequestHandlerExtra = {
       signal: abortController.signal,
       sessionId: this._transport?.sessionId,
+      authInfo,
     };
 
     // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
