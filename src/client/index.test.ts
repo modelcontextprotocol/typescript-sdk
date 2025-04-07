@@ -66,6 +66,9 @@ test("should initialize with matching protocol version", async () => {
         protocolVersion: LATEST_PROTOCOL_VERSION,
       }),
     }),
+    expect.objectContaining({
+      relatedRequestId: undefined,
+    }),
   );
 
   // Should have the instructions returned

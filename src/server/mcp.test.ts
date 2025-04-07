@@ -11,6 +11,7 @@ import {
   ListPromptsResultSchema,
   GetPromptResultSchema,
   CompleteResultSchema,
+  LoggingMessageNotificationSchema,
 } from "../types.js";
 import { ResourceTemplate } from "./mcp.js";
 import { completable } from "./completable.js";
@@ -85,6 +86,8 @@ describe("ResourceTemplate", () => {
     const abortController = new AbortController();
     const result = await template.listCallback?.({
       signal: abortController.signal,
+      sendRequest: () => { throw new Error("Not implemented") },
+      sendNotification: () => { throw new Error("Not implemented") }
     });
     expect(result?.resources).toHaveLength(1);
     expect(list).toHaveBeenCalled();
@@ -318,7 +321,7 @@ describe("tool()", () => {
 
     // This should succeed
     mcpServer.tool("tool1", () => ({ content: [] }));
-    
+
     // This should also succeed and not throw about request handlers
     mcpServer.tool("tool2", () => ({ content: [] }));
   });
@@ -374,6 +377,63 @@ describe("tool()", () => {
     );
 
     expect(receivedSessionId).toBe("test-session-123");
+  });
+
+  test("should provide sendNotification within tool call", async () => {
+    const mcpServer = new McpServer(
+      {
+        name: "test server",
+        version: "1.0",
+      },
+      { capabilities: { logging: {} } },
+    );
+
+    const client = new Client(
+      {
+        name: "test client",
+        version: "1.0",
+      },
+      {
+        capabilities: {
+          tools: {},
+        },
+      },
+    );
+
+    let receivedLogMessage: string | undefined;
+    const loggingMessage = "hello here is log message 1";
+
+    client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
+      receivedLogMessage = notification.params.data as string;
+    });
+
+    mcpServer.tool("test-tool", async ({ sendNotification }) => {
+      await sendNotification({ method: "notifications/message", params: { level: "debug", data: loggingMessage } });
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Test response",
+          },
+        ],
+      };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+    await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "test-tool",
+        },
+      },
+      CallToolResultSchema,
+    );
+    expect(receivedLogMessage).toBe(loggingMessage);
   });
 
   test("should allow client to call server tools", async () => {
@@ -815,7 +875,7 @@ describe("resource()", () => {
         },
       ],
     }));
-    
+
     // This should also succeed and not throw about request handlers
     mcpServer.resource("resource2", "test://resource2", async () => ({
       contents: [
@@ -1321,7 +1381,7 @@ describe("prompt()", () => {
         },
       ],
     }));
-    
+
     // This should also succeed and not throw about request handlers
     mcpServer.prompt("prompt2", async () => ({
       messages: [

@@ -1,4 +1,4 @@
-import { JSONRPCMessage } from "../types.js";
+import { JSONRPCMessage, RequestId } from "../types.js";
 
 /**
  * Describes the minimal contract for a MCP transport that a client or server can communicate over.
@@ -15,8 +15,10 @@ export interface Transport {
 
   /**
    * Sends a JSON-RPC message (request or response).
+   * 
+   * If present, `relatedRequestId` is used to indicate to the transport which incoming request to associate this outgoing message with.
    */
-  send(message: JSONRPCMessage): Promise<void>;
+  send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void>;
 
   /**
    * Closes the connection.

@@ -37,6 +37,8 @@ import {
   PromptArgument,
   GetPromptResult,
   ReadResourceResult,
+  ServerRequest,
+  ServerNotification,
 } from "../types.js";
 import { Completable, CompletableDef } from "./completable.js";
 import { UriTemplate, Variables } from "../shared/uriTemplate.js";
@@ -694,9 +696,9 @@ export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
   Args extends ZodRawShape
     ? (
         args: z.objectOutputType<Args, ZodTypeAny>,
-        extra: RequestHandlerExtra,
+        extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
       ) => CallToolResult | Promise<CallToolResult>
-    : (extra: RequestHandlerExtra) => CallToolResult | Promise<CallToolResult>;
+    : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
 
 type RegisteredTool = {
   description?: string;
@@ -717,7 +719,7 @@ export type ResourceMetadata = Omit<Resource, "uri" | "name">;
  * Callback to list all resources matching a given template.
  */
 export type ListResourcesCallback = (
-  extra: RequestHandlerExtra,
+  extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
 ) => ListResourcesResult | Promise<ListResourcesResult>;
 
 /**
@@ -725,7 +727,7 @@ export type ListResourcesCallback = (
  */
 export type ReadResourceCallback = (
   uri: URL,
-  extra: RequestHandlerExtra,
+  extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 type RegisteredResource = {
@@ -740,7 +742,7 @@ type RegisteredResource = {
 export type ReadResourceTemplateCallback = (
   uri: URL,
   variables: Variables,
-  extra: RequestHandlerExtra,
+  extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 type RegisteredResourceTemplate = {
@@ -760,9 +762,9 @@ export type PromptCallback<
 > = Args extends PromptArgsRawShape
   ? (
       args: z.objectOutputType<Args, ZodTypeAny>,
-      extra: RequestHandlerExtra,
+      extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
     ) => GetPromptResult | Promise<GetPromptResult>
-  : (extra: RequestHandlerExtra) => GetPromptResult | Promise<GetPromptResult>;
+  : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
 
 type RegisteredPrompt = {
   description?: string;
