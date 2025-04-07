@@ -71,6 +71,44 @@ describe("protocol tests", () => {
       jest.useRealTimers();
     });
 
+    test("should not reset timeout when resetTimeoutOnProgress is false", async () => {
+      await protocol.connect(transport);
+      const request = { method: "example", params: {} };
+      const mockSchema: ZodType<{ result: string }> = z.object({
+        result: z.string(),
+      });
+      const onProgressMock = jest.fn();
+      const requestPromise = protocol.request(request, mockSchema, {
+        timeout: 1000,
+        resetTimeoutOnProgress: false,
+        onprogress: onProgressMock,
+      });
+      
+      jest.advanceTimersByTime(800);
+      
+      if (transport.onmessage) {
+        transport.onmessage({
+          jsonrpc: "2.0",
+          method: "notifications/progress",
+          params: {
+            progressToken: 0,
+            progress: 50,
+            total: 100,
+          },
+        });
+      }
+      await Promise.resolve();
+      
+      expect(onProgressMock).toHaveBeenCalledWith({
+        progress: 50,
+        total: 100,
+      });
+      
+      jest.advanceTimersByTime(201);
+      
+      await expect(requestPromise).rejects.toThrow("Request timed out");
+    });
+
     test("should reset timeout when progress notification is received", async () => {
       await protocol.connect(transport);
       const request = { method: "example", params: {} };

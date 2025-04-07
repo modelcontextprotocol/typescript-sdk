@@ -103,6 +103,7 @@ type TimeoutInfo = {
   startTime: number;
   timeout: number;
   maxTotalTimeout?: number;
+  resetTimeoutOnProgress: boolean;
   onTimeout: () => void;
 };
 
@@ -184,13 +185,15 @@ export abstract class Protocol<
     messageId: number,
     timeout: number,
     maxTotalTimeout: number | undefined,
-    onTimeout: () => void
+    onTimeout: () => void,
+    resetTimeoutOnProgress: boolean = false
   ) {
     this._timeoutInfo.set(messageId, {
       timeoutId: setTimeout(onTimeout, timeout),
       startTime: Date.now(),
       timeout,
       maxTotalTimeout,
+      resetTimeoutOnProgress,
       onTimeout
     });
   }
@@ -369,7 +372,9 @@ export abstract class Protocol<
     }
 
     const responseHandler = this._responseHandlers.get(messageId);
-    if (this._timeoutInfo.has(messageId) && responseHandler) {
+    const timeoutInfo = this._timeoutInfo.get(messageId);
+    
+    if (timeoutInfo && responseHandler && timeoutInfo.resetTimeoutOnProgress) {
       try {
         this._resetTimeout(messageId);
       } catch (error) {
@@ -531,7 +536,7 @@ export abstract class Protocol<
         { timeout }
       ));
 
-      this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler);
+      this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
       this._transport.send(jsonrpcRequest).catch((error) => {
         this._cleanupTimeout(messageId);

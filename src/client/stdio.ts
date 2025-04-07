@@ -1,4 +1,5 @@
-import { ChildProcess, IOType, spawn } from "node:child_process";
+import { ChildProcess, IOType } from "node:child_process";
+import spawn from "cross-spawn";
 import process from "node:process";
 import { Stream } from "node:stream";
 import { ReadBuffer, serializeMessage } from "../shared/stdio.js";

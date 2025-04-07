@@ -21,6 +21,7 @@
   - [Low-Level Server](#low-level-server)
   - [Writing MCP Clients](#writing-mcp-clients)
   - [Server Capabilities](#server-capabilities)
+  - [Proxy OAuth Server](#proxy-authorization-requests-upstream)
 
 ## Overview
 
@@ -454,13 +455,6 @@ const client = new Client(
   {
     name: "example-client",
     version: "1.0.0"
-  },
-  {
-    capabilities: {
-      prompts: {},
-      resources: {},
-      tools: {}
-    }
   }
 );
 
@@ -470,15 +464,20 @@ await client.connect(transport);
 const prompts = await client.listPrompts();
 
 // Get a prompt
-const prompt = await client.getPrompt("example-prompt", {
-  arg1: "value"
+const prompt = await client.getPrompt({
+  name: "example-prompt",
+  arguments: {
+    arg1: "value"
+  }
 });
 
 // List resources
 const resources = await client.listResources();
 
 // Read a resource
-const resource = await client.readResource("file:///example.txt");
+const resource = await client.readResource({
+  uri: "file:///example.txt"
+});
 
 // Call a tool
 const result = await client.callTool({
@@ -488,6 +487,52 @@ const result = await client.callTool({
   }
 });
 ```
+
+### Proxy Authorization Requests Upstream
+
+You can proxy OAuth requests to an external authorization provider:
+
+```typescript
+import express from 'express';
+import { ProxyOAuthServerProvider, mcpAuthRouter } from '@modelcontextprotocol/sdk';
+
+const app = express();
+
+const proxyProvider = new ProxyOAuthServerProvider({
+    endpoints: {
+        authorizationUrl: "https://auth.external.com/oauth2/v1/authorize",
+        tokenUrl: "https://auth.external.com/oauth2/v1/token",
+        revocationUrl: "https://auth.external.com/oauth2/v1/revoke",
+    },
+    verifyAccessToken: async (token) => {
+        return {
+            token,
+            clientId: "123",
+            scopes: ["openid", "email", "profile"],
+        }
+    },
+    getClient: async (client_id) => {
+        return {
+            client_id,
+            redirect_uris: ["http://localhost:3000/callback"],
+        }
+    }
+})
+
+app.use(mcpAuthRouter({
+    provider: proxyProvider,
+    issuerUrl: new URL("http://auth.external.com"),
+    baseUrl: new URL("http://mcp.example.com"),
+    serviceDocumentationUrl: new URL("https://docs.example.com/"),
+}))
+```
+
+This setup allows you to:
+- Forward OAuth requests to an external provider
+- Add custom token validation logic
+- Manage client registrations
+- Provide custom documentation URLs
+- Maintain control over the OAuth flow while delegating to an external provider
 
 ## Documentation
 

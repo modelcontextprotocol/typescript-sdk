@@ -259,6 +259,11 @@ describe('MCP Auth Router', () => {
         issuerUrl: new URL('https://auth.example.com')
       };
       app.use(mcpAuthRouter(options));
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
     });
 
     it('routes to authorization endpoint', async () => {

@@ -24,11 +24,13 @@ describe("UriTemplate", () => {
       expect(template.expand({ username: "fred" })).toBe(
         "http://example.com/users/fred",
       );
+      expect(template.variableNames).toEqual(['username'])
     });
 
     it("should handle multiple variables", () => {
       const template = new UriTemplate("{x,y}");
       expect(template.expand({ x: "1024", y: "768" })).toBe("1024,768");
+      expect(template.variableNames).toEqual(['x', 'y'])
     });
 
     it("should encode reserved characters", () => {
@@ -43,6 +45,7 @@ describe("UriTemplate", () => {
     it("should not encode reserved characters with + operator", () => {
       const template = new UriTemplate("{+path}/here");
       expect(template.expand({ path: "/foo/bar" })).toBe("/foo/bar/here");
+      expect(template.variableNames).toEqual(['path'])
     });
   });
 
@@ -50,6 +53,7 @@ describe("UriTemplate", () => {
     it("should add # prefix and not encode reserved chars", () => {
       const template = new UriTemplate("X{#var}");
       expect(template.expand({ var: "/test" })).toBe("X#/test");
+      expect(template.variableNames).toEqual(['var'])
     });
   });
 
@@ -57,6 +61,7 @@ describe("UriTemplate", () => {
     it("should add . prefix", () => {
       const template = new UriTemplate("X{.var}");
       expect(template.expand({ var: "test" })).toBe("X.test");
+      expect(template.variableNames).toEqual(['var'])
     });
   });
 
@@ -64,6 +69,7 @@ describe("UriTemplate", () => {
     it("should add / prefix", () => {
       const template = new UriTemplate("X{/var}");
       expect(template.expand({ var: "test" })).toBe("X/test");
+      expect(template.variableNames).toEqual(['var'])
     });
   });
 
@@ -71,6 +77,7 @@ describe("UriTemplate", () => {
     it("should add ? prefix and name=value format", () => {
       const template = new UriTemplate("X{?var}");
       expect(template.expand({ var: "test" })).toBe("X?var=test");
+      expect(template.variableNames).toEqual(['var'])
     });
   });
 
@@ -78,6 +85,7 @@ describe("UriTemplate", () => {
     it("should add & prefix and name=value format", () => {
       const template = new UriTemplate("X{&var}");
       expect(template.expand({ var: "test" })).toBe("X&var=test");
+      expect(template.variableNames).toEqual(['var'])
     });
   });
 
@@ -133,6 +141,7 @@ describe("UriTemplate", () => {
         resource: "users",
         id: "123"
       })).toBe("/api/v1/users/123");
+      expect(template.variableNames).toEqual(['version', 'resource', 'id'])
     });
 
     it("should handle query parameters with arrays", () => {
@@ -140,6 +149,7 @@ describe("UriTemplate", () => {
       expect(template.expand({
         tags: ["nodejs", "typescript", "testing"]
       })).toBe("/search?tags=nodejs,typescript,testing");
+      expect(template.variableNames).toEqual(['tags'])
     });
 
     it("should handle multiple query parameters", () => {
@@ -149,6 +159,7 @@ describe("UriTemplate", () => {
         page: "1",
         limit: "10"
       })).toBe("/search?q=test&page=1&limit=10");
+      expect(template.variableNames).toEqual(['q', 'page', 'limit'])
     });
   });
 
@@ -161,18 +172,21 @@ describe("UriTemplate", () => {
         resource: "users",
         id: "123"
       });
+      expect(template.variableNames).toEqual(['version', 'resource', 'id'])
     });
 
     it("should match query parameters", () => {
       const template = new UriTemplate("/search{?q}");
       const match = template.match("/search?q=test");
       expect(match).toEqual({ q: "test" });
+      expect(template.variableNames).toEqual(['q'])
     });
 
     it("should match multiple query parameters", () => {
       const template = new UriTemplate("/search{?q,page}");
       const match = template.match("/search?q=test&page=1");
       expect(match).toEqual({ q: "test", page: "1" });
+      expect(template.variableNames).toEqual(['q', 'page'])
     });
 
     it("should handle partial matches correctly", () => {
@@ -229,17 +243,20 @@ describe("UriTemplate", () => {
     it("should handle repeated operators", () => {
       const template = new UriTemplate("{?a}{?b}{?c}");
       expect(template.expand({ a: "1", b: "2", c: "3" })).toBe("?a=1&b=2&c=3");
+      expect(template.variableNames).toEqual(['a', 'b', 'c'])
     });
 
     it("should handle overlapping variable names", () => {
       const template = new UriTemplate("{var}{vara}");
       expect(template.expand({ var: "1", vara: "2" })).toBe("12");
+      expect(template.variableNames).toEqual(['var', 'vara'])
     });
 
     it("should handle empty segments", () => {
       const template = new UriTemplate("///{a}////{b}////");
       expect(template.expand({ a: "1", b: "2" })).toBe("///1////2////");
       expect(template.match("///1////2////")).toEqual({ a: "1", b: "2" });
+      expect(template.variableNames).toEqual(['a', 'b'])
     });
 
     it("should handle maximum template expression limit", () => {

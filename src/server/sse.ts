@@ -44,7 +44,7 @@ export class SSEServerTransport implements Transport {
 
     this.res.writeHead(200, {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
     });
 

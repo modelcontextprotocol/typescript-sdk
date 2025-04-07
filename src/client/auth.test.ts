@@ -46,11 +46,11 @@ describe("OAuth Authorization", () => {
     it("returns metadata when first fetch fails but second without MCP header succeeds", async () => {
       // Set up a counter to control behavior
       let callCount = 0;
-      
+
       // Mock implementation that changes behavior based on call count
       mockFetch.mockImplementation((_url, _options) => {
         callCount++;
-        
+
         if (callCount === 1) {
           // First call with MCP header - fail with TypeError (simulating CORS error)
           // We need to use TypeError specifically because that's what the implementation checks for
@@ -68,10 +68,10 @@ describe("OAuth Authorization", () => {
       // Should succeed with the second call
       const metadata = await discoverOAuthMetadata("https://auth.example.com");
       expect(metadata).toEqual(validMetadata);
-      
+
       // Verify both calls were made
       expect(mockFetch).toHaveBeenCalledTimes(2);
-      
+
       // Verify first call had MCP header
       expect(mockFetch.mock.calls[0][1]?.headers).toHaveProperty("MCP-Protocol-Version");
     });
@@ -79,11 +79,11 @@ describe("OAuth Authorization", () => {
     it("throws an error when all fetch attempts fail", async () => {
       // Set up a counter to control behavior
       let callCount = 0;
-      
+
       // Mock implementation that changes behavior based on call count
       mockFetch.mockImplementation((_url, _options) => {
         callCount++;
-        
+
         if (callCount === 1) {
           // First call - fail with TypeError
           return Promise.reject(new TypeError("First failure"));
@@ -96,7 +96,7 @@ describe("OAuth Authorization", () => {
       // Should fail with the second error
       await expect(discoverOAuthMetadata("https://auth.example.com"))
         .rejects.toThrow("Second failure");
-        
+
       // Verify both calls were made
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
@@ -250,6 +250,7 @@ describe("OAuth Authorization", () => {
         clientInformation: validClientInfo,
         authorizationCode: "code123",
         codeVerifier: "verifier123",
+        redirectUri: "http://localhost:3000/callback",
       });
 
       expect(tokens).toEqual(validTokens);
@@ -271,6 +272,7 @@ describe("OAuth Authorization", () => {
       expect(body.get("code_verifier")).toBe("verifier123");
       expect(body.get("client_id")).toBe("client123");
       expect(body.get("client_secret")).toBe("secret123");
+      expect(body.get("redirect_uri")).toBe("http://localhost:3000/callback");
     });
 
     it("validates token response schema", async () => {
@@ -288,6 +290,7 @@ describe("OAuth Authorization", () => {
           clientInformation: validClientInfo,
           authorizationCode: "code123",
           codeVerifier: "verifier123",
+          redirectUri: "http://localhost:3000/callback",
         })
       ).rejects.toThrow();
     });
@@ -303,6 +306,7 @@ describe("OAuth Authorization", () => {
           clientInformation: validClientInfo,
           authorizationCode: "code123",
           codeVerifier: "verifier123",
+          redirectUri: "http://localhost:3000/callback",
         })
       ).rejects.toThrow("Token exchange failed");
     });

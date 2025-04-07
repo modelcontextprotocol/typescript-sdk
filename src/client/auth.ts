@@ -115,6 +115,7 @@ export async function auth(
       clientInformation,
       authorizationCode,
       codeVerifier,
+      redirectUri: provider.redirectUrl,
     });
 
     await provider.saveTokens(tokens);
@@ -259,11 +260,13 @@ export async function exchangeAuthorization(
     clientInformation,
     authorizationCode,
     codeVerifier,
+    redirectUri,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
     authorizationCode: string;
     codeVerifier: string;
+    redirectUri: string | URL;
   },
 ): Promise<OAuthTokens> {
   const grantType = "authorization_code";
@@ -290,6 +293,7 @@ export async function exchangeAuthorization(
     client_id: clientInformation.client_id,
     code: authorizationCode,
     code_verifier: codeVerifier,
+    redirect_uri: String(redirectUri),
   });
 
   if (clientInformation.client_secret) {
