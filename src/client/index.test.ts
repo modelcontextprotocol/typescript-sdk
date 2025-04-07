@@ -227,10 +227,19 @@ test("should respect server capabilities", async () => {
   await expect(client.listResources()).resolves.not.toThrow();
   await expect(client.listTools()).resolves.not.toThrow();
 
-  // This should throw because prompts are not supported
+  // These should throw because prompts, logging, and completions are not supported
   await expect(client.listPrompts()).rejects.toThrow(
     "Server does not support prompts",
   );
+  await expect(client.setLoggingLevel("error")).rejects.toThrow(
+    "Server does not support logging",
+  );
+  await expect(
+    client.complete({
+      ref: { type: "ref/prompt", name: "test" },
+      argument: { name: "test", value: "test" },
+    }),
+  ).rejects.toThrow("Server does not support completions");
 });
 
 test("should respect client notification capabilities", async () => {

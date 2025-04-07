@@ -1,8 +1,7 @@
-import { McpServer, ToolCallback } from "./mcp.js";
+import { McpServer } from "./mcp.js";
 import { Client } from "../client/index.js";
 import { InMemoryTransport } from "../inMemory.js";
-import { z, ZodRawShape } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { z } from "zod";
 import {
   ListToolsResultSchema,
   CallToolResultSchema,
@@ -12,16 +11,10 @@ import {
   ListPromptsResultSchema,
   GetPromptResultSchema,
   CompleteResultSchema,
-  CallToolRequestSchema,
-  CallToolRequest,
-  ListToolsRequestSchema,
-  ListToolsResult,
-  Tool,
 } from "../types.js";
 import { ResourceTemplate } from "./mcp.js";
 import { completable } from "./completable.js";
 import { UriTemplate } from "../shared/uriTemplate.js";
-import { RequestHandlerExtra } from "../shared/protocol.js";
 
 describe("McpServer", () => {
   test("should expose underlying Server instance", () => {
@@ -325,7 +318,7 @@ describe("tool()", () => {
 
     // This should succeed
     mcpServer.tool("tool1", () => ({ content: [] }));
-
+    
     // This should also succeed and not throw about request handlers
     mcpServer.tool("tool2", () => ({ content: [] }));
   });
@@ -361,8 +354,7 @@ describe("tool()", () => {
       };
     });
 
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     // Set a test sessionId on the server transport
     serverTransport.sessionId = "test-session-123";
 
@@ -823,7 +815,7 @@ describe("resource()", () => {
         },
       ],
     }));
-
+    
     // This should also succeed and not throw about request handlers
     mcpServer.resource("resource2", "test://resource2", async () => ({
       contents: [
@@ -1329,7 +1321,7 @@ describe("prompt()", () => {
         },
       ],
     }));
-
+    
     // This should also succeed and not throw about request handlers
     mcpServer.prompt("prompt2", async () => ({
       messages: [
@@ -1351,17 +1343,19 @@ describe("prompt()", () => {
     });
 
     // This should succeed
-    mcpServer.prompt("echo", { message: z.string() }, ({ message }) => ({
-      messages: [
-        {
+    mcpServer.prompt(
+      "echo",
+      { message: z.string() },
+      ({ message }) => ({
+        messages: [{
           role: "user",
           content: {
             type: "text",
-            text: `Please process this message: ${message}`,
-          },
-        },
-      ],
-    }));
+            text: `Please process this message: ${message}`
+          }
+        }]
+      })
+    );
   });
 
   test("should allow registering both resources and prompts with completion handlers", () => {
@@ -1394,16 +1388,14 @@ describe("prompt()", () => {
       "echo",
       { message: completable(z.string(), () => ["hello", "world"]) },
       ({ message }) => ({
-        messages: [
-          {
-            role: "user",
-            content: {
-              type: "text",
-              text: `Please process this message: ${message}`,
-            },
-          },
-        ],
-      }),
+        messages: [{
+          role: "user",
+          content: {
+            type: "text",
+            text: `Please process this message: ${message}`
+          }
+        }]
+      })
     );
   });
 
@@ -1588,353 +1580,5 @@ describe("prompt()", () => {
 
     expect(result.completion.values).toEqual(["Alice"]);
     expect(result.completion.total).toBe(1);
-  });
-});
-
-describe("McpServer with Auth Extension", () => {
-  type SessionUser = {
-    role: string;
-    [key: string]: unknown;
-  };
-
-  type AccessPolicy = {
-    allow?: {
-      roles?: string[];
-    };
-    deny?: {
-      roles?: string[];
-    };
-  };
-
-  type RegisteredToolWithAuth = {
-    description?: string;
-    inputSchema?: z.ZodObject<ZodRawShape>;
-    callback: ToolCallback<ZodRawShape | undefined>;
-    accessPolicy?: AccessPolicy;
-  };
-
-  // Just a simple extension to McpServer that adds support for access policies on tools
-  class McpServerWithAuth extends McpServer {
-    protected override _registeredTools: {
-      [name: string]: RegisteredToolWithAuth;
-    } = {};
-    checkPermissions(user?: SessionUser, policy?: AccessPolicy): boolean {
-      if (!policy) {
-        return true;
-      }
-
-      if (!user) {
-        return false;
-      }
-
-      // Check deny rules first
-      if (policy.deny) {
-        // Check denied roles
-        if (policy.deny.roles?.includes(user.role)) {
-          return false;
-        }
-      }
-
-      // Check allow rules
-      if (policy.allow) {
-        let isAllowed = false;
-
-        // If no allow rules are specified, default to allowed
-        if (!policy.allow.roles) {
-          isAllowed = true;
-        } else {
-          // Check allowed roles
-          if (policy.allow.roles?.includes(user.role)) {
-            isAllowed = true;
-          }
-        }
-
-        return isAllowed;
-      }
-
-      // If no rules specified, default to allowed
-      return true;
-    }
-
-    override tool(
-      name: string,
-      cb: ToolCallback,
-      accessPolicy?: AccessPolicy,
-    ): void;
-    override tool(
-      name: string,
-      description: string,
-      cb: ToolCallback,
-      accessPolicy?: AccessPolicy,
-    ): void;
-    override tool<Args extends ZodRawShape>(
-      name: string,
-      paramsSchema: Args,
-      cb: ToolCallback<Args>,
-      accessPolicy?: AccessPolicy,
-    ): void;
-    override tool<Args extends ZodRawShape>(
-      name: string,
-      description: string,
-      paramsSchema: Args,
-      cb: ToolCallback<Args>,
-      accessPolicy?: AccessPolicy,
-    ): void;
-    override tool(name: string, ...rest: unknown[]): void {
-      let description: string | undefined;
-      let paramsSchema: ZodRawShape | undefined;
-      let accessPolicy: AccessPolicy | undefined;
-      let cb: ToolCallback<ZodRawShape | undefined>;
-
-      // Parse arguments based on their types
-      if (typeof rest[0] === "function") {
-        // Case: tool(name, cb, accessPolicy?)
-        cb = rest[0] as ToolCallback<ZodRawShape | undefined>;
-        accessPolicy = rest[1] as AccessPolicy | undefined;
-      } else if (typeof rest[0] === "string") {
-        // Cases with description
-        description = rest[0];
-        if (typeof rest[1] === "function") {
-          // Case: tool(name, description, cb, accessPolicy?)
-          cb = rest[1] as ToolCallback<ZodRawShape | undefined>;
-          accessPolicy = rest[2] as AccessPolicy | undefined;
-        } else {
-          // Case: tool(name, description, paramsSchema, cb, accessPolicy?)
-          paramsSchema = rest[1] as ZodRawShape;
-          cb = rest[2] as ToolCallback<ZodRawShape>;
-          accessPolicy = rest[3] as AccessPolicy | undefined;
-        }
-      } else {
-        // Case: tool(name, paramsSchema, cb, accessPolicy?)
-        paramsSchema = rest[0] as ZodRawShape;
-        cb = rest[1] as ToolCallback<ZodRawShape>;
-        accessPolicy = rest[2] as AccessPolicy | undefined;
-      }
-
-      // Register with base class
-      const args: unknown[] = [name];
-      if (description) args.push(description);
-      if (paramsSchema) args.push(paramsSchema);
-      args.push(cb);
-
-      // Set up request handlers if not already initialized
-      if (!this._toolHandlersInitialized) {
-        this.server.assertCanSetRequestHandler(
-          CallToolRequestSchema.shape.method.value,
-        );
-        this.server.assertCanSetRequestHandler(
-          ListToolsRequestSchema.shape.method.value,
-        );
-        this.server.registerCapabilities({ tools: {} });
-
-        // Add ListToolsRequestSchema handler
-        this.server.setRequestHandler(
-          ListToolsRequestSchema,
-          (request, extra): ListToolsResult => {
-            const user = extra.user as SessionUser | undefined;
-
-            // Filter tools based on permissions
-            const accessibleTools = Object.entries(this._registeredTools)
-              .filter(([_, tool]) =>
-                this.checkPermissions(user, tool.accessPolicy),
-              )
-              .map(
-                ([name, tool]): Tool => ({
-                  name,
-                  description: tool.description,
-                  inputSchema: tool.inputSchema
-                    ? (zodToJsonSchema(tool.inputSchema, {
-                        strictUnions: true,
-                      }) as Tool["inputSchema"])
-                    : { type: "object" },
-                }),
-              );
-
-            return { tools: accessibleTools };
-          },
-        );
-
-        this.server.setRequestHandler(
-          CallToolRequestSchema,
-          async (request: CallToolRequest, extra: RequestHandlerExtra) => {
-            const tool = this._registeredTools[request.params.name];
-            if (!tool) {
-              throw new Error(`Tool ${request.params.name} not found`);
-            }
-
-            if (
-              !this.checkPermissions(
-                extra.user as SessionUser,
-                tool.accessPolicy,
-              )
-            ) {
-              throw new Error(`Access denied for tool: ${request.params.name}`);
-            }
-
-            if (tool.inputSchema) {
-              const parseResult = await tool.inputSchema.safeParseAsync(
-                request.params.arguments,
-              );
-              if (!parseResult.success) {
-                throw new Error(
-                  `Invalid arguments for tool ${request.params.name}: ${parseResult.error.message}`,
-                );
-              }
-
-              const args = parseResult.data;
-              const cb = tool.callback as ToolCallback<ZodRawShape>;
-              return await Promise.resolve(cb(args, extra));
-            } else {
-              const cb = tool.callback as ToolCallback<undefined>;
-              return await Promise.resolve(cb(extra));
-            }
-          },
-        );
-        this._toolHandlersInitialized = true;
-      }
-
-      McpServer.prototype.tool.apply(
-        this,
-        args as Parameters<typeof McpServer.prototype.tool>,
-      );
-      this._registeredTools[name].accessPolicy = accessPolicy;
-    }
-  }
-
-  const mcpServer = new McpServerWithAuth({
-    name: "test server with auth",
-    version: "1.0",
-  });
-  const client = new Client({
-    name: "test client",
-    version: "1.0",
-  });
-
-  mcpServer.tool("public-tool", async () => ({
-    content: [
-      {
-        type: "text",
-        text: "Public tool response",
-      },
-    ],
-  }));
-
-  mcpServer.tool(
-    "protected-tool",
-    async () => ({
-      content: [
-        {
-          type: "text",
-          text: "Protected tool response",
-        },
-      ],
-    }),
-    {
-      allow: {
-        roles: ["admin"],
-      },
-    },
-  );
-
-  test("should public tools work with list and call when unauthenticated", async () => {
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    await Promise.all([
-      client.connect(clientTransport),
-      mcpServer.server.connect(serverTransport),
-    ]);
-
-    // Public tool should be accessible
-    const result = await client.request(
-      { method: "tools/list" },
-      ListToolsResultSchema,
-    );
-    expect(result.tools).toHaveLength(1);
-    expect(result.tools[0].name).toBe("public-tool");
-    const response = await client.request(
-      {
-        method: "tools/call",
-        params: {
-          name: "public-tool",
-          arguments: {},
-        },
-      },
-      CallToolResultSchema,
-    );
-    expect(response.content).toEqual([
-      {
-        type: "text",
-        text: "Public tool response",
-      },
-    ]);
-  });
-
-  test("should public tools work with list and call when unauthorized", async () => {
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    await Promise.all([
-      client.connect(clientTransport),
-      mcpServer.server.connect(serverTransport),
-    ]);
-
-    // Protected tool should be inaccessible when authenticated as a non-admin user
-    serverTransport.user = { role: "member" };
-    const result = await client.request(
-      { method: "tools/list" },
-      ListToolsResultSchema,
-    );
-    expect(result.tools).toHaveLength(1);
-    expect(result.tools[0].name).toBe("public-tool");
-    const response = await client.request(
-      {
-        method: "tools/call",
-        params: {
-          name: "public-tool",
-          arguments: {},
-        },
-      },
-      CallToolResultSchema,
-    );
-    expect(response.content).toEqual([
-      {
-        type: "text",
-        text: "Public tool response",
-      },
-    ]);
-  });
-
-  test("should protected tools work with list and call when authorized", async () => {
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    await Promise.all([
-      client.connect(clientTransport),
-      mcpServer.server.connect(serverTransport),
-    ]);
-
-    serverTransport.user = { role: "admin" };
-    const result = await client.request(
-      { method: "tools/list" },
-      ListToolsResultSchema,
-    );
-    expect(result.tools).toHaveLength(2);
-    expect(result.tools[0].name).toBe("public-tool");
-    expect(result.tools[1].name).toBe("protected-tool");
-
-    const response = await client.request(
-      {
-        method: "tools/call",
-        params: {
-          name: "protected-tool",
-          arguments: {},
-        },
-      },
-      CallToolResultSchema,
-    );
-    expect(response.content).toEqual([
-      {
-        type: "text",
-        text: "Protected tool response",
-      },
-    ]);
   });
 });
