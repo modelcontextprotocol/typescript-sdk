@@ -2,7 +2,7 @@ import { StdioClientTransport } from "./stdio.js";
 import spawn from "cross-spawn";
 import { JSONRPCMessage } from "../types.js";
 import { ChildProcess } from "node:child_process";
-
+import os from 'os';
 // mock cross-spawn
 jest.mock("cross-spawn");
 const mockSpawn = spawn as jest.MockedFunction<typeof spawn>;
@@ -53,7 +53,7 @@ describe("StdioClientTransport using cross-spawn", () => {
       "test-command",
       ["arg1", "arg2"],
       expect.objectContaining({
-        shell: false
+        shell: os.userInfo().shell
       })
     );
   });
