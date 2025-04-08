@@ -26,8 +26,9 @@ export class SSEServerTransport implements Transport {
   constructor(
     private _endpoint: string,
     private res: ServerResponse,
+    sessionId?: string
   ) {
-    this._sessionId = randomUUID();
+    this._sessionId = sessionId ?? randomUUID();
   }
 
   /**
