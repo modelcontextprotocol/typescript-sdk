@@ -241,6 +241,8 @@ app.get("/sse", async (_: Request, res: Response) => {
 app.post("/messages", async (req: Request, res: Response) => {
   const sessionId = req.query.sessionId as string;
   const transport = transports[sessionId];
+  // or...
+  // const transport = new SSEServerTransport('/messages', res, sessionId);
   if (transport) {
     await transport.handlePostMessage(req, res);
   } else {
