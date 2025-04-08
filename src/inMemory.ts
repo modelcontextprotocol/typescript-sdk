@@ -1,12 +1,13 @@
 import { Transport } from "./shared/transport.js";
 import { JSONRPCMessage } from "./types.js";
+import { MessageQueue } from "./shared/MessageQueue.js";
 
 /**
  * In-memory transport for creating clients and servers that talk to each other within the same process.
  */
 export class InMemoryTransport implements Transport {
   private _otherTransport?: InMemoryTransport;
-  private _messageQueue: JSONRPCMessage[] = [];
+  private _messageQueue: MessageQueue<JSONRPCMessage> = new MessageQueue<JSONRPCMessage>();
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -27,7 +28,7 @@ export class InMemoryTransport implements Transport {
   async start(): Promise<void> {
     // Process any messages that were queued before start was called
     while (this._messageQueue.length > 0) {
-      const message = this._messageQueue.shift();
+      const message = this._messageQueue.dequeue();
       if (message) {
         this.onmessage?.(message);
       }
@@ -51,7 +52,7 @@ export class InMemoryTransport implements Transport {
     if (this._otherTransport.onmessage) {
       this._otherTransport.onmessage(message);
     } else {
-      this._otherTransport._messageQueue.push(message);
+      this._otherTransport._messageQueue.enqueue(message);
     }
   }
 }
