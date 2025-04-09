@@ -369,7 +369,7 @@ export abstract class Protocol<
             result,
             jsonrpc: "2.0",
             id: request.id,
-          });
+          }, { relatedRequestId: request.id });
         },
         (error) => {
           if (abortController.signal.aborted) {
@@ -385,7 +385,7 @@ export abstract class Protocol<
                 : ErrorCode.InternalError,
               message: error.message ?? "Internal error",
             },
-          });
+          }, { relatedRequestId: request.id });
         },
       )
       .catch((error) =>

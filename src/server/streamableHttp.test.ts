@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from "./streamableHttp.js";
 import { JSONRPCMessage } from "../types.js";
 import { Readable } from "node:stream";
 import { randomUUID } from "node:crypto";
+import { McpServer } from "./mcp.js";
 // Mock IncomingMessage
 function createMockRequest(options: {
   method: string;
@@ -1351,4 +1352,89 @@ describe("StreamableHTTPServerTransport", () => {
       expect(onMessageMock).not.toHaveBeenCalledWith(requestBodyMessage);
     });
   });
-}); 
+
+  describe("Connect to a MCP Server", () => {
+    it("should connect to a MCP Server", async () => {
+      const mcpServer = new McpServer({
+        name: "test-server",
+        version: "1.0",
+      });
+
+      mcpServer.tool("test-tool", async () => ({
+        content: [
+          {
+            type: "text",
+            text: "Hello, world!",
+          },
+        ],
+      }));
+
+      await mcpServer.connect(transport);
+
+      const initializeMessage: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "initialize",
+        params: {
+          clientInfo: { name: "test-client", version: "1.0" },
+          protocolVersion: "2025-03-26"
+        },
+        id: "init-1",
+      };
+
+      const initializeReq = createMockRequest({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+        },
+        body: JSON.stringify(initializeMessage),
+      });
+
+      await transport.handleRequest(initializeReq, mockResponse);
+
+      expect(mockResponse.writeHead).toHaveBeenCalledWith(200, {"mcp-session-id": transport.sessionId});
+
+      mockResponse.end.mockClear();
+      mockResponse.writeHead.mockClear();
+      mockResponse.write.mockClear();
+
+      const listToolsMessage: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "tools/list",
+        id: "list-tools",
+      };
+
+      const listToolsReq = createMockRequest({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-session-id": transport.sessionId,
+        },
+        body: JSON.stringify(listToolsMessage),
+      });
+
+      await transport.handleRequest(listToolsReq, mockResponse);
+
+      expect(mockResponse.writeHead).toHaveBeenCalledWith(200, {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "Content-Type": "text/event-stream",
+        "mcp-session-id": transport.sessionId
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const writeCalls = mockResponse.write.mock.calls
+
+      expect(writeCalls.length).toBeGreaterThan(0);
+
+      const lastWriteCall = writeCalls[writeCalls.length - 1]
+      expect(lastWriteCall.length).toBeGreaterThan(0);
+
+      const lastWriteCallData = lastWriteCall[0].toString()
+      expect(lastWriteCallData).toContain("event: message\ndata: ");
+      expect(lastWriteCallData).toContain('"name":"test-tool"');
+    });
+  });
+});
