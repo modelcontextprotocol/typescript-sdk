@@ -119,7 +119,7 @@ export class Client<
    */
   constructor(
     private _clientInfo: Implementation,
-    options?: ClientOptions
+    options?: ClientOptions,
   ) {
     super(options);
     this._capabilities = options?.capabilities ?? {};
