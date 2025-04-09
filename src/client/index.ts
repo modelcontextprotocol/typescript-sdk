@@ -47,6 +47,22 @@ export type ClientOptions = ProtocolOptions & {
    * Capabilities to advertise as being supported by this client.
    */
   capabilities?: ClientCapabilities;
+  /**
+   * Configure automatic refresh behavior for tool list changes
+   */
+  toolRefreshOptions?: {
+    /**
+     * Whether to automatically refresh the tools list when a change notification is received.
+     * Default: true
+     */
+    autoRefresh?: boolean;
+    /**
+     * Debounce time in milliseconds for tool list refresh operations.
+     * Multiple notifications received within this timeframe will only trigger one refresh.
+     * Default: 300
+     */
+    debounceMs?: number;
+  };
 };
 
 /**
@@ -77,7 +93,7 @@ export type ClientOptions = ProtocolOptions & {
 export class Client<
   RequestT extends Request = Request,
   NotificationT extends Notification = Notification,
-  ResultT extends Result = Result
+  ResultT extends Result = Result,
 > extends Protocol<
   ClientRequest | RequestT,
   ClientNotification | NotificationT,
@@ -87,6 +103,10 @@ export class Client<
   private _serverVersion?: Implementation;
   private _capabilities: ClientCapabilities;
   private _instructions?: string;
+  private _toolRefreshOptions: Required<
+    NonNullable<ClientOptions["toolRefreshOptions"]>
+  >;
+  private _toolRefreshDebounceTimer?: ReturnType<typeof setTimeout>;
 
   /**
    * Callback for when the server indicates that the tools list has changed.
@@ -97,29 +117,59 @@ export class Client<
   /**
    * Initializes this client with the given name and version information.
    */
-  constructor(private _clientInfo: Implementation, options?: ClientOptions) {
+  constructor(
+    private _clientInfo: Implementation,
+    options?: ClientOptions
+  ) {
     super(options);
     this._capabilities = options?.capabilities ?? {};
+    this._toolRefreshOptions = {
+      autoRefresh: options?.toolRefreshOptions?.autoRefresh ?? true,
+      debounceMs: options?.toolRefreshOptions?.debounceMs ?? 500,
+    };
 
     // Set up notification handlers
     this.setNotificationHandler(
       "notifications/tools/list_changed",
       async () => {
-        // Automatically refresh the tools list when the server indicates a change
-        try {
-          // Only refresh if the server supports tools
-          if (this._serverCapabilities?.tools) {
-            const result = await this.listTools();
-            // Call the user's callback with the updated tools list
-            this.onToolListChanged?.(result.tools);
-          }
-        } catch (error) {
-          console.error("Failed to refresh tools list:", error);
-          // Still call the callback even if refresh failed
+        // Only proceed with refresh if auto-refresh is enabled
+        if (!this._toolRefreshOptions.autoRefresh) {
+          // Still call callback to notify about the change, but without tools data
           this.onToolListChanged?.(undefined);
+          return;
         }
+
+        // Clear any pending refresh timer
+        if (this._toolRefreshDebounceTimer) {
+          clearTimeout(this._toolRefreshDebounceTimer);
+        }
+
+        // Set up debounced refresh
+        this._toolRefreshDebounceTimer = setTimeout(() => {
+          this._refreshToolsList().catch((error) => {
+            console.error("Failed to refresh tools list:", error);
+          });
+        }, this._toolRefreshOptions.debounceMs);
       }
     );
+  }
+
+  /**
+   * Private method to handle tools list refresh
+   */
+  private async _refreshToolsList(): Promise<void> {
+    try {
+      // Only refresh if the server supports tools
+      if (this._serverCapabilities?.tools) {
+        const result = await this.listTools();
+        // Call the user's callback with the updated tools list
+        this.onToolListChanged?.(result.tools);
+      }
+    } catch (error) {
+      console.error("Failed to refresh tools list:", error);
+      // Still call the callback even if refresh failed
+      this.onToolListChanged?.(undefined);
+    }
   }
 
   /**
@@ -130,11 +180,55 @@ export class Client<
   public registerCapabilities(capabilities: ClientCapabilities): void {
     if (this.transport) {
       throw new Error(
-        "Cannot register capabilities after connecting to transport"
+        "Cannot register capabilities after connecting to transport",
       );
     }
 
     this._capabilities = mergeCapabilities(this._capabilities, capabilities);
+  }
+
+  /**
+   * Updates the tool refresh options
+   */
+  public setToolRefreshOptions(
+    options: ClientOptions["toolRefreshOptions"]
+  ): void {
+    if (options) {
+      if (options.autoRefresh !== undefined) {
+        this._toolRefreshOptions.autoRefresh = options.autoRefresh;
+      }
+      if (options.debounceMs !== undefined) {
+        this._toolRefreshOptions.debounceMs = options.debounceMs;
+      }
+    }
+  }
+
+  /**
+   * Gets the current tool refresh options
+   */
+  public getToolRefreshOptions(): Required<
+    NonNullable<ClientOptions["toolRefreshOptions"]>
+  > {
+    return { ...this._toolRefreshOptions };
+  }
+
+  /**
+   * Manually triggers a refresh of the tools list
+   */
+  public async refreshToolsList(): Promise<
+    ListToolsResult["tools"] | undefined
+  > {
+    if (!this._serverCapabilities?.tools) {
+      return undefined;
+    }
+
+    try {
+      const result = await this.listTools();
+      return result.tools;
+    } catch (error) {
+      console.error("Failed to manually refresh tools list:", error);
+      return undefined;
+    }
   }
 
   protected assertCapability(
@@ -143,7 +237,7 @@ export class Client<
   ): void {
     if (!this._serverCapabilities?.[capability]) {
       throw new Error(
-        `Server does not support ${String(capability)} (required for ${method})`
+        `Server does not support ${String(capability)} (required for ${method})`,
       );
     }
   }
@@ -161,7 +255,7 @@ export class Client<
             clientInfo: this._clientInfo,
           },
         },
-        InitializeResultSchema
+        InitializeResultSchema,
       );
 
       if (result === undefined) {
@@ -170,7 +264,7 @@ export class Client<
 
       if (!SUPPORTED_PROTOCOL_VERSIONS.includes(result.protocolVersion)) {
         throw new Error(
-          `Server's protocol version is not supported: ${result.protocolVersion}`
+          `Server's protocol version is not supported: ${result.protocolVersion}`,
         );
       }
 
@@ -215,7 +309,7 @@ export class Client<
       case "logging/setLevel":
         if (!this._serverCapabilities?.logging) {
           throw new Error(
-            `Server does not support logging (required for ${method})`
+            `Server does not support logging (required for ${method})`,
           );
         }
         break;
@@ -224,7 +318,7 @@ export class Client<
       case "prompts/list":
         if (!this._serverCapabilities?.prompts) {
           throw new Error(
-            `Server does not support prompts (required for ${method})`
+            `Server does not support prompts (required for ${method})`,
           );
         }
         break;
@@ -236,7 +330,7 @@ export class Client<
       case "resources/unsubscribe":
         if (!this._serverCapabilities?.resources) {
           throw new Error(
-            `Server does not support resources (required for ${method})`
+            `Server does not support resources (required for ${method})`,
           );
         }
 
@@ -245,7 +339,7 @@ export class Client<
           !this._serverCapabilities.resources.subscribe
         ) {
           throw new Error(
-            `Server does not support resource subscriptions (required for ${method})`
+            `Server does not support resource subscriptions (required for ${method})`,
           );
         }
 
@@ -255,7 +349,7 @@ export class Client<
       case "tools/list":
         if (!this._serverCapabilities?.tools) {
           throw new Error(
-            `Server does not support tools (required for ${method})`
+            `Server does not support tools (required for ${method})`,
           );
         }
         break;
@@ -263,7 +357,7 @@ export class Client<
       case "completion/complete":
         if (!this._serverCapabilities?.prompts) {
           throw new Error(
-            `Server does not support prompts (required for ${method})`
+            `Server does not support prompts (required for ${method})`,
           );
         }
         break;
@@ -319,7 +413,7 @@ export class Client<
       case "sampling/createMessage":
         if (!this._capabilities.sampling) {
           throw new Error(
-            `Client does not support sampling capability (required for ${method})`
+            `Client does not support sampling capability (required for ${method})`,
           );
         }
         break;
@@ -327,7 +421,7 @@ export class Client<
       case "roots/list":
         if (!this._capabilities.roots) {
           throw new Error(
-            `Client does not support roots capability (required for ${method})`
+            `Client does not support roots capability (required for ${method})`,
           );
         }
         break;
@@ -346,7 +440,7 @@ export class Client<
     return this.request(
       { method: "completion/complete", params },
       CompleteResultSchema,
-      options
+      options,
     );
   }
 
@@ -354,7 +448,7 @@ export class Client<
     return this.request(
       { method: "logging/setLevel", params: { level } },
       EmptyResultSchema,
-      options
+      options,
     );
   }
 
@@ -365,7 +459,7 @@ export class Client<
     return this.request(
       { method: "prompts/get", params },
       GetPromptResultSchema,
-      options
+      options,
     );
   }
 
@@ -376,7 +470,7 @@ export class Client<
     return this.request(
       { method: "prompts/list", params },
       ListPromptsResultSchema,
-      options
+      options,
     );
   }
 
@@ -387,7 +481,7 @@ export class Client<
     return this.request(
       { method: "resources/list", params },
       ListResourcesResultSchema,
-      options
+      options,
     );
   }
 
@@ -398,7 +492,7 @@ export class Client<
     return this.request(
       { method: "resources/templates/list", params },
       ListResourceTemplatesResultSchema,
-      options
+      options,
     );
   }
 
@@ -409,7 +503,7 @@ export class Client<
     return this.request(
       { method: "resources/read", params },
       ReadResourceResultSchema,
-      options
+      options,
     );
   }
 
@@ -420,7 +514,7 @@ export class Client<
     return this.request(
       { method: "resources/subscribe", params },
       EmptyResultSchema,
-      options
+      options,
     );
   }
 
@@ -431,7 +525,7 @@ export class Client<
     return this.request(
       { method: "resources/unsubscribe", params },
       EmptyResultSchema,
-      options
+      options,
     );
   }
 
@@ -440,23 +534,23 @@ export class Client<
     resultSchema:
       | typeof CallToolResultSchema
       | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
-    options?: RequestOptions
+    options?: RequestOptions,
   ) {
     return this.request(
       { method: "tools/call", params },
       resultSchema,
-      options
+      options,
     );
   }
 
   async listTools(
     params?: ListToolsRequest["params"],
-    options?: RequestOptions
+    options?: RequestOptions,
   ) {
     return this.request(
       { method: "tools/list", params },
       ListToolsResultSchema,
-      options
+      options,
     );
   }
 
