@@ -31,6 +31,10 @@ describe("requireBearerAuth middleware", () => {
       set: jest.fn().mockReturnThis(),
     };
     nextFunction = jest.fn();
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  })
+
+  afterEach(() => {
     jest.clearAllMocks();
   });
 

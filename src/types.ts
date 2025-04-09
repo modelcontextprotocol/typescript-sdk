@@ -248,6 +248,10 @@ export const ServerCapabilitiesSchema = z
      */
     logging: z.optional(z.object({}).passthrough()),
     /**
+     * Present if the server supports sending completions to the client.
+     */
+    completions: z.optional(z.object({}).passthrough()),
+    /**
      * Present if the server offers any prompt templates.
      */
     prompts: z.optional(
