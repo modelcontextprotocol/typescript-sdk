@@ -4,6 +4,7 @@ import { Transport } from "../shared/transport.js";
 import { JSONRPCMessage, JSONRPCMessageSchema, MAXIMUM_MESSAGE_SIZE } from "../types.js";
 import getRawBody from "raw-body";
 import contentType from "content-type";
+import { URL } from 'url';
 
 /**
  * Server transport for SSE: this will send messages over an SSE connection and receive messages from HTTP POST requests.
@@ -47,8 +48,17 @@ export class SSEServerTransport implements Transport {
     });
 
     // Send the endpoint event
+    // Use a dummy base URL because this._endpoint is relative.
+    // This allows using URL/URLSearchParams for robust parameter handling.
+    const dummyBase = 'http://localhost'; // Any valid base works
+    const endpointUrl = new URL(this._endpoint, dummyBase);
+    endpointUrl.searchParams.set('sessionId', this._sessionId);
+
+    // Reconstruct the relative URL string (pathname + search + hash)
+    const relativeUrlWithSession = endpointUrl.pathname + endpointUrl.search + endpointUrl.hash;
+
     this.res.write(
-      `event: endpoint\ndata: ${encodeURI(this._endpoint)}?sessionId=${this._sessionId}\n\n`,
+      `event: endpoint\ndata: ${relativeUrlWithSession}\n\n`,
     );
 
     this._sseResponse = this.res;

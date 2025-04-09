@@ -842,8 +842,8 @@ describe("StreamableHTTPServerTransport", () => {
         },
         body: JSON.stringify(initMessage),
       });
-
-      await transport.handleRequest(initReq, mockResponse);
+      const initResponse = createMockResponse();
+      await transport.handleRequest(initReq, initResponse);
       mockResponse.writeHead.mockClear();
     });
 
@@ -933,6 +933,136 @@ describe("StreamableHTTPServerTransport", () => {
 
       // Now stream should be closed
       expect(mockResponse.end).toHaveBeenCalled();
+    });
+
+    it("should keep stream open when multiple requests share the same connection", async () => {
+      // Create a fresh response for this test  
+      const sharedResponse = createMockResponse();
+
+      // Send two requests in a batch that will share the same connection
+      const batchRequests: JSONRPCMessage[] = [
+        { jsonrpc: "2.0", method: "method1", params: {}, id: "req1" },
+        { jsonrpc: "2.0", method: "method2", params: {}, id: "req2" }
+      ];
+
+      const req = createMockRequest({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-session-id": transport.sessionId
+        },
+        body: JSON.stringify(batchRequests)
+      });
+
+      await transport.handleRequest(req, sharedResponse);
+
+      // Respond to first request
+      const response1: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        result: { value: "result1" },
+        id: "req1"
+      };
+
+      await transport.send(response1);
+
+      // Connection should remain open because req2 is still pending
+      expect(sharedResponse.write).toHaveBeenCalledWith(
+        expect.stringContaining(`event: message\ndata: ${JSON.stringify(response1)}\n\n`)
+      );
+      expect(sharedResponse.end).not.toHaveBeenCalled();
+
+      // Respond to second request
+      const response2: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        result: { value: "result2" },
+        id: "req2"
+      };
+
+      await transport.send(response2);
+
+      // Now connection should close as all requests are complete
+      expect(sharedResponse.write).toHaveBeenCalledWith(
+        expect.stringContaining(`event: message\ndata: ${JSON.stringify(response2)}\n\n`)
+      );
+      expect(sharedResponse.end).toHaveBeenCalled();
+    });
+
+    it("should clean up connection tracking when a response is sent", async () => {
+      const req = createMockRequest({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-session-id": transport.sessionId
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "test",
+          params: {},
+          id: "cleanup-test"
+        })
+      });
+
+      const response = createMockResponse();
+      await transport.handleRequest(req, response);
+
+      // Verify that the request is tracked in the SSE map
+      expect(transport["_sseResponseMapping"].size).toBe(2);
+      expect(transport["_sseResponseMapping"].has("cleanup-test")).toBe(true);
+
+      // Send a response
+      await transport.send({
+        jsonrpc: "2.0",
+        result: {},
+        id: "cleanup-test"
+      });
+
+      // Verify that the mapping was cleaned up
+      expect(transport["_sseResponseMapping"].size).toBe(1);
+      expect(transport["_sseResponseMapping"].has("cleanup-test")).toBe(false);
+    });
+
+    it("should clean up connection tracking when client disconnects", async () => {
+      // Setup two requests that share a connection
+      const req = createMockRequest({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-session-id": transport.sessionId
+        },
+        body: JSON.stringify([
+          { jsonrpc: "2.0", method: "longRunning1", params: {}, id: "req1" },
+          { jsonrpc: "2.0", method: "longRunning2", params: {}, id: "req2" }
+        ])
+      });
+
+      const response = createMockResponse();
+
+      // We need to manually store the callback to trigger it later
+      let closeCallback: (() => void) | undefined;
+      response.on.mockImplementation((event, callback: () => void) => {
+        if (typeof event === "string" && event === "close") {
+          closeCallback = callback;
+        }
+        return response;
+      });
+
+      await transport.handleRequest(req, response);
+
+      // Both requests should be mapped to the same response
+      expect(transport["_sseResponseMapping"].size).toBe(3);
+      expect(transport["_sseResponseMapping"].get("req1")).toBe(response);
+      expect(transport["_sseResponseMapping"].get("req2")).toBe(response);
+
+      // Simulate client disconnect by triggering the stored callback
+      if (closeCallback) closeCallback();
+
+      // All entries using this response should be removed
+      expect(transport["_sseResponseMapping"].size).toBe(1);
+      expect(transport["_sseResponseMapping"].has("req1")).toBe(false);
+      expect(transport["_sseResponseMapping"].has("req2")).toBe(false);
     });
   });
 
