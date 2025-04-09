@@ -62,6 +62,11 @@ export type ClientOptions = ProtocolOptions & {
      * Default: 300
      */
     debounceMs?: number;
+    /**
+     * Optional callback for handling tool list refresh errors.
+     * When provided, this will be called instead of logging to console.
+     */
+    onError?: (error: Error) => void;
   };
 };
 
@@ -103,9 +108,11 @@ export class Client<
   private _serverVersion?: Implementation;
   private _capabilities: ClientCapabilities;
   private _instructions?: string;
-  private _toolRefreshOptions: Required<
-    NonNullable<ClientOptions["toolRefreshOptions"]>
-  >;
+  private _toolRefreshOptions: {
+    autoRefresh: boolean;
+    debounceMs: number;
+    onError?: (error: Error) => void;
+  };
   private _toolRefreshDebounceTimer?: ReturnType<typeof setTimeout>;
 
   /**
@@ -126,6 +133,7 @@ export class Client<
     this._toolRefreshOptions = {
       autoRefresh: options?.toolRefreshOptions?.autoRefresh ?? true,
       debounceMs: options?.toolRefreshOptions?.debounceMs ?? 500,
+      onError: options?.toolRefreshOptions?.onError,
     };
 
     // Set up notification handlers
@@ -147,7 +155,12 @@ export class Client<
         // Set up debounced refresh
         this._toolRefreshDebounceTimer = setTimeout(() => {
           this._refreshToolsList().catch((error) => {
-            console.error("Failed to refresh tools list:", error);
+            // Use error callback if provided, otherwise log to console
+            if (this._toolRefreshOptions.onError) {
+              this._toolRefreshOptions.onError(error instanceof Error ? error : new Error(String(error)));
+            } else {
+              console.error("Failed to refresh tools list:", error);
+            }
           });
         }, this._toolRefreshOptions.debounceMs);
       }
@@ -166,7 +179,12 @@ export class Client<
         this.onToolListChanged?.(result.tools);
       }
     } catch (error) {
-      console.error("Failed to refresh tools list:", error);
+      // Use error callback if provided, otherwise log to console
+      if (this._toolRefreshOptions.onError) {
+        this._toolRefreshOptions.onError(error instanceof Error ? error : new Error(String(error)));
+      } else {
+        console.error("Failed to refresh tools list:", error);
+      }
       // Still call the callback even if refresh failed
       this.onToolListChanged?.(undefined);
     }
@@ -200,16 +218,26 @@ export class Client<
       if (options.debounceMs !== undefined) {
         this._toolRefreshOptions.debounceMs = options.debounceMs;
       }
+      if (options.onError !== undefined) {
+        this._toolRefreshOptions.onError = options.onError;
+      }
     }
   }
 
   /**
    * Gets the current tool refresh options
    */
-  public getToolRefreshOptions(): Required<
-    NonNullable<ClientOptions["toolRefreshOptions"]>
-  > {
+  public getToolRefreshOptions(): typeof this._toolRefreshOptions {
     return { ...this._toolRefreshOptions };
+  }
+
+  /**
+   * Sets an error handler for tool list refresh errors
+   * 
+   * @param handler Function to call when a tool list refresh error occurs
+   */
+  public setToolRefreshErrorHandler(handler: (error: Error) => void): void {
+    this._toolRefreshOptions.onError = handler;
   }
 
   /**
@@ -226,7 +254,12 @@ export class Client<
       const result = await this.listTools();
       return result.tools;
     } catch (error) {
-      console.error("Failed to manually refresh tools list:", error);
+      // Use error callback if provided, otherwise log to console
+      if (this._toolRefreshOptions.onError) {
+        this._toolRefreshOptions.onError(error instanceof Error ? error : new Error(String(error)));
+      } else {
+        console.error("Failed to manually refresh tools list:", error);
+      }
       return undefined;
     }
   }
