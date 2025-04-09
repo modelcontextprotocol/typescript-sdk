@@ -1,10 +1,36 @@
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Transport } from "../shared/transport.js";
-import { JSONRPCMessage, JSONRPCMessageSchema, RequestId } from "../types.js";
+import { JSONRPCMessage, JSONRPCMessageSchema, RequestId, JSONRPCErrorOptions, MAXIMUM_MESSAGE_SIZE, ErrorCode } from "../types.js";
 import getRawBody from "raw-body";
 import contentType from "content-type";
 
-const MAXIMUM_MESSAGE_SIZE = "4mb";
+/**
+ * Send JSON-RPC error response
+ * @param res HTTP response object
+ * @param options Error response configuration
+ */
+function sendJSONRPCError(
+  res: ServerResponse, 
+  options: JSONRPCErrorOptions
+): void {
+  const { httpStatus, code, message, data, headers } = options;
+  const error = { code, message };
+  if (data !== undefined) {
+    (error as any).data = data;
+  }
+  
+  const response = {
+    jsonrpc: "2.0",
+    error,
+    id: null
+  };
+
+  if (headers) {
+    res.writeHead(httpStatus, headers).end(JSON.stringify(response));
+  } else {
+    res.writeHead(httpStatus).end(JSON.stringify(response));
+  }
+}
 
 /**
  * Configuration options for StreamableHTTPServerTransport
@@ -17,9 +43,6 @@ export interface StreamableHTTPServerTransportOptions {
    * Return undefined to disable session management.
    */
   sessionIdGenerator: () => string | undefined;
-
-
-
 }
 
 /**
@@ -101,16 +124,12 @@ export class StreamableHTTPServerTransport implements Transport {
    * For now we support only POST and DELETE requests. Support for GET for SSE connections will be added later.
    */
   private async handleUnsupportedRequest(res: ServerResponse): Promise<void> {
-    res.writeHead(405, {
-      "Allow": "POST, DELETE"
-    }).end(JSON.stringify({
-      jsonrpc: "2.0",
-      error: {
-        code: -32000,
-        message: "Method not allowed."
-      },
-      id: null
-    }));
+    sendJSONRPCError(res, {
+      httpStatus: 405,
+      code: ErrorCode.ServerErrorStart,
+      message: "Method not allowed.",
+      headers: { "Allow": "POST, DELETE" }
+    });
   }
 
   /**
@@ -122,27 +141,21 @@ export class StreamableHTTPServerTransport implements Transport {
       const acceptHeader = req.headers.accept;
       // The client MUST include an Accept header, listing both application/json and text/event-stream as supported content types.
       if (!acceptHeader?.includes("application/json") || !acceptHeader.includes("text/event-stream")) {
-        res.writeHead(406).end(JSON.stringify({
-          jsonrpc: "2.0",
-          error: {
-            code: -32000,
-            message: "Not Acceptable: Client must accept both application/json and text/event-stream"
-          },
-          id: null
-        }));
+        sendJSONRPCError(res, {
+          httpStatus: 406,
+          code: ErrorCode.ServerErrorStart,
+          message: "Not Acceptable: Client must accept both application/json and text/event-stream"
+        });
         return;
       }
 
       const ct = req.headers["content-type"];
       if (!ct || !ct.includes("application/json")) {
-        res.writeHead(415).end(JSON.stringify({
-          jsonrpc: "2.0",
-          error: {
-            code: -32000,
-            message: "Unsupported Media Type: Content-Type must be application/json"
-          },
-          id: null
-        }));
+        sendJSONRPCError(res, {
+          httpStatus: 415,
+          code: ErrorCode.ServerErrorStart,
+          message: "Unsupported Media Type: Content-Type must be application/json"
+        });
         return;
       }
 
@@ -174,25 +187,19 @@ export class StreamableHTTPServerTransport implements Transport {
       );
       if (isInitializationRequest) {
         if (this._initialized) {
-          res.writeHead(400).end(JSON.stringify({
-            jsonrpc: "2.0",
-            error: {
-              code: -32600,
-              message: "Invalid Request: Server already initialized"
-            },
-            id: null
-          }));
+          sendJSONRPCError(res, {
+            httpStatus: 400,
+            code: ErrorCode.InvalidRequest,
+            message: "Invalid Request: Server already initialized"
+          });
           return;
         }
         if (messages.length > 1) {
-          res.writeHead(400).end(JSON.stringify({
-            jsonrpc: "2.0",
-            error: {
-              code: -32600,
-              message: "Invalid Request: Only one initialization request is allowed"
-            },
-            id: null
-          }));
+          sendJSONRPCError(res, {
+            httpStatus: 400,
+            code: ErrorCode.InvalidRequest,
+            message: "Invalid Request: Only one initialization request is allowed"
+          });
           return;
         }
         this.sessionId = this.sessionIdGenerator();
@@ -262,16 +269,12 @@ export class StreamableHTTPServerTransport implements Transport {
         // This will be handled by the send() method when responses are ready
       }
     } catch (error) {
-      // return JSON-RPC formatted error
-      res.writeHead(400).end(JSON.stringify({
-        jsonrpc: "2.0",
-        error: {
-          code: -32700,
-          message: "Parse error",
-          data: String(error)
-        },
-        id: null
-      }));
+      sendJSONRPCError(res, {
+        httpStatus: 400,
+        code: ErrorCode.ParseError,
+        message: "Parse error",
+        data: String(error)
+      });
       this.onerror?.(error as Error);
     }
   }
@@ -293,15 +296,11 @@ export class StreamableHTTPServerTransport implements Transport {
    */
   private validateSession(req: IncomingMessage, res: ServerResponse): boolean {
     if (!this._initialized) {
-      // If the server has not been initialized yet, reject all requests
-      res.writeHead(400).end(JSON.stringify({
-        jsonrpc: "2.0",
-        error: {
-          code: -32000,
-          message: "Bad Request: Server not initialized"
-        },
-        id: null
-      }));
+      sendJSONRPCError(res, {
+        httpStatus: 400,
+        code: ErrorCode.ServerErrorStart,
+        message: "Bad Request: Server not initialized"
+      });
       return false;
     }
     if (this.sessionId === undefined) {
@@ -312,37 +311,26 @@ export class StreamableHTTPServerTransport implements Transport {
     const sessionId = req.headers["mcp-session-id"];
 
     if (!sessionId) {
-      // Non-initialization requests without a session ID should return 400 Bad Request
-      res.writeHead(400).end(JSON.stringify({
-        jsonrpc: "2.0",
-        error: {
-          code: -32000,
-          message: "Bad Request: Mcp-Session-Id header is required"
-        },
-        id: null
-      }));
+      sendJSONRPCError(res, {
+        httpStatus: 400,
+        code: ErrorCode.ServerErrorStart,
+        message: "Bad Request: Mcp-Session-Id header is required"
+      });
       return false;
     } else if (Array.isArray(sessionId)) {
-      res.writeHead(400).end(JSON.stringify({
-        jsonrpc: "2.0",
-        error: {
-          code: -32000,
-          message: "Bad Request: Mcp-Session-Id header must be a single value"
-        },
-        id: null
-      }));
+      sendJSONRPCError(res, {
+        httpStatus: 400,
+        code: ErrorCode.ServerErrorStart,
+        message: "Bad Request: Mcp-Session-Id header must be a single value"
+      });
       return false;
     }
     else if (sessionId !== this.sessionId) {
-      // Reject requests with invalid session ID with 404 Not Found
-      res.writeHead(404).end(JSON.stringify({
-        jsonrpc: "2.0",
-        error: {
-          code: -32001,
-          message: "Session not found"
-        },
-        id: null
-      }));
+      sendJSONRPCError(res, {
+        httpStatus: 404,
+        code: ErrorCode.ServerErrorStart + 1,
+        message: "Session not found"
+      });
       return false;
     }
 

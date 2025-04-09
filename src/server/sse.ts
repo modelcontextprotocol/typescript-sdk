@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Transport } from "../shared/transport.js";
-import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
+import { JSONRPCMessage, JSONRPCMessageSchema, MAXIMUM_MESSAGE_SIZE } from "../types.js";
 import getRawBody from "raw-body";
 import contentType from "content-type";
-
-const MAXIMUM_MESSAGE_SIZE = "4mb";
 
 /**
  * Server transport for SSE: this will send messages over an SSE connection and receive messages from HTTP POST requests.

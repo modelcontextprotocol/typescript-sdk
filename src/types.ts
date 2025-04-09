@@ -6,6 +6,11 @@ export const SUPPORTED_PROTOCOL_VERSIONS = [
   "2024-10-07",
 ];
 
+/**
+ * HTTP请求和响应的最大消息大小限制
+ */
+export const MAXIMUM_MESSAGE_SIZE = "4mb";
+
 /* JSON-RPC types */
 export const JSONRPC_VERSION = "2.0";
 
@@ -113,6 +118,26 @@ export enum ErrorCode {
   MethodNotFound = -32601,
   InvalidParams = -32602,
   InternalError = -32603,
+
+  // Server error code range
+  ServerErrorStart = -32000,
+  ServerErrorEnd = -32099,
+}
+
+/**
+ * Parameters for sending JSON-RPC error responses
+ */
+export interface JSONRPCErrorOptions {
+  /** HTTP status code */
+  httpStatus: number;
+  /** JSON-RPC error code */
+  code: number;
+  /** Error message */
+  message: string;
+  /** Optional additional error information */
+  data?: unknown;
+  /** Optional additional response headers */
+  headers?: Record<string, string>;
 }
 
 /**
