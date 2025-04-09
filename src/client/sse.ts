@@ -13,6 +13,8 @@ export class SseError extends Error {
   }
 }
 
+type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
+
 /**
  * Configuration options for the `SSEClientTransport`.
  */
@@ -47,6 +49,11 @@ export type SSEClientTransportOptions = {
    * Customizes recurring POST requests to the server.
    */
   requestInit?: RequestInit;
+
+  /**
+   * Customizes the fetch implementation.
+   */
+  fetch?: FetchLike;
 };
 
 /**
@@ -61,6 +68,7 @@ export class SSEClientTransport implements Transport {
   private _eventSourceInit?: EventSourceInit;
   private _requestInit?: RequestInit;
   private _authProvider?: OAuthClientProvider;
+  private _fetch: FetchLike;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -74,6 +82,7 @@ export class SSEClientTransport implements Transport {
     this._eventSourceInit = opts?.eventSourceInit;
     this._requestInit = opts?.requestInit;
     this._authProvider = opts?.authProvider;
+    this._fetch = opts?.fetch ?? fetch;
   }
 
   private async _authThenStart(): Promise<void> {
@@ -113,7 +122,7 @@ export class SSEClientTransport implements Transport {
       this._eventSource = new EventSource(
         this._url.href,
         this._eventSourceInit ?? {
-          fetch: (url, init) => this._commonHeaders().then((headers) => fetch(url, {
+          fetch: (url, init) => this._commonHeaders().then((headers) => this._fetch(url, {
             ...init,
             headers: {
               ...headers,
@@ -222,7 +231,7 @@ export class SSEClientTransport implements Transport {
         signal: this._abortController?.signal,
       };
 
-      const response = await fetch(this._endpoint, init);
+      const response = await this._fetch(this._endpoint, init);
       if (!response.ok) {
         if (response.status === 401 && this._authProvider) {
           const result = await auth(this._authProvider, { serverUrl: this._url });
