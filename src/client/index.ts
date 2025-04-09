@@ -233,7 +233,7 @@ export class Client<
 
   protected assertCapability(
     capability: keyof ServerCapabilities,
-    method: string
+    method: string,
   ): void {
     if (!this._serverCapabilities?.[capability]) {
       throw new Error(
@@ -373,7 +373,7 @@ export class Client<
   }
 
   protected assertNotificationCapability(
-    method: NotificationT["method"]
+    method: NotificationT["method"],
   ): void {
     switch (method as ClientNotification["method"]) {
       case "notifications/roots/list_changed":
@@ -454,7 +454,7 @@ export class Client<
 
   async getPrompt(
     params: GetPromptRequest["params"],
-    options?: RequestOptions
+    options?: RequestOptions,
   ) {
     return this.request(
       { method: "prompts/get", params },
@@ -465,7 +465,7 @@ export class Client<
 
   async listPrompts(
     params?: ListPromptsRequest["params"],
-    options?: RequestOptions
+    options?: RequestOptions,
   ) {
     return this.request(
       { method: "prompts/list", params },
@@ -476,7 +476,7 @@ export class Client<
 
   async listResources(
     params?: ListResourcesRequest["params"],
-    options?: RequestOptions
+    options?: RequestOptions,
   ) {
     return this.request(
       { method: "resources/list", params },
@@ -487,7 +487,7 @@ export class Client<
 
   async listResourceTemplates(
     params?: ListResourceTemplatesRequest["params"],
-    options?: RequestOptions
+    options?: RequestOptions,
   ) {
     return this.request(
       { method: "resources/templates/list", params },
@@ -498,7 +498,7 @@ export class Client<
 
   async readResource(
     params: ReadResourceRequest["params"],
-    options?: RequestOptions
+    options?: RequestOptions,
   ) {
     return this.request(
       { method: "resources/read", params },
@@ -509,7 +509,7 @@ export class Client<
 
   async subscribeResource(
     params: SubscribeRequest["params"],
-    options?: RequestOptions
+    options?: RequestOptions,
   ) {
     return this.request(
       { method: "resources/subscribe", params },
@@ -520,7 +520,7 @@ export class Client<
 
   async unsubscribeResource(
     params: UnsubscribeRequest["params"],
-    options?: RequestOptions
+    options?: RequestOptions,
   ) {
     return this.request(
       { method: "resources/unsubscribe", params },
