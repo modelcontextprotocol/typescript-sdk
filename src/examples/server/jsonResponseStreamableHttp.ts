@@ -3,13 +3,17 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { z } from 'zod';
-import { CallToolResult, GetPromptResult, ReadResourceResult } from '../../types.js';
+import { CallToolResult } from '../../types.js';
 
 // Create an MCP server with implementation details
 const server = new McpServer({
-  name: 'simple-streamable-http-server',
+  name: 'json-response-streamable-http-server',
   version: '1.0.0',
-}, { capabilities: { logging: {} } });
+}, {
+  capabilities: {
+    logging: {},
+  }
+});
 
 // Register a simple tool that returns a greeting
 server.tool(
@@ -70,45 +74,6 @@ server.tool(
   }
 );
 
-// Register a simple prompt
-server.prompt(
-  'greeting-template',
-  'A simple greeting prompt template',
-  {
-    name: z.string().describe('Name to include in greeting'),
-  },
-  async ({ name }): Promise<GetPromptResult> => {
-    return {
-      messages: [
-        {
-          role: 'user',
-          content: {
-            type: 'text',
-            text: `Please greet ${name} in a friendly manner.`,
-          },
-        },
-      ],
-    };
-  }
-);
-
-// Create a simple resource at a fixed URI
-server.resource(
-  'greeting-resource',
-  'https://example.com/greetings/default',
-  { mimeType: 'text/plain' },
-  async (): Promise<ReadResourceResult> => {
-    return {
-      contents: [
-        {
-          uri: 'https://example.com/greetings/default',
-          text: 'Hello, world!',
-        },
-      ],
-    };
-  }
-);
-
 const app = express();
 app.use(express.json());
 
@@ -126,13 +91,13 @@ app.post('/mcp', async (req: Request, res: Response) => {
       // Reuse existing transport
       transport = transports[sessionId];
     } else if (!sessionId && isInitializeRequest(req.body)) {
-      // New initialization request
+      // New initialization request - use JSON response mode
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
+        enableJsonResponse: true, // Enable JSON response mode
       });
 
       // Connect the transport to the MCP server BEFORE handling the request
-      // so responses can flow back through the same transport
       await server.connect(transport);
 
       // After handling the request, if we get a session ID back, store the transport
@@ -157,7 +122,6 @@ app.post('/mcp', async (req: Request, res: Response) => {
     }
 
     // Handle the request with existing transport - no need to reconnect
-    // The existing transport is already connected to the server
     await transport.handleRequest(req, res, req.body);
   } catch (error) {
     console.error('Error handling MCP request:', error);
@@ -187,27 +151,27 @@ const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`MCP Streamable HTTP Server listening on port ${PORT}`);
   console.log(`Initialize session with the command below id you are using curl for testing: 
-    -----------------------------
-    SESSION_ID=$(curl -X POST \
-    -H "Content-Type: application/json" \
-    -H "Accept: application/json" \
-    -H "Accept: text/event-stream" \
-    -d '{
-      "jsonrpc": "2.0",
-      "method": "initialize",
-      "params": {
-        "capabilities": {},
-        "protocolVersion": "2025-03-26", 
-        "clientInfo": {
-          "name": "test",
-          "version": "1.0.0"
-        }
-      },
-      "id": "1"
-    }' \
-    -i http://localhost:3000/mcp 2>&1 | grep -i "mcp-session-id" | cut -d' ' -f2 | tr -d '\\r')
-    echo "Session ID: $SESSION_ID"
-    -----------------------------`);
+  -----------------------------
+  SESSION_ID=$(curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "params": {
+      "capabilities": {},
+      "protocolVersion": "2025-03-26", 
+      "clientInfo": {
+        "name": "test",
+        "version": "1.0.0"
+      }
+    },
+    "id": "1"
+  }' \
+  -i http://localhost:3000/mcp 2>&1 | grep -i "mcp-session-id" | cut -d' ' -f2 | tr -d '\\r')
+  echo "Session ID: $SESSION_ID"
+  -----------------------------`);
 });
 
 // Handle server shutdown

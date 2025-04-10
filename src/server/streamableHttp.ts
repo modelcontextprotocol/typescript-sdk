@@ -18,8 +18,12 @@ export interface StreamableHTTPServerTransportOptions {
    */
   sessionIdGenerator: () => string | undefined;
 
-
-
+  /**
+   * If true, the server will return JSON responses instead of starting an SSE stream.
+   * This can be useful for simple request/response scenarios without streaming.
+   * Default is false (SSE streams are preferred).
+   */
+  enableJsonResponse?: boolean;
 }
 
 /**
@@ -60,8 +64,11 @@ export class StreamableHTTPServerTransport implements Transport {
   // when sessionId is not set (undefined), it means the transport is in stateless mode
   private sessionIdGenerator: () => string | undefined;
   private _started: boolean = false;
-  private _sseResponseMapping: Map<RequestId, ServerResponse> = new Map();
+  private _responseMapping: Map<RequestId, ServerResponse> = new Map();
+  private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
   private _initialized: boolean = false;
+  private _enableJsonResponse: boolean = false;
+
 
   sessionId?: string | undefined;
   onclose?: () => void;
@@ -70,6 +77,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
   constructor(options: StreamableHTTPServerTransportOptions) {
     this.sessionIdGenerator = options.sessionIdGenerator;
+    this._enableJsonResponse = options.enableJsonResponse ?? false;
   }
 
   /**
@@ -221,33 +229,37 @@ export class StreamableHTTPServerTransport implements Transport {
           this.onmessage?.(message);
         }
       } else if (hasRequests) {
-        const headers: Record<string, string> = {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        };
+        // The default behavior is to use SSE streaming
+        // but in some cases server will return JSON responses
+        if (!this._enableJsonResponse) {
+          const headers: Record<string, string> = {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+          };
 
-        // After initialization, always include the session ID if we have one
-        if (this.sessionId !== undefined) {
-          headers["mcp-session-id"] = this.sessionId;
+          // After initialization, always include the session ID if we have one
+          if (this.sessionId !== undefined) {
+            headers["mcp-session-id"] = this.sessionId;
+          }
+
+          res.writeHead(200, headers);
         }
-
-        res.writeHead(200, headers);
-
         // Store the response for this request to send messages back through this connection
         // We need to track by request ID to maintain the connection
         for (const message of messages) {
           if ('method' in message && 'id' in message) {
-            this._sseResponseMapping.set(message.id, res);
+            this._responseMapping.set(message.id, res);
           }
         }
 
         // Set up close handler for client disconnects
         res.on("close", () => {
           // Remove all entries that reference this response
-          for (const [id, storedRes] of this._sseResponseMapping.entries()) {
+          for (const [id, storedRes] of this._responseMapping.entries()) {
             if (storedRes === res) {
-              this._sseResponseMapping.delete(id);
+              this._responseMapping.delete(id);
+              this._requestResponseMap.delete(id);
             }
           }
         });
@@ -350,10 +362,14 @@ export class StreamableHTTPServerTransport implements Transport {
 
   async close(): Promise<void> {
     // Close all SSE connections
-    this._sseResponseMapping.forEach((response) => {
+    this._responseMapping.forEach((response) => {
       response.end();
     });
-    this._sseResponseMapping.clear();
+    this._responseMapping.clear();
+
+    // Clear any pending responses
+    this._requestResponseMap.clear();
+
     this.onclose?.();
   }
 
@@ -367,24 +383,57 @@ export class StreamableHTTPServerTransport implements Transport {
       throw new Error("No request ID provided for the message");
     }
 
-    const sseResponse = this._sseResponseMapping.get(requestId);
-    if (!sseResponse) {
-      throw new Error(`No SSE connection established for request ID: ${String(requestId)}`);
+    // Get the response for this request
+    const response = this._responseMapping.get(requestId);
+    if (!response) {
+      throw new Error(`No connection established for request ID: ${String(requestId)}`);
     }
 
-    // Send the message as an SSE event
-    sseResponse.write(
-      `event: message\ndata: ${JSON.stringify(message)}\n\n`,
-    );
-    // After all JSON-RPC responses have been sent, the server SHOULD close the SSE stream.
+
+    if (!this._enableJsonResponse) {
+      response.write(`event: message\ndata: ${JSON.stringify(message)}\n\n`);
+    }
     if ('result' in message || 'error' in message) {
-      this._sseResponseMapping.delete(requestId);
-      // Only close the connection if it's not needed by other requests
-      const canCloseConnection = ![...this._sseResponseMapping.entries()].some(([id, res]) => res === sseResponse && id !== requestId);
-      if (canCloseConnection) {
-        sseResponse?.end();
+      this._requestResponseMap.set(requestId, message);
+
+      // Get all request IDs that share the same request response object
+      const relatedIds = Array.from(this._responseMapping.entries())
+        .filter(([_, res]) => res === response)
+        .map(([id]) => id);
+
+      // Check if we have responses for all requests using this connection
+      const allResponsesReady = relatedIds.every(id => this._requestResponseMap.has(id));
+
+      if (allResponsesReady) {
+        if (this._enableJsonResponse) {
+          // All responses ready, send as JSON
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+          };
+          if (this.sessionId !== undefined) {
+            headers['mcp-session-id'] = this.sessionId;
+          }
+
+          const responses = relatedIds
+            .map(id => this._requestResponseMap.get(id)!);
+
+          response.writeHead(200, headers);
+          if (responses.length === 1) {
+            response.end(JSON.stringify(responses[0]));
+          } else {
+            response.end(JSON.stringify(responses));
+          }
+        } else {
+          // End the SSE stream
+          response.end();
+        }
+        // Clean up
+        for (const id of relatedIds) {
+          this._requestResponseMap.delete(id);
+          this._responseMapping.delete(id);
+        }
       }
     }
   }
+}
 
-} 

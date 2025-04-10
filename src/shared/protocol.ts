@@ -3,6 +3,10 @@ import {
   CancelledNotificationSchema,
   ClientCapabilities,
   ErrorCode,
+  isJSONRPCError,
+  isJSONRPCRequest,
+  isJSONRPCResponse,
+  isJSONRPCNotification,
   JSONRPCError,
   JSONRPCNotification,
   JSONRPCRequest,
@@ -271,12 +275,14 @@ export abstract class Protocol<
     };
 
     this._transport.onmessage = (message) => {
-      if (!("method" in message)) {
+      if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
         this._onresponse(message);
-      } else if ("id" in message) {
+      } else if (isJSONRPCRequest(message)) {
         this._onrequest(message);
-      } else {
+      } else if (isJSONRPCNotification(message)) {
         this._onnotification(message);
+      } else {
+        this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
       }
     };
 
@@ -437,7 +443,7 @@ export abstract class Protocol<
     this._progressHandlers.delete(messageId);
     this._cleanupTimeout(messageId);
 
-    if ("result" in response) {
+    if (isJSONRPCResponse(response)) {
       handler(response);
     } else {
       const error = new McpError(

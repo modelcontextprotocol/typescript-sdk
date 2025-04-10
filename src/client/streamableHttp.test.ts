@@ -80,7 +80,7 @@ describe("StreamableHTTPClientTransport", () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
       status: 200,
-      headers: new Headers({ "mcp-session-id": "test-session-id" }),
+      headers: new Headers({ "content-type": "text/event-stream", "mcp-session-id": "test-session-id" }),
     });
 
     await transport.send(message);
@@ -164,7 +164,7 @@ describe("StreamableHTTPClientTransport", () => {
     // We expect the 405 error to be caught and handled gracefully
     // This should not throw an error that breaks the transport
     await transport.start();
-    await expect(transport.openSseStream()).rejects.toThrow('Failed to open SSE stream: Method Not Allowed');
+    await expect(transport.openSseStream()).rejects.toThrow("Failed to open SSE stream: Method Not Allowed");
 
     // Check that GET was attempted
     expect(global.fetch).toHaveBeenCalledWith(
@@ -192,7 +192,7 @@ describe("StreamableHTTPClientTransport", () => {
     const stream = new ReadableStream({
       start(controller) {
         // Send a server notification via SSE
-        const event = 'event: message\ndata: {"jsonrpc": "2.0", "method": "serverNotification", "params": {}}\n\n';
+        const event = "event: message\ndata: {\"jsonrpc\": \"2.0\", \"method\": \"serverNotification\", \"params\": {}}\n\n";
         controller.enqueue(encoder.encode(event));
       }
     });
@@ -237,7 +237,7 @@ describe("StreamableHTTPClientTransport", () => {
 
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({
-        ok: true, 
+        ok: true,
         status: 200,
         headers: new Headers({ "content-type": "text/event-stream" }),
         body: makeStream("request1")
@@ -263,13 +263,13 @@ describe("StreamableHTTPClientTransport", () => {
 
     // Both streams should have delivered their messages
     expect(messageSpy).toHaveBeenCalledTimes(2);
-    
+
     // Verify received messages without assuming specific order
     expect(messageSpy.mock.calls.some(call => {
       const msg = call[0];
       return msg.id === "request1" && msg.result?.id === "request1";
     })).toBe(true);
-    
+
     expect(messageSpy.mock.calls.some(call => {
       const msg = call[0];
       return msg.id === "request2" && msg.result?.id === "request2";
@@ -281,7 +281,7 @@ describe("StreamableHTTPClientTransport", () => {
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       start(controller) {
-        const event = 'id: event-123\nevent: message\ndata: {"jsonrpc": "2.0", "method": "serverNotification", "params": {}}\n\n';
+        const event = "id: event-123\nevent: message\ndata: {\"jsonrpc\": \"2.0\", \"method\": \"serverNotification\", \"params\": {}}\n\n";
         controller.enqueue(encoder.encode(event));
         controller.close();
       }
@@ -312,5 +312,68 @@ describe("StreamableHTTPClientTransport", () => {
     const calls = (global.fetch as jest.Mock).mock.calls;
     const lastCall = calls[calls.length - 1];
     expect(lastCall[1].headers.get("last-event-id")).toBe("event-123");
+  });
+
+  it("should throw error when invalid content-type is received", async () => {
+    const message: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      method: "test",
+      params: {},
+      id: "test-id"
+    };
+
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue("invalid text response");
+        controller.close();
+      }
+    });
+
+    const errorSpy = jest.fn();
+    transport.onerror = errorSpy;
+
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "text/plain" }),
+      body: stream
+    });
+
+    await transport.start();
+    await expect(transport.send(message)).rejects.toThrow("Unexpected content type: text/plain");
+    expect(errorSpy).toHaveBeenCalled();
+  });
+
+
+  it("should always send specified custom headers", async () => {
+    const requestInit = {
+      headers: {
+        "X-Custom-Header": "CustomValue"
+      }
+    };
+    transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+      requestInit: requestInit
+    });
+
+    let actualReqInit: RequestInit = {};
+
+    ((global.fetch as jest.Mock)).mockImplementation(
+      async (_url, reqInit) => {
+        actualReqInit = reqInit;
+        return new Response(null, { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+    );
+
+    await transport.start();
+
+    await transport.openSseStream();
+    expect((actualReqInit.headers as Headers).get("x-custom-header")).toBe("CustomValue");
+
+    requestInit.headers["X-Custom-Header"] = "SecondCustomValue";
+
+    await transport.send({ jsonrpc: "2.0", method: "test", params: {} } as JSONRPCMessage);
+    expect((actualReqInit.headers as Headers).get("x-custom-header")).toBe("SecondCustomValue");
+
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 });

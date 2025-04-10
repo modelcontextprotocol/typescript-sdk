@@ -6,6 +6,62 @@ This directory contains example implementations of MCP clients and servers using
 
 Multi node with stete management example will be added soon after we add support.
 
+### Server with JSON response mode (`server/jsonResponseStreamableHttp.ts`)
+
+A simple MCP server that uses the Streamable HTTP transport with JSON response mode enabled, implemented with Express. The server provides a simple `greet` tool that returns a greeting for a name.
+
+#### Running the server
+
+```bash
+npx tsx src/examples/server/jsonResponseStreamableHttp.ts
+```
+
+The server will start on port 3000. You can test the initialization and tool calling:
+
+```bash
+# Initialize the server and get the session ID from headers
+SESSION_ID=$(curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "params": {
+      "capabilities": {},
+      "protocolVersion": "2025-03-26", 
+      "clientInfo": {
+        "name": "test",
+        "version": "1.0.0"
+      }
+    },
+    "id": "1"
+  }' \
+  -i http://localhost:3000/mcp 2>&1 | grep -i "mcp-session-id" | cut -d' ' -f2 | tr -d '\r')
+echo "Session ID: $SESSION_ID"
+
+# Call the greet tool using the saved session ID
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "Accept: text/event-stream" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "greet",
+      "arguments": {
+        "name": "World"
+      }
+    },
+    "id": "2"
+  }' \
+  http://localhost:3000/mcp
+```
+
+Note that in this example, we're using plain JSON response mode by setting `Accept: application/json` header.
+
 ### Server (`server/simpleStreamableHttp.ts`)
 
 A simple MCP server that uses the Streamable HTTP transport, implemented with Express. The server provides:
@@ -24,10 +80,25 @@ The server will start on port 3000. You can test the initialization and tool lis
 
 ```bash
 # First initialize the server and save the session ID to a variable
-SESSION_ID=$(curl -X POST -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":"1"}' \
+SESSION_ID=$(curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "params": {
+      "capabilities": {},
+      "protocolVersion": "2025-03-26", 
+      "clientInfo": {
+        "name": "test",
+        "version": "1.0.0"
+      }
+    },
+    "id": "1"
+  }' \
   -i http://localhost:3000/mcp 2>&1 | grep -i "mcp-session-id" | cut -d' ' -f2 | tr -d '\r')
-echo "Session ID: $SESSION_ID"
+echo "Session ID: $SESSION_ID
 
 # Then list tools using the saved session ID 
 curl -X POST -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
