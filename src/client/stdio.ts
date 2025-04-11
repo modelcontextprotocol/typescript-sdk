@@ -170,6 +170,13 @@ export class StdioClientTransport implements Transport {
     return this._process?.stderr ?? null;
   }
 
+  /**
+   * The process id of the child process, if it has been started.
+   */
+  get pid(): number | undefined {
+    return this._process?.pid;
+  }
+
   private processReadBuffer() {
     while (true) {
       try {
@@ -187,6 +194,7 @@ export class StdioClientTransport implements Transport {
 
   async close(): Promise<void> {
     this._abortController.abort();
+    process.kill(this._process!.pid!, 'SIGKILL');
     this._process = undefined;
     this._readBuffer.clear();
   }
