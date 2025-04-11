@@ -192,34 +192,32 @@ export class StdioClientTransport implements Transport {
     }
   }
 
-  private gracefullyExitProcess(): void {
-    const pid = this.pid;
-    
-    if (!pid) {
-      return;
-    }
+  private async forceExitProcess(pid: number): Promise<void> {
+    try {
+      process.kill(pid, "SIGKILL");
 
-    // Killing after 3 seconds to ensure the process has time to exit gracefully.
-    setTimeout(() => {
-      try {
-        process.kill(pid, "SIGKILL");
-
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException)?.code === "ESRCH") {
-          // Ignoring ESRCH error, which means the process is already dead.
-          return;
-        }
-
-        console.warn(`Failed to kill process ${pid}: ${err}`);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "ESRCH") {
+        // Ignoring ESRCH error, which means the process is already dead.
+        return;
       }
-    }, 3000);
 
+      console.warn(`Failed to kill process ${pid}: ${err}`);
+    }
+  }
+
+  private async gracefullyExitProcess(pid: number): Promise<void> {
     process.kill(pid, "SIGINT");
+    
+    await new Promise<void>(resolve => setTimeout(() => {
+      this.forceExitProcess(pid);
+      resolve();
+    }, 3000));
   }
 
   async close(): Promise<void> {
     this._abortController.abort();
-    this.gracefullyExitProcess();
+    this.gracefullyExitProcess(this.pid!);
     this._process = undefined;
     this._readBuffer.clear();
   }
