@@ -3,7 +3,6 @@ import { Server } from "../server/index.js";
 import { StdioServerTransport } from "../server/stdio.js";
 import { Client } from "../client/index.js";
 import { StdioClientTransport } from "../client/stdio.js";
-import { resolve } from "node:path";
 
 describe("Process cleanup", () => {
   jest.setTimeout(5000); // 5 second timeout
@@ -35,7 +34,9 @@ describe("Process cleanup", () => {
       try {
         execSync(`ps -p ${pid}`, { stdio: 'ignore' });
         return true;
-      } catch (_) {
+
+      /* eslint-disable @typescript-eslint/no-unused-vars */
+      } catch (error) {
         return false;
       }
     }

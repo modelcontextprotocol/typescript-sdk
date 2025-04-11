@@ -1,6 +1,7 @@
+import { setTimeout } from 'node:timers'
+import process from 'node:process'
 import { McpServer } from "../../dist/esm/server/mcp.js";
 import { StdioServerTransport } from "../../dist/esm/server/stdio.js";
-import { spawn } from "node:child_process";
 
 const transport = new StdioServerTransport();
 
