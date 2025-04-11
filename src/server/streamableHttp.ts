@@ -438,6 +438,8 @@ export class StreamableHTTPServerTransport implements Transport {
 
     // Clear any pending responses
     this._requestResponseMap.clear();
+    this._standaloneSSE?.end();
+    this._standaloneSSE = undefined;
 
     this.onclose?.();
   }
