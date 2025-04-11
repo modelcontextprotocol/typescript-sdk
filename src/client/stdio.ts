@@ -205,7 +205,7 @@ export class StdioClientTransport implements Transport {
         process.kill(pid, "SIGKILL");
 
       } catch (err) {
-        if (typeof err === "object" && err !== null && "code" in err && err.code === "ESRCH") {
+        if ((err as NodeJS.ErrnoException)?.code === "ESRCH") {
           // Ignoring ESRCH error, which means the process is already dead.
           return;
         }
