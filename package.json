@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/sdk",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "description": "Model Context Protocol implementation for TypeScript",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
