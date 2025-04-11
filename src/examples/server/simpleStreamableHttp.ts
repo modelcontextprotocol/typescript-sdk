@@ -174,6 +174,19 @@ app.post('/mcp', async (req: Request, res: Response) => {
   }
 });
 
+// Handle GET requests for SSE streams (using built-in support from StreamableHTTP)
+app.get('/mcp', async (req: Request, res: Response) => {
+  const sessionId = req.headers['mcp-session-id'] as string | undefined;
+  if (!sessionId || !transports[sessionId]) {
+    res.status(400).send('Invalid or missing session ID');
+    return;
+  }
+
+  console.log(`Establishing SSE stream for session ${sessionId}`);
+  const transport = transports[sessionId];
+  await transport.handleRequest(req, res);
+});
+
 // Helper function to detect initialize requests
 function isInitializeRequest(body: unknown): boolean {
   if (Array.isArray(body)) {

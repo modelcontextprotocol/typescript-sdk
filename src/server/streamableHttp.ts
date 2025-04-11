@@ -68,6 +68,7 @@ export class StreamableHTTPServerTransport implements Transport {
   private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
   private _initialized: boolean = false;
   private _enableJsonResponse: boolean = false;
+  private _standaloneSSE: ServerResponse | undefined;
 
 
   sessionId?: string | undefined;
@@ -97,6 +98,8 @@ export class StreamableHTTPServerTransport implements Transport {
   async handleRequest(req: IncomingMessage, res: ServerResponse, parsedBody?: unknown): Promise<void> {
     if (req.method === "POST") {
       await this.handlePostRequest(req, res, parsedBody);
+    } else if (req.method === "GET") {
+      await this.handleGetRequest(req, res);
     } else if (req.method === "DELETE") {
       await this.handleDeleteRequest(req, res);
     } else {
@@ -105,12 +108,78 @@ export class StreamableHTTPServerTransport implements Transport {
   }
 
   /**
-   * Handles unsupported requests (GET, PUT, PATCH, etc.)
-   * For now we support only POST and DELETE requests. Support for GET for SSE connections will be added later.
+   * Handles GET requests for SSE stream
+   */
+  private async handleGetRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // The client MUST include an Accept header, listing text/event-stream as a supported content type.
+    const acceptHeader = req.headers.accept;
+    if (!acceptHeader?.includes("text/event-stream")) {
+      res.writeHead(406).end(JSON.stringify({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: "Not Acceptable: Client must accept text/event-stream"
+        },
+        id: null
+      }));
+      return;
+    }
+
+    // If an Mcp-Session-Id is returned by the server during initialization,
+    // clients using the Streamable HTTP transport MUST include it 
+    // in the Mcp-Session-Id header on all of their subsequent HTTP requests.
+    if (!this.validateSession(req, res)) {
+      return;
+    }
+
+    // The server MUST either return Content-Type: text/event-stream in response to this HTTP GET, 
+    // or else return HTTP 405 Method Not Allowed
+    const headers: Record<string, string> = {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    };
+
+    // After initialization, always include the session ID if we have one
+    if (this.sessionId !== undefined) {
+      headers["mcp-session-id"] = this.sessionId;
+    }
+    // The server MAY include a Last-Event-ID header in the response to this HTTP GET.
+    // Resumability will be supported in the future
+
+    // Check if there's already an active standalone SSE stream for this session
+
+    if (this._standaloneSSE !== undefined) {
+      // Only one GET SSE stream is allowed per session
+      res.writeHead(409).end(JSON.stringify({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: "Conflict: Only one SSE stream is allowed per session"
+        },
+        id: null
+      }));
+      return;
+    }
+    // We need to send headers immediately as message will arrive much later,
+    // otherwise the client will just wait for the first message
+    res.writeHead(200, headers).flushHeaders();
+
+    // Assing the response to the standalone SSE stream
+    this._standaloneSSE = res;
+
+    // Set up close handler for client disconnects
+    res.on("close", () => {
+      this._standaloneSSE = undefined;
+    });
+  }
+
+  /**
+   * Handles unsupported requests (PUT, PATCH, etc.)
    */
   private async handleUnsupportedRequest(res: ServerResponse): Promise<void> {
     res.writeHead(405, {
-      "Allow": "POST, DELETE"
+      "Allow": "GET, POST, DELETE"
     }).end(JSON.stringify({
       jsonrpc: "2.0",
       error: {
@@ -379,8 +448,24 @@ export class StreamableHTTPServerTransport implements Transport {
       // If the message is a response, use the request ID from the message
       requestId = message.id;
     }
+
+    // Check if this message should be sent on the standalone SSE stream (no request ID)
+    // Ignore notifications from tools (which have relatedRequestId set)
+    // Those will be sent via dedicated response SSE streams
     if (requestId === undefined) {
-      throw new Error("No request ID provided for the message");
+      // For standalone SSE streams, we can only send requests and notifications
+      if ('result' in message || 'error' in message) {
+        throw new Error("Cannot send a response on a standalone SSE stream unless resuming a previous client request");
+      }
+
+      if (this._standaloneSSE === undefined) {
+        // The spec says the server MAY send messages on the stream, so it's ok to discard if no stream
+        return;
+      }
+
+      // Send the message to the standalone SSE stream
+      this._standaloneSSE.write(`event: message\ndata: ${JSON.stringify(message)}\n\n`);
+      return;
     }
 
     // Get the response for this request
@@ -388,7 +473,6 @@ export class StreamableHTTPServerTransport implements Transport {
     if (!response) {
       throw new Error(`No connection established for request ID: ${String(requestId)}`);
     }
-
 
     if (!this._enableJsonResponse) {
       response.write(`event: message\ndata: ${JSON.stringify(message)}\n\n`);

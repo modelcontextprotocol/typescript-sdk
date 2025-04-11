@@ -164,8 +164,7 @@ describe("StreamableHTTPClientTransport", () => {
     // We expect the 405 error to be caught and handled gracefully
     // This should not throw an error that breaks the transport
     await transport.start();
-    await expect(transport.openSseStream()).rejects.toThrow("Failed to open SSE stream: Method Not Allowed");
-
+    await expect(transport["_startOrAuthStandaloneSSE"]()).resolves.not.toThrow("Failed to open SSE stream: Method Not Allowed");
     // Check that GET was attempted
     expect(global.fetch).toHaveBeenCalledWith(
       expect.anything(),
@@ -209,7 +208,7 @@ describe("StreamableHTTPClientTransport", () => {
     transport.onmessage = messageSpy;
 
     await transport.start();
-    await transport.openSseStream();
+    await transport["_startOrAuthStandaloneSSE"]();
 
     // Give time for the SSE event to be processed
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -295,7 +294,7 @@ describe("StreamableHTTPClientTransport", () => {
     });
 
     await transport.start();
-    await transport.openSseStream();
+    await transport["_startOrAuthStandaloneSSE"]();
     await new Promise(resolve => setTimeout(resolve, 50));
 
     // Now simulate attempting to reconnect
@@ -306,7 +305,7 @@ describe("StreamableHTTPClientTransport", () => {
       body: null
     });
 
-    await transport.openSseStream();
+    await transport["_startOrAuthStandaloneSSE"]();
 
     // Check that Last-Event-ID was included
     const calls = (global.fetch as jest.Mock).mock.calls;
@@ -366,7 +365,7 @@ describe("StreamableHTTPClientTransport", () => {
 
     await transport.start();
 
-    await transport.openSseStream();
+    await transport["_startOrAuthStandaloneSSE"]();
     expect((actualReqInit.headers as Headers).get("x-custom-header")).toBe("CustomValue");
 
     requestInit.headers["X-Custom-Header"] = "SecondCustomValue";

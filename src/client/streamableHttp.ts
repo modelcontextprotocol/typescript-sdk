@@ -1,5 +1,5 @@
 import { Transport } from "../shared/transport.js";
-import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
+import { isJSONRPCNotification, JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 import { auth, AuthResult, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { EventSourceParserStream } from "eventsource-parser/stream";
 
@@ -126,12 +126,17 @@ export class StreamableHTTPClientTransport implements Transport {
           return await this._authThenStart();
         }
 
+        // 405 indicates that the server does not offer an SSE stream at GET endpoint
+        // This is an expected case that should not trigger an error
+        if (response.status === 405) {
+          return;
+        }
+
         throw new StreamableHTTPError(
           response.status,
           `Failed to open SSE stream: ${response.statusText}`,
         );
       }
-
       // Successful connection, handle the SSE stream as a standalone listener
       this._handleSseStream(response.body);
     } catch (error) {
@@ -244,6 +249,12 @@ export class StreamableHTTPClientTransport implements Transport {
 
       // If the response is 202 Accepted, there's no body to process
       if (response.status === 202) {
+        // if the accepted notification is initialized, we start the SSE stream
+        // if it's supported by the server
+        if (isJSONRPCNotification(message) && message.method === "notifications/initialized") {
+          // We don't need to handle 405 here anymore as it's handled in _startOrAuthStandaloneSSE
+          this._startOrAuthStandaloneSSE().catch(err => this.onerror?.(err));
+        }
         return;
       }
 
@@ -279,21 +290,5 @@ export class StreamableHTTPClientTransport implements Transport {
       this.onerror?.(error as Error);
       throw error;
     }
-  }
-
-  /**
-   * Opens SSE stream to receive messages from the server.
-   *
-   * This allows the server to push messages to the client without requiring the client
-   * to first send a request via HTTP POST. Some servers may not support this feature.
-   * If authentication is required but fails, this method will throw an UnauthorizedError.
-   */
-  async openSseStream(): Promise<void> {
-    if (!this._abortController) {
-      throw new Error(
-        "StreamableHTTPClientTransport not started! Call connect() before openSseStream().",
-      );
-    }
-    await this._startOrAuthStandaloneSSE();
   }
 }

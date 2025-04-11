@@ -32,6 +32,7 @@ function createMockResponse(): jest.Mocked<ServerResponse> {
     emit: jest.fn().mockReturnThis(),
     getHeader: jest.fn(),
     setHeader: jest.fn(),
+    flushHeaders: jest.fn(),
   } as unknown as jest.Mocked<ServerResponse>;
   return response;
 }
@@ -564,22 +565,123 @@ describe("StreamableHTTPServerTransport", () => {
       mockResponse.writeHead.mockClear();
     });
 
-    it("should reject GET requests for SSE with 405 Method Not Allowed", async () => {
+    it("should accept GET requests for SSE with proper Accept header", async () => {
       const req = createMockRequest({
         method: "GET",
         headers: {
-          "accept": "application/json, text/event-stream",
+          "accept": "text/event-stream",
           "mcp-session-id": transport.sessionId,
         },
       });
 
       await transport.handleRequest(req, mockResponse);
 
-      expect(mockResponse.writeHead).toHaveBeenCalledWith(405, expect.objectContaining({
-        "Allow": "POST, DELETE"
+      expect(mockResponse.writeHead).toHaveBeenCalledWith(200, expect.objectContaining({
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        "mcp-session-id": transport.sessionId,
       }));
-      expect(mockResponse.end).toHaveBeenCalledWith(expect.stringContaining('"jsonrpc":"2.0"'));
-      expect(mockResponse.end).toHaveBeenCalledWith(expect.stringContaining('Method not allowed'));
+    });
+
+    it("should reject GET requests without Accept: text/event-stream header", async () => {
+      const req = createMockRequest({
+        method: "GET",
+        headers: {
+          "accept": "application/json",
+          "mcp-session-id": transport.sessionId,
+        },
+      });
+
+      await transport.handleRequest(req, mockResponse);
+
+      expect(mockResponse.writeHead).toHaveBeenCalledWith(406);
+      expect(mockResponse.end).toHaveBeenCalledWith(expect.stringContaining('"message":"Not Acceptable: Client must accept text/event-stream"'));
+    });
+
+    it("should send server-initiated requests to GET SSE stream", async () => {
+      // Open a standalone SSE stream with GET
+      const req = createMockRequest({
+        method: "GET",
+        headers: {
+          "accept": "text/event-stream",
+          "mcp-session-id": transport.sessionId,
+        },
+      });
+
+      const sseResponse = createMockResponse();
+      await transport.handleRequest(req, sseResponse);
+
+      // Send a notification without a related request ID
+      const notification: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "notifications/resources/updated",
+        params: { uri: "someuri" }
+      };
+
+      await transport.send(notification);
+
+      // Verify notification was sent on SSE stream
+      expect(sseResponse.write).toHaveBeenCalledWith(
+        expect.stringContaining(`event: message\ndata: ${JSON.stringify(notification)}\n\n`)
+      );
+    });
+
+    it("should not close GET SSE stream after sending server requests or notifications", async () => {
+      // Open a standalone SSE stream
+      const req = createMockRequest({
+        method: "GET",
+        headers: {
+          "accept": "text/event-stream",
+          "mcp-session-id": transport.sessionId,
+        },
+      });
+
+      const sseResponse = createMockResponse();
+      await transport.handleRequest(req, sseResponse);
+
+      // Send multiple notifications
+      const notification1: JSONRPCMessage = { jsonrpc: "2.0", method: "event1", params: {} };
+      const notification2: JSONRPCMessage = { jsonrpc: "2.0", method: "event2", params: {} };
+
+      await transport.send(notification1);
+      await transport.send(notification2);
+
+      // Stream should remain open
+      expect(sseResponse.end).not.toHaveBeenCalled();
+    });
+
+    it("should reject second GET SSE stream for the same session", async () => {
+      // Open first SSE stream - should succeed
+      const req1 = createMockRequest({
+        method: "GET",
+        headers: {
+          "accept": "text/event-stream",
+          "mcp-session-id": transport.sessionId,
+        },
+      });
+
+      const sseResponse1 = createMockResponse();
+      await transport.handleRequest(req1, sseResponse1);
+
+      // Try to open a second SSE stream - should be rejected
+      const req2 = createMockRequest({
+        method: "GET",
+        headers: {
+          "accept": "text/event-stream",
+          "mcp-session-id": transport.sessionId,
+        },
+      });
+
+      const sseResponse2 = createMockResponse();
+      await transport.handleRequest(req2, sseResponse2);
+
+      // First stream should be good
+      expect(sseResponse1.writeHead).toHaveBeenCalledWith(200, expect.anything());
+
+      // Second stream should get 409 Conflict
+      expect(sseResponse2.writeHead).toHaveBeenCalledWith(409);
+      expect(sseResponse2.end).toHaveBeenCalledWith(expect.stringContaining('"message":"Conflict: Only one SSE stream is allowed per session"'));
     });
 
     it("should reject POST requests without proper Accept header", async () => {
