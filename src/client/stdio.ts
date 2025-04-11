@@ -192,9 +192,34 @@ export class StdioClientTransport implements Transport {
     }
   }
 
+  private gracefullyExitProcess(): void {
+    const pid = this.pid;
+    
+    if (!pid) {
+      return;
+    }
+
+    // Killing after 3 seconds to ensure the process has time to exit gracefully.
+    setTimeout(() => {
+      try {
+        process.kill(pid, "SIGKILL");
+
+      } catch (err) {
+        if (typeof err === "object" && err !== null && "code" in err && err.code === "ESRCH") {
+          // Ignoring ESRCH error, which means the process is already dead.
+          return;
+        }
+
+        console.warn(`Failed to kill process ${pid}: ${err}`);
+      }
+    }, 3000);
+
+    process.kill(pid, "SIGINT");
+  }
+
   async close(): Promise<void> {
     this._abortController.abort();
-    process.kill(this._process!.pid!, 'SIGKILL');
+    this.gracefullyExitProcess();
     this._process = undefined;
     this._readBuffer.clear();
   }

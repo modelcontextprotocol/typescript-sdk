@@ -5,7 +5,7 @@ import { Client } from "../client/index.js";
 import { StdioClientTransport } from "../client/stdio.js";
 
 describe("Process cleanup", () => {
-  jest.setTimeout(5000); // 5 second timeout
+  jest.setTimeout(10 * 1000); // 10 second timeout
 
   it("server should exit cleanly after closing transport", async () => {
     const server = new Server(
@@ -56,7 +56,7 @@ describe("Process cleanup", () => {
     const pid = transport.pid;
 
     await client.close();
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 5000));
 
     expect(isProcessRunning(pid!)).toBe(false);
   });

@@ -6,7 +6,7 @@ import { StdioServerTransport } from "../../dist/esm/server/stdio.js";
 const transport = new StdioServerTransport();
 
 const server = new McpServer({
-  name: "test-stdio-server",
+  name: "server-that-hangs",
   version: "1.0.0"
 });
 
