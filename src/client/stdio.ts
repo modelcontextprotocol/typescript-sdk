@@ -192,7 +192,7 @@ export class StdioClientTransport implements Transport {
     }
   }
 
-  private async forceExitProcess(pid: number): Promise<void> {
+  private forceExitProcess(pid: number): void {
     try {
       process.kill(pid, "SIGKILL");
 
@@ -206,18 +206,10 @@ export class StdioClientTransport implements Transport {
     }
   }
 
-  private async gracefullyExitProcess(pid: number): Promise<void> {
-    process.kill(pid, "SIGINT");
-    
-    await new Promise<void>(resolve => setTimeout(() => {
-      this.forceExitProcess(pid);
-      resolve();
-    }, 3000));
-  }
-
   async close(): Promise<void> {
+    const pid = this.pid;
+    this._abortController.signal.onabort = () => setTimeout(() => pid && this.forceExitProcess(pid), 3000);
     this._abortController.abort();
-    this.gracefullyExitProcess(this.pid!);
     this._process = undefined;
     this._readBuffer.clear();
   }
