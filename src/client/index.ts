@@ -28,6 +28,7 @@ import {
   ListResourceTemplatesRequest,
   ListResourceTemplatesResultSchema,
   ListToolsRequest,
+  ListToolsResult,
   ListToolsResultSchema,
   LoggingLevel,
   Notification,
@@ -46,6 +47,27 @@ export type ClientOptions = ProtocolOptions & {
    * Capabilities to advertise as being supported by this client.
    */
   capabilities?: ClientCapabilities;
+  /**
+   * Configure automatic refresh behavior for tool list changes
+   */
+  toolRefreshOptions?: {
+    /**
+     * Whether to automatically refresh the tools list when a change notification is received.
+     * Default: true
+     */
+    autoRefresh?: boolean;
+    /**
+     * Debounce time in milliseconds for tool list refresh operations.
+     * Multiple notifications received within this timeframe will only trigger one refresh.
+     * Default: 300
+     */
+    debounceMs?: number;
+    /**
+     * Optional callback for handling tool list refresh errors.
+     * When provided, this will be called instead of logging to console.
+     */
+    onError?: (error: Error) => void;
+  };
 };
 
 /**
@@ -86,6 +108,18 @@ export class Client<
   private _serverVersion?: Implementation;
   private _capabilities: ClientCapabilities;
   private _instructions?: string;
+  private _toolRefreshOptions: {
+    autoRefresh: boolean;
+    debounceMs: number;
+    onError?: (error: Error) => void;
+  };
+  private _toolRefreshDebounceTimer?: ReturnType<typeof setTimeout>;
+
+  /**
+   * Callback for when the server indicates that the tools list has changed.
+   * Client should typically refresh its list of tools in response.
+   */
+  onToolListChanged?: (tools?: ListToolsResult["tools"]) => void;
 
   /**
    * Initializes this client with the given name and version information.
@@ -96,6 +130,64 @@ export class Client<
   ) {
     super(options);
     this._capabilities = options?.capabilities ?? {};
+    this._toolRefreshOptions = {
+      autoRefresh: options?.toolRefreshOptions?.autoRefresh ?? true,
+      debounceMs: options?.toolRefreshOptions?.debounceMs ?? 500,
+      onError: options?.toolRefreshOptions?.onError,
+    };
+
+    // Set up notification handlers
+    this.setNotificationHandler(
+      "notifications/tools/list_changed",
+      async () => {
+        // Only proceed with refresh if auto-refresh is enabled
+        if (!this._toolRefreshOptions.autoRefresh) {
+          // Still call callback to notify about the change, but without tools data
+          this.onToolListChanged?.(undefined);
+          return;
+        }
+
+        // Clear any pending refresh timer
+        if (this._toolRefreshDebounceTimer) {
+          clearTimeout(this._toolRefreshDebounceTimer);
+        }
+
+        // Set up debounced refresh
+        this._toolRefreshDebounceTimer = setTimeout(() => {
+          this._refreshToolsList().catch((error) => {
+            // Use error callback if provided, otherwise log to console
+            if (this._toolRefreshOptions.onError) {
+              this._toolRefreshOptions.onError(error instanceof Error ? error : new Error(String(error)));
+            } else {
+              console.error("Failed to refresh tools list:", error);
+            }
+          });
+        }, this._toolRefreshOptions.debounceMs);
+      }
+    );
+  }
+
+  /**
+   * Private method to handle tools list refresh
+   */
+  private async _refreshToolsList(): Promise<void> {
+    try {
+      // Only refresh if the server supports tools
+      if (this._serverCapabilities?.tools) {
+        const result = await this.listTools();
+        // Call the user's callback with the updated tools list
+        this.onToolListChanged?.(result.tools);
+      }
+    } catch (error) {
+      // Use error callback if provided, otherwise log to console
+      if (this._toolRefreshOptions.onError) {
+        this._toolRefreshOptions.onError(error instanceof Error ? error : new Error(String(error)));
+      } else {
+        console.error("Failed to refresh tools list:", error);
+      }
+      // Still call the callback even if refresh failed
+      this.onToolListChanged?.(undefined);
+    }
   }
 
   /**
@@ -113,13 +205,72 @@ export class Client<
     this._capabilities = mergeCapabilities(this._capabilities, capabilities);
   }
 
+  /**
+   * Updates the tool refresh options
+   */
+  public setToolRefreshOptions(
+    options: ClientOptions["toolRefreshOptions"]
+  ): void {
+    if (options) {
+      if (options.autoRefresh !== undefined) {
+        this._toolRefreshOptions.autoRefresh = options.autoRefresh;
+      }
+      if (options.debounceMs !== undefined) {
+        this._toolRefreshOptions.debounceMs = options.debounceMs;
+      }
+      if (options.onError !== undefined) {
+        this._toolRefreshOptions.onError = options.onError;
+      }
+    }
+  }
+
+  /**
+   * Gets the current tool refresh options
+   */
+  public getToolRefreshOptions(): typeof this._toolRefreshOptions {
+    return { ...this._toolRefreshOptions };
+  }
+
+  /**
+   * Sets an error handler for tool list refresh errors
+   * 
+   * @param handler Function to call when a tool list refresh error occurs
+   */
+  public setToolRefreshErrorHandler(handler: (error: Error) => void): void {
+    this._toolRefreshOptions.onError = handler;
+  }
+
+  /**
+   * Manually triggers a refresh of the tools list
+   */
+  public async refreshToolsList(): Promise<
+    ListToolsResult["tools"] | undefined
+  > {
+    if (!this._serverCapabilities?.tools) {
+      return undefined;
+    }
+
+    try {
+      const result = await this.listTools();
+      return result.tools;
+    } catch (error) {
+      // Use error callback if provided, otherwise log to console
+      if (this._toolRefreshOptions.onError) {
+        this._toolRefreshOptions.onError(error instanceof Error ? error : new Error(String(error)));
+      } else {
+        console.error("Failed to manually refresh tools list:", error);
+      }
+      return undefined;
+    }
+  }
+
   protected assertCapability(
     capability: keyof ServerCapabilities,
     method: string,
   ): void {
     if (!this._serverCapabilities?.[capability]) {
       throw new Error(
-        `Server does not support ${capability} (required for ${method})`,
+        `Server does not support ${String(capability)} (required for ${method})`,
       );
     }
   }
@@ -262,7 +413,17 @@ export class Client<
       case "notifications/roots/list_changed":
         if (!this._capabilities.roots?.listChanged) {
           throw new Error(
-            `Client does not support roots list changed notifications (required for ${method})`,
+            `Client does not support roots list changed notifications (required for ${method})`
+          );
+        }
+        break;
+
+      case "notifications/tools/list_changed":
+        if (!this._capabilities.tools?.listChanged) {
+          throw new Error(
+            `Client does not support tools capability (required for ${String(
+              method
+            )})`
           );
         }
         break;
@@ -427,7 +588,23 @@ export class Client<
     );
   }
 
+  /**
+   * Registers a callback to be called when the server indicates that
+   * the tools list has changed. The callback should typically refresh the tools list.
+   *
+   * @param callback Function to call when tools list changes
+   */
+  setToolListChangedCallback(
+    callback: (tools?: ListToolsResult["tools"]) => void
+  ): void {
+    this.onToolListChanged = callback;
+  }
+
   async sendRootsListChanged() {
     return this.notification({ method: "notifications/roots/list_changed" });
+  }
+
+  async sendToolListChanged() {
+    return this.notification({ method: "notifications/tools/list_changed" });
   }
 }
