@@ -19,18 +19,18 @@ export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
  */
 export const CursorSchema = z.string();
 
+const RequestMetaSchema = z
+  .object({
+    /**
+     * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+     */
+    progressToken: z.optional(ProgressTokenSchema),
+  })
+  .passthrough();
+
 const BaseRequestParamsSchema = z
   .object({
-    _meta: z.optional(
-      z
-        .object({
-          /**
-           * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
-           */
-          progressToken: z.optional(ProgressTokenSchema),
-        })
-        .passthrough(),
-    ),
+    _meta: z.optional(RequestMetaSchema),
   })
   .passthrough();
 
@@ -1173,6 +1173,7 @@ type Infer<Schema extends ZodTypeAny> = Flatten<z.infer<Schema>>;
 export type ProgressToken = Infer<typeof ProgressTokenSchema>;
 export type Cursor = Infer<typeof CursorSchema>;
 export type Request = Infer<typeof RequestSchema>;
+export type RequestMeta = Infer<typeof RequestMetaSchema>;
 export type Notification = Infer<typeof NotificationSchema>;
 export type Result = Infer<typeof ResultSchema>;
 export type RequestId = Infer<typeof RequestIdSchema>;
