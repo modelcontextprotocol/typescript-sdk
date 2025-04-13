@@ -3,7 +3,7 @@
 ## Table of Contents
 - [Overview](#overview)
 - [Installation](#installation)
-- [Quickstart](#quickstart)
+- [Quickstart](#quick-start)
 - [What is MCP?](#what-is-mcp)
 - [Core Concepts](#core-concepts)
   - [Server](#server)
