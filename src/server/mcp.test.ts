@@ -26,6 +26,10 @@ describe("McpServer", () => {
     });
 
     expect(mcpServer.server).toBeDefined();
+    expect(mcpServer.server.getVersion()).toEqual({
+      name: "test server",
+      version: "1.0",
+    });
   });
 
   test("should allow sending notifications via Server", async () => {
