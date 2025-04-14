@@ -14,7 +14,7 @@ import {
   LoggingMessageNotificationSchema,
   Notification,
 } from "../types.js";
-import { ResourceTemplate } from "./mcp.js";
+import { ResourceTemplate, CapabilityEvent } from "./mcp.js";
 import { completable } from "./completable.js";
 import { UriTemplate } from "../shared/uriTemplate.js";
 
@@ -865,6 +865,95 @@ describe("tool()", () => {
         CallToolResultSchema,
       ),
     ).rejects.toThrow(/Tool nonexistent-tool not found/);
+  });
+
+  test("should include duration in completed and error events", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    const events: Array<CapabilityEvent> = [];
+    const subscription = mcpServer.onCapabilityChange((event) => {
+      events.push(event);
+    });
+
+    // Register tools with different behaviors
+    mcpServer.tool("success-tool", async () => {
+      // Simulate some work
+      await new Promise(resolve => setTimeout(resolve, 10));
+      return { content: [{ type: "text", text: "Success" }] };
+    });
+
+    mcpServer.tool("error-tool", async () => {
+      // Simulate some work
+      await new Promise(resolve => setTimeout(resolve, 10));
+      throw new Error("Simulated error");
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Clear events from registration
+    events.length = 0;
+
+    // Call the success tool
+    await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "success-tool",
+        },
+      },
+      CallToolResultSchema,
+    );
+
+    // Find the completed event
+    const completedEvent = events.find(e =>
+      e.capabilityType === "tool" &&
+      e.capabilityName === "success-tool" &&
+      e.action === "completed"
+    ) as Extract<CapabilityEvent, { action: "completed" }>;
+
+    expect(completedEvent).toBeDefined();
+    expect(completedEvent.durationMs).toBeDefined();
+    expect(completedEvent.durationMs).toBeGreaterThan(0);
+
+    // Clear events
+    events.length = 0;
+
+    // Call the error tool
+    await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "error-tool",
+        },
+      },
+      CallToolResultSchema,
+    );
+
+    // Find the error event
+    const errorEvent = events.find(e =>
+      e.capabilityType === "tool" &&
+      e.capabilityName === "error-tool" &&
+      e.action === "error"
+    ) as Extract<CapabilityEvent, { action: "error" }>;
+
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent.durationMs).toBeDefined();
+    expect(errorEvent.durationMs).toBeGreaterThan(0);
+
+    subscription.close();
   });
 });
 
@@ -2514,5 +2603,324 @@ describe("prompt()", () => {
 
     expect(result.completion.values).toEqual(["Alice"]);
     expect(result.completion.total).toBe(1);
+  });
+});
+
+describe("CapabilityEvents", () => {
+  test("should emit capability events when registering and interacting with tools", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const events: Array<CapabilityEvent> = [];
+    const subscription = mcpServer.onCapabilityChange((event) => {
+      events.push(event);
+    });
+
+    // Register a tool (should trigger "added" event)
+    const tool = mcpServer.tool("test-tool", async () => ({
+      content: [{ type: "text", text: "Test response" }],
+    }));
+
+    expect(events.length).toBeGreaterThan(0);
+    expect(events[0]).toMatchObject({
+      serverInfo: { name: "test server", version: "1.0" },
+      capabilityType: "tool",
+      capabilityName: "test-tool",
+      action: "added",
+    });
+
+    // Update the tool (should trigger "updated" event)
+    tool.update({
+      description: "Updated description",
+    });
+
+    expect(events.some(e =>
+      e.capabilityType === "tool" &&
+      e.capabilityName === "test-tool" &&
+      e.action === "updated"
+    )).toBe(true);
+
+    // Disable the tool (should trigger "disabled" event)
+    tool.disable();
+
+    expect(events.some(e =>
+      e.capabilityType === "tool" &&
+      e.capabilityName === "test-tool" &&
+      e.action === "disabled"
+    )).toBe(true);
+
+    // Enable the tool (should trigger "enabled" event)
+    tool.enable();
+
+    expect(events.some(e =>
+      e.capabilityType === "tool" &&
+      e.capabilityName === "test-tool" &&
+      e.action === "enabled"
+    )).toBe(true);
+
+    // Clean up
+    subscription.close();
+  });
+
+  test("should emit capability events when tools are invoked", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    const events: Array<CapabilityEvent> = [];
+    const subscription = mcpServer.onCapabilityChange((event) => {
+      events.push(event);
+    });
+
+    mcpServer.tool("test-tool", async () => ({
+      content: [{ type: "text", text: "Test response" }],
+    }));
+
+    // Clear events from registration
+    events.length = 0;
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "test-tool",
+        },
+      },
+      CallToolResultSchema,
+    );
+
+    // Should have "invoked" and "completed" events
+    expect(events.some(e =>
+      e.capabilityType === "tool" &&
+      e.capabilityName === "test-tool" &&
+      e.action === "invoked"
+    )).toBe(true);
+
+    expect(events.some(e =>
+      e.capabilityType === "tool" &&
+      e.capabilityName === "test-tool" &&
+      e.action === "completed"
+    )).toBe(true);
+
+    // The invoked and completed events should have the same invocationIndex
+    const invokedEvent = events.find(e => e.action === "invoked");
+    const completedEvent = events.find(e => e.action === "completed");
+    expect(invokedEvent?.invocationIndex).toBe(completedEvent?.invocationIndex);
+
+    subscription.close();
+  });
+
+  test("should emit capability events for resources", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    const events: Array<CapabilityEvent> = [];
+    const subscription = mcpServer.onCapabilityChange((event) => {
+      events.push(event);
+    });
+
+    // Register a resource
+    const resource = mcpServer.resource("test-resource", "test://resource", async () => ({
+      contents: [{ uri: "test://resource", text: "Test content" }],
+    }));
+
+    expect(events.some(e =>
+      e.capabilityType === "resource" &&
+      e.capabilityName === "test-resource" &&
+      e.action === "added"
+    )).toBe(true);
+
+    // Clear events from registration
+    events.length = 0;
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Read the resource
+    await client.request(
+      {
+        method: "resources/read",
+        params: {
+          uri: "test://resource",
+        },
+      },
+      ReadResourceResultSchema,
+    );
+
+    // Should have "invoked" event
+    expect(events.some(e =>
+      e.capabilityType === "resource" &&
+      e.capabilityName === "test://resource" &&
+      e.action === "invoked"
+    )).toBe(true);
+
+    // Clear events
+    events.length = 0;
+
+    // Remove the resource
+    resource.remove();
+
+    // Should have "removed" event
+    expect(events.some(e =>
+      e.capabilityType === "resource" &&
+      e.capabilityName === "test-resource" &&
+      e.action === "removed"
+    )).toBe(true);
+
+    subscription.close();
+  });
+
+  test("should emit capability events for prompts", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    const events: Array<CapabilityEvent> = [];
+    const subscription = mcpServer.onCapabilityChange((event) => {
+      events.push(event);
+    });
+
+    // Register a prompt
+    mcpServer.prompt("test-prompt", async () => ({
+      messages: [
+        {
+          role: "assistant",
+          content: {
+            type: "text",
+            text: "Test response",
+          },
+        },
+      ],
+    }));
+
+    expect(events.some(e =>
+      e.capabilityType === "prompt" &&
+      e.capabilityName === "test-prompt" &&
+      e.action === "added"
+    )).toBe(true);
+
+    // Clear events from registration
+    events.length = 0;
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Get the prompt
+    await client.request(
+      {
+        method: "prompts/get",
+        params: {
+          name: "test-prompt",
+        },
+      },
+      GetPromptResultSchema,
+    );
+
+    // Should have "invoked" and "completed" events
+    expect(events.some(e =>
+      e.capabilityType === "prompt" &&
+      e.capabilityName === "test-prompt" &&
+      e.action === "invoked"
+    )).toBe(true);
+
+    expect(events.some(e =>
+      e.capabilityType === "prompt" &&
+      e.capabilityName === "test-prompt" &&
+      e.action === "completed"
+    )).toBe(true);
+
+    subscription.close();
+  });
+
+  test("should emit error events when tool execution fails", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    const events: Array<CapabilityEvent> = [];
+    const subscription = mcpServer.onCapabilityChange((event) => {
+      // Only capture error events
+      if (event.action === "error") {
+        events.push(event);
+      }
+    });
+
+    mcpServer.tool("error-tool", async () => {
+      throw new Error("Simulated error");
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Call the tool that throws an error
+    await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "error-tool",
+        },
+      },
+      CallToolResultSchema,
+    );
+
+    // Should have error event
+    expect(events.length).toBe(1);
+    expect(events[0]).toMatchObject({
+      capabilityType: "tool",
+      capabilityName: "error-tool",
+      action: "error",
+    });
+
+    // Type assert to the specific variant of CapabilityEvent that has the error property
+    const errorEvent = events[0] as Extract<CapabilityEvent, { action: "error" }>;
+    expect(errorEvent.error).toBeDefined();
+
+    subscription.close();
   });
 });
