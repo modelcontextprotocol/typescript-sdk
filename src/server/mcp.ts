@@ -65,8 +65,11 @@ export class McpServer {
   private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
 
   private _onCapabilityChange = createEventNotifier<CapabilityEvent>();
+  /** Counter for unique resource invocation indexes, used to correlate resource invocation events */
   private _resourceInvocationIndex = 0;
+  /** Counter for unique tool invocation indexes, used to correlate tool invocation events */
   private _toolInvocationIndex = 0;
+  /** Counter for unique prompt invocation indexes, used to correlate prompt invocation events */
   private _promptInvocationIndex = 0;
 
   constructor(serverInfo: Implementation, options?: ServerOptions) {
@@ -94,9 +97,18 @@ export class McpServer {
    * Event notifier for capability changes. Listeners will be notified when capabilities are added, updated, removed,
    * enabled, disabled, invoked, completed, or when errors occur.
    *
+   * This provides a way to monitor and respond to all capability-related activities in the server,
+   * including both lifecycle changes and invocation events. Each capability type (resource, tool, prompt)
+   * maintains its own sequence of invocation indexes, which can be used to correlate invocations
+   * with their completions or errors.
+   *
    * @example
    * const subscription = server.onCapabilityChange((event) => {
-   *   console.log(`${event.capabilityType} ${event.capabilityName} ${event.action}`);
+   *   if (event.action === "invoked") {
+   *     console.log(`${event.capabilityType} ${event.capabilityName} invoked with index ${event.invocationIndex}`);
+   *   } else if (event.action === "completed" || event.action === "error") {
+   *     console.log(`${event.capabilityType} operation completed in ${event.durationMs}ms`);
+   *   }
    * });
    *
    * // Later, to stop listening:
@@ -1799,29 +1811,71 @@ const EMPTY_COMPLETION_RESULT: CompleteResult = {
   },
 };
 
+/**
+ * Represents events emitted when capabilities (tools, resources, prompts) change state or are invoked.
+ *
+ * These events allow tracking the lifecycle and usage of all capabilities registered with an McpServer.
+ * Events include capability registration, updates, invocation, completion, and errors.
+ *
+ * Each capability type (tool, resource, prompt) maintains its own sequence of invocation indexes.
+ * The invocationIndex can be used to correlate "invoked" events with their corresponding
+ * "completed" or "error" events for the same capability type.
+ */
 export type CapabilityEvent = {
+  /** Information about the server that generated this event */
   readonly serverInfo: { readonly name: string; readonly version: string };
+  /** The type of capability this event relates to */
   readonly capabilityType: "resource" | "tool" | "prompt";
+  /** The name (or URI for resources) of the specific capability */
   readonly capabilityName: string;
 } & (
   | {
+      /**
+       * Lifecycle events for capability registration and status changes.
+       * - "added": The capability was registered
+       * - "updated": The capability was modified
+       * - "removed": The capability was unregistered
+       * - "enabled": The capability was enabled
+       * - "disabled": The capability was disabled
+       */
       readonly action: "added" | "updated" | "removed" | "enabled" | "disabled";
     }
   | {
+      /** Emitted when a capability is invoked */
       readonly action: "invoked";
+      /**
+       * Monotonically increasing index for each invocation, per capability type.
+       * This index can be used to correlate this "invoked" event with a later
+       * "completed" or "error" event with the same capabilityType and invocationIndex.
+       */
       readonly invocationIndex: number;
+      /** The arguments passed to the capability, if any */
       readonly arguments?: unknown;
     }
   | {
+      /** Emitted when a capability invocation completes successfully */
       readonly action: "completed";
+      /**
+       * The invocationIndex from the corresponding "invoked" event.
+       * This allows correlating the completion with its invocation.
+       */
       readonly invocationIndex: number;
+      /** The result returned by the capability, if any */
       readonly result?: unknown;
+      /** The duration of the operation in milliseconds, measured from invocation to completion */
       readonly durationMs?: number;
     }
   | {
+      /** Emitted when a capability invocation fails with an error */
       readonly action: "error";
+      /**
+       * The invocationIndex from the corresponding "invoked" event.
+       * This allows correlating the error with its invocation.
+       */
       readonly invocationIndex: number;
+      /** The error that occurred during capability execution */
       readonly error: unknown;
+      /** The duration from invocation to error in milliseconds */
       readonly durationMs?: number;
     }
 );

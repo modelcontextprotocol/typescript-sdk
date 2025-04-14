@@ -35,7 +35,7 @@ export type EventNotifier<T, E = Error> = {
    * ```
    *
    * @param listener A function that will be called with the notified event
-   * @returns A SyncCloseable that, when closed, will unregister the listener
+   * @returns A closeable to unregister the listener (all listeners are unregistered when the notifier is closed).
    */
   onEvent: (listener: (event: T) => unknown) => { close: () => void };
 
@@ -69,7 +69,7 @@ export type EventNotifier<T, E = Error> = {
   /**
    * Sets an error handler for the notifier. This handler will be called when a listener throws an error.
    *
-   * @param handler A function that will be called with any errors thrown by listeners
+   * @param handler A function that will be called with any errors thrown by listeners.
    */
   onError: (handler: (error: E) => void) => void;
 
@@ -101,7 +101,7 @@ export type EventNotifier<T, E = Error> = {
  *
  * @template T The type of events this notifier will handle
  * @template E The type of error that can be handled (defaults to Error)
- * @returns A new EventNotifier instance
+ * @returns A new EventNotifier instance.
  */
 export const createEventNotifier = <T, E = Error>(): EventNotifier<T, E> => {
   const listeners = new Set<(event: T) => unknown>();
