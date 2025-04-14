@@ -98,13 +98,17 @@ export class McpServer {
     );
 
     this.server.registerCapabilities({
-      tools: {},
-    });
+      tools: {
+        listChanged: true
+      }
+    })
 
     this.server.setRequestHandler(
       ListToolsRequestSchema,
       (): ListToolsResult => ({
-        tools: Object.entries(this._registeredTools).map(
+        tools: Object.entries(this._registeredTools).filter(
+          ([, tool]) => tool.enabled,
+        ).map(
           ([name, tool]): Tool => {
             return {
               name,
@@ -128,6 +132,13 @@ export class McpServer {
           throw new McpError(
             ErrorCode.InvalidParams,
             `Tool ${request.params.name} not found`,
+          );
+        }
+
+        if (!tool.enabled) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `Tool ${request.params.name} disabled`,
           );
         }
 
@@ -220,7 +231,14 @@ export class McpServer {
     if (!prompt) {
       throw new McpError(
         ErrorCode.InvalidParams,
-        `Prompt ${request.params.ref.name} not found`,
+        `Prompt ${ref.name} not found`,
+      );
+    }
+
+    if (!prompt.enabled) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `Prompt ${ref.name} disabled`,
       );
     }
 
@@ -287,13 +305,17 @@ export class McpServer {
     );
 
     this.server.registerCapabilities({
-      resources: {},
-    });
+      resources: {
+        listChanged: true
+      }
+    })
 
     this.server.setRequestHandler(
       ListResourcesRequestSchema,
       async (request, extra) => {
-        const resources = Object.entries(this._registeredResources).map(
+        const resources = Object.entries(this._registeredResources).filter(
+          ([_, resource]) => resource.enabled,
+        ).map(
           ([uri, resource]) => ({
             uri,
             name: resource.name,
@@ -345,6 +367,12 @@ export class McpServer {
         // First check for exact resource match
         const resource = this._registeredResources[uri.toString()];
         if (resource) {
+          if (!resource.enabled) {
+            throw new McpError(
+              ErrorCode.InvalidParams,
+              `Resource ${uri} disabled`,
+            );
+          }
           return resource.readCallback(uri, extra);
         }
 
@@ -387,13 +415,17 @@ export class McpServer {
     );
 
     this.server.registerCapabilities({
-      prompts: {},
-    });
+      prompts: {
+        listChanged: true
+      }
+    })
 
     this.server.setRequestHandler(
       ListPromptsRequestSchema,
       (): ListPromptsResult => ({
-        prompts: Object.entries(this._registeredPrompts).map(
+        prompts: Object.entries(this._registeredPrompts).filter(
+          ([, prompt]) => prompt.enabled,
+        ).map(
           ([name, prompt]): Prompt => {
             return {
               name,
@@ -415,6 +447,13 @@ export class McpServer {
           throw new McpError(
             ErrorCode.InvalidParams,
             `Prompt ${request.params.name} not found`,
+          );
+        }
+
+        if (!prompt.enabled) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `Prompt ${request.params.name} disabled`,
           );
         }
 
@@ -447,7 +486,7 @@ export class McpServer {
   /**
    * Registers a resource `name` at a fixed URI, which will use the given callback to respond to read requests.
    */
-  resource(name: string, uri: string, readCallback: ReadResourceCallback): void;
+  resource(name: string, uri: string, readCallback: ReadResourceCallback): RegisteredResource;
 
   /**
    * Registers a resource `name` at a fixed URI with metadata, which will use the given callback to respond to read requests.
@@ -457,7 +496,7 @@ export class McpServer {
     uri: string,
     metadata: ResourceMetadata,
     readCallback: ReadResourceCallback,
-  ): void;
+  ): RegisteredResource;
 
   /**
    * Registers a resource `name` with a template pattern, which will use the given callback to respond to read requests.
@@ -466,7 +505,7 @@ export class McpServer {
     name: string,
     template: ResourceTemplate,
     readCallback: ReadResourceTemplateCallback,
-  ): void;
+  ): RegisteredResourceTemplate;
 
   /**
    * Registers a resource `name` with a template pattern and metadata, which will use the given callback to respond to read requests.
@@ -476,13 +515,13 @@ export class McpServer {
     template: ResourceTemplate,
     metadata: ResourceMetadata,
     readCallback: ReadResourceTemplateCallback,
-  ): void;
+  ): RegisteredResourceTemplate;
 
   resource(
     name: string,
     uriOrTemplate: string | ResourceTemplate,
     ...rest: unknown[]
-  ): void {
+  ): RegisteredResource | RegisteredResourceTemplate {
     let metadata: ResourceMetadata | undefined;
     if (typeof rest[0] === "object") {
       metadata = rest.shift() as ResourceMetadata;
@@ -497,35 +536,73 @@ export class McpServer {
         throw new Error(`Resource ${uriOrTemplate} is already registered`);
       }
 
-      this._registeredResources[uriOrTemplate] = {
+      const registeredResource: RegisteredResource = {
         name,
         metadata,
         readCallback: readCallback as ReadResourceCallback,
+        enabled: true,
+        disable: () => registeredResource.update({ enabled: false }),
+        enable: () => registeredResource.update({ enabled: true }),
+        remove: () => registeredResource.update({ uri: null }),
+        update: (updates) => {
+          if (typeof updates.uri !== "undefined" && updates.uri !== uriOrTemplate) {
+            delete this._registeredResources[uriOrTemplate]
+            if (updates.uri) this._registeredResources[updates.uri] = registeredResource
+          }
+          if (typeof updates.name !== "undefined") registeredResource.name = updates.name
+          if (typeof updates.metadata !== "undefined") registeredResource.metadata = updates.metadata
+          if (typeof updates.callback !== "undefined") registeredResource.readCallback = updates.callback
+          if (typeof updates.enabled !== "undefined") registeredResource.enabled = updates.enabled
+          this.sendResourceListChanged()
+        },
       };
+      this._registeredResources[uriOrTemplate] = registeredResource;
+
+      this.setResourceRequestHandlers();
+      this.sendResourceListChanged();
+      return registeredResource;
     } else {
       if (this._registeredResourceTemplates[name]) {
         throw new Error(`Resource template ${name} is already registered`);
       }
 
-      this._registeredResourceTemplates[name] = {
+      const registeredResourceTemplate: RegisteredResourceTemplate = {
         resourceTemplate: uriOrTemplate,
         metadata,
         readCallback: readCallback as ReadResourceTemplateCallback,
+        enabled: true,
+        disable: () => registeredResourceTemplate.update({ enabled: false }),
+        enable: () => registeredResourceTemplate.update({ enabled: true }),
+        remove: () => registeredResourceTemplate.update({ name: null }),
+        update: (updates) => {
+          if (typeof updates.name !== "undefined" && updates.name !== name) {
+            delete this._registeredResourceTemplates[name]
+            if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate
+          }
+          if (typeof updates.template !== "undefined") registeredResourceTemplate.resourceTemplate = updates.template
+          if (typeof updates.metadata !== "undefined") registeredResourceTemplate.metadata = updates.metadata
+          if (typeof updates.callback !== "undefined") registeredResourceTemplate.readCallback = updates.callback
+          if (typeof updates.enabled !== "undefined") registeredResourceTemplate.enabled = updates.enabled
+          this.sendResourceListChanged()
+        },
       };
-    }
+      this._registeredResourceTemplates[name] = registeredResourceTemplate;
 
-    this.setResourceRequestHandlers();
+      this.setResourceRequestHandlers();
+      this.sendResourceListChanged();
+      return registeredResourceTemplate;
+    }
   }
 
   /**
    * Registers a zero-argument tool `name`, which will run the given function when the client calls it.
    */
-  tool(name: string, cb: ToolCallback): void;
+  tool(name: string, cb: ToolCallback): RegisteredTool;
 
   /**
    * Registers a zero-argument tool `name` (with a description) which will run the given function when the client calls it.
    */
-  tool(name: string, description: string, cb: ToolCallback): void;
+  tool(name: string, description: string, cb: ToolCallback): RegisteredTool;
 
   /**
    * Registers a tool `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
@@ -534,7 +611,7 @@ export class McpServer {
     name: string,
     paramsSchema: Args,
     cb: ToolCallback<Args>,
-  ): void;
+  ): RegisteredTool;
 
   /**
    * Registers a tool `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
@@ -544,9 +621,9 @@ export class McpServer {
     description: string,
     paramsSchema: Args,
     cb: ToolCallback<Args>,
-  ): void;
+  ): RegisteredTool;
 
-  tool(name: string, ...rest: unknown[]): void {
+  tool(name: string, ...rest: unknown[]): RegisteredTool {
     if (this._registeredTools[name]) {
       throw new Error(`Tool ${name} is already registered`);
     }
@@ -562,25 +639,44 @@ export class McpServer {
     }
 
     const cb = rest[0] as ToolCallback<ZodRawShape | undefined>;
-    this._registeredTools[name] = {
+    const registeredTool: RegisteredTool = {
       description,
       inputSchema:
         paramsSchema === undefined ? undefined : z.object(paramsSchema),
       callback: cb,
+      enabled: true,
+      disable: () => registeredTool.update({ enabled: false }),
+      enable: () => registeredTool.update({ enabled: true }),
+      remove: () => registeredTool.update({ name: null }),
+      update: (updates) => {
+        if (typeof updates.name !== "undefined" && updates.name !== name) {
+          delete this._registeredTools[name]
+          if (updates.name) this._registeredTools[updates.name] = registeredTool
+        }
+        if (typeof updates.description !== "undefined") registeredTool.description = updates.description
+        if (typeof updates.paramsSchema !== "undefined") registeredTool.inputSchema = z.object(updates.paramsSchema)
+        if (typeof updates.callback !== "undefined") registeredTool.callback = updates.callback
+        if (typeof updates.enabled !== "undefined") registeredTool.enabled = updates.enabled
+        this.sendToolListChanged()
+      },
     };
+    this._registeredTools[name] = registeredTool;
 
     this.setToolRequestHandlers();
+    this.sendToolListChanged()
+
+    return registeredTool
   }
 
   /**
    * Registers a zero-argument prompt `name`, which will run the given function when the client calls it.
    */
-  prompt(name: string, cb: PromptCallback): void;
+  prompt(name: string, cb: PromptCallback): RegisteredPrompt;
 
   /**
    * Registers a zero-argument prompt `name` (with a description) which will run the given function when the client calls it.
    */
-  prompt(name: string, description: string, cb: PromptCallback): void;
+  prompt(name: string, description: string, cb: PromptCallback): RegisteredPrompt;
 
   /**
    * Registers a prompt `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
@@ -589,7 +685,7 @@ export class McpServer {
     name: string,
     argsSchema: Args,
     cb: PromptCallback<Args>,
-  ): void;
+  ): RegisteredPrompt;
 
   /**
    * Registers a prompt `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
@@ -599,9 +695,9 @@ export class McpServer {
     description: string,
     argsSchema: Args,
     cb: PromptCallback<Args>,
-  ): void;
+  ): RegisteredPrompt;
 
-  prompt(name: string, ...rest: unknown[]): void {
+  prompt(name: string, ...rest: unknown[]): RegisteredPrompt {
     if (this._registeredPrompts[name]) {
       throw new Error(`Prompt ${name} is already registered`);
     }
@@ -617,13 +713,67 @@ export class McpServer {
     }
 
     const cb = rest[0] as PromptCallback<PromptArgsRawShape | undefined>;
-    this._registeredPrompts[name] = {
+    const registeredPrompt: RegisteredPrompt = {
       description,
       argsSchema: argsSchema === undefined ? undefined : z.object(argsSchema),
       callback: cb,
+      enabled: true,
+      disable: () => registeredPrompt.update({ enabled: false }),
+      enable: () => registeredPrompt.update({ enabled: true }),
+      remove: () => registeredPrompt.update({ name: null }),
+      update: (updates) => {
+        if (typeof updates.name !== "undefined" && updates.name !== name) {
+          delete this._registeredPrompts[name]
+          if (updates.name) this._registeredPrompts[updates.name] = registeredPrompt
+        }
+        if (typeof updates.description !== "undefined") registeredPrompt.description = updates.description
+        if (typeof updates.argsSchema !== "undefined") registeredPrompt.argsSchema = z.object(updates.argsSchema)
+        if (typeof updates.callback !== "undefined") registeredPrompt.callback = updates.callback
+        if (typeof updates.enabled !== "undefined") registeredPrompt.enabled = updates.enabled
+        this.sendPromptListChanged()
+      },
     };
+    this._registeredPrompts[name] = registeredPrompt;
 
     this.setPromptRequestHandlers();
+    this.sendPromptListChanged()
+
+    return registeredPrompt
+  }
+
+  /**
+   * Checks if the server is connected to a transport.
+   * @returns True if the server is connected
+   */
+  isConnected() {
+    return this.server.transport !== undefined
+  }
+
+  /**
+   * Sends a resource list changed event to the client, if connected.
+   */
+  sendResourceListChanged() {
+    if (this.isConnected()) {
+      this.server.sendResourceListChanged();
+    }
+  }
+
+  /**
+   * Sends a tool list changed event to the client, if connected.
+   */
+  sendToolListChanged() {
+    if (this.isConnected()) {
+      this.server.sendToolListChanged();
+    }
+  }
+
+  /**
+   * Sends a prompt list changed event to the client, if connected.
+   */
+  sendPromptListChanged() {
+    if (this.isConnected()) {
+      this.server.sendPromptListChanged();
+    }
   }
 }
 
@@ -700,10 +850,15 @@ export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
       ) => CallToolResult | Promise<CallToolResult>
     : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
 
-type RegisteredTool = {
+export type RegisteredTool = {
   description?: string;
   inputSchema?: AnyZodObject;
   callback: ToolCallback<undefined | ZodRawShape>;
+  enabled: boolean;
+  enable(): void;
+  disable(): void;
+  update<Args extends ZodRawShape>(updates: { name?: string | null, description?: string, paramsSchema?: Args, callback?: ToolCallback<Args>, enabled?: boolean }): void
+  remove(): void
 };
 
 const EMPTY_OBJECT_JSON_SCHEMA = {
@@ -730,10 +885,15 @@ export type ReadResourceCallback = (
   extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
-type RegisteredResource = {
+export type RegisteredResource = {
   name: string;
   metadata?: ResourceMetadata;
   readCallback: ReadResourceCallback;
+  enabled: boolean;
+  enable(): void;
+  disable(): void;
+  update(updates: { name?: string, uri?: string | null, metadata?: ResourceMetadata, callback?: ReadResourceCallback, enabled?: boolean }): void
+  remove(): void
 };
 
 /**
@@ -745,10 +905,15 @@ export type ReadResourceTemplateCallback = (
   extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
-type RegisteredResourceTemplate = {
+export type RegisteredResourceTemplate = {
   resourceTemplate: ResourceTemplate;
   metadata?: ResourceMetadata;
   readCallback: ReadResourceTemplateCallback;
+  enabled: boolean;
+  enable(): void;
+  disable(): void;
+  update(updates: { name?: string | null, template?: ResourceTemplate, metadata?: ResourceMetadata, callback?: ReadResourceTemplateCallback, enabled?: boolean  }): void
+  remove(): void
 };
 
 type PromptArgsRawShape = {
@@ -766,10 +931,15 @@ export type PromptCallback<
     ) => GetPromptResult | Promise<GetPromptResult>
   : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
 
-type RegisteredPrompt = {
+export type RegisteredPrompt = {
   description?: string;
   argsSchema?: ZodObject<PromptArgsRawShape>;
   callback: PromptCallback<undefined | PromptArgsRawShape>;
+  enabled: boolean;
+  enable(): void;
+  disable(): void;
+  update<Args extends PromptArgsRawShape>(updates: { name?: string | null, description?: string, argsSchema?: Args, callback?: PromptCallback<Args>, enabled?: boolean }): void
+  remove(): void
 };
 
 function promptArgumentsFromSchema(

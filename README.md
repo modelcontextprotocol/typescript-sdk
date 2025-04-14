@@ -380,6 +380,68 @@ server.tool(
 
 ## Advanced Usage
 
+### Dynamic Servers
+
+If you want to offer an initial set of tools/prompts/resources, but later add additional ones based on user action or external state change, you can add/update/remove them _after_ the Server is connected. This will automatically emit the corresponding `listChanged` notificaions:
+
+```ts
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+
+const server = new McpServer({
+  name: "Dynamic Example",
+  version: "1.0.0"
+});
+
+const listMessageTool = server.tool(
+  "listMessages",
+  { channel: z.string() },
+  async ({ channel }) => ({
+    content: [{ type: "text", text: await listMessages(channel) }]
+  })
+);
+
+const putMessageTool = server.tool(
+  "putMessage",
+  { channel: z.string(), message: z.string() },
+  async ({ channel, message }) => ({
+    content: [{ type: "text", text: await putMessage(channel, string) }]
+  })
+);
+// Until we upgrade auth, `putMessage` is disabled (won't show up in listTools)
+putMessageTool.disable()
+
+const upgradeAuthTool = server.tool(
+  "upgradeAuth",
+  { permission: z.enum(["write', vadmin"])},
+  // Any mutations here will automatically emit `listChanged` notifications
+  async ({ permission }) => {
+    const { ok, err, previous } = await upgradeAuthAndStoreToken(permission)
+    if (!ok) return {content: [{ type: "text", text: `Error: ${err}` }]}
+
+    // If we previously had read-only access, 'putMessage' is now available
+    if (previous === "read") {
+      putMessageTool.enable()
+    }
+
+    if (permission === 'write') {
+      // If we've just upgraded to 'write' permissions, we can still call 'upgradeAuth' 
+      // but can only upgrade to 'admin'. 
+      upgradeAuthTool.update({
+        paramSchema: { permission: z.enum(["admin"]) }, // change validation rules
+      })
+    } else {
+      // If we're now an admin, we no longer have anywhere to upgrade to, so fully remove that tool
+      upgradeAuthTool.remove()
+    }
+  }
+)
+
+// Connect as normal
+const transport = new StdioServerTransport();
+await server.connect(transport);
+```
+
 ### Low-Level Server
 
 For more control, you can use the low-level Server class directly:

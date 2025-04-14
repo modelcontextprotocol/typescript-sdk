@@ -12,6 +12,7 @@ import {
   GetPromptResultSchema,
   CompleteResultSchema,
   LoggingMessageNotificationSchema,
+  Notification,
 } from "../types.js";
 import { ResourceTemplate } from "./mcp.js";
 import { completable } from "./completable.js";
@@ -36,10 +37,14 @@ describe("McpServer", () => {
       { capabilities: { logging: {} } },
     );
 
+    const notifications: Notification[] = []
     const client = new Client({
       name: "test client",
       version: "1.0",
     });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
 
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
@@ -56,6 +61,16 @@ describe("McpServer", () => {
         data: "Test log message",
       }),
     ).resolves.not.toThrow();
+
+    expect(notifications).toMatchObject([
+      {
+        "method": "notifications/message",
+        params: {
+          level: "info",
+          data: "Test log message",
+        }
+      }
+    ])
   });
 });
 
@@ -100,10 +115,14 @@ describe("tool()", () => {
       name: "test server",
       version: "1.0",
     });
+    const notifications: Notification[] = []
     const client = new Client({
       name: "test client",
       version: "1.0",
     });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
 
     mcpServer.tool("test", async () => ({
       content: [
@@ -119,7 +138,7 @@ describe("tool()", () => {
 
     await Promise.all([
       client.connect(clientTransport),
-      mcpServer.server.connect(serverTransport),
+      mcpServer.connect(serverTransport),
     ]);
 
     const result = await client.request(
@@ -134,6 +153,254 @@ describe("tool()", () => {
     expect(result.tools[0].inputSchema).toEqual({
       type: "object",
     });
+
+    // Adding the tool before the connection was established means no notification was sent
+    expect(notifications).toHaveLength(0)
+
+    // Adding another tool triggers the update notification
+    mcpServer.tool("test2", async () => ({
+      content: [
+        {
+          type: "text",
+          text: "Test response",
+        },
+      ],
+    }));
+
+    // Yield event loop to let the notification fly
+    await new Promise(process.nextTick)
+
+    expect(notifications).toMatchObject([
+      {
+        method: "notifications/tools/list_changed",
+      }
+    ])
+  });
+
+  test("should update existing tool", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = []
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
+
+    // Register initial tool
+    const tool = mcpServer.tool("test", async () => ({
+      content: [
+        {
+          type: "text",
+          text: "Initial response",
+        },
+      ],
+    }));
+
+    // Update the tool
+    tool.update({
+      callback: async () => ({
+        content: [
+          {
+            type: "text",
+            text: "Updated response",
+          },
+        ],
+      })
+    });
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Call the tool and verify we get the updated response
+    const result = await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "test",
+        },
+      },
+      CallToolResultSchema,
+    );
+
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: "Updated response",
+      },
+    ]);
+
+    // Update happened before transport was connected, so no notifications should be expected
+    expect(notifications).toHaveLength(0)
+  });
+
+  test("should update tool with schema", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = []
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
+
+    // Register initial tool
+    const tool = mcpServer.tool(
+      "test",
+      {
+        name: z.string(),
+      },
+      async ({ name }) => ({
+        content: [
+          {
+            type: "text",
+            text: `Initial: ${name}`,
+          },
+        ],
+      }),
+    );
+
+    // Update the tool with a different schema
+    tool.update({
+      paramsSchema: {
+        name: z.string(),
+        value: z.number(),
+      },
+      callback: async ({name, value}) => ({
+        content: [
+          {
+            type: "text",
+            text: `Updated: ${name}, ${value}`,
+          },
+        ],
+      })
+    });
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Verify the schema was updated
+    const listResult = await client.request(
+      {
+        method: "tools/list",
+      },
+      ListToolsResultSchema,
+    );
+
+    expect(listResult.tools[0].inputSchema).toMatchObject({
+      properties: {
+        name: { type: "string" },
+        value: { type: "number" },
+      },
+    });
+
+    // Call the tool with the new schema
+    const callResult = await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "test",
+          arguments: {
+            name: "test",
+            value: 42,
+          },
+        },
+      },
+      CallToolResultSchema,
+    );
+
+    expect(callResult.content).toEqual([
+      {
+        type: "text",
+        text: "Updated: test, 42",
+      },
+    ]);
+
+    // Update happened before transport was connected, so no notifications should be expected
+    expect(notifications).toHaveLength(0)
+  });
+
+  test("should send tool list changed notifications when connected", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = []
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
+
+    // Register initial tool
+    const tool = mcpServer.tool("test", async () => ({
+      content: [
+        {
+          type: "text",
+          text: "Test response",
+        },
+      ],
+    }));
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    expect(notifications).toHaveLength(0)
+
+    // Now update the tool
+    tool.update({
+      callback: async () => ({
+        content: [
+          {
+            type: "text",
+            text: "Updated response",
+          },
+        ],
+      })
+    });
+
+    // Yield event loop to let the notification fly
+    await new Promise(process.nextTick)
+
+    expect(notifications).toMatchObject([
+      { method: "notifications/tools/list_changed" }
+    ])
+
+    // Now delete the tool
+    tool.remove();
+
+    // Yield event loop to let the notification fly
+    await new Promise(process.nextTick)
+
+    expect(notifications).toMatchObject([
+      { method: "notifications/tools/list_changed" },
+      { method: "notifications/tools/list_changed" },
+    ])
   });
 
   test("should register tool with args schema", async () => {
@@ -635,6 +902,312 @@ describe("resource()", () => {
     expect(result.resources).toHaveLength(1);
     expect(result.resources[0].name).toBe("test");
     expect(result.resources[0].uri).toBe("test://resource");
+  });
+
+  test("should update resource with uri", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial resource
+    const resource = mcpServer.resource("test", "test://resource", async () => ({
+      contents: [
+        {
+          uri: "test://resource",
+          text: "Initial content",
+        },
+      ],
+    }));
+
+    // Update the resource
+    resource.update({
+      callback: async () => ({
+        contents: [
+          {
+            uri: "test://resource",
+            text: "Updated content",
+          },
+        ],
+      })
+    });
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Read the resource and verify we get the updated content
+    const result = await client.request(
+      {
+        method: "resources/read",
+        params: {
+          uri: "test://resource",
+        },
+      },
+      ReadResourceResultSchema,
+    );
+
+    expect(result.contents).toHaveLength(1);
+    expect(result.contents[0].text).toBe("Updated content");
+
+    // Update happened before transport was connected, so no notifications should be expected
+    expect(notifications).toHaveLength(0);
+  });
+
+  test("should update resource template", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial resource template
+    const resourceTemplate = mcpServer.resource(
+      "test",
+      new ResourceTemplate("test://resource/{id}", { list: undefined }),
+      async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            text: "Initial content",
+          },
+        ],
+      }),
+    );
+
+    // Update the resource template
+    resourceTemplate.update({
+      callback: async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            text: "Updated content",
+          },
+        ],
+      })
+    });
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Read the resource and verify we get the updated content
+    const result = await client.request(
+      {
+        method: "resources/read",
+        params: {
+          uri: "test://resource/123",
+        },
+      },
+      ReadResourceResultSchema,
+    );
+
+    expect(result.contents).toHaveLength(1);
+    expect(result.contents[0].text).toBe("Updated content");
+
+    // Update happened before transport was connected, so no notifications should be expected
+    expect(notifications).toHaveLength(0);
+  });
+
+  test("should send resource list changed notification when connected", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial resource
+    const resource = mcpServer.resource("test", "test://resource", async () => ({
+      contents: [
+        {
+          uri: "test://resource",
+          text: "Test content",
+        },
+      ],
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    expect(notifications).toHaveLength(0);
+
+    // Now update the resource while connected
+    resource.update({
+      callback: async () => ({
+        contents: [
+          {
+            uri: "test://resource",
+            text: "Updated content",
+          },
+        ],
+      })
+    });
+
+    // Yield event loop to let the notification fly
+    await new Promise(process.nextTick);
+
+    expect(notifications).toMatchObject([
+      { method: "notifications/resources/list_changed" }
+    ]);
+  });
+
+  test("should remove resource and send notification when connected", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial resources
+    const resource1 = mcpServer.resource("resource1", "test://resource1", async () => ({
+      contents: [{ uri: "test://resource1", text: "Resource 1 content" }],
+    }));
+
+    mcpServer.resource("resource2", "test://resource2", async () => ({
+      contents: [{ uri: "test://resource2", text: "Resource 2 content" }],
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Verify both resources are registered
+    let result = await client.request(
+      { method: "resources/list" },
+      ListResourcesResultSchema,
+    );
+
+    expect(result.resources).toHaveLength(2);
+
+    expect(notifications).toHaveLength(0);
+
+    // Remove a resource
+    resource1.remove()
+
+    // Yield event loop to let the notification fly
+    await new Promise(process.nextTick);
+
+    // Should have sent notification
+    expect(notifications).toMatchObject([
+      { method: "notifications/resources/list_changed" }
+    ]);
+
+    // Verify the resource was removed
+    result = await client.request(
+      { method: "resources/list" },
+      ListResourcesResultSchema,
+    );
+
+    expect(result.resources).toHaveLength(1);
+    expect(result.resources[0].uri).toBe("test://resource2");
+  });
+
+  test("should remove resource template and send notification when connected", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register resource template
+    const resourceTemplate = mcpServer.resource(
+      "template",
+      new ResourceTemplate("test://resource/{id}", { list: undefined }),
+      async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            text: "Template content",
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Verify template is registered
+    const result = await client.request(
+      { method: "resources/templates/list" },
+      ListResourceTemplatesResultSchema,
+    );
+
+    expect(result.resourceTemplates).toHaveLength(1);
+    expect(notifications).toHaveLength(0);
+
+    // Remove the template
+    resourceTemplate.remove()
+
+    // Yield event loop to let the notification fly
+    await new Promise(process.nextTick);
+
+    // Should have sent notification
+    expect(notifications).toMatchObject([
+      { method: "notifications/resources/list_changed" }
+    ]);
+
+    // Verify the template was removed
+    const result2 = await client.request(
+      { method: "resources/templates/list" },
+      ListResourceTemplatesResultSchema,
+    );
+
+    expect(result2.resourceTemplates).toHaveLength(0);
   });
 
   test("should register resource with metadata", async () => {
@@ -1172,6 +1745,303 @@ describe("prompt()", () => {
     expect(result.prompts).toHaveLength(1);
     expect(result.prompts[0].name).toBe("test");
     expect(result.prompts[0].arguments).toBeUndefined();
+  });
+  test("should update existing prompt", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial prompt
+    const prompt = mcpServer.prompt("test", async () => ({
+      messages: [
+        {
+          role: "assistant",
+          content: {
+            type: "text",
+            text: "Initial response",
+          },
+        },
+      ],
+    }));
+
+    // Update the prompt
+    prompt.update({
+      callback: async () => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: "Updated response",
+            },
+          },
+        ],
+      })
+    });
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Call the prompt and verify we get the updated response
+    const result = await client.request(
+      {
+        method: "prompts/get",
+        params: {
+          name: "test",
+        },
+      },
+      GetPromptResultSchema,
+    );
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].content.text).toBe("Updated response");
+
+    // Update happened before transport was connected, so no notifications should be expected
+    expect(notifications).toHaveLength(0);
+  });
+
+  test("should update prompt with schema", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial prompt
+    const prompt = mcpServer.prompt(
+      "test",
+      {
+        name: z.string(),
+      },
+      async ({ name }) => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: `Initial: ${name}`,
+            },
+          },
+        ],
+      }),
+    );
+
+    // Update the prompt with a different schema
+    prompt.update({
+      argsSchema: {
+        name: z.string(),
+        value: z.string(),
+      },
+      callback: async ({name, value}) => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: `Updated: ${name}, ${value}`,
+            },
+          },
+        ],
+      })
+    });
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Verify the schema was updated
+    const listResult = await client.request(
+      {
+        method: "prompts/list",
+      },
+      ListPromptsResultSchema,
+    );
+
+    expect(listResult.prompts[0].arguments).toHaveLength(2);
+    expect(listResult.prompts[0].arguments?.map(a => a.name).sort()).toEqual(["name", "value"]);
+
+    // Call the prompt with the new schema
+    const getResult = await client.request(
+      {
+        method: "prompts/get",
+        params: {
+          name: "test",
+          arguments: {
+            name: "test",
+            value: "value",
+          },
+        },
+      },
+      GetPromptResultSchema,
+    );
+
+    expect(getResult.messages).toHaveLength(1);
+    expect(getResult.messages[0].content.text).toBe("Updated: test, value");
+
+    // Update happened before transport was connected, so no notifications should be expected
+    expect(notifications).toHaveLength(0);
+  });
+
+  test("should send prompt list changed notification when connected", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial prompt
+    const prompt = mcpServer.prompt("test", async () => ({
+      messages: [
+        {
+          role: "assistant",
+          content: {
+            type: "text",
+            text: "Test response",
+          },
+        },
+      ],
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    expect(notifications).toHaveLength(0);
+
+    // Now update the prompt while connected
+    prompt.update({
+      callback: async () => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: "Updated response",
+            },
+          },
+        ],
+      })
+    });
+
+    // Yield event loop to let the notification fly
+    await new Promise(process.nextTick);
+
+    expect(notifications).toMatchObject([
+      { method: "notifications/prompts/list_changed" }
+    ]);
+  });
+
+  test("should remove prompt and send notification when connected", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = [];
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification);
+    };
+
+    // Register initial prompts
+    const prompt1 = mcpServer.prompt("prompt1", async () => ({
+      messages: [
+        {
+          role: "assistant",
+          content: {
+            type: "text",
+            text: "Prompt 1 response",
+          },
+        },
+      ],
+    }));
+
+    mcpServer.prompt("prompt2", async () => ({
+      messages: [
+        {
+          role: "assistant",
+          content: {
+            type: "text",
+            text: "Prompt 2 response",
+          },
+        },
+      ],
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Verify both prompts are registered
+    let result = await client.request(
+      { method: "prompts/list" },
+      ListPromptsResultSchema,
+    );
+
+    expect(result.prompts).toHaveLength(2);
+    expect(result.prompts.map(p => p.name).sort()).toEqual(["prompt1", "prompt2"]);
+
+    expect(notifications).toHaveLength(0);
+
+    // Remove a prompt
+    prompt1.remove()
+
+    // Yield event loop to let the notification fly
+    await new Promise(process.nextTick);
+
+    // Should have sent notification
+    expect(notifications).toMatchObject([
+      { method: "notifications/prompts/list_changed" }
+    ]);
+
+    // Verify the prompt was removed
+    result = await client.request(
+      { method: "prompts/list" },
+      ListPromptsResultSchema,
+    );
+
+    expect(result.prompts).toHaveLength(1);
+    expect(result.prompts[0].name).toBe("prompt2");
   });
 
   test("should register prompt with args schema", async () => {

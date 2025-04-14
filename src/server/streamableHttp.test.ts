@@ -32,6 +32,7 @@ function createMockResponse(): jest.Mocked<ServerResponse> {
     emit: jest.fn().mockReturnThis(),
     getHeader: jest.fn(),
     setHeader: jest.fn(),
+    flushHeaders: jest.fn(),
   } as unknown as jest.Mocked<ServerResponse>;
   return response;
 }
@@ -564,22 +565,123 @@ describe("StreamableHTTPServerTransport", () => {
       mockResponse.writeHead.mockClear();
     });
 
-    it("should reject GET requests for SSE with 405 Method Not Allowed", async () => {
+    it("should accept GET requests for SSE with proper Accept header", async () => {
       const req = createMockRequest({
         method: "GET",
         headers: {
-          "accept": "application/json, text/event-stream",
+          "accept": "text/event-stream",
           "mcp-session-id": transport.sessionId,
         },
       });
 
       await transport.handleRequest(req, mockResponse);
 
-      expect(mockResponse.writeHead).toHaveBeenCalledWith(405, expect.objectContaining({
-        "Allow": "POST, DELETE"
+      expect(mockResponse.writeHead).toHaveBeenCalledWith(200, expect.objectContaining({
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        "mcp-session-id": transport.sessionId,
       }));
-      expect(mockResponse.end).toHaveBeenCalledWith(expect.stringContaining('"jsonrpc":"2.0"'));
-      expect(mockResponse.end).toHaveBeenCalledWith(expect.stringContaining('Method not allowed'));
+    });
+
+    it("should reject GET requests without Accept: text/event-stream header", async () => {
+      const req = createMockRequest({
+        method: "GET",
+        headers: {
+          "accept": "application/json",
+          "mcp-session-id": transport.sessionId,
+        },
+      });
+
+      await transport.handleRequest(req, mockResponse);
+
+      expect(mockResponse.writeHead).toHaveBeenCalledWith(406);
+      expect(mockResponse.end).toHaveBeenCalledWith(expect.stringContaining('"message":"Not Acceptable: Client must accept text/event-stream"'));
+    });
+
+    it("should send server-initiated requests to GET SSE stream", async () => {
+      // Open a standalone SSE stream with GET
+      const req = createMockRequest({
+        method: "GET",
+        headers: {
+          "accept": "text/event-stream",
+          "mcp-session-id": transport.sessionId,
+        },
+      });
+
+      const sseResponse = createMockResponse();
+      await transport.handleRequest(req, sseResponse);
+
+      // Send a notification without a related request ID
+      const notification: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "notifications/resources/updated",
+        params: { uri: "someuri" }
+      };
+
+      await transport.send(notification);
+
+      // Verify notification was sent on SSE stream
+      expect(sseResponse.write).toHaveBeenCalledWith(
+        expect.stringContaining(`event: message\ndata: ${JSON.stringify(notification)}\n\n`)
+      );
+    });
+
+    it("should not close GET SSE stream after sending server requests or notifications", async () => {
+      // Open a standalone SSE stream
+      const req = createMockRequest({
+        method: "GET",
+        headers: {
+          "accept": "text/event-stream",
+          "mcp-session-id": transport.sessionId,
+        },
+      });
+
+      const sseResponse = createMockResponse();
+      await transport.handleRequest(req, sseResponse);
+
+      // Send multiple notifications
+      const notification1: JSONRPCMessage = { jsonrpc: "2.0", method: "event1", params: {} };
+      const notification2: JSONRPCMessage = { jsonrpc: "2.0", method: "event2", params: {} };
+
+      await transport.send(notification1);
+      await transport.send(notification2);
+
+      // Stream should remain open
+      expect(sseResponse.end).not.toHaveBeenCalled();
+    });
+
+    it("should reject second GET SSE stream for the same session", async () => {
+      // Open first SSE stream - should succeed
+      const req1 = createMockRequest({
+        method: "GET",
+        headers: {
+          "accept": "text/event-stream",
+          "mcp-session-id": transport.sessionId,
+        },
+      });
+
+      const sseResponse1 = createMockResponse();
+      await transport.handleRequest(req1, sseResponse1);
+
+      // Try to open a second SSE stream - should be rejected
+      const req2 = createMockRequest({
+        method: "GET",
+        headers: {
+          "accept": "text/event-stream",
+          "mcp-session-id": transport.sessionId,
+        },
+      });
+
+      const sseResponse2 = createMockResponse();
+      await transport.handleRequest(req2, sseResponse2);
+
+      // First stream should be good
+      expect(sseResponse1.writeHead).toHaveBeenCalledWith(200, expect.anything());
+
+      // Second stream should get 409 Conflict
+      expect(sseResponse2.writeHead).toHaveBeenCalledWith(409);
+      expect(sseResponse2.end).toHaveBeenCalledWith(expect.stringContaining('"message":"Conflict: Only one SSE stream is allowed per session"'));
     });
 
     it("should reject POST requests without proper Accept header", async () => {
@@ -842,8 +944,8 @@ describe("StreamableHTTPServerTransport", () => {
         },
         body: JSON.stringify(initMessage),
       });
-
-      await transport.handleRequest(initReq, mockResponse);
+      const initResponse = createMockResponse();
+      await transport.handleRequest(initReq, initResponse);
       mockResponse.writeHead.mockClear();
     });
 
@@ -933,6 +1035,136 @@ describe("StreamableHTTPServerTransport", () => {
 
       // Now stream should be closed
       expect(mockResponse.end).toHaveBeenCalled();
+    });
+
+    it("should keep stream open when multiple requests share the same connection", async () => {
+      // Create a fresh response for this test  
+      const sharedResponse = createMockResponse();
+
+      // Send two requests in a batch that will share the same connection
+      const batchRequests: JSONRPCMessage[] = [
+        { jsonrpc: "2.0", method: "method1", params: {}, id: "req1" },
+        { jsonrpc: "2.0", method: "method2", params: {}, id: "req2" }
+      ];
+
+      const req = createMockRequest({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-session-id": transport.sessionId
+        },
+        body: JSON.stringify(batchRequests)
+      });
+
+      await transport.handleRequest(req, sharedResponse);
+
+      // Respond to first request
+      const response1: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        result: { value: "result1" },
+        id: "req1"
+      };
+
+      await transport.send(response1);
+
+      // Connection should remain open because req2 is still pending
+      expect(sharedResponse.write).toHaveBeenCalledWith(
+        expect.stringContaining(`event: message\ndata: ${JSON.stringify(response1)}\n\n`)
+      );
+      expect(sharedResponse.end).not.toHaveBeenCalled();
+
+      // Respond to second request
+      const response2: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        result: { value: "result2" },
+        id: "req2"
+      };
+
+      await transport.send(response2);
+
+      // Now connection should close as all requests are complete
+      expect(sharedResponse.write).toHaveBeenCalledWith(
+        expect.stringContaining(`event: message\ndata: ${JSON.stringify(response2)}\n\n`)
+      );
+      expect(sharedResponse.end).toHaveBeenCalled();
+    });
+
+    it("should clean up connection tracking when a response is sent", async () => {
+      const req = createMockRequest({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-session-id": transport.sessionId
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "test",
+          params: {},
+          id: "cleanup-test"
+        })
+      });
+
+      const response = createMockResponse();
+      await transport.handleRequest(req, response);
+
+      // Verify that the request is tracked in the SSE map
+      expect(transport["_responseMapping"].size).toBe(2);
+      expect(transport["_responseMapping"].has("cleanup-test")).toBe(true);
+
+      // Send a response
+      await transport.send({
+        jsonrpc: "2.0",
+        result: {},
+        id: "cleanup-test"
+      });
+
+      // Verify that the mapping was cleaned up
+      expect(transport["_responseMapping"].size).toBe(1);
+      expect(transport["_responseMapping"].has("cleanup-test")).toBe(false);
+    });
+
+    it("should clean up connection tracking when client disconnects", async () => {
+      // Setup two requests that share a connection
+      const req = createMockRequest({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-session-id": transport.sessionId
+        },
+        body: JSON.stringify([
+          { jsonrpc: "2.0", method: "longRunning1", params: {}, id: "req1" },
+          { jsonrpc: "2.0", method: "longRunning2", params: {}, id: "req2" }
+        ])
+      });
+
+      const response = createMockResponse();
+
+      // We need to manually store the callback to trigger it later
+      let closeCallback: (() => void) | undefined;
+      response.on.mockImplementation((event, callback: () => void) => {
+        if (typeof event === "string" && event === "close") {
+          closeCallback = callback;
+        }
+        return response;
+      });
+
+      await transport.handleRequest(req, response);
+
+      // Both requests should be mapped to the same response
+      expect(transport["_responseMapping"].size).toBe(3);
+      expect(transport["_responseMapping"].get("req1")).toBe(response);
+      expect(transport["_responseMapping"].get("req2")).toBe(response);
+
+      // Simulate client disconnect by triggering the stored callback
+      if (closeCallback) closeCallback();
+
+      // All entries using this response should be removed
+      expect(transport["_responseMapping"].size).toBe(1);
+      expect(transport["_responseMapping"].has("req1")).toBe(false);
+      expect(transport["_responseMapping"].has("req2")).toBe(false);
     });
   });
 
@@ -1081,6 +1313,140 @@ describe("StreamableHTTPServerTransport", () => {
       expect(mockResponse.writeHead).toHaveBeenCalledWith(400);
       expect(mockResponse.end).toHaveBeenCalledWith(expect.stringContaining('"jsonrpc":"2.0"'));
       expect(onErrorMock).toHaveBeenCalled();
+    });
+  });
+
+  describe("JSON Response Mode", () => {
+    let jsonResponseTransport: StreamableHTTPServerTransport;
+    let mockResponse: jest.Mocked<ServerResponse>;
+
+    beforeEach(async () => {
+      jsonResponseTransport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        enableJsonResponse: true,
+      });
+
+      // Initialize the transport
+      const initMessage: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "initialize",
+        params: {
+          clientInfo: { name: "test-client", version: "1.0" },
+          protocolVersion: "2025-03-26"
+        },
+        id: "init-1",
+      };
+
+      const initReq = createMockRequest({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+        },
+        body: JSON.stringify(initMessage),
+      });
+
+      mockResponse = createMockResponse();
+      await jsonResponseTransport.handleRequest(initReq, mockResponse);
+      mockResponse = createMockResponse(); // Reset for tests
+    });
+
+    it("should return JSON response for a single request", async () => {
+      const requestMessage: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "tools/list",
+        params: {},
+        id: "test-req-id",
+      };
+
+      const req = createMockRequest({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-session-id": jsonResponseTransport.sessionId,
+        },
+        body: JSON.stringify(requestMessage),
+      });
+
+      // Mock immediate response
+      jsonResponseTransport.onmessage = (message) => {
+        if ('method' in message && 'id' in message) {
+          const responseMessage: JSONRPCMessage = {
+            jsonrpc: "2.0",
+            result: { value: `test-result` },
+            id: message.id,
+          };
+          void jsonResponseTransport.send(responseMessage);
+        }
+      };
+
+      await jsonResponseTransport.handleRequest(req, mockResponse);
+      // Should respond with application/json header
+      expect(mockResponse.writeHead).toHaveBeenCalledWith(
+        200,
+        expect.objectContaining({
+          "Content-Type": "application/json",
+        })
+      );
+
+      // Should return the response as JSON
+      const expectedResponse = {
+        jsonrpc: "2.0",
+        result: { value: "test-result" },
+        id: "test-req-id",
+      };
+
+      expect(mockResponse.end).toHaveBeenCalledWith(JSON.stringify(expectedResponse));
+    });
+
+    it("should return JSON response for batch requests", async () => {
+      const batchMessages: JSONRPCMessage[] = [
+        { jsonrpc: "2.0", method: "tools/list", params: {}, id: "req1" },
+        { jsonrpc: "2.0", method: "tools/call", params: {}, id: "req2" },
+      ];
+
+      const req = createMockRequest({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-session-id": jsonResponseTransport.sessionId,
+        },
+        body: JSON.stringify(batchMessages),
+      });
+
+      // Mock responses without enforcing specific order
+      jsonResponseTransport.onmessage = (message) => {
+        if ('method' in message && 'id' in message) {
+          const responseMessage: JSONRPCMessage = {
+            jsonrpc: "2.0",
+            result: { value: `result-for-${message.id}` },
+            id: message.id,
+          };
+          void jsonResponseTransport.send(responseMessage);
+        }
+      };
+
+      await jsonResponseTransport.handleRequest(req, mockResponse);
+
+      // Should respond with application/json header
+      expect(mockResponse.writeHead).toHaveBeenCalledWith(
+        200,
+        expect.objectContaining({
+          "Content-Type": "application/json",
+        })
+      );
+
+      // Verify response was sent but don't assume specific order
+      expect(mockResponse.end).toHaveBeenCalled();
+      const responseJson = JSON.parse(mockResponse.end.mock.calls[0][0] as string);
+      expect(Array.isArray(responseJson)).toBe(true);
+      expect(responseJson).toHaveLength(2);
+
+      // Check each response exists separately without assuming order
+      expect(responseJson).toContainEqual(expect.objectContaining({ id: "req1", result: { value: "result-for-req1" } }));
+      expect(responseJson).toContainEqual(expect.objectContaining({ id: "req2", result: { value: "result-for-req2" } }));
     });
   });
 
