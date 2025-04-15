@@ -116,6 +116,7 @@ export class SSEClientTransport implements Transport {
           fetch: (url, init) => this._commonHeaders().then((headers) => fetch(url, {
             ...init,
             headers: {
+              ...(init?.headers || {}),
               ...headers,
               Accept: "text/event-stream"
             }
