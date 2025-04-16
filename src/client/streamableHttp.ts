@@ -1,5 +1,5 @@
 import { Transport } from "../shared/transport.js";
-import { isJSONRPCNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
+import { isInitializedNotification, isJSONRPCNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 import { auth, AuthResult, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { EventSourceParserStream } from "eventsource-parser/stream";
 
@@ -420,7 +420,7 @@ export class StreamableHTTPClientTransport implements Transport {
       if (response.status === 202) {
         // if the accepted notification is initialized, we start the SSE stream
         // if it's supported by the server
-        if (isJSONRPCNotification(message) && message.method === "notifications/initialized") {
+        if (isInitializedNotification(message)) {
           // Start without a lastEventId since this is a fresh connection
           this._startOrAuthSse({ resumptionToken: undefined }).catch(err => this.onerror?.(err));
         }

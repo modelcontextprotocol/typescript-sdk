@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { z } from 'zod';
-import { CallToolResult } from '../../types.js';
+import { CallToolResult, isInitializeRequest } from '../../types.js';
 
 // Create an MCP server with implementation details
 const server = new McpServer({
@@ -144,14 +144,6 @@ app.get('/mcp', async (req: Request, res: Response) => {
   // The spec requires returning 405 Method Not Allowed in this case
   res.status(405).set('Allow', 'POST').send('Method Not Allowed');
 });
-
-// Helper function to detect initialize requests
-function isInitializeRequest(body: unknown): boolean {
-  if (Array.isArray(body)) {
-    return body.some(msg => typeof msg === 'object' && msg !== null && 'method' in msg && msg.method === 'initialize');
-  }
-  return typeof body === 'object' && body !== null && 'method' in body && body.method === 'initialize';
-}
 
 // Start the server
 const PORT = 3000;

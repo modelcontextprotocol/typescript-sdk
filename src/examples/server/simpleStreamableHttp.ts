@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '../../server/mcp.js';
 import { EventStore, StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { z } from 'zod';
-import { CallToolResult, GetPromptResult, JSONRPCMessage, ReadResourceResult } from '../../types.js';
+import { CallToolResult, GetPromptResult, isInitializeRequest, JSONRPCMessage, ReadResourceResult } from '../../types.js';
 
 // Create a simple in-memory EventStore for resumability
 class InMemoryEventStore implements EventStore {
@@ -36,7 +36,7 @@ class InMemoryEventStore implements EventStore {
    * Replays events that occurred after a specific event ID
    * Implements EventStore.replayEventsAfter
    */
-  async replayEventsAfter(lastEventId: string, 
+  async replayEventsAfter(lastEventId: string,
     { send }: { send: (eventId: string, message: JSONRPCMessage) => Promise<void> }
   ): Promise<string> {
     if (!lastEventId || !this.events.has(lastEventId)) {
@@ -311,14 +311,6 @@ app.get('/mcp', async (req: Request, res: Response) => {
   const transport = transports[sessionId];
   await transport.handleRequest(req, res);
 });
-
-// Helper function to detect initialize requests
-function isInitializeRequest(body: unknown): boolean {
-  if (Array.isArray(body)) {
-    return body.some(msg => typeof msg === 'object' && msg !== null && 'method' in msg && msg.method === 'initialize');
-  }
-  return typeof body === 'object' && body !== null && 'method' in body && body.method === 'initialize';
-}
 
 // Start the server
 const PORT = 3000;
