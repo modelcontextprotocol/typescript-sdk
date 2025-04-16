@@ -9,7 +9,7 @@ import { CallToolResult } from '../../types.js';
  * (protocol version 2024-11-05). It mainly used for testing backward compatible clients.
  * 
  * The server exposes two endpoints:
- * - /sse: For establishing the SSE stream (GET)
+ * - /mcp: For establishing the SSE stream (GET)
  * - /messages: For receiving client messages (POST)
  * 
  */

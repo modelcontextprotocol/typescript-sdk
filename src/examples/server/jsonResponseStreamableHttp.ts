@@ -148,28 +148,6 @@ app.get('/mcp', async (req: Request, res: Response) => {
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`MCP Streamable HTTP Server listening on port ${PORT}`);
-  console.log(`Initialize session with the command below id you are using curl for testing: 
-  -----------------------------
-  SESSION_ID=$(curl -X POST \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json" \
-  -H "Accept: text/event-stream" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "initialize",
-    "params": {
-      "capabilities": {},
-      "protocolVersion": "2025-03-26", 
-      "clientInfo": {
-        "name": "test",
-        "version": "1.0.0"
-      }
-    },
-    "id": "1"
-  }' \
-  -i http://localhost:3000/mcp 2>&1 | grep -i "mcp-session-id" | cut -d' ' -f2 | tr -d '\\r')
-  echo "Session ID: $SESSION_ID"
-  -----------------------------`);
 });
 
 // Handle server shutdown
