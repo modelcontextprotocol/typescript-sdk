@@ -1,6 +1,6 @@
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Transport } from "../shared/transport.js";
-import { isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema, RequestId } from "../types.js";
+import { isInitializeRequest, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema, RequestId } from "../types.js";
 import getRawBody from "raw-body";
 import contentType from "content-type";
 import { randomUUID } from "node:crypto";
@@ -38,6 +38,15 @@ export interface StreamableHTTPServerTransportOptions {
    * Return undefined to disable session management.
    */
   sessionIdGenerator: () => string | undefined;
+
+  /**
+   * A callback for session initialization events
+   * This is called when the server initializes a new session.
+   * Usefult in cases when you need to register multiple mcp sessions
+   * and need to keep track of them.
+   * @param sessionId The generated session ID
+   */
+  onsessioninitialized?: (sessionId: string) => void;
 
   /**
    * If true, the server will return JSON responses instead of starting an SSE stream.
@@ -98,6 +107,7 @@ export class StreamableHTTPServerTransport implements Transport {
   private _enableJsonResponse: boolean = false;
   private _standaloneSseStreamId: string = '_GET_stream';
   private _eventStore?: EventStore;
+  private _onsessioninitialized?: (sessionId: string) => void;
 
   sessionId?: string | undefined;
   onclose?: () => void;
@@ -108,6 +118,7 @@ export class StreamableHTTPServerTransport implements Transport {
     this.sessionIdGenerator = options.sessionIdGenerator;
     this._enableJsonResponse = options.enableJsonResponse ?? false;
     this._eventStore = options.eventStore;
+    this._onsessioninitialized = options.onsessioninitialized;
   }
 
   /**
@@ -328,9 +339,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
       // Check if this is an initialization request
       // https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle/
-      const isInitializationRequest = messages.some(
-        msg => 'method' in msg && msg.method === 'initialize'
-      );
+      const isInitializationRequest = messages.some(isInitializeRequest);
       if (isInitializationRequest) {
         // If it's a server with session management and the session ID is already set we should reject the request
         // to avoid re-initialization.
@@ -358,6 +367,12 @@ export class StreamableHTTPServerTransport implements Transport {
         }
         this.sessionId = this.sessionIdGenerator();
         this._initialized = true;
+
+        // If we have a session ID and an onsessioninitialized handler, call it immediately
+        // This is needed in cases where the server needs to keep track of multiple sessions
+        if (this.sessionId && this._onsessioninitialized) {
+          this._onsessioninitialized(this.sessionId);
+        }
 
       }
       // If an Mcp-Session-Id is returned by the server during initialization,
