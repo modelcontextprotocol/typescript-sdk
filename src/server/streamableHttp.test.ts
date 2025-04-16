@@ -1077,6 +1077,13 @@ describe("StreamableHTTPServerTransport in stateless mode", () => {
     await stopTestServer({ server, transport });
   });
 
+  it("should support multiple initializations in stateless mode", async () => {
+    await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+    const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+    expect(initResponse.status).toBe(200);
+    expect(initResponse.headers.get("mcp-session-id")).toBeNull();
+  });
+
   it("should operate without session ID validation", async () => {
     // Initialize the server first
     const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
