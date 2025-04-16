@@ -32,14 +32,12 @@ async function main(): Promise<void> {
 
   let client: Client;
   let transport: StreamableHTTPClientTransport | SSEClientTransport;
-  let transportType: 'streamable-http' | 'sse';
 
   try {
     // Try connecting with automatic transport detection
     const connection = await connectWithBackwardsCompatibility(serverUrl);
     client = connection.client;
     transport = connection.transport;
-    transportType = connection.transportType;
 
     // Set up notification handler
     client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {

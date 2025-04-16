@@ -1,5 +1,4 @@
 import express, { Request, Response } from 'express';
-import { randomUUID } from "node:crypto";
 import { McpServer } from '../../server/mcp.js';
 import { SSEServerTransport } from '../../server/sse.js';
 import { z } from 'zod';
