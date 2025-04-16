@@ -78,7 +78,7 @@ app.use(express.json());
 const transports: Record<string, SSEServerTransport> = {};
 
 // SSE endpoint for establishing the stream
-app.get('/sse', async (req: Request, res: Response) => {
+app.get('/mcp', async (req: Request, res: Response) => {
   console.log('Received GET request to /sse (establishing SSE stream)');
 
   try {
