@@ -1,6 +1,6 @@
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Transport } from "../shared/transport.js";
-import { isInitializeRequest, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema, RequestId } from "../types.js";
+import { isInitializeRequest, isJSONRPCError, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema, RequestId } from "../types.js";
 import getRawBody from "raw-body";
 import contentType from "content-type";
 import { randomUUID } from "node:crypto";
@@ -415,7 +415,7 @@ export class StreamableHTTPServerTransport implements Transport {
         // Store the response for this request to send messages back through this connection
         // We need to track by request ID to maintain the connection
         for (const message of messages) {
-          if ('method' in message && 'id' in message) {
+          if (isJSONRPCRequest(message)) {
             this._streamMapping.set(streamId, res);
             this._requestToStreamMapping.set(message.id, streamId);
           }
@@ -535,7 +535,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
   async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void> {
     let requestId = options?.relatedRequestId;
-    if ('result' in message || 'error' in message) {
+    if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
       // If the message is a response, use the request ID from the message
       requestId = message.id;
     }
@@ -545,7 +545,7 @@ export class StreamableHTTPServerTransport implements Transport {
     // Those will be sent via dedicated response SSE streams
     if (requestId === undefined) {
       // For standalone SSE streams, we can only send requests and notifications
-      if ('result' in message || 'error' in message) {
+      if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
         throw new Error("Cannot send a response on a standalone SSE stream unless resuming a previous client request");
       }
       const standaloneSse = this._streamMapping.get(this._standaloneSseStreamId)
