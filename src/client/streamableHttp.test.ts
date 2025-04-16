@@ -101,6 +101,81 @@ describe("StreamableHTTPClientTransport", () => {
     expect(lastCall[1].headers.get("mcp-session-id")).toBe("test-session-id");
   });
 
+  it("should terminate session with DELETE request", async () => {
+    // First, simulate getting a session ID
+    const message: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      method: "initialize",
+      params: {
+        clientInfo: { name: "test-client", version: "1.0" },
+        protocolVersion: "2025-03-26"
+      },
+      id: "init-id"
+    };
+
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "text/event-stream", "mcp-session-id": "test-session-id" }),
+    });
+
+    await transport.send(message);
+    expect(transport.sessionId).toBe("test-session-id");
+
+    // Now terminate the session
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers()
+    });
+
+    await transport.terminateSession();
+
+    // Verify the DELETE request was sent with the session ID
+    const calls = (global.fetch as jest.Mock).mock.calls;
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall[1].method).toBe("DELETE");
+    expect(lastCall[1].headers.get("mcp-session-id")).toBe("test-session-id");
+
+    // The session ID should be cleared after successful termination
+    expect(transport.sessionId).toBeUndefined();
+  });
+
+  it("should handle 405 response when server doesn't support session termination", async () => {
+    // First, simulate getting a session ID
+    const message: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      method: "initialize",
+      params: {
+        clientInfo: { name: "test-client", version: "1.0" },
+        protocolVersion: "2025-03-26"
+      },
+      id: "init-id"
+    };
+
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "text/event-stream", "mcp-session-id": "test-session-id" }),
+    });
+
+    await transport.send(message);
+
+    // Now terminate the session, but server responds with 405
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 405,
+      statusText: "Method Not Allowed",
+      headers: new Headers()
+    });
+
+    // This should not throw an error
+    await transport.terminateSession();
+
+    // The session ID should still be preserved since termination wasn't accepted
+    expect(transport.sessionId).toBe("test-session-id");
+  });
+
   it("should handle 404 response when session expires", async () => {
     const message: JSONRPCMessage = {
       jsonrpc: "2.0",

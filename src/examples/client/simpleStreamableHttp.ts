@@ -48,6 +48,7 @@ function printHelp(): void {
   console.log('\nAvailable commands:');
   console.log('  connect [url]              - Connect to MCP server (default: http://localhost:3000/mcp)');
   console.log('  disconnect                 - Disconnect from server');
+  console.log('  terminate-session          - Terminate the current session');
   console.log('  reconnect                  - Reconnect to the server');
   console.log('  list-tools                 - List available tools');
   console.log('  call-tool <name> [args]    - Call a tool with optional JSON arguments');
@@ -74,6 +75,10 @@ function commandLoop(): void {
 
         case 'disconnect':
           await disconnect();
+          break;
+
+        case 'terminate-session':
+          await terminateSession();
           break;
 
         case 'reconnect':
@@ -249,6 +254,36 @@ async function disconnect(): Promise<void> {
   }
 }
 
+async function terminateSession(): Promise<void> {
+  if (!client || !transport) {
+    console.log('Not connected.');
+    return;
+  }
+
+  try {
+    console.log('Terminating session with ID:', transport.sessionId);
+    await transport.terminateSession();
+    console.log('Session terminated successfully');
+    
+    // Check if sessionId was cleared after termination
+    if (!transport.sessionId) {
+      console.log('Session ID has been cleared');
+      sessionId = undefined;
+      
+      // Also close the transport and clear client objects
+      await transport.close();
+      console.log('Transport closed after session termination');
+      client = null;
+      transport = null;
+    } else {
+      console.log('Server responded with 405 Method Not Allowed (session termination not supported)');
+      console.log('Session ID is still active:', transport.sessionId);
+    }
+  } catch (error) {
+    console.error('Error terminating session:', error);
+  }
+}
+
 async function reconnect(): Promise<void> {
   if (client) {
     await disconnect();
@@ -411,12 +446,23 @@ async function listResources(): Promise<void> {
 async function cleanup(): Promise<void> {
   if (client && transport) {
     try {
+      // First try to terminate the session gracefully
+      if (transport.sessionId) {
+        try {
+          console.log('Terminating session before exit...');
+          await transport.terminateSession();
+          console.log('Session terminated successfully');
+        } catch (error) {
+          console.error('Error terminating session:', error);
+        }
+      }
+      
+      // Then close the transport
       await transport.close();
     } catch (error) {
       console.error('Error closing transport:', error);
     }
   }
-
 
   process.stdin.setRawMode(false);
   readline.close();
