@@ -126,6 +126,7 @@ describe("Proxy OAuth Server Provider", () => {
       const tokens = await provider.exchangeAuthorizationCode(
         validClient,
         "test-code",
+        "https://example.com/callback",
         "test-verifier"
       );
 

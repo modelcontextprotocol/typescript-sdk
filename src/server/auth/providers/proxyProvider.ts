@@ -151,12 +151,14 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
   async exchangeAuthorizationCode(
     client: OAuthClientInformationFull,
     authorizationCode: string,
+    redirectUri: string,
     codeVerifier?: string
   ): Promise<OAuthTokens> {
     const params = new URLSearchParams({
       grant_type: "authorization_code",
       client_id: client.client_id,
       code: authorizationCode,
+      redirect_uri: redirectUri,
     });
 
     if (client.client_secret) {

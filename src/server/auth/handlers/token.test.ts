@@ -21,7 +21,7 @@ describe('Token Handler', () => {
   const validClient: OAuthClientInformationFull = {
     client_id: 'valid-client',
     client_secret: 'valid-secret',
-    redirect_uris: ['https://example.com/callback']
+    redirect_uris: ['https://valid.com/callback']
   };
 
   // Mock client store
@@ -44,7 +44,7 @@ describe('Token Handler', () => {
       clientsStore: mockClientStore,
 
       async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
-        res.redirect('https://example.com/callback?code=mock_auth_code');
+        res.redirect('https://valid.com/callback?code=mock_auth_code');
       },
 
       async challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
@@ -56,8 +56,8 @@ describe('Token Handler', () => {
         throw new InvalidGrantError('The authorization code is invalid');
       },
 
-      async exchangeAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<OAuthTokens> {
-        if (authorizationCode === 'valid_code') {
+      async exchangeAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string, redirectUri: string): Promise<OAuthTokens> {
+        if (authorizationCode === 'valid_code' && redirectUri === 'https://valid.com/callback') {
           return {
             access_token: 'mock_access_token',
             token_type: 'bearer',
@@ -123,7 +123,10 @@ describe('Token Handler', () => {
         .send({
           client_id: 'valid-client',
           client_secret: 'valid-secret',
-          grant_type: 'authorization_code'
+          grant_type: 'authorization_code',
+          code: 'valid_code',
+          code_verifier: 'valid_verifier',
+          redirect_uri: 'https://valid.com/callback'
         });
 
       expect(response.status).toBe(405);
@@ -171,7 +174,10 @@ describe('Token Handler', () => {
         .send({
           client_id: 'invalid-client',
           client_secret: 'wrong-secret',
-          grant_type: 'authorization_code'
+          grant_type: 'authorization_code',
+          code: 'valid_code',
+          code_verifier: 'valid_verifier',
+          redirect_uri: 'https://valid.com/callback'
         });
 
       expect(response.status).toBe(400);
@@ -187,7 +193,8 @@ describe('Token Handler', () => {
           client_secret: 'valid-secret',
           grant_type: 'authorization_code',
           code: 'valid_code',
-          code_verifier: 'valid_verifier'
+          code_verifier: 'valid_verifier',
+          redirect_uri: 'https://valid.com/callback'
         });
 
       expect(response.status).toBe(200);
@@ -204,7 +211,8 @@ describe('Token Handler', () => {
           client_secret: 'valid-secret',
           grant_type: 'authorization_code',
           // Missing code
-          code_verifier: 'valid_verifier'
+          code_verifier: 'valid_verifier',
+          redirect_uri: 'https://valid.com/callback'
         });
 
       expect(response.status).toBe(400);
@@ -219,8 +227,26 @@ describe('Token Handler', () => {
           client_id: 'valid-client',
           client_secret: 'valid-secret',
           grant_type: 'authorization_code',
-          code: 'valid_code'
+          code: 'valid_code',
           // Missing code_verifier
+          redirect_uri: 'https://valid.com/callback'
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('invalid_request');
+    });
+
+    it('requires redirect_uri parameter', async () => {
+      const response = await supertest(app)
+        .post('/token')
+        .type('form')
+        .send({
+          client_id: 'valid-client',
+          client_secret: 'valid-secret',
+          grant_type: 'authorization_code',
+          code: 'valid_code',
+          code_verifier: 'valid_verifier'
+          // Missing redirect_uri
         });
 
       expect(response.status).toBe(400);
@@ -239,7 +265,8 @@ describe('Token Handler', () => {
           client_secret: 'valid-secret',
           grant_type: 'authorization_code',
           code: 'valid_code',
-          code_verifier: 'invalid_verifier'
+          code_verifier: 'invalid_verifier',
+          redirect_uri: 'https://valid.com/callback'
         });
 
       expect(response.status).toBe(400);
@@ -256,11 +283,29 @@ describe('Token Handler', () => {
           client_secret: 'valid-secret',
           grant_type: 'authorization_code',
           code: 'expired_code',
-          code_verifier: 'valid_verifier'
+          code_verifier: 'valid_verifier',
+          redirect_uri: 'https://valid.com/callback'
         });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('invalid_grant');
+    });
+
+    it('rejects unregistered redirect_uri', async () => {
+      const response = await supertest(app)
+        .post('/token')
+        .type('form')
+        .send({
+          client_id: 'valid-client',
+          client_secret: 'valid-secret',
+          grant_type: 'authorization_code',
+          code: 'valid_code',
+          code_verifier: 'valid_verifier',
+          redirect_uri: 'https://wrong.com/callback'
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('invalid_request');
     });
 
     it('returns tokens for valid code exchange', async () => {
@@ -272,7 +317,8 @@ describe('Token Handler', () => {
           client_secret: 'valid-secret',
           grant_type: 'authorization_code',
           code: 'valid_code',
-          code_verifier: 'valid_verifier'
+          code_verifier: 'valid_verifier',
+          redirect_uri: 'https://valid.com/callback'
         });
 
       expect(response.status).toBe(200);
@@ -322,7 +368,8 @@ describe('Token Handler', () => {
             client_secret: 'valid-secret',
             grant_type: 'authorization_code',
             code: 'valid_code',
-            code_verifier: 'any_verifier'
+            code_verifier: 'any_verifier',
+            redirect_uri: 'https://valid.com/callback'
           });
 
         expect(response.status).toBe(200);
