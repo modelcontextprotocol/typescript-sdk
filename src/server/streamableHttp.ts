@@ -42,7 +42,7 @@ export interface StreamableHTTPServerTransportOptions {
   /**
    * A callback for session initialization events
    * This is called when the server initializes a new session.
-   * Usefult in cases when you need to register multiple mcp sessions
+   * Useful in cases when you need to register multiple mcp sessions
    * and need to keep track of them.
    * @param sessionId The generated session ID
    */

@@ -505,10 +505,7 @@ export class StreamableHTTPClientTransport implements Transport {
         );
       }
 
-      // If session termination was successful, clear our session ID
-      if (response.ok) {
-        this._sessionId = undefined;
-      }
+      this._sessionId = undefined;
     } catch (error) {
       this.onerror?.(error as Error);
       throw error;

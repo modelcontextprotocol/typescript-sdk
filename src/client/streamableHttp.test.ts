@@ -169,11 +169,7 @@ describe("StreamableHTTPClientTransport", () => {
       headers: new Headers()
     });
 
-    // This should not throw an error
-    await transport.terminateSession();
-
-    // The session ID should still be preserved since termination wasn't accepted
-    expect(transport.sessionId).toBe("test-session-id");
+    await expect(transport.terminateSession()).resolves.not.toThrow();
   });
 
   it("should handle 404 response when session expires", async () => {
