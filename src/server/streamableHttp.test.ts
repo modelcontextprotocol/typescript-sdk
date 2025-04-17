@@ -10,7 +10,7 @@ import { z } from "zod";
  * Test server configuration for StreamableHTTPServerTransport tests
  */
 interface TestServerConfig {
-  sessionIdGenerator?: () => string | undefined;
+  sessionIdGenerator: (() => string) | undefined;
   enableJsonResponse?: boolean;
   customRequestHandler?: (req: IncomingMessage, res: ServerResponse, parsedBody?: unknown) => Promise<void>;
   eventStore?: EventStore;
@@ -19,7 +19,7 @@ interface TestServerConfig {
 /**
  * Helper to create and start test HTTP server with MCP setup
  */
-async function createTestServer(config: TestServerConfig = {}): Promise<{
+async function createTestServer(config: TestServerConfig = { sessionIdGenerator: (() => randomUUID()) }): Promise<{
   server: Server;
   transport: StreamableHTTPServerTransport;
   mcpServer: McpServer;
@@ -40,7 +40,7 @@ async function createTestServer(config: TestServerConfig = {}): Promise<{
   );
 
   const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: config.sessionIdGenerator ?? (() => randomUUID()),
+    sessionIdGenerator: config.sessionIdGenerator,
     enableJsonResponse: config.enableJsonResponse ?? false,
     eventStore: config.eventStore
   });
@@ -681,7 +681,7 @@ describe("StreamableHTTPServerTransport with JSON Response Mode", () => {
   let sessionId: string;
 
   beforeEach(async () => {
-    const result = await createTestServer({ enableJsonResponse: true });
+    const result = await createTestServer({ sessionIdGenerator: (() => randomUUID()), enableJsonResponse: true });
     server = result.server;
     transport = result.transport;
     baseUrl = result.baseUrl;
@@ -784,7 +784,8 @@ describe("StreamableHTTPServerTransport with pre-parsed body", () => {
           console.error("Error handling request:", error);
           if (!res.headersSent) res.writeHead(500).end();
         }
-      }
+      },
+      sessionIdGenerator: (() => randomUUID())
     });
 
     server = result.server;
@@ -1063,7 +1064,7 @@ describe("StreamableHTTPServerTransport in stateless mode", () => {
   let baseUrl: URL;
 
   beforeEach(async () => {
-    const result = await createTestServer({ sessionIdGenerator: () => undefined });
+    const result = await createTestServer({ sessionIdGenerator: undefined });
     server = result.server;
     transport = result.transport;
     baseUrl = result.baseUrl;

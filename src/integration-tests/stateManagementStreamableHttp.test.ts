@@ -68,7 +68,7 @@ describe('Streamable HTTP Transport Session Management', () => {
     const serverTransport = new StreamableHTTPServerTransport({
       sessionIdGenerator: withSessionManagement
         ? () => randomUUID()   // With session management, generate UUID
-        : () => undefined      // Without session management, return undefined
+        : undefined     // Without session management, return undefined
     });
 
     await mcpServer.connect(serverTransport);

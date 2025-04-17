@@ -134,7 +134,7 @@ The Streamable HTTP transport can be configured to operate without tracking sess
 
 To enable stateless mode, configure the `StreamableHTTPServerTransport` with:
 ```typescript
-sessionIdGenerator: () => undefined
+sessionIdGenerator: undefined
 ```
 
 This disables session management entirely, and the server won't generate or expect session IDs.

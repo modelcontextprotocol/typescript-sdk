@@ -325,10 +325,9 @@ app.use(express.json());
 
 // Handle all MCP requests (GET, POST, DELETE) at a single endpoint
 app.all('/mcp', async (req, res) => {
-  // Create a transport with sessionIdGenerator set to return undefined
-  // This disables session tracking completely
+  // Disable session tracking by setting sessionIdGenerator to undefined  
   const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => undefined,
+    sessionIdGenerator: undefined,
     req,
     res
   });

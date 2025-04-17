@@ -37,7 +37,7 @@ export interface StreamableHTTPServerTransportOptions {
    * 
    * Return undefined to disable session management.
    */
-  sessionIdGenerator: () => string | undefined;
+  sessionIdGenerator: (() => string) | undefined;
 
   /**
    * A callback for session initialization events
@@ -98,7 +98,7 @@ export interface StreamableHTTPServerTransportOptions {
  */
 export class StreamableHTTPServerTransport implements Transport {
   // when sessionId is not set (undefined), it means the transport is in stateless mode
-  private sessionIdGenerator: () => string | undefined;
+  private sessionIdGenerator: (() => string) | undefined;
   private _started: boolean = false;
   private _streamMapping: Map<string, ServerResponse> = new Map();
   private _requestToStreamMapping: Map<RequestId, string> = new Map();
@@ -365,7 +365,7 @@ export class StreamableHTTPServerTransport implements Transport {
           }));
           return;
         }
-        this.sessionId = this.sessionIdGenerator();
+        this.sessionId = this.sessionIdGenerator?.();
         this._initialized = true;
 
         // If we have a session ID and an onsessioninitialized handler, call it immediately
