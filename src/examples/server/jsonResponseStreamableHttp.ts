@@ -138,6 +138,13 @@ app.post('/mcp', async (req: Request, res: Response) => {
   }
 });
 
+// Handle GET requests for SSE streams according to spec
+app.get('/mcp', async (req: Request, res: Response) => {
+  // Since this is a very simple example, we don't support GET requests for this server
+  // The spec requires returning 405 Method Not Allowed in this case
+  res.status(405).set('Allow', 'POST').send('Method Not Allowed');
+});
+
 // Helper function to detect initialize requests
 function isInitializeRequest(body: unknown): boolean {
   if (Array.isArray(body)) {
