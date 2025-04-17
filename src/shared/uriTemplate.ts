@@ -36,6 +36,10 @@ export class UriTemplate {
     | { name: string; operator: string; names: string[]; exploded: boolean }
   >;
 
+  get variableNames(): string[] {
+    return this.parts.flatMap((part) => typeof part === 'string' ? [] : part.names);
+  }
+
   constructor(template: string) {
     UriTemplate.validateLength(template, MAX_TEMPLATE_LENGTH, "Template");
     this.template = template;

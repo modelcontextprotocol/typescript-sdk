@@ -12,7 +12,7 @@
   - [Prompts](#prompts)
 - [Running Your Server](#running-your-server)
   - [stdio](#stdio)
-  - [HTTP with SSE](#http-with-sse)
+  - [Streamable HTTP](#streamable-http)
   - [Testing and Debugging](#testing-and-debugging)
 - [Examples](#examples)
   - [Echo Server](#echo-server)
@@ -21,6 +21,8 @@
   - [Low-Level Server](#low-level-server)
   - [Writing MCP Clients](#writing-mcp-clients)
   - [Server Capabilities](#server-capabilities)
+  - [Proxy OAuth Server](#proxy-authorization-requests-upstream)
+  - [Backwards Compatibility](#backwards-compatibility)
 
 ## Overview
 
@@ -28,7 +30,7 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 
 - Build MCP clients that can connect to any MCP server
 - Create MCP servers that expose resources, prompts and tools
-- Use standard transports like stdio and SSE
+- Use standard transports like stdio and Streamable HTTP
 - Handle all MCP protocol messages and lifecycle events
 
 ## Installation
@@ -206,49 +208,142 @@ const transport = new StdioServerTransport();
 await server.connect(transport);
 ```
 
-### HTTP with SSE
+### Streamable HTTP
 
-For remote servers, start a web server with a Server-Sent Events (SSE) endpoint, and a separate endpoint for the client to send its messages to:
+For remote servers, set up a Streamable HTTP transport that handles both client requests and server-to-client notifications.
+
+#### With Session Management
+
+In some cases, servers need to be stateful. This is achieved by [session management](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#session-management).
 
 ```typescript
-import express, { Request, Response } from "express";
+import express from "express";
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { InMemoryEventStore } from "@modelcontextprotocol/sdk/inMemory.js";
+
+
+const app = express();
+app.use(express.json());
+
+// Map to store transports by session ID
+const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+
+// Handle POST requests for client-to-server communication
+app.post('/mcp', async (req, res) => {
+  // Check for existing session ID
+  const sessionId = req.headers['mcp-session-id'] as string | undefined;
+  let transport: StreamableHTTPServerTransport;
+
+  if (sessionId && transports[sessionId]) {
+    // Reuse existing transport
+    transport = transports[sessionId];
+  } else if (!sessionId && isInitializeRequest(req.body)) {
+    // New initialization request
+    const eventStore = new InMemoryEventStore();
+    transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      eventStore, // Enable resumability
+      onsessioninitialized: (sessionId) => {
+        // Store the transport by session ID
+        transports[sessionId] = transport;
+      }
+    });
+
+    // Clean up transport when closed
+    transport.onclose = () => {
+      if (transport.sessionId) {
+        delete transports[transport.sessionId];
+      }
+    };
+    const server = new McpServer({
+      name: "example-server",
+      version: "1.0.0"
+    });
+
+    // ... set up server resources, tools, and prompts ...
+
+    // Connect to the MCP server
+    await server.connect(transport);
+  } else {
+    // Invalid request
+    res.status(400).json({
+      jsonrpc: '2.0',
+      error: {
+        code: -32000,
+        message: 'Bad Request: No valid session ID provided',
+      },
+      id: null,
+    });
+    return;
+  }
+
+  // Handle the request
+  await transport.handleRequest(req, res, req.body);
+});
+
+// Reusable handler for GET and DELETE requests
+const handleSessionRequest = async (req: express.Request, res: express.Response) => {
+  const sessionId = req.headers['mcp-session-id'] as string | undefined;
+  if (!sessionId || !transports[sessionId]) {
+    res.status(400).send('Invalid or missing session ID');
+    return;
+  }
+  
+  const transport = transports[sessionId];
+  await transport.handleRequest(req, res);
+};
+
+// Handle GET requests for server-to-client notifications via SSE
+app.get('/mcp', handleSessionRequest);
+
+// Handle DELETE requests for session termination
+app.delete('/mcp', handleSessionRequest);
+
+app.listen(3000);
+```
+
+#### Without Session Management (Stateless)
+
+For simpler use cases where session management isn't needed:
+
+```typescript
+import express from "express";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 const server = new McpServer({
-  name: "example-server",
+  name: "stateless-server",
   version: "1.0.0"
 });
 
 // ... set up server resources, tools, and prompts ...
 
 const app = express();
+app.use(express.json());
 
-// to support multiple simultaneous connections we have a lookup object from
-// sessionId to transport
-const transports: {[sessionId: string]: SSEServerTransport} = {};
-
-app.get("/sse", async (_: Request, res: Response) => {
-  const transport = new SSEServerTransport('/messages', res);
-  transports[transport.sessionId] = transport;
-  res.on("close", () => {
-    delete transports[transport.sessionId];
+// Handle all MCP requests (GET, POST, DELETE) at a single endpoint
+app.all('/mcp', async (req, res) => {
+  // Disable session tracking by setting sessionIdGenerator to undefined  
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+    req,
+    res
   });
+  
+  // Connect to server and handle the request
   await server.connect(transport);
+  await transport.handleRequest(req, res);
 });
 
-app.post("/messages", async (req: Request, res: Response) => {
-  const sessionId = req.query.sessionId as string;
-  const transport = transports[sessionId];
-  if (transport) {
-    await transport.handlePostMessage(req, res);
-  } else {
-    res.status(400).send('No transport found for sessionId');
-  }
-});
-
-app.listen(3001);
+app.listen(3000);
 ```
+
+This stateless approach is useful for:
+- Simple API wrappers
+- RESTful scenarios where each request is independent
+- Horizontally scaled deployments without shared session state
 
 ### Testing and Debugging
 
@@ -379,6 +474,68 @@ server.tool(
 
 ## Advanced Usage
 
+### Dynamic Servers
+
+If you want to offer an initial set of tools/prompts/resources, but later add additional ones based on user action or external state change, you can add/update/remove them _after_ the Server is connected. This will automatically emit the corresponding `listChanged` notificaions:
+
+```ts
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+
+const server = new McpServer({
+  name: "Dynamic Example",
+  version: "1.0.0"
+});
+
+const listMessageTool = server.tool(
+  "listMessages",
+  { channel: z.string() },
+  async ({ channel }) => ({
+    content: [{ type: "text", text: await listMessages(channel) }]
+  })
+);
+
+const putMessageTool = server.tool(
+  "putMessage",
+  { channel: z.string(), message: z.string() },
+  async ({ channel, message }) => ({
+    content: [{ type: "text", text: await putMessage(channel, string) }]
+  })
+);
+// Until we upgrade auth, `putMessage` is disabled (won't show up in listTools)
+putMessageTool.disable()
+
+const upgradeAuthTool = server.tool(
+  "upgradeAuth",
+  { permission: z.enum(["write', vadmin"])},
+  // Any mutations here will automatically emit `listChanged` notifications
+  async ({ permission }) => {
+    const { ok, err, previous } = await upgradeAuthAndStoreToken(permission)
+    if (!ok) return {content: [{ type: "text", text: `Error: ${err}` }]}
+
+    // If we previously had read-only access, 'putMessage' is now available
+    if (previous === "read") {
+      putMessageTool.enable()
+    }
+
+    if (permission === 'write') {
+      // If we've just upgraded to 'write' permissions, we can still call 'upgradeAuth' 
+      // but can only upgrade to 'admin'. 
+      upgradeAuthTool.update({
+        paramSchema: { permission: z.enum(["admin"]) }, // change validation rules
+      })
+    } else {
+      // If we're now an admin, we no longer have anywhere to upgrade to, so fully remove that tool
+      upgradeAuthTool.remove()
+    }
+  }
+)
+
+// Connect as normal
+const transport = new StdioServerTransport();
+await server.connect(transport);
+```
+
 ### Low-Level Server
 
 For more control, you can use the low-level Server class directly:
@@ -454,13 +611,6 @@ const client = new Client(
   {
     name: "example-client",
     version: "1.0.0"
-  },
-  {
-    capabilities: {
-      prompts: {},
-      resources: {},
-      tools: {}
-    }
   }
 );
 
@@ -470,15 +620,20 @@ await client.connect(transport);
 const prompts = await client.listPrompts();
 
 // Get a prompt
-const prompt = await client.getPrompt("example-prompt", {
-  arg1: "value"
+const prompt = await client.getPrompt({
+  name: "example-prompt",
+  arguments: {
+    arg1: "value"
+  }
 });
 
 // List resources
 const resources = await client.listResources();
 
 // Read a resource
-const resource = await client.readResource("file:///example.txt");
+const resource = await client.readResource({
+  uri: "file:///example.txt"
+});
 
 // Call a tool
 const result = await client.callTool({
@@ -488,6 +643,152 @@ const result = await client.callTool({
   }
 });
 ```
+
+### Proxy Authorization Requests Upstream
+
+You can proxy OAuth requests to an external authorization provider:
+
+```typescript
+import express from 'express';
+import { ProxyOAuthServerProvider, mcpAuthRouter } from '@modelcontextprotocol/sdk';
+
+const app = express();
+
+const proxyProvider = new ProxyOAuthServerProvider({
+    endpoints: {
+        authorizationUrl: "https://auth.external.com/oauth2/v1/authorize",
+        tokenUrl: "https://auth.external.com/oauth2/v1/token",
+        revocationUrl: "https://auth.external.com/oauth2/v1/revoke",
+    },
+    verifyAccessToken: async (token) => {
+        return {
+            token,
+            clientId: "123",
+            scopes: ["openid", "email", "profile"],
+        }
+    },
+    getClient: async (client_id) => {
+        return {
+            client_id,
+            redirect_uris: ["http://localhost:3000/callback"],
+        }
+    }
+})
+
+app.use(mcpAuthRouter({
+    provider: proxyProvider,
+    issuerUrl: new URL("http://auth.external.com"),
+    baseUrl: new URL("http://mcp.example.com"),
+    serviceDocumentationUrl: new URL("https://docs.example.com/"),
+}))
+```
+
+This setup allows you to:
+- Forward OAuth requests to an external provider
+- Add custom token validation logic
+- Manage client registrations
+- Provide custom documentation URLs
+- Maintain control over the OAuth flow while delegating to an external provider
+
+### Backwards Compatibility
+
+Clients and servers with StreamableHttp tranport can maintain [backwards compatibility](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility) with the deprecated HTTP+SSE transport (from protocol version 2024-11-05) as follows
+
+#### Client-Side Compatibility
+
+For clients that need to work with both Streamable HTTP and older SSE servers:
+
+```typescript
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+let client: Client|undefined = undefined
+const baseUrl = new URL(url);
+try {
+  client = new Client({
+    name: 'streamable-http-client',
+    version: '1.0.0'
+  });
+  const transport = new StreamableHTTPClientTransport(
+    new URL(baseUrl)
+  );
+  await client.connect(transport);
+  console.log("Connected using Streamable HTTP transport");
+} catch (error) {
+  // If that fails with a 4xx error, try the older SSE transport
+  console.log("Streamable HTTP connection failed, falling back to SSE transport");
+  client = new Client({
+    name: 'sse-client',
+    version: '1.0.0'
+  });
+  const sseTransport = new SSEClientTransport(baseUrl);
+  await client.connect(sseTransport);
+  console.log("Connected using SSE transport");
+}
+```
+
+#### Server-Side Compatibility
+
+For servers that need to support both Streamable HTTP and older clients:
+
+```typescript
+import express from "express";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { InMemoryEventStore } from "@modelcontextprotocol/sdk/inMemory.js";
+
+const server = new McpServer({
+  name: "backwards-compatible-server",
+  version: "1.0.0"
+});
+
+// ... set up server resources, tools, and prompts ...
+
+const app = express();
+app.use(express.json());
+
+// Store transports for each session type
+const transports = {
+  streamable: {} as Record<string, StreamableHTTPServerTransport>,
+  sse: {} as Record<string, SSEServerTransport>
+};
+
+// Modern Streamable HTTP endpoint
+app.all('/mcp', async (req, res) => {
+  // Handle Streamable HTTP transport for modern clients
+  // Implementation as shown in the "With Session Management" example
+  // ...
+});
+
+// Legacy SSE endpoint for older clients
+app.get('/sse', async (req, res) => {
+  // Create SSE transport for legacy clients
+  const transport = new SSEServerTransport('/messages', res);
+  transports.sse[transport.sessionId] = transport;
+  
+  res.on("close", () => {
+    delete transports.sse[transport.sessionId];
+  });
+  
+  await server.connect(transport);
+});
+
+// Legacy message endpoint for older clients
+app.post('/messages', async (req, res) => {
+  const sessionId = req.query.sessionId as string;
+  const transport = transports.sse[sessionId];
+  if (transport) {
+    await transport.handlePostMessage(req, res);
+  } else {
+    res.status(400).send('No transport found for sessionId');
+  }
+});
+
+app.listen(3000);
+```
+
+**Note**: The SSE transport is now deprecated in favor of Streamable HTTP. New implementations should use Streamable HTTP, and existing SSE implementations should plan to migrate.
 
 ## Documentation
 

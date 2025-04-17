@@ -275,9 +275,13 @@ export class Client<
     }
   }
 
-  override async connect(transport: Transport): Promise<void> {
+  override async connect(transport: Transport, options?: RequestOptions): Promise<void> {
     await super.connect(transport);
-
+    // When transport sessionId is already set this means we are trying to reconnect.
+    // In this case we don't need to initialize again.
+    if (transport.sessionId !== undefined) {
+      return;
+    }
     try {
       const result = await this.request(
         {
@@ -289,6 +293,7 @@ export class Client<
           },
         },
         InitializeResultSchema,
+        options
       );
 
       if (result === undefined) {
@@ -388,9 +393,9 @@ export class Client<
         break;
 
       case "completion/complete":
-        if (!this._serverCapabilities?.prompts) {
+        if (!this._serverCapabilities?.completions) {
           throw new Error(
-            `Server does not support prompts (required for ${method})`,
+            `Server does not support completions (required for ${method})`,
           );
         }
         break;

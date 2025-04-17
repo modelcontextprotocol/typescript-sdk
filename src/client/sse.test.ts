@@ -24,7 +24,7 @@ describe("SSEClientTransport", () => {
       // Send SSE headers
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
+        "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
       });
 
@@ -56,6 +56,8 @@ describe("SSEClientTransport", () => {
       baseUrl = new URL(`http://127.0.0.1:${addr.port}`);
       done();
     });
+
+    jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(async () => {
@@ -183,7 +185,7 @@ describe("SSEClientTransport", () => {
         if (req.method === "GET") {
           res.writeHead(200, {
             "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             Connection: "keep-alive",
           });
           res.write("event: endpoint\n");
@@ -397,7 +399,7 @@ describe("SSEClientTransport", () => {
 
             res.writeHead(200, {
               "Content-Type": "text/event-stream",
-              "Cache-Control": "no-cache",
+              "Cache-Control": "no-cache, no-transform",
               Connection: "keep-alive",
             });
             res.write("event: endpoint\n");
@@ -524,7 +526,7 @@ describe("SSEClientTransport", () => {
         if (auth === "Bearer new-token") {
           res.writeHead(200, {
             "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             Connection: "keep-alive",
           });
           res.write("event: endpoint\n");
@@ -610,7 +612,7 @@ describe("SSEClientTransport", () => {
 
             res.writeHead(200, {
               "Content-Type": "text/event-stream",
-              "Cache-Control": "no-cache",
+              "Cache-Control": "no-cache, no-transform",
               Connection: "keep-alive",
             });
             res.write("event: endpoint\n");

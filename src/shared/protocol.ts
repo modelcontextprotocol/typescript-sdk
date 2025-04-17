@@ -3,6 +3,10 @@ import {
   CancelledNotificationSchema,
   ClientCapabilities,
   ErrorCode,
+  isJSONRPCError,
+  isJSONRPCRequest,
+  isJSONRPCResponse,
+  isJSONRPCNotification,
   JSONRPCError,
   JSONRPCNotification,
   JSONRPCRequest,
@@ -18,7 +22,8 @@ import {
   Result,
   ServerCapabilities,
 } from "../types.js";
-import { Transport } from "./transport.js";
+import { Transport, TransportSendOptions } from "./transport.js";
+import { AuthInfo } from "../server/auth/types.js";
 
 /**
  * Callback for progress notifications.
@@ -78,22 +83,52 @@ export type RequestOptions = {
    * If not specified, there is no maximum total timeout.
    */
   maxTotalTimeout?: number;
-};
+} & TransportSendOptions;
+
+/**
+ * Options that can be given per notification.
+ */
+export type NotificationOptions = {
+  /**
+   * May be used to indicate to the transport which incoming request to associate this outgoing notification with.
+   */
+  relatedRequestId?: RequestId;
+}
 
 /**
  * Extra data given to request handlers.
  */
-export type RequestHandlerExtra = {
-  /**
-   * An abort signal used to communicate if the request was cancelled from the sender's side.
-   */
-  signal: AbortSignal;
+export type RequestHandlerExtra<SendRequestT extends Request,
+  SendNotificationT extends Notification> = {
+    /**
+     * An abort signal used to communicate if the request was cancelled from the sender's side.
+     */
+    signal: AbortSignal;
 
-  /**
-   * The session ID from the transport, if available.
-   */
-  sessionId?: string;
-};
+    /**
+     * Information about a validated access token, provided to request handlers.
+     */
+    authInfo?: AuthInfo;
+
+    /**
+     * The session ID from the transport, if available.
+     */
+    sessionId?: string;
+
+    /**
+     * Sends a notification that relates to the current request being handled.
+     * 
+     * This is used by certain transports to correctly associate related messages.
+     */
+    sendNotification: (notification: SendNotificationT) => Promise<void>;
+
+    /**
+     * Sends a request that relates to the current request being handled.
+     * 
+     * This is used by certain transports to correctly associate related messages.
+     */
+    sendRequest: <U extends ZodType<object>>(request: SendRequestT, resultSchema: U, options?: RequestOptions) => Promise<z.infer<U>>;
+  };
 
 /**
  * Information about a request's timeout state
@@ -103,6 +138,7 @@ type TimeoutInfo = {
   startTime: number;
   timeout: number;
   maxTotalTimeout?: number;
+  resetTimeoutOnProgress: boolean;
   onTimeout: () => void;
 };
 
@@ -121,7 +157,7 @@ export abstract class Protocol<
     string,
     (
       request: JSONRPCRequest,
-      extra: RequestHandlerExtra,
+      extra: RequestHandlerExtra<SendRequestT, SendNotificationT>,
     ) => Promise<SendResultT>
   > = new Map();
   private _requestHandlerAbortControllers: Map<RequestId, AbortController> =
@@ -184,13 +220,15 @@ export abstract class Protocol<
     messageId: number,
     timeout: number,
     maxTotalTimeout: number | undefined,
-    onTimeout: () => void
+    onTimeout: () => void,
+    resetTimeoutOnProgress: boolean = false
   ) {
     this._timeoutInfo.set(messageId, {
       timeoutId: setTimeout(onTimeout, timeout),
       startTime: Date.now(),
       timeout,
       maxTotalTimeout,
+      resetTimeoutOnProgress,
       onTimeout
     });
   }
@@ -237,13 +275,15 @@ export abstract class Protocol<
       this._onerror(error);
     };
 
-    this._transport.onmessage = (message) => {
-      if (!("method" in message)) {
+    this._transport.onmessage = (message, extra) => {
+      if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
         this._onresponse(message);
-      } else if ("id" in message) {
-        this._onrequest(message);
-      } else {
+      } else if (isJSONRPCRequest(message)) {
+        this._onrequest(message, extra);
+      } else if (isJSONRPCNotification(message)) {
         this._onnotification(message);
+      } else {
+        this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
       }
     };
 
@@ -287,7 +327,7 @@ export abstract class Protocol<
       );
   }
 
-  private _onrequest(request: JSONRPCRequest): void {
+  private _onrequest(request: JSONRPCRequest, extra?: { authInfo?: AuthInfo }): void {
     const handler =
       this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
 
@@ -312,15 +352,20 @@ export abstract class Protocol<
     const abortController = new AbortController();
     this._requestHandlerAbortControllers.set(request.id, abortController);
 
-    // Create extra object with both abort signal and sessionId from transport
-    const extra: RequestHandlerExtra = {
+    const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
       signal: abortController.signal,
       sessionId: this._transport?.sessionId,
+      sendNotification:
+        (notification) =>
+          this.notification(notification, { relatedRequestId: request.id }),
+      sendRequest: (r, resultSchema, options?) =>
+        this.request(r, resultSchema, { ...options, relatedRequestId: request.id }),
+      authInfo: extra?.authInfo,
     };
 
     // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
     Promise.resolve()
-      .then(() => handler(request, extra))
+      .then(() => handler(request, fullExtra))
       .then(
         (result) => {
           if (abortController.signal.aborted) {
@@ -361,7 +406,7 @@ export abstract class Protocol<
   private _onprogress(notification: ProgressNotification): void {
     const { progressToken, ...params } = notification.params;
     const messageId = Number(progressToken);
-    
+
     const handler = this._progressHandlers.get(messageId);
     if (!handler) {
       this._onerror(new Error(`Received a progress notification for an unknown token: ${JSON.stringify(notification)}`));
@@ -369,7 +414,9 @@ export abstract class Protocol<
     }
 
     const responseHandler = this._responseHandlers.get(messageId);
-    if (this._timeoutInfo.has(messageId) && responseHandler) {
+    const timeoutInfo = this._timeoutInfo.get(messageId);
+
+    if (timeoutInfo && responseHandler && timeoutInfo.resetTimeoutOnProgress) {
       try {
         this._resetTimeout(messageId);
       } catch (error) {
@@ -397,7 +444,7 @@ export abstract class Protocol<
     this._progressHandlers.delete(messageId);
     this._cleanupTimeout(messageId);
 
-    if ("result" in response) {
+    if (isJSONRPCResponse(response)) {
       handler(response);
     } else {
       const error = new McpError(
@@ -455,6 +502,8 @@ export abstract class Protocol<
     resultSchema: T,
     options?: RequestOptions,
   ): Promise<z.infer<T>> {
+    const { relatedRequestId, resumptionToken, onresumptiontoken } = options ?? {};
+
     return new Promise((resolve, reject) => {
       if (!this._transport) {
         reject(new Error("Not connected"));
@@ -495,7 +544,7 @@ export abstract class Protocol<
               requestId: messageId,
               reason: String(reason),
             },
-          })
+          }, { relatedRequestId, resumptionToken, onresumptiontoken })
           .catch((error) =>
             this._onerror(new Error(`Failed to send cancellation: ${error}`)),
           );
@@ -531,9 +580,9 @@ export abstract class Protocol<
         { timeout }
       ));
 
-      this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler);
+      this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
-      this._transport.send(jsonrpcRequest).catch((error) => {
+      this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch((error) => {
         this._cleanupTimeout(messageId);
         reject(error);
       });
@@ -543,7 +592,7 @@ export abstract class Protocol<
   /**
    * Emits a notification, which is a one-way message that does not expect a response.
    */
-  async notification(notification: SendNotificationT): Promise<void> {
+  async notification(notification: SendNotificationT, options?: NotificationOptions): Promise<void> {
     if (!this._transport) {
       throw new Error("Not connected");
     }
@@ -555,7 +604,7 @@ export abstract class Protocol<
       jsonrpc: "2.0",
     };
 
-    await this._transport.send(jsonrpcNotification);
+    await this._transport.send(jsonrpcNotification, options);
   }
 
   /**
@@ -571,14 +620,15 @@ export abstract class Protocol<
     requestSchema: T,
     handler: (
       request: z.infer<T>,
-      extra: RequestHandlerExtra,
+      extra: RequestHandlerExtra<SendRequestT, SendNotificationT>,
     ) => SendResultT | Promise<SendResultT>,
   ): void {
     const method = requestSchema.shape.method.value;
     this.assertRequestHandlerCapability(method);
-    this._requestHandlers.set(method, (request, extra) =>
-      Promise.resolve(handler(requestSchema.parse(request), extra)),
-    );
+
+    this._requestHandlers.set(method, (request, extra) => {
+      return Promise.resolve(handler(requestSchema.parse(request), extra));
+    });
   }
 
   /**

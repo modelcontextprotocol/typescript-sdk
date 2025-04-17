@@ -7,6 +7,7 @@ import supertest from 'supertest';
 import * as pkceChallenge from 'pkce-challenge';
 import { InvalidGrantError, InvalidTokenError } from '../errors.js';
 import { AuthInfo } from '../types.js';
+import { ProxyOAuthServerProvider } from '../providers/proxyProvider.js';
 
 // Mock pkce-challenge
 jest.mock('pkce-challenge', () => ({
@@ -279,6 +280,67 @@ describe('Token Handler', () => {
       expect(response.body.token_type).toBe('bearer');
       expect(response.body.expires_in).toBe(3600);
       expect(response.body.refresh_token).toBe('mock_refresh_token');
+    });
+
+    it('passes through code verifier when using proxy provider', async () => {
+      const originalFetch = global.fetch;
+
+      try {
+        global.fetch = jest.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({
+            access_token: 'mock_access_token',
+            token_type: 'bearer',
+            expires_in: 3600,
+            refresh_token: 'mock_refresh_token'
+          })
+        });
+
+        const proxyProvider = new ProxyOAuthServerProvider({
+          endpoints: {
+            authorizationUrl: 'https://example.com/authorize',
+            tokenUrl: 'https://example.com/token'
+          },
+          verifyAccessToken: async (token) => ({
+            token,
+            clientId: 'valid-client',
+            scopes: ['read', 'write'],
+            expiresAt: Date.now() / 1000 + 3600
+          }),
+          getClient: async (clientId) => clientId === 'valid-client' ? validClient : undefined
+        });
+
+        const proxyApp = express();
+        const options: TokenHandlerOptions = { provider: proxyProvider };
+        proxyApp.use('/token', tokenHandler(options));
+
+        const response = await supertest(proxyApp)
+          .post('/token')
+          .type('form')
+          .send({
+            client_id: 'valid-client',
+            client_secret: 'valid-secret',
+            grant_type: 'authorization_code',
+            code: 'valid_code',
+            code_verifier: 'any_verifier'
+          });
+
+        expect(response.status).toBe(200);
+        expect(response.body.access_token).toBe('mock_access_token');
+
+        expect(global.fetch).toHaveBeenCalledWith(
+          'https://example.com/token',
+          expect.objectContaining({
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: expect.stringContaining('code_verifier=any_verifier')
+          })
+        );
+      } finally {
+        global.fetch = originalFetch;
+      }
     });
   });
 
