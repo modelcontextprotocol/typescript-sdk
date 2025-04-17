@@ -14,7 +14,7 @@ import { CallToolResult, isInitializeRequest, JSONRPCMessage } from '../../types
  * It maintains a single MCP server instance but exposes two transport options:
  * - /mcp: The new Streamable HTTP endpoint (supports GET/POST/DELETE)
  * - /sse: The deprecated SSE endpoint for older clients (GET to establish stream)
- * - /request: The deprecated POST endpoint for older clients (POST to send messages)
+ * - /messages: The deprecated POST endpoint for older clients (POST to send messages)
  */
 
 // Simple in-memory event store for resumability
@@ -288,10 +288,10 @@ SUPPORTED TRANSPORT OPTIONS:
      - Terminate session with DELETE to /mcp
 
 2. Http + SSE (Protocol version: 2024-11-05)
-   Endpoints: /sse (GET) and /request (POST)
+   Endpoints: /sse (GET) and /messages (POST)
    Usage:
      - Establish SSE stream with GET to /sse
-     - Send requests with POST to /message?sessionId=<id>
+     - Send requests with POST to /messages?sessionId=<id>
 ==============================================
 `);
 });

@@ -109,11 +109,15 @@ async function connectWithBackwardsCompatibility(url: string): Promise<{
     try {
       // Create SSE transport pointing to /sse endpoint
       const sseTransport = new SSEClientTransport(baseUrl);
-      await client.connect(sseTransport);
+      const sseClient = new Client({
+        name: 'backwards-compatible-client',
+        version: '1.0.0'
+      });
+      await sseClient.connect(sseTransport);
 
       console.log('Successfully connected using deprecated HTTP+SSE transport.');
       return {
-        client,
+        client: sseClient,
         transport: sseTransport,
         transportType: 'sse'
       };
