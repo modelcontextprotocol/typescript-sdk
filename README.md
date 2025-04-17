@@ -214,6 +214,8 @@ For remote servers, set up a Streamable HTTP transport that handles both client 
 
 #### With Session Management
 
+In some cases, servers need to be stateful. This is achieved by [session management](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#session-management).
+
 ```typescript
 import express from "express";
 import { randomUUID } from "node:crypto";
@@ -221,12 +223,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { InMemoryEventStore } from "@modelcontextprotocol/sdk/inMemory.js";
 
-const server = new McpServer({
-  name: "example-server",
-  version: "1.0.0"
-});
-
-// ... set up server resources, tools, and prompts ...
 
 const app = express();
 app.use(express.json());
@@ -261,6 +257,12 @@ app.post('/mcp', async (req, res) => {
         delete transports[transport.sessionId];
       }
     };
+    const server = new McpServer({
+      name: "example-server",
+      version: "1.0.0"
+    });
+
+    // ... set up server resources, tools, and prompts ...
 
     // Connect to the MCP server
     await server.connect(transport);
@@ -281,21 +283,8 @@ app.post('/mcp', async (req, res) => {
   await transport.handleRequest(req, res, req.body);
 });
 
-// Handle GET requests for server-to-client notifications via SSE
-app.get('/mcp', async (req, res) => {
-  const sessionId = req.headers['mcp-session-id'] as string | undefined;
-  if (!sessionId || !transports[sessionId]) {
-    res.status(400).send('Invalid or missing session ID');
-    return;
-  }
-
-  // Support resumability with Last-Event-ID header
-  const transport = transports[sessionId];
-  await transport.handleRequest(req, res);
-});
-
-// Handle DELETE requests for session termination
-app.delete('/mcp', async (req, res) => {
+// Reusable handler for GET and DELETE requests
+const handleSessionRequest = async (req: express.Request, res: express.Response) => {
   const sessionId = req.headers['mcp-session-id'] as string | undefined;
   if (!sessionId || !transports[sessionId]) {
     res.status(400).send('Invalid or missing session ID');
@@ -304,7 +293,13 @@ app.delete('/mcp', async (req, res) => {
   
   const transport = transports[sessionId];
   await transport.handleRequest(req, res);
-});
+};
+
+// Handle GET requests for server-to-client notifications via SSE
+app.get('/mcp', handleSessionRequest);
+
+// Handle DELETE requests for session termination
+app.delete('/mcp', handleSessionRequest);
 
 app.listen(3000);
 ```
@@ -698,7 +693,7 @@ This setup allows you to:
 
 ### Backwards Compatibility
 
-The SDK provides support for backwards compatibility between different protocol versions:
+Clients and servers with StreamableHttp tranport can maintain [backwards compatibility](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility) with the deprecated HTTP+SSE transport (from protocol version 2024-11-05) as follows
 
 #### Client-Side Compatibility
 
@@ -708,21 +703,26 @@ For clients that need to work with both Streamable HTTP and older SSE servers:
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-
-// First try connecting with Streamable HTTP transport
+let client: Client|undefined = undefined
+const baseUrl = new URL(url);
 try {
+  client = new Client({
+    name: 'streamable-http-client',
+    version: '1.0.0'
+  });
   const transport = new StreamableHTTPClientTransport(
-    new URL("http://localhost:3000/mcp")
+    new URL(baseUrl)
   );
   await client.connect(transport);
   console.log("Connected using Streamable HTTP transport");
 } catch (error) {
   // If that fails with a 4xx error, try the older SSE transport
   console.log("Streamable HTTP connection failed, falling back to SSE transport");
-  const sseTransport = new SSEClientTransport({
-    sseUrl: new URL("http://localhost:3000/sse"),
-    postUrl: new URL("http://localhost:3000/messages")
+  client = new Client({
+    name: 'sse-client',
+    version: '1.0.0'
   });
+  const sseTransport = new SSEClientTransport(baseUrl);
   await client.connect(sseTransport);
   console.log("Connected using SSE transport");
 }
