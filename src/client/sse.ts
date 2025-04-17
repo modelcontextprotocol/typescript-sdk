@@ -143,7 +143,8 @@ export class SSEClientTransport implements Transport {
         const messageEvent = event as MessageEvent;
 
         try {
-          this._endpoint = new URL(messageEvent.data, this._url);
+          const relativePath = messageEvent.data.replace(/^\/+/, '');
+          this._endpoint = new URL(relativePath, this._url);
           if (this._endpoint.origin !== this._url.origin) {
             throw new Error(
               `Endpoint origin does not match connection origin: ${this._endpoint.origin}`,
