@@ -34,10 +34,17 @@ export interface StreamableHTTPServerTransportOptions {
   /**
    * Function that generates a session ID for the transport.
    * The session ID SHOULD be globally unique and cryptographically secure (e.g., a securely generated UUID, a JWT, or a cryptographic hash)
-   * 
-   * Return undefined to disable session management.
+   *
+   * Not used in stateless mode.
    */
   sessionIdGenerator: (() => string) | undefined;
+
+  /**
+   * Whether to run in stateless mode (no session management).
+   * In stateless mode, no initialization is required and there's no session tracking.
+   * Default is false (stateful mode).
+   */
+  statelessMode?: boolean;
 
   /**
    * A callback for session initialization events
@@ -64,37 +71,39 @@ export interface StreamableHTTPServerTransportOptions {
 
 /**
  * Server transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
- * It supports both SSE streaming and direct HTTP responses.
- * 
+ * It supports both SSE streaming and direct HTTP responses.r
+ *
  * Usage example:
- * 
+ *
  * ```typescript
  * // Stateful mode - server sets the session ID
  * const statefulTransport = new StreamableHTTPServerTransport({
- *  sessionId: randomUUID(),
+ *   sessionIdGenerator: () => randomUUID(),
  * });
- * 
- * // Stateless mode - explicitly set session ID to undefined
+ *
+ * // Stateless mode - explicitly enable stateless mode
  * const statelessTransport = new StreamableHTTPServerTransport({
- *    sessionId: undefined,
+ *   statelessMode: true,
+ *   enableJsonResponse: true, // Optional
  * });
- * 
+ *
  * // Using with pre-parsed request body
  * app.post('/mcp', (req, res) => {
  *   transport.handleRequest(req, res, req.body);
  * });
  * ```
- * 
+ *
  * In stateful mode:
  * - Session ID is generated and included in response headers
  * - Session ID is always included in initialization responses
  * - Requests with invalid session IDs are rejected with 404 Not Found
  * - Non-initialization requests without a session ID are rejected with 400 Bad Request
  * - State is maintained in-memory (connections, message history)
- * 
+ *
  * In stateless mode:
- * - Session ID is only included in initialization responses
+ * - No initialization is required before handling requests
  * - No session validation is performed
+ * - No state is maintained between requests
  */
 export class StreamableHTTPServerTransport implements Transport {
   // when sessionId is not set (undefined), it means the transport is in stateless mode
@@ -108,6 +117,7 @@ export class StreamableHTTPServerTransport implements Transport {
   private _standaloneSseStreamId: string = '_GET_stream';
   private _eventStore?: EventStore;
   private _onsessioninitialized?: (sessionId: string) => void;
+  private _statelessMode: boolean = false;
 
   sessionId?: string | undefined;
   onclose?: () => void;
@@ -119,6 +129,12 @@ export class StreamableHTTPServerTransport implements Transport {
     this._enableJsonResponse = options.enableJsonResponse ?? false;
     this._eventStore = options.eventStore;
     this._onsessioninitialized = options.onsessioninitialized;
+    this._statelessMode = options.statelessMode ?? false;
+
+    // In stateless mode, no initialization is required
+    if (this._statelessMode) {
+      this._initialized = true;
+    }
   }
 
   /**
@@ -166,7 +182,7 @@ export class StreamableHTTPServerTransport implements Transport {
     }
 
     // If an Mcp-Session-Id is returned by the server during initialization,
-    // clients using the Streamable HTTP transport MUST include it 
+    // clients using the Streamable HTTP transport MUST include it
     // in the Mcp-Session-Id header on all of their subsequent HTTP requests.
     if (!this.validateSession(req, res)) {
       return;
@@ -180,7 +196,7 @@ export class StreamableHTTPServerTransport implements Transport {
       }
     }
 
-    // The server MUST either return Content-Type: text/event-stream in response to this HTTP GET, 
+    // The server MUST either return Content-Type: text/event-stream in response to this HTTP GET,
     // or else return HTTP 405 Method Not Allowed
     const headers: Record<string, string> = {
       "Content-Type": "text/event-stream",
@@ -376,7 +392,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
       }
       // If an Mcp-Session-Id is returned by the server during initialization,
-      // clients using the Streamable HTTP transport MUST include it 
+      // clients using the Streamable HTTP transport MUST include it
       // in the Mcp-Session-Id header on all of their subsequent HTTP requests.
       if (!isInitializationRequest && !this.validateSession(req, res)) {
         return;
@@ -475,11 +491,12 @@ export class StreamableHTTPServerTransport implements Transport {
       }));
       return false;
     }
-    if (this.sessionId === undefined) {
-      // If the session ID is not set, the session management is disabled
-      // and we don't need to validate the session ID
+
+    // If in stateless mode or the session ID is undefined, no session validation is needed
+    if (this._statelessMode || this.sessionId === undefined) {
       return true;
     }
+
     const sessionId = req.headers["mcp-session-id"];
 
     if (!sessionId) {
