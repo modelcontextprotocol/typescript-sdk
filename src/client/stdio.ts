@@ -2,7 +2,7 @@ import { ChildProcess, IOType } from "node:child_process";
 import spawn from "cross-spawn";
 import process from "node:process";
 import { Stream } from "node:stream";
-import { ReadBuffer, serializeMessage } from "../shared/stdio.js";
+import { ReadBuffer, StdioParseError, serializeMessage } from "../shared/stdio.js";
 import { Transport } from "../shared/transport.js";
 import { JSONRPCMessage } from "../types.js";
 
@@ -180,7 +180,13 @@ export class StdioClientTransport implements Transport {
 
         this.onmessage?.(message);
       } catch (error) {
-        this.onerror?.(error as Error);
+        if (error instanceof StdioParseError) {
+          // print bare line message
+          console.log(error.line);
+          continue;
+        } else {
+          this.onerror?.(error as Error);
+        }
       }
     }
   }
