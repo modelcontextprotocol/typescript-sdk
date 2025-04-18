@@ -71,12 +71,12 @@ export interface StreamableHTTPServerTransportOptions {
  * ```typescript
  * // Stateful mode - server sets the session ID
  * const statefulTransport = new StreamableHTTPServerTransport({
- *  sessionId: randomUUID(),
+ *   sessionIdGenerator: () => randomUUID(),
  * });
  * 
  * // Stateless mode - explicitly set session ID to undefined
  * const statelessTransport = new StreamableHTTPServerTransport({
- *    sessionId: undefined,
+ *   sessionIdGenerator: () => undefined,
  * });
  * 
  * // Using with pre-parsed request body
