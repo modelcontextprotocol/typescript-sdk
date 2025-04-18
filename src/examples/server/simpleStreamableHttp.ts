@@ -12,6 +12,21 @@ const server = new McpServer({
   version: '1.0.0',
 }, { capabilities: { logging: {} } });
 
+// Log the capability invocation details
+server.onCapabilityChange((event) => {
+  switch (event.action) {
+    case 'invoked':
+      console.log(`${event.capabilityType} invocation ${event.invocationIndex}: '${event.capabilityName}' started`);
+      break;
+    case 'completed':
+      console.log(`${event.capabilityType} invocation ${event.invocationIndex}: '${event.capabilityName}' completed in ${event.durationMs}ms`);
+      break;
+    case 'error':
+      console.log(`${event.capabilityType} invocation ${event.invocationIndex}: '${event.capabilityName}' failed in ${event.durationMs}ms: ${event.error}`);
+      break;
+  }
+});
+
 // Register a simple tool that returns a greeting
 server.tool(
   'greet',

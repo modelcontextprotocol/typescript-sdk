@@ -44,6 +44,7 @@ import { Completable, CompletableDef } from "./completable.js";
 import { UriTemplate, Variables } from "../shared/uriTemplate.js";
 import { RequestHandlerExtra } from "../shared/protocol.js";
 import { Transport } from "../shared/transport.js";
+import { createEventNotifier } from "../shared/eventNotifier.js";
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -63,6 +64,14 @@ export class McpServer {
   private _registeredTools: { [name: string]: RegisteredTool } = {};
   private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
 
+  private _onCapabilityChange = createEventNotifier<CapabilityEvent>();
+  /** Counter for unique resource invocation indexes, used to correlate resource invocation events */
+  private _resourceInvocationIndex = 0;
+  /** Counter for unique tool invocation indexes, used to correlate tool invocation events */
+  private _toolInvocationIndex = 0;
+  /** Counter for unique prompt invocation indexes, used to correlate prompt invocation events */
+  private _promptInvocationIndex = 0;
+
   constructor(serverInfo: Implementation, options?: ServerOptions) {
     this.server = new Server(serverInfo, options);
   }
@@ -80,8 +89,32 @@ export class McpServer {
    * Closes the connection.
    */
   async close(): Promise<void> {
+    this._onCapabilityChange.close();
     await this.server.close();
   }
+
+  /**
+   * Event notifier for capability changes. Listeners will be notified when capabilities are added, updated, removed,
+   * enabled, disabled, invoked, completed, or when errors occur.
+   *
+   * This provides a way to monitor and respond to all capability-related activities in the server,
+   * including both lifecycle changes and invocation events. Each capability type (resource, tool, prompt)
+   * maintains its own sequence of invocation indexes, which can be used to correlate invocations
+   * with their completions or errors.
+   *
+   * @example
+   * const subscription = server.onCapabilityChange((event) => {
+   *   if (event.action === "invoked") {
+   *     console.log(`${event.capabilityType} ${event.capabilityName} invoked with index ${event.invocationIndex}`);
+   *   } else if (event.action === "completed" || event.action === "error") {
+   *     console.log(`${event.capabilityType} operation completed in ${event.durationMs}ms`);
+   *   }
+   * });
+   *
+   * // Later, to stop listening:
+   * subscription.close();
+   */
+  public readonly onCapabilityChange = this._onCapabilityChange.onEvent;
 
   private _toolHandlersInitialized = false;
 
@@ -89,7 +122,7 @@ export class McpServer {
     if (this._toolHandlersInitialized) {
       return;
     }
-    
+
     this.server.assertCanSetRequestHandler(
       ListToolsRequestSchema.shape.method.value,
     );
@@ -135,11 +168,35 @@ export class McpServer {
           );
         }
 
+        const invocationIndex = this._toolInvocationIndex++;
+        const startTime = performance.now();
+
+        this._onCapabilityChange.notify(() => ({
+          serverInfo: this.server.getVersion(),
+          capabilityType: "tool",
+          capabilityName: request.params.name,
+          action: "invoked",
+          invocationIndex,
+          arguments: request.params.arguments,
+        }));
+
         if (!tool.enabled) {
-          throw new McpError(
+          const error = new McpError(
             ErrorCode.InvalidParams,
             `Tool ${request.params.name} disabled`,
           );
+
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "tool",
+            capabilityName: request.params.name,
+            action: "error",
+            invocationIndex,
+            error,
+            durationMs: performance.now() - startTime,
+          }));
+
+          throw error;
         }
 
         if (tool.inputSchema) {
@@ -147,17 +204,51 @@ export class McpServer {
             request.params.arguments,
           );
           if (!parseResult.success) {
-            throw new McpError(
+            const error = new McpError(
               ErrorCode.InvalidParams,
               `Invalid arguments for tool ${request.params.name}: ${parseResult.error.message}`,
             );
+
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "tool",
+              capabilityName: request.params.name,
+              action: "error",
+              invocationIndex,
+              error,
+              durationMs: performance.now() - startTime,
+            }));
+
+            throw error;
           }
 
           const args = parseResult.data;
           const cb = tool.callback as ToolCallback<ZodRawShape>;
           try {
-            return await Promise.resolve(cb(args, extra));
+            return await Promise.resolve(cb(args, extra)).then((result) => {
+              this._onCapabilityChange.notify(() => ({
+                serverInfo: this.server.getVersion(),
+                capabilityType: "tool",
+                capabilityName: request.params.name,
+                action: "completed",
+                invocationIndex,
+                result,
+                durationMs: performance.now() - startTime,
+              }));
+
+              return result;
+            });
           } catch (error) {
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "tool",
+              capabilityName: request.params.name,
+              action: "error",
+              invocationIndex,
+              error,
+              durationMs: performance.now() - startTime,
+            }));
+
             return {
               content: [
                 {
@@ -171,8 +262,30 @@ export class McpServer {
         } else {
           const cb = tool.callback as ToolCallback<undefined>;
           try {
-            return await Promise.resolve(cb(extra));
+            const result = await Promise.resolve(cb(extra));
+
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "tool",
+              capabilityName: request.params.name,
+              action: "completed",
+              invocationIndex,
+              result,
+              durationMs: performance.now() - startTime,
+            }));
+
+            return result;
           } catch (error) {
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "tool",
+              capabilityName: request.params.name,
+              action: "error",
+              invocationIndex,
+              error,
+              durationMs: performance.now() - startTime,
+            }));
+
             return {
               content: [
                 {
@@ -235,24 +348,79 @@ export class McpServer {
       );
     }
 
+    const invocationIndex = this._promptInvocationIndex++;
+    const startTime = performance.now();
+
+    this._onCapabilityChange.notify(() => ({
+      serverInfo: this.server.getVersion(),
+      capabilityType: "prompt",
+      capabilityName: ref.name,
+      action: "invoked",
+      invocationIndex,
+      arguments: request.params.argument.name,
+    }));
+
     if (!prompt.enabled) {
-      throw new McpError(
+      const error = new McpError(
         ErrorCode.InvalidParams,
         `Prompt ${ref.name} disabled`,
       );
+
+      this._onCapabilityChange.notify(() => ({
+        serverInfo: this.server.getVersion(),
+        capabilityType: "prompt",
+        capabilityName: ref.name,
+        action: "error",
+        invocationIndex,
+        error,
+        durationMs: performance.now() - startTime,
+      }));
+
+      throw error;
     }
 
     if (!prompt.argsSchema) {
+      this._onCapabilityChange.notify(() => ({
+        serverInfo: this.server.getVersion(),
+        capabilityType: "prompt",
+        capabilityName: ref.name,
+        action: "completed",
+        invocationIndex,
+        result: EMPTY_COMPLETION_RESULT,
+        durationMs: performance.now() - startTime,
+      }));
+
       return EMPTY_COMPLETION_RESULT;
     }
 
     const field = prompt.argsSchema.shape[request.params.argument.name];
     if (!(field instanceof Completable)) {
+      this._onCapabilityChange.notify(() => ({
+        serverInfo: this.server.getVersion(),
+        capabilityType: "prompt",
+        capabilityName: ref.name,
+        action: "completed",
+        invocationIndex,
+        result: EMPTY_COMPLETION_RESULT,
+        durationMs: performance.now() - startTime,
+      }));
+
       return EMPTY_COMPLETION_RESULT;
     }
 
     const def: CompletableDef<ZodString> = field._def;
     const suggestions = await def.complete(request.params.argument.value);
+
+    this._onCapabilityChange.notify(() => ({
+      serverInfo: this.server.getVersion(),
+      capabilityType: "prompt",
+      capabilityName: ref.name,
+      action: "completed",
+      invocationIndex,
+      result: suggestions,
+      durationMs: performance.now() - startTime,
+    }));
+
     return createCompletionResult(suggestions);
   }
 
@@ -264,8 +432,21 @@ export class McpServer {
       (t) => t.resourceTemplate.uriTemplate.toString() === ref.uri,
     );
 
+    const invocationIndex = this._resourceInvocationIndex++;
+    const startTime = performance.now();
+
     if (!template) {
       if (this._registeredResources[ref.uri]) {
+        this._onCapabilityChange.notify(() => ({
+          serverInfo: this.server.getVersion(),
+          capabilityType: "resource",
+          capabilityName: ref.uri,
+          action: "completed",
+          invocationIndex,
+          result: EMPTY_COMPLETION_RESULT,
+          durationMs: performance.now() - startTime,
+        }));
+
         // Attempting to autocomplete a fixed resource URI is not an error in the spec (but probably should be).
         return EMPTY_COMPLETION_RESULT;
       }
@@ -280,11 +461,46 @@ export class McpServer {
       request.params.argument.name,
     );
     if (!completer) {
+      this._onCapabilityChange.notify(() => ({
+        serverInfo: this.server.getVersion(),
+        capabilityType: "resource",
+        capabilityName: ref.uri,
+        action: "completed",
+        invocationIndex,
+        result: EMPTY_COMPLETION_RESULT,
+        durationMs: performance.now() - startTime,
+      }));
+
       return EMPTY_COMPLETION_RESULT;
     }
 
-    const suggestions = await completer(request.params.argument.value);
-    return createCompletionResult(suggestions);
+    try {
+      const suggestions = await completer(request.params.argument.value);
+
+      this._onCapabilityChange.notify(() => ({
+        serverInfo: this.server.getVersion(),
+        capabilityType: "resource",
+        capabilityName: ref.uri,
+        action: "completed",
+        invocationIndex,
+        result: suggestions,
+        durationMs: performance.now() - startTime,
+      }));
+
+      return createCompletionResult(suggestions);
+    } catch (error) {
+      this._onCapabilityChange.notify(() => ({
+        serverInfo: this.server.getVersion(),
+        capabilityType: "resource",
+        capabilityName: ref.uri,
+        action: "error",
+        invocationIndex,
+        error,
+        durationMs: performance.now() - startTime,
+      }));
+
+      throw error;
+    }
   }
 
   private _resourceHandlersInitialized = false;
@@ -367,13 +583,62 @@ export class McpServer {
         // First check for exact resource match
         const resource = this._registeredResources[uri.toString()];
         if (resource) {
+          const invocationIndex = this._resourceInvocationIndex++;
+          const startTime = performance.now();
+
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "resource",
+            capabilityName: uri.toString(),
+            action: "invoked",
+            invocationIndex,
+          }));
+
           if (!resource.enabled) {
-            throw new McpError(
+            const error = new McpError(
               ErrorCode.InvalidParams,
               `Resource ${uri} disabled`,
             );
+
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "resource",
+              capabilityName: uri.toString(),
+              action: "error",
+              invocationIndex,
+              error,
+              durationMs: performance.now() - startTime,
+            }));
+
+            throw error;
           }
-          return resource.readCallback(uri, extra);
+          try {
+            const result = await resource.readCallback(uri, extra);
+
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "resource",
+              capabilityName: uri.toString(),
+              action: "completed",
+              invocationIndex,
+              result,
+              durationMs: performance.now() - startTime,
+            }));
+
+            return result;
+          } catch (error) {
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "resource",
+              capabilityName: uri.toString(),
+              action: "error",
+              invocationIndex,
+              error,
+              durationMs: performance.now() - startTime,
+            }));
+
+            throw error;
+          }
         }
 
         // Then check templates
@@ -384,7 +649,44 @@ export class McpServer {
             uri.toString(),
           );
           if (variables) {
-            return template.readCallback(uri, variables, extra);
+            const invocationIndex = this._resourceInvocationIndex++;
+            const startTime = performance.now();
+
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "resource",
+              capabilityName: uri.toString(),
+              action: "invoked",
+              invocationIndex,
+            }));
+
+            try {
+              const result = await template.readCallback(uri, variables, extra);
+
+              this._onCapabilityChange.notify(() => ({
+                serverInfo: this.server.getVersion(),
+                capabilityType: "resource",
+                capabilityName: uri.toString(),
+                action: "completed",
+                invocationIndex,
+                result,
+                durationMs: performance.now() - startTime,
+              }));
+
+              return result;
+            } catch (error) {
+              this._onCapabilityChange.notify(() => ({
+                serverInfo: this.server.getVersion(),
+                capabilityType: "resource",
+                capabilityName: uri.toString(),
+                action: "error",
+                invocationIndex,
+                error,
+                durationMs: performance.now() - startTime,
+              }));
+
+              throw error;
+            }
           }
         }
 
@@ -396,7 +698,7 @@ export class McpServer {
     );
 
     this.setCompletionRequestHandler();
-    
+
     this._resourceHandlersInitialized = true;
   }
 
@@ -450,11 +752,35 @@ export class McpServer {
           );
         }
 
+        const invocationIndex = this._promptInvocationIndex++;
+        const startTime = performance.now();
+
+        this._onCapabilityChange.notify(() => ({
+          serverInfo: this.server.getVersion(),
+          capabilityType: "prompt",
+          capabilityName: request.params.name,
+          action: "invoked",
+          invocationIndex,
+          arguments: request.params.arguments,
+        }));
+
         if (!prompt.enabled) {
-          throw new McpError(
+          const error = new McpError(
             ErrorCode.InvalidParams,
             `Prompt ${request.params.name} disabled`,
           );
+
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "prompt",
+            capabilityName: request.params.name,
+            action: "error",
+            invocationIndex,
+            error,
+            durationMs: performance.now() - startTime,
+          }));
+
+          throw error;
         }
 
         if (prompt.argsSchema) {
@@ -462,24 +788,90 @@ export class McpServer {
             request.params.arguments,
           );
           if (!parseResult.success) {
-            throw new McpError(
+            const error = new McpError(
               ErrorCode.InvalidParams,
               `Invalid arguments for prompt ${request.params.name}: ${parseResult.error.message}`,
             );
+
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "prompt",
+              capabilityName: request.params.name,
+              action: "error",
+              invocationIndex,
+              error,
+              durationMs: performance.now() - startTime,
+            }));
+
+            throw error;
           }
 
           const args = parseResult.data;
           const cb = prompt.callback as PromptCallback<PromptArgsRawShape>;
-          return await Promise.resolve(cb(args, extra));
+
+          try {
+            const result = await Promise.resolve(cb(args, extra));
+
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "prompt",
+              capabilityName: request.params.name,
+              action: "completed",
+              invocationIndex,
+              result,
+              durationMs: performance.now() - startTime,
+            }));
+
+            return result;
+          } catch (error) {
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "prompt",
+              capabilityName: request.params.name,
+              action: "error",
+              invocationIndex,
+              error,
+              durationMs: performance.now() - startTime,
+            }));
+
+            throw error;
+          }
         } else {
           const cb = prompt.callback as PromptCallback<undefined>;
-          return await Promise.resolve(cb(extra));
+
+          try {
+            const result = await Promise.resolve(cb(extra));
+
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "prompt",
+              capabilityName: request.params.name,
+              action: "completed",
+              invocationIndex,
+              result,
+              durationMs: performance.now() - startTime,
+            }));
+
+            return result;
+          } catch (error) {
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "prompt",
+              capabilityName: request.params.name,
+              action: "error",
+              invocationIndex,
+              error,
+              durationMs: performance.now() - startTime,
+            }));
+
+            throw error;
+          }
         }
-      },
+      }
     );
 
     this.setCompletionRequestHandler();
-    
+
     this._promptHandlersInitialized = true;
   }
 
@@ -541,22 +933,127 @@ export class McpServer {
         metadata,
         readCallback: readCallback as ReadResourceCallback,
         enabled: true,
-        disable: () => registeredResource.update({ enabled: false }),
-        enable: () => registeredResource.update({ enabled: true }),
-        remove: () => registeredResource.update({ uri: null }),
+        disable: () => {
+          if (!registeredResource.enabled) return;
+
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "resource",
+            capabilityName: name,
+            action: "disabled",
+          }));
+
+          registeredResource.update({ enabled: false });
+        },
+        enable: () => {
+          if (registeredResource.enabled) return;
+
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "resource",
+            capabilityName: name,
+            action: "enabled",
+          }));
+
+          registeredResource.update({ enabled: true });
+        },
+        remove: () => {
+          if (uriOrTemplate === null) return;
+
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "resource",
+            capabilityName: name,
+            action: "removed",
+          }));
+
+          registeredResource.update({ uri: null });
+        },
         update: (updates) => {
-          if (typeof updates.uri !== "undefined" && updates.uri !== uriOrTemplate) {
-            delete this._registeredResources[uriOrTemplate]
-            if (updates.uri) this._registeredResources[updates.uri] = registeredResource
+          let added = false;
+          let removed = false;
+          let updated = false;
+          let enabled = false;
+
+          if (
+            typeof updates.uri !== "undefined" &&
+            updates.uri !== uriOrTemplate
+          ) {
+            removed = true;
+            delete this._registeredResources[uriOrTemplate];
+
+            if (updates.uri) {
+              added = true;
+              this._registeredResources[updates.uri] = registeredResource;
+            }
           }
-          if (typeof updates.name !== "undefined") registeredResource.name = updates.name
-          if (typeof updates.metadata !== "undefined") registeredResource.metadata = updates.metadata
-          if (typeof updates.callback !== "undefined") registeredResource.readCallback = updates.callback
-          if (typeof updates.enabled !== "undefined") registeredResource.enabled = updates.enabled
-          this.sendResourceListChanged()
+
+          if (typeof updates.name !== "undefined" && updates.name !== name) {
+            updated = true;
+            registeredResource.name = updates.name;
+          }
+
+          if (typeof updates.metadata !== "undefined" && updates.metadata !== metadata) {
+            updated = true;
+            registeredResource.metadata = updates.metadata;
+          }
+
+          if (typeof updates.callback !== "undefined" && updates.callback !== registeredResource.readCallback) {
+            updated = true;
+            registeredResource.readCallback = updates.callback;
+          }
+
+          if (typeof updates.enabled !== "undefined" && updates.enabled !== registeredResource.enabled) {
+            enabled = true;
+            registeredResource.enabled = updates.enabled;
+          }
+
+          if (removed) {
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "resource",
+              capabilityName: name,
+              action: "removed",
+            }));
+          }
+
+          if (added) {
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "resource",
+              capabilityName: registeredResource.name,
+              action: "added",
+            }));
+          }
+
+          if (updated) {
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "resource",
+              capabilityName: registeredResource.name,
+              action: "updated",
+            }));
+          }
+
+          if (enabled) {
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "resource",
+              capabilityName: registeredResource.name,
+              action: registeredResource.enabled ? "enabled" : "disabled",
+            }));
+          }
+          this.sendResourceListChanged();
         },
       };
       this._registeredResources[uriOrTemplate] = registeredResource;
+
+      this._onCapabilityChange.notify(() => ({
+        serverInfo: this.server.getVersion(),
+        capabilityType: "resource",
+        capabilityName: name,
+        action: "added",
+      }));
 
       this.setResourceRequestHandlers();
       this.sendResourceListChanged();
@@ -571,22 +1068,135 @@ export class McpServer {
         metadata,
         readCallback: readCallback as ReadResourceTemplateCallback,
         enabled: true,
-        disable: () => registeredResourceTemplate.update({ enabled: false }),
-        enable: () => registeredResourceTemplate.update({ enabled: true }),
-        remove: () => registeredResourceTemplate.update({ name: null }),
+        disable: () => {
+          if (!registeredResourceTemplate.enabled) return;
+
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "resource",
+            capabilityName: name,
+            action: "disabled",
+          }));
+
+          registeredResourceTemplate.update({ enabled: false });
+        },
+        enable: () => {
+          if (registeredResourceTemplate.enabled) return;
+
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "resource",
+            capabilityName: name,
+            action: "enabled",
+          }));
+
+          registeredResourceTemplate.update({ enabled: true });
+        },
+        remove: () => {
+          if (name === null) return;
+
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "resource",
+            capabilityName: name,
+            action: "removed",
+          }));
+
+          registeredResourceTemplate.update({ name: null });
+        },
         update: (updates) => {
+          let added = false;
+          let removed = false;
+          let updated = false;
+          let enabled = false;
+
           if (typeof updates.name !== "undefined" && updates.name !== name) {
-            delete this._registeredResourceTemplates[name]
-            if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate
+            removed = true;
+            delete this._registeredResourceTemplates[name];
+
+            if (updates.name) {
+              added = true;
+              this._registeredResourceTemplates[updates.name] =
+                registeredResourceTemplate;
+            }
           }
-          if (typeof updates.template !== "undefined") registeredResourceTemplate.resourceTemplate = updates.template
-          if (typeof updates.metadata !== "undefined") registeredResourceTemplate.metadata = updates.metadata
-          if (typeof updates.callback !== "undefined") registeredResourceTemplate.readCallback = updates.callback
-          if (typeof updates.enabled !== "undefined") registeredResourceTemplate.enabled = updates.enabled
-          this.sendResourceListChanged()
+
+          if (typeof updates.template !== "undefined" && updates.template !== registeredResourceTemplate.resourceTemplate) {
+            updated = true;
+            registeredResourceTemplate.resourceTemplate = updates.template;
+          }
+
+          if (
+            typeof updates.metadata !== "undefined" &&
+            updates.metadata !== metadata
+          ) {
+            updated = true;
+            registeredResourceTemplate.metadata = updates.metadata;
+          }
+
+          if (
+            typeof updates.callback !== "undefined" &&
+            updates.callback !== registeredResourceTemplate.readCallback
+          ) {
+            updated = true;
+            registeredResourceTemplate.readCallback = updates.callback;
+          }
+
+          if (
+            typeof updates.enabled !== "undefined" &&
+            updates.enabled !== registeredResourceTemplate.enabled
+          ) {
+          enabled = true;
+            registeredResourceTemplate.enabled = updates.enabled;
+          }
+
+          if (removed) {
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "resource",
+              capabilityName: name,
+              action: "removed",
+            }));
+          }
+
+          if (added) {
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "resource",
+              capabilityName: updates.name || name,
+              action: "added",
+            }));
+          }
+
+          if (updated) {
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "resource",
+              capabilityName: updates.name || name,
+              action: "updated",
+            }));
+          }
+
+          if (enabled) {
+            this._onCapabilityChange.notify(() => ({
+              serverInfo: this.server.getVersion(),
+              capabilityType: "resource",
+              capabilityName: updates.name || name,
+              action: registeredResourceTemplate.enabled ? "enabled" : "disabled",
+            }));
+          }
+
+          this.sendResourceListChanged();
         },
       };
       this._registeredResourceTemplates[name] = registeredResourceTemplate;
+
+      this._onCapabilityChange.notify(() => ({
+        serverInfo: this.server.getVersion(),
+        capabilityType: "resource",
+        capabilityName: name,
+        action: "added",
+      }));
 
       this.setResourceRequestHandlers();
       this.sendResourceListChanged();
@@ -645,22 +1255,137 @@ export class McpServer {
         paramsSchema === undefined ? undefined : z.object(paramsSchema),
       callback: cb,
       enabled: true,
-      disable: () => registeredTool.update({ enabled: false }),
-      enable: () => registeredTool.update({ enabled: true }),
-      remove: () => registeredTool.update({ name: null }),
+      disable: () => {
+        if (!registeredTool.enabled) return;
+
+        this._onCapabilityChange.notify(() => ({
+          serverInfo: this.server.getVersion(),
+          capabilityType: "tool",
+          capabilityName: name,
+          action: "disabled",
+        }));
+
+        registeredTool.update({ enabled: false });
+      },
+      enable: () => {
+        if (registeredTool.enabled) return;
+
+        this._onCapabilityChange.notify(() => ({
+          serverInfo: this.server.getVersion(),
+          capabilityType: "tool",
+          capabilityName: name,
+          action: "enabled",
+        }));
+
+        registeredTool.update({ enabled: true });
+      },
+      remove: () => {
+        if (name === null) return;
+
+        this._onCapabilityChange.notify(() => ({
+          serverInfo: this.server.getVersion(),
+          capabilityType: "tool",
+          capabilityName: name,
+          action: "removed",
+        }));
+
+        registeredTool.update({ name: null });
+      },
       update: (updates) => {
+        let added = false;
+        let removed = false;
+        let updated = false;
+        let enabled = false;
+
         if (typeof updates.name !== "undefined" && updates.name !== name) {
-          delete this._registeredTools[name]
-          if (updates.name) this._registeredTools[updates.name] = registeredTool
+          removed = true;
+          delete this._registeredTools[name];
+
+          if (updates.name) {
+            added = true;
+            this._registeredTools[updates.name] = registeredTool;
+          }
         }
-        if (typeof updates.description !== "undefined") registeredTool.description = updates.description
-        if (typeof updates.paramsSchema !== "undefined") registeredTool.inputSchema = z.object(updates.paramsSchema)
-        if (typeof updates.callback !== "undefined") registeredTool.callback = updates.callback
-        if (typeof updates.enabled !== "undefined") registeredTool.enabled = updates.enabled
-        this.sendToolListChanged()
+
+        if (
+          typeof updates.description !== "undefined" &&
+          updates.description !== description
+        ) {
+          updated = true;
+          registeredTool.description = updates.description;
+        }
+
+        if (
+          typeof updates.paramsSchema !== "undefined" &&
+          updates.paramsSchema !== paramsSchema
+        ) {
+          updated = true;
+          registeredTool.inputSchema = z.object(updates.paramsSchema);
+        }
+
+        if (
+          typeof updates.callback !== "undefined" &&
+          updates.callback !== registeredTool.callback
+        ) {
+          updated = true;
+          registeredTool.callback = updates.callback;
+        }
+
+        if (
+          typeof updates.enabled !== "undefined" &&
+          updates.enabled !== registeredTool.enabled
+        ) {
+          enabled = true;
+          registeredTool.enabled = updates.enabled;
+        }
+
+        if (removed) {
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "tool",
+            capabilityName: name,
+            action: "removed",
+          }));
+        }
+
+        if (added) {
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "tool",
+            capabilityName: updates.name || name,
+            action: "added",
+          }));
+        }
+
+        if (updated) {
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "tool",
+            capabilityName: updates.name || name,
+            action: "updated",
+          }));
+        }
+
+        if (enabled) {
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "tool",
+            capabilityName: updates.name || name,
+            action: registeredTool.enabled ? "enabled" : "disabled",
+          }));
+        }
+
+        this.sendToolListChanged();
       },
     };
     this._registeredTools[name] = registeredTool;
+
+    this._onCapabilityChange.notify(() => ({
+      serverInfo: this.server.getVersion(),
+      capabilityType: "tool",
+      capabilityName: name,
+      action: "added",
+    }));
 
     this.setToolRequestHandlers();
     this.sendToolListChanged()
@@ -718,22 +1443,137 @@ export class McpServer {
       argsSchema: argsSchema === undefined ? undefined : z.object(argsSchema),
       callback: cb,
       enabled: true,
-      disable: () => registeredPrompt.update({ enabled: false }),
-      enable: () => registeredPrompt.update({ enabled: true }),
-      remove: () => registeredPrompt.update({ name: null }),
+      disable: () => {
+        if (!registeredPrompt.enabled) return;
+
+        this._onCapabilityChange.notify(() => ({
+          serverInfo: this.server.getVersion(),
+          capabilityType: "prompt",
+          capabilityName: name,
+          action: "disabled",
+        }));
+
+        registeredPrompt.update({ enabled: false });
+      },
+      enable: () => {
+        if (registeredPrompt.enabled) return;
+
+        this._onCapabilityChange.notify(() => ({
+          serverInfo: this.server.getVersion(),
+          capabilityType: "prompt",
+          capabilityName: name,
+          action: "enabled",
+        }));
+
+        registeredPrompt.update({ enabled: true });
+      },
+      remove: () => {
+        if (name === null) return;
+
+        this._onCapabilityChange.notify(() => ({
+          serverInfo: this.server.getVersion(),
+          capabilityType: "prompt",
+          capabilityName: name,
+          action: "removed",
+        }));
+
+        registeredPrompt.update({ name: null });
+      },
       update: (updates) => {
+        let added = false;
+        let removed = false;
+        let updated = false;
+        let enabled = false;
+
         if (typeof updates.name !== "undefined" && updates.name !== name) {
-          delete this._registeredPrompts[name]
-          if (updates.name) this._registeredPrompts[updates.name] = registeredPrompt
+          removed = true;
+          delete this._registeredPrompts[name];
+
+          if (updates.name) {
+            added = true;
+            this._registeredPrompts[updates.name!] = registeredPrompt;
+          }
         }
-        if (typeof updates.description !== "undefined") registeredPrompt.description = updates.description
-        if (typeof updates.argsSchema !== "undefined") registeredPrompt.argsSchema = z.object(updates.argsSchema)
-        if (typeof updates.callback !== "undefined") registeredPrompt.callback = updates.callback
-        if (typeof updates.enabled !== "undefined") registeredPrompt.enabled = updates.enabled
-        this.sendPromptListChanged()
+
+        if (
+          typeof updates.description !== "undefined" &&
+          updates.description !== description
+        ) {
+          updated = true;
+          registeredPrompt.description = updates.description;
+        }
+
+        if (
+          typeof updates.argsSchema !== "undefined" &&
+          updates.argsSchema !== argsSchema
+        ) {
+          updated = true;
+          registeredPrompt.argsSchema = z.object(updates.argsSchema);
+        }
+
+        if (
+          typeof updates.callback !== "undefined" &&
+          updates.callback !== registeredPrompt.callback
+        ) {
+          updated = true;
+          registeredPrompt.callback = updates.callback;
+        }
+
+        if (
+          typeof updates.enabled !== "undefined" &&
+          updates.enabled !== registeredPrompt.enabled
+        ) {
+          enabled = true;
+          registeredPrompt.enabled = updates.enabled;
+        }
+
+        if (removed) {
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "prompt",
+            capabilityName: name,
+            action: "removed",
+          }));
+        }
+
+        if (added) {
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "prompt",
+            capabilityName: updates.name || name,
+            action: "added",
+          }));
+        }
+
+        if (updated) {
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "prompt",
+            capabilityName: updates.name || name,
+            action: "updated",
+          }));
+        }
+
+        if (enabled) {
+          this._onCapabilityChange.notify(() => ({
+            serverInfo: this.server.getVersion(),
+            capabilityType: "prompt",
+            capabilityName: updates.name || name,
+            action: registeredPrompt.enabled ? "enabled" : "disabled",
+          }));
+        }
+
+        this.sendPromptListChanged();
       },
     };
     this._registeredPrompts[name] = registeredPrompt;
+
+    this._onCapabilityChange.notify(() => ({
+      serverInfo: this.server.getVersion(),
+      capabilityType: "prompt",
+      capabilityName: name,
+      action: "added",
+    }));
 
     this.setPromptRequestHandlers();
     this.sendPromptListChanged()
@@ -970,3 +1810,72 @@ const EMPTY_COMPLETION_RESULT: CompleteResult = {
     hasMore: false,
   },
 };
+
+/**
+ * Represents events emitted when capabilities (tools, resources, prompts) change state or are invoked.
+ *
+ * These events allow tracking the lifecycle and usage of all capabilities registered with an McpServer.
+ * Events include capability registration, updates, invocation, completion, and errors.
+ *
+ * Each capability type (tool, resource, prompt) maintains its own sequence of invocation indexes.
+ * The invocationIndex can be used to correlate "invoked" events with their corresponding
+ * "completed" or "error" events for the same capability type.
+ */
+export type CapabilityEvent = {
+  /** Information about the server that generated this event */
+  readonly serverInfo: { readonly name: string; readonly version: string };
+  /** The type of capability this event relates to */
+  readonly capabilityType: "resource" | "tool" | "prompt";
+  /** The name (or URI for resources) of the specific capability */
+  readonly capabilityName: string;
+} & (
+  | {
+      /**
+       * Lifecycle events for capability registration and status changes.
+       * - "added": The capability was registered
+       * - "updated": The capability was modified
+       * - "removed": The capability was unregistered
+       * - "enabled": The capability was enabled
+       * - "disabled": The capability was disabled
+       */
+      readonly action: "added" | "updated" | "removed" | "enabled" | "disabled";
+    }
+  | {
+      /** Emitted when a capability is invoked */
+      readonly action: "invoked";
+      /**
+       * Monotonically increasing index for each invocation, per capability type.
+       * This index can be used to correlate this "invoked" event with a later
+       * "completed" or "error" event with the same capabilityType and invocationIndex.
+       */
+      readonly invocationIndex: number;
+      /** The arguments passed to the capability, if any */
+      readonly arguments?: unknown;
+    }
+  | {
+      /** Emitted when a capability invocation completes successfully */
+      readonly action: "completed";
+      /**
+       * The invocationIndex from the corresponding "invoked" event.
+       * This allows correlating the completion with its invocation.
+       */
+      readonly invocationIndex: number;
+      /** The result returned by the capability, if any */
+      readonly result?: unknown;
+      /** The duration of the operation in milliseconds, measured from invocation to completion */
+      readonly durationMs?: number;
+    }
+  | {
+      /** Emitted when a capability invocation fails with an error */
+      readonly action: "error";
+      /**
+       * The invocationIndex from the corresponding "invoked" event.
+       * This allows correlating the error with its invocation.
+       */
+      readonly invocationIndex: number;
+      /** The error that occurred during capability execution */
+      readonly error: unknown;
+      /** The duration from invocation to error in milliseconds */
+      readonly durationMs?: number;
+    }
+);
