@@ -493,6 +493,133 @@ describe("tool()", () => {
     expect(result.tools[0].name).toBe("test");
     expect(result.tools[0].description).toBe("Test description");
   });
+  
+  test("should register tool with annotations", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.tool("test", { title: "Test Tool", readOnlyHint: true }, async () => ({
+      content: [
+        {
+          type: "text",
+          text: "Test response",
+        },
+      ],
+    }));
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "tools/list",
+      },
+      ListToolsResultSchema,
+    );
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].name).toBe("test");
+    expect(result.tools[0].annotations).toEqual({ title: "Test Tool", readOnlyHint: true });
+  });
+  
+  test("should register tool with params and annotations", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.tool(
+      "test", 
+      { name: z.string() },
+      { title: "Test Tool", readOnlyHint: true },
+      async ({ name }) => ({
+        content: [{ type: "text", text: `Hello, ${name}!` }]
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].name).toBe("test");
+    expect(result.tools[0].inputSchema).toMatchObject({
+      type: "object",
+      properties: { name: { type: "string" } }
+    });
+    expect(result.tools[0].annotations).toEqual({ title: "Test Tool", readOnlyHint: true });
+  });
+  
+  test("should register tool with description, params, and annotations", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.tool(
+      "test", 
+      "A tool with everything",
+      { name: z.string() },
+      { title: "Complete Test Tool", readOnlyHint: true, openWorldHint: false },
+      async ({ name }) => ({
+        content: [{ type: "text", text: `Hello, ${name}!` }]
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].name).toBe("test");
+    expect(result.tools[0].description).toBe("A tool with everything");
+    expect(result.tools[0].inputSchema).toMatchObject({
+      type: "object",
+      properties: { name: { type: "string" } }
+    });
+    expect(result.tools[0].annotations).toEqual({ 
+      title: "Complete Test Tool", 
+      readOnlyHint: true,
+      openWorldHint: false
+    });
+  });
 
   test("should validate tool args", async () => {
     const mcpServer = new McpServer({

@@ -39,6 +39,7 @@ import {
   ReadResourceResult,
   ServerRequest,
   ServerNotification,
+  ToolAnnotations,
 } from "../types.js";
 import { Completable, CompletableDef } from "./completable.js";
 import { UriTemplate, Variables } from "../shared/uriTemplate.js";
@@ -118,6 +119,7 @@ export class McpServer {
                     strictUnions: true,
                   }) as Tool["inputSchema"])
                 : EMPTY_OBJECT_JSON_SCHEMA,
+              annotations: tool.annotations,
             };
           },
         ),
@@ -605,21 +607,51 @@ export class McpServer {
   tool(name: string, description: string, cb: ToolCallback): RegisteredTool;
 
   /**
-   * Registers a tool `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   * Registers a tool taking either a parameter schema for validation or annotations for additional metadata.
+   * This unified overload handles both `tool(name, paramsSchema, cb)` and `tool(name, annotations, cb)` cases.
+   * 
+   * Note: We use a union type for the second parameter because TypeScript cannot reliably disambiguate
+   * between ToolAnnotations and ZodRawShape during overload resolution, as both are plain object types.
    */
   tool<Args extends ZodRawShape>(
     name: string,
-    paramsSchema: Args,
+    paramsSchemaOrAnnotations: Args | ToolAnnotations,
     cb: ToolCallback<Args>,
   ): RegisteredTool;
 
   /**
-   * Registers a tool `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+   * Registers a tool `name` (with a description) taking either parameter schema or annotations.
+   * This unified overload handles both `tool(name, description, paramsSchema, cb)` and 
+   * `tool(name, description, annotations, cb)` cases.
+   * 
+   * Note: We use a union type for the third parameter because TypeScript cannot reliably disambiguate
+   * between ToolAnnotations and ZodRawShape during overload resolution, as both are plain object types.
+   */
+  tool<Args extends ZodRawShape>(
+    name: string,
+    description: string,
+    paramsSchemaOrAnnotations: Args | ToolAnnotations,
+    cb: ToolCallback<Args>,
+  ): RegisteredTool;
+  
+  /**
+   * Registers a tool with both parameter schema and annotations.
+   */
+  tool<Args extends ZodRawShape>(
+    name: string,
+    paramsSchema: Args,
+    annotations: ToolAnnotations,
+    cb: ToolCallback<Args>,
+  ): RegisteredTool;
+  
+  /**
+   * Registers a tool with description, parameter schema, and annotations.
    */
   tool<Args extends ZodRawShape>(
     name: string,
     description: string,
     paramsSchema: Args,
+    annotations: ToolAnnotations,
     cb: ToolCallback<Args>,
   ): RegisteredTool;
 
@@ -627,6 +659,13 @@ export class McpServer {
     if (this._registeredTools[name]) {
       throw new Error(`Tool ${name} is already registered`);
     }
+    
+    // Helper to check if an object is a Zod schema (ZodRawShape)
+    const isZodRawShape = (obj: unknown): obj is ZodRawShape => {
+      if (typeof obj !== "object" || obj === null) return false;
+      // Check that at least one property is a ZodType instance
+      return Object.values(obj as object).some(v => v instanceof ZodType);
+    };
 
     let description: string | undefined;
     if (typeof rest[0] === "string") {
@@ -634,8 +673,29 @@ export class McpServer {
     }
 
     let paramsSchema: ZodRawShape | undefined;
+    let annotations: ToolAnnotations | undefined;
+    
+    // Handle the different overload combinations
     if (rest.length > 1) {
-      paramsSchema = rest.shift() as ZodRawShape;
+      // We have at least two more args before the callback
+      const firstArg = rest[0];
+      
+      if (isZodRawShape(firstArg)) {
+        // We have a params schema as the first arg
+        paramsSchema = rest.shift() as ZodRawShape;
+        
+        // Check if the next arg is potentially annotations  
+        if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !(isZodRawShape(rest[0]))) {
+          // Case: tool(name, paramsSchema, annotations, cb)
+          // Or: tool(name, description, paramsSchema, annotations, cb)
+          annotations = rest.shift() as ToolAnnotations;
+        }
+      } else if (typeof firstArg === "object" && firstArg !== null) {
+        // Not a ZodRawShape, so must be annotations in this position
+        // Case: tool(name, annotations, cb)
+        // Or: tool(name, description, annotations, cb)
+        annotations = rest.shift() as ToolAnnotations;
+      }
     }
 
     const cb = rest[0] as ToolCallback<ZodRawShape | undefined>;
@@ -643,6 +703,7 @@ export class McpServer {
       description,
       inputSchema:
         paramsSchema === undefined ? undefined : z.object(paramsSchema),
+      annotations,
       callback: cb,
       enabled: true,
       disable: () => registeredTool.update({ enabled: false }),
@@ -656,6 +717,7 @@ export class McpServer {
         if (typeof updates.description !== "undefined") registeredTool.description = updates.description
         if (typeof updates.paramsSchema !== "undefined") registeredTool.inputSchema = z.object(updates.paramsSchema)
         if (typeof updates.callback !== "undefined") registeredTool.callback = updates.callback
+        if (typeof updates.annotations !== "undefined") registeredTool.annotations = updates.annotations
         if (typeof updates.enabled !== "undefined") registeredTool.enabled = updates.enabled
         this.sendToolListChanged()
       },
@@ -853,11 +915,12 @@ export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
 export type RegisteredTool = {
   description?: string;
   inputSchema?: AnyZodObject;
+  annotations?: ToolAnnotations;
   callback: ToolCallback<undefined | ZodRawShape>;
   enabled: boolean;
   enable(): void;
   disable(): void;
-  update<Args extends ZodRawShape>(updates: { name?: string | null, description?: string, paramsSchema?: Args, callback?: ToolCallback<Args>, enabled?: boolean }): void
+  update<Args extends ZodRawShape>(updates: { name?: string | null, description?: string, paramsSchema?: Args, callback?: ToolCallback<Args>, annotations?: ToolAnnotations, enabled?: boolean }): void
   remove(): void
 };
 
