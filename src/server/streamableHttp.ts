@@ -463,6 +463,11 @@ export class StreamableHTTPServerTransport implements Transport {
    * Returns true if the session is valid, false otherwise
    */
   private validateSession(req: IncomingMessage, res: ServerResponse): boolean {
+    if (this.sessionId === undefined) {
+      // If the session ID is not set, the session management is disabled
+      // and we don't need to validate the session ID
+      return true;
+    }
     if (!this._initialized) {
       // If the server has not been initialized yet, reject all requests
       res.writeHead(400).end(JSON.stringify({
@@ -475,11 +480,7 @@ export class StreamableHTTPServerTransport implements Transport {
       }));
       return false;
     }
-    if (this.sessionId === undefined) {
-      // If the session ID is not set, the session management is disabled
-      // and we don't need to validate the session ID
-      return true;
-    }
+
     const sessionId = req.headers["mcp-session-id"];
 
     if (!sessionId) {
