@@ -116,6 +116,12 @@ export type RequestHandlerExtra<SendRequestT extends Request,
     sessionId?: string;
 
     /**
+     * The JSON-RPC ID of the request being handled.
+     * This can be useful for tracking or logging purposes.
+     */
+    requestId: RequestId;
+
+    /**
      * Sends a notification that relates to the current request being handled.
      * 
      * This is used by certain transports to correctly associate related messages.
@@ -361,6 +367,7 @@ export abstract class Protocol<
       sendRequest: (r, resultSchema, options?) =>
         this.request(r, resultSchema, { ...options, relatedRequestId: request.id }),
       authInfo: extra?.authInfo,
+      requestId: request.id,
     };
 
     // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
