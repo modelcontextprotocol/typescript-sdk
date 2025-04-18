@@ -109,6 +109,44 @@ describe('Streamable HTTP Transport Session Management', () => {
       server.close();
     });
 
+    it('should support multiple client connections', async () => {
+      // Create and connect a client
+      const client1 = new Client({
+        name: 'test-client',
+        version: '1.0.0'
+      });
+
+      const transport1 = new StreamableHTTPClientTransport(baseUrl);
+      await client1.connect(transport1);
+
+      // Verify that no session ID was set
+      expect(transport1.sessionId).toBeUndefined();
+
+      // List available tools
+      await client1.request({
+        method: 'tools/list',
+        params: {}
+      }, ListToolsResultSchema);
+
+      const client2 = new Client({
+        name: 'test-client',
+        version: '1.0.0'
+      });
+
+      const transport2 = new StreamableHTTPClientTransport(baseUrl);
+      await client2.connect(transport2);
+
+      // Verify that no session ID was set
+      expect(transport2.sessionId).toBeUndefined();
+
+      // List available tools
+      await client1.request({
+        method: 'tools/list',
+        params: {}
+      }, ListToolsResultSchema);
+
+      
+    });
     it('should operate without session management', async () => {
       // Create and connect a client
       const client = new Client({

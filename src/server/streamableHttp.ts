@@ -343,7 +343,7 @@ export class StreamableHTTPServerTransport implements Transport {
       if (isInitializationRequest) {
         // If it's a server with session management and the session ID is already set we should reject the request
         // to avoid re-initialization.
-        if (this._initialized) {
+        if (this._initialized && this.sessionId !== undefined) {
           res.writeHead(400).end(JSON.stringify({
             jsonrpc: "2.0",
             error: {
