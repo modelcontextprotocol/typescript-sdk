@@ -313,16 +313,29 @@ const app = express();
 app.use(express.json());
 
 const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
-  sessionIdGenerator: undefined,
+  sessionIdGenerator: undefined, // set to undefined for stateless servers
 });
-await server.connect(transport);
+
+// Setup routes for the server
+const setupServer = async () => {
+  await server.connect(transport);
+};
 
 app.post('/mcp', async (req: Request, res: Response) => {
   console.log('Received MCP request:', req.body);
   try {
       await transport.handleRequest(req, res, req.body);
   } catch (error) {
-    // ... handle error
+    console.error('Error handling MCP request:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        jsonrpc: '2.0',
+        error: {
+          code: -32603,
+          message: 'Internal server error',
+        },
+        id: null,
+      });
     }
   }
 });
@@ -353,8 +366,13 @@ app.delete('/mcp', async (req: Request, res: Response) => {
 
 // Start the server
 const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`Stateless MCP Streamable HTTP Server listening on port ${PORT}`);
+setupServer().then(() => {
+  app.listen(PORT, () => {
+    console.log(`MCP Streamable HTTP Server listening on port ${PORT}`);
+  });
+}).catch(error => {
+  console.error('Failed to set up the server:', error);
+  process.exit(1);
 });
 
 ```

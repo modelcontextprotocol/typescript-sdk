@@ -96,7 +96,11 @@ app.use(express.json());
 const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
   sessionIdGenerator: undefined,
 });
-await server.connect(transport);
+
+// Setup routes for the server
+const setupServer = async () => {
+  await server.connect(transport);
+};
 
 app.post('/mcp', async (req: Request, res: Response) => {
   console.log('Received MCP request:', req.body);
@@ -143,8 +147,13 @@ app.delete('/mcp', async (req: Request, res: Response) => {
 
 // Start the server
 const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`MCP Streamable HTTP Server listening on port ${PORT}`);
+setupServer().then(() => {
+  app.listen(PORT, () => {
+    console.log(`MCP Streamable HTTP Server listening on port ${PORT}`);
+  });
+}).catch(error => {
+  console.error('Failed to set up the server:', error);
+  process.exit(1);
 });
 
 // Handle server shutdown
