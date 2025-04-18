@@ -78,6 +78,9 @@ export const JSONRPCRequestSchema = z
   .merge(RequestSchema)
   .strict();
 
+export const isJSONRPCRequest = (value: unknown): value is JSONRPCRequest =>
+  JSONRPCRequestSchema.safeParse(value).success;
+
 /**
  * A notification which does not expect a response.
  */
@@ -87,6 +90,11 @@ export const JSONRPCNotificationSchema = z
   })
   .merge(NotificationSchema)
   .strict();
+
+export const isJSONRPCNotification = (
+  value: unknown
+): value is JSONRPCNotification =>
+  JSONRPCNotificationSchema.safeParse(value).success;
 
 /**
  * A successful (non-error) response to a request.
@@ -98,6 +106,9 @@ export const JSONRPCResponseSchema = z
     result: ResultSchema,
   })
   .strict();
+
+export const isJSONRPCResponse = (value: unknown): value is JSONRPCResponse =>
+  JSONRPCResponseSchema.safeParse(value).success;
 
 /**
  * Error codes defined by the JSON-RPC specification.
@@ -138,6 +149,9 @@ export const JSONRPCErrorSchema = z
     }),
   })
   .strict();
+
+export const isJSONRPCError = (value: unknown): value is JSONRPCError =>
+  JSONRPCErrorSchema.safeParse(value).success;
 
 export const JSONRPCMessageSchema = z.union([
   JSONRPCRequestSchema,
@@ -234,6 +248,10 @@ export const InitializeRequestSchema = RequestSchema.extend({
   }),
 });
 
+export const isInitializeRequest = (value: unknown): value is InitializeRequest =>
+  InitializeRequestSchema.safeParse(value).success;
+
+
 /**
  * Capabilities that a server may support. Known capabilities are defined here, in this schema, but this is not a closed set: any server can define its own, additional capabilities.
  */
@@ -322,6 +340,9 @@ export const InitializeResultSchema = ResultSchema.extend({
 export const InitializedNotificationSchema = NotificationSchema.extend({
   method: z.literal("notifications/initialized"),
 });
+
+export const isInitializedNotification = (value: unknown): value is InitializedNotification =>
+  InitializedNotificationSchema.safeParse(value).success;
 
 /* Ping */
 /**

@@ -1,10 +1,31 @@
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Transport } from "../shared/transport.js";
-import { JSONRPCMessage, JSONRPCMessageSchema, RequestId } from "../types.js";
+import { isInitializeRequest, isJSONRPCError, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema, RequestId } from "../types.js";
 import getRawBody from "raw-body";
 import contentType from "content-type";
+import { randomUUID } from "node:crypto";
 
 const MAXIMUM_MESSAGE_SIZE = "4mb";
+
+export type StreamId = string;
+export type EventId = string;
+
+/**
+ * Interface for resumability support via event storage
+ */
+export interface EventStore {
+  /**
+   * Stores an event for later retrieval
+   * @param streamId ID of the stream the event belongs to
+   * @param message The JSON-RPC message to store
+   * @returns The generated event ID for the stored event
+   */
+  storeEvent(streamId: StreamId, message: JSONRPCMessage): Promise<EventId>;
+
+  replayEventsAfter(lastEventId: EventId, { send }: {
+    send: (eventId: EventId, message: JSONRPCMessage) => Promise<void>
+  }): Promise<StreamId>;
+}
 
 /**
  * Configuration options for StreamableHTTPServerTransport
@@ -16,10 +37,29 @@ export interface StreamableHTTPServerTransportOptions {
    * 
    * Return undefined to disable session management.
    */
-  sessionIdGenerator: () => string | undefined;
+  sessionIdGenerator: (() => string) | undefined;
 
+  /**
+   * A callback for session initialization events
+   * This is called when the server initializes a new session.
+   * Useful in cases when you need to register multiple mcp sessions
+   * and need to keep track of them.
+   * @param sessionId The generated session ID
+   */
+  onsessioninitialized?: (sessionId: string) => void;
 
+  /**
+   * If true, the server will return JSON responses instead of starting an SSE stream.
+   * This can be useful for simple request/response scenarios without streaming.
+   * Default is false (SSE streams are preferred).
+   */
+  enableJsonResponse?: boolean;
 
+  /**
+   * Event store for resumability support
+   * If provided, resumability will be enabled, allowing clients to reconnect and resume messages
+   */
+  eventStore?: EventStore;
 }
 
 /**
@@ -58,10 +98,16 @@ export interface StreamableHTTPServerTransportOptions {
  */
 export class StreamableHTTPServerTransport implements Transport {
   // when sessionId is not set (undefined), it means the transport is in stateless mode
-  private sessionIdGenerator: () => string | undefined;
+  private sessionIdGenerator: (() => string) | undefined;
   private _started: boolean = false;
-  private _sseResponseMapping: Map<RequestId, ServerResponse> = new Map();
+  private _streamMapping: Map<string, ServerResponse> = new Map();
+  private _requestToStreamMapping: Map<RequestId, string> = new Map();
+  private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
   private _initialized: boolean = false;
+  private _enableJsonResponse: boolean = false;
+  private _standaloneSseStreamId: string = '_GET_stream';
+  private _eventStore?: EventStore;
+  private _onsessioninitialized?: (sessionId: string) => void;
 
   sessionId?: string | undefined;
   onclose?: () => void;
@@ -70,6 +116,9 @@ export class StreamableHTTPServerTransport implements Transport {
 
   constructor(options: StreamableHTTPServerTransportOptions) {
     this.sessionIdGenerator = options.sessionIdGenerator;
+    this._enableJsonResponse = options.enableJsonResponse ?? false;
+    this._eventStore = options.eventStore;
+    this._onsessioninitialized = options.onsessioninitialized;
   }
 
   /**
@@ -89,6 +138,8 @@ export class StreamableHTTPServerTransport implements Transport {
   async handleRequest(req: IncomingMessage, res: ServerResponse, parsedBody?: unknown): Promise<void> {
     if (req.method === "POST") {
       await this.handlePostRequest(req, res, parsedBody);
+    } else if (req.method === "GET") {
+      await this.handleGetRequest(req, res);
     } else if (req.method === "DELETE") {
       await this.handleDeleteRequest(req, res);
     } else {
@@ -97,12 +148,131 @@ export class StreamableHTTPServerTransport implements Transport {
   }
 
   /**
-   * Handles unsupported requests (GET, PUT, PATCH, etc.)
-   * For now we support only POST and DELETE requests. Support for GET for SSE connections will be added later.
+   * Handles GET requests for SSE stream
+   */
+  private async handleGetRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // The client MUST include an Accept header, listing text/event-stream as a supported content type.
+    const acceptHeader = req.headers.accept;
+    if (!acceptHeader?.includes("text/event-stream")) {
+      res.writeHead(406).end(JSON.stringify({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: "Not Acceptable: Client must accept text/event-stream"
+        },
+        id: null
+      }));
+      return;
+    }
+
+    // If an Mcp-Session-Id is returned by the server during initialization,
+    // clients using the Streamable HTTP transport MUST include it 
+    // in the Mcp-Session-Id header on all of their subsequent HTTP requests.
+    if (!this.validateSession(req, res)) {
+      return;
+    }
+    // Handle resumability: check for Last-Event-ID header
+    if (this._eventStore) {
+      const lastEventId = req.headers['last-event-id'] as string | undefined;
+      if (lastEventId) {
+        await this.replayEvents(lastEventId, res);
+        return;
+      }
+    }
+
+    // The server MUST either return Content-Type: text/event-stream in response to this HTTP GET, 
+    // or else return HTTP 405 Method Not Allowed
+    const headers: Record<string, string> = {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    };
+
+    // After initialization, always include the session ID if we have one
+    if (this.sessionId !== undefined) {
+      headers["mcp-session-id"] = this.sessionId;
+    }
+
+    // Check if there's already an active standalone SSE stream for this session
+    if (this._streamMapping.get(this._standaloneSseStreamId) !== undefined) {
+      // Only one GET SSE stream is allowed per session
+      res.writeHead(409).end(JSON.stringify({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: "Conflict: Only one SSE stream is allowed per session"
+        },
+        id: null
+      }));
+      return;
+    }
+
+    // We need to send headers immediately as messages will arrive much later,
+    // otherwise the client will just wait for the first message
+    res.writeHead(200, headers).flushHeaders();
+
+    // Assign the response to the standalone SSE stream
+    this._streamMapping.set(this._standaloneSseStreamId, res);
+    // Set up close handler for client disconnects
+    res.on("close", () => {
+      this._streamMapping.delete(this._standaloneSseStreamId);
+    });
+  }
+
+  /**
+   * Replays events that would have been sent after the specified event ID
+   * Only used when resumability is enabled
+   */
+  private async replayEvents(lastEventId: string, res: ServerResponse): Promise<void> {
+    if (!this._eventStore) {
+      return;
+    }
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      };
+
+      if (this.sessionId !== undefined) {
+        headers["mcp-session-id"] = this.sessionId;
+      }
+      res.writeHead(200, headers).flushHeaders();
+
+      const streamId = await this._eventStore?.replayEventsAfter(lastEventId, {
+        send: async (eventId: string, message: JSONRPCMessage) => {
+          if (!this.writeSSEEvent(res, message, eventId)) {
+            this.onerror?.(new Error("Failed replay events"));
+            res.end();
+          }
+        }
+      });
+      this._streamMapping.set(streamId, res);
+    } catch (error) {
+      this.onerror?.(error as Error);
+    }
+  }
+
+  /**
+   * Writes an event to the SSE stream with proper formatting
+   */
+  private writeSSEEvent(res: ServerResponse, message: JSONRPCMessage, eventId?: string): boolean {
+    let eventData = `event: message\n`;
+    // Include event ID if provided - this is important for resumability
+    if (eventId) {
+      eventData += `id: ${eventId}\n`;
+    }
+    eventData += `data: ${JSON.stringify(message)}\n\n`;
+
+    return res.write(eventData);
+  }
+
+  /**
+   * Handles unsupported requests (PUT, PATCH, etc.)
    */
   private async handleUnsupportedRequest(res: ServerResponse): Promise<void> {
     res.writeHead(405, {
-      "Allow": "POST, DELETE"
+      "Allow": "GET, POST, DELETE"
     }).end(JSON.stringify({
       jsonrpc: "2.0",
       error: {
@@ -169,11 +339,11 @@ export class StreamableHTTPServerTransport implements Transport {
 
       // Check if this is an initialization request
       // https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle/
-      const isInitializationRequest = messages.some(
-        msg => 'method' in msg && msg.method === 'initialize'
-      );
+      const isInitializationRequest = messages.some(isInitializeRequest);
       if (isInitializationRequest) {
-        if (this._initialized) {
+        // If it's a server with session management and the session ID is already set we should reject the request
+        // to avoid re-initialization.
+        if (this._initialized && this.sessionId !== undefined) {
           res.writeHead(400).end(JSON.stringify({
             jsonrpc: "2.0",
             error: {
@@ -195,8 +365,14 @@ export class StreamableHTTPServerTransport implements Transport {
           }));
           return;
         }
-        this.sessionId = this.sessionIdGenerator();
+        this.sessionId = this.sessionIdGenerator?.();
         this._initialized = true;
+
+        // If we have a session ID and an onsessioninitialized handler, call it immediately
+        // This is needed in cases where the server needs to keep track of multiple sessions
+        if (this.sessionId && this._onsessioninitialized) {
+          this._onsessioninitialized(this.sessionId);
+        }
 
       }
       // If an Mcp-Session-Id is returned by the server during initialization,
@@ -208,11 +384,9 @@ export class StreamableHTTPServerTransport implements Transport {
 
 
       // check if it contains requests
-      const hasRequests = messages.some(msg => 'method' in msg && 'id' in msg);
-      const hasOnlyNotificationsOrResponses = messages.every(msg =>
-        ('method' in msg && !('id' in msg)) || ('result' in msg || 'error' in msg));
+      const hasRequests = messages.some(isJSONRPCRequest);
 
-      if (hasOnlyNotificationsOrResponses) {
+      if (!hasRequests) {
         // if it only contains notifications or responses, return 202
         res.writeHead(202).end();
 
@@ -221,35 +395,34 @@ export class StreamableHTTPServerTransport implements Transport {
           this.onmessage?.(message);
         }
       } else if (hasRequests) {
-        const headers: Record<string, string> = {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        };
+        // The default behavior is to use SSE streaming
+        // but in some cases server will return JSON responses
+        const streamId = randomUUID();
+        if (!this._enableJsonResponse) {
+          const headers: Record<string, string> = {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+          };
 
-        // After initialization, always include the session ID if we have one
-        if (this.sessionId !== undefined) {
-          headers["mcp-session-id"] = this.sessionId;
+          // After initialization, always include the session ID if we have one
+          if (this.sessionId !== undefined) {
+            headers["mcp-session-id"] = this.sessionId;
+          }
+
+          res.writeHead(200, headers);
         }
-
-        res.writeHead(200, headers);
-
         // Store the response for this request to send messages back through this connection
         // We need to track by request ID to maintain the connection
         for (const message of messages) {
-          if ('method' in message && 'id' in message) {
-            this._sseResponseMapping.set(message.id, res);
+          if (isJSONRPCRequest(message)) {
+            this._streamMapping.set(streamId, res);
+            this._requestToStreamMapping.set(message.id, streamId);
           }
         }
-
         // Set up close handler for client disconnects
         res.on("close", () => {
-          // Remove all entries that reference this response
-          for (const [id, storedRes] of this._sseResponseMapping.entries()) {
-            if (storedRes === res) {
-              this._sseResponseMapping.delete(id);
-            }
-          }
+          this._streamMapping.delete(streamId);
         });
 
         // handle each message
@@ -350,41 +523,111 @@ export class StreamableHTTPServerTransport implements Transport {
 
   async close(): Promise<void> {
     // Close all SSE connections
-    this._sseResponseMapping.forEach((response) => {
+    this._streamMapping.forEach((response) => {
       response.end();
     });
-    this._sseResponseMapping.clear();
+    this._streamMapping.clear();
+
+    // Clear any pending responses
+    this._requestResponseMap.clear();
     this.onclose?.();
   }
 
   async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void> {
     let requestId = options?.relatedRequestId;
-    if ('result' in message || 'error' in message) {
+    if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
       // If the message is a response, use the request ID from the message
       requestId = message.id;
     }
+
+    // Check if this message should be sent on the standalone SSE stream (no request ID)
+    // Ignore notifications from tools (which have relatedRequestId set)
+    // Those will be sent via dedicated response SSE streams
     if (requestId === undefined) {
-      throw new Error("No request ID provided for the message");
+      // For standalone SSE streams, we can only send requests and notifications
+      if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
+        throw new Error("Cannot send a response on a standalone SSE stream unless resuming a previous client request");
+      }
+      const standaloneSse = this._streamMapping.get(this._standaloneSseStreamId)
+      if (standaloneSse === undefined) {
+        // The spec says the server MAY send messages on the stream, so it's ok to discard if no stream
+        return;
+      }
+
+      // Generate and store event ID if event store is provided
+      let eventId: string | undefined;
+      if (this._eventStore) {
+        // Stores the event and gets the generated event ID
+        eventId = await this._eventStore.storeEvent(this._standaloneSseStreamId, message);
+      }
+
+      // Send the message to the standalone SSE stream
+      this.writeSSEEvent(standaloneSse, message, eventId);
+      return;
     }
 
-    const sseResponse = this._sseResponseMapping.get(requestId);
-    if (!sseResponse) {
-      throw new Error(`No SSE connection established for request ID: ${String(requestId)}`);
+    // Get the response for this request
+    const streamId = this._requestToStreamMapping.get(requestId);
+    const response = this._streamMapping.get(streamId!);
+    if (!streamId) {
+      throw new Error(`No connection established for request ID: ${String(requestId)}`);
     }
 
-    // Send the message as an SSE event
-    sseResponse.write(
-      `event: message\ndata: ${JSON.stringify(message)}\n\n`,
-    );
-    // After all JSON-RPC responses have been sent, the server SHOULD close the SSE stream.
-    if ('result' in message || 'error' in message) {
-      this._sseResponseMapping.delete(requestId);
-      // Only close the connection if it's not needed by other requests
-      const canCloseConnection = ![...this._sseResponseMapping.entries()].some(([id, res]) => res === sseResponse && id !== requestId);
-      if (canCloseConnection) {
-        sseResponse?.end();
+    if (!this._enableJsonResponse) {
+      // For SSE responses, generate event ID if event store is provided
+      let eventId: string | undefined;
+
+      if (this._eventStore) {
+        eventId = await this._eventStore.storeEvent(streamId, message);
+      }
+      if (response) {
+        // Write the event to the response stream
+        this.writeSSEEvent(response, message, eventId);
+      }
+    }
+
+    if (isJSONRPCResponse(message)) {
+      this._requestResponseMap.set(requestId, message);
+      const relatedIds = Array.from(this._requestToStreamMapping.entries())
+        .filter(([_, streamId]) => this._streamMapping.get(streamId) === response)
+        .map(([id]) => id);
+
+      // Check if we have responses for all requests using this connection
+      const allResponsesReady = relatedIds.every(id => this._requestResponseMap.has(id));
+
+      if (allResponsesReady) {
+        if (!response) {
+          throw new Error(`No connection established for request ID: ${String(requestId)}`);
+        }
+        if (this._enableJsonResponse) {
+          // All responses ready, send as JSON
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+          };
+          if (this.sessionId !== undefined) {
+            headers['mcp-session-id'] = this.sessionId;
+          }
+
+          const responses = relatedIds
+            .map(id => this._requestResponseMap.get(id)!);
+
+          response.writeHead(200, headers);
+          if (responses.length === 1) {
+            response.end(JSON.stringify(responses[0]));
+          } else {
+            response.end(JSON.stringify(responses));
+          }
+        } else {
+          // End the SSE stream
+          response.end();
+        }
+        // Clean up
+        for (const id of relatedIds) {
+          this._requestResponseMap.delete(id);
+          this._requestToStreamMapping.delete(id);
+        }
       }
     }
   }
+}
 
-} 

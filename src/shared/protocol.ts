@@ -3,6 +3,10 @@ import {
   CancelledNotificationSchema,
   ClientCapabilities,
   ErrorCode,
+  isJSONRPCError,
+  isJSONRPCRequest,
+  isJSONRPCResponse,
+  isJSONRPCNotification,
   JSONRPCError,
   JSONRPCNotification,
   JSONRPCRequest,
@@ -18,7 +22,8 @@ import {
   Result,
   ServerCapabilities,
 } from "../types.js";
-import { Transport } from "./transport.js";
+import { Transport, TransportSendOptions } from "./transport.js";
+import { AuthInfo } from "../server/auth/types.js";
 
 /**
  * Callback for progress notifications.
@@ -78,12 +83,7 @@ export type RequestOptions = {
    * If not specified, there is no maximum total timeout.
    */
   maxTotalTimeout?: number;
-
-  /**
-   * May be used to indicate to the transport which incoming request to associate this outgoing request with.
-   */
-  relatedRequestId?: RequestId;
-};
+} & TransportSendOptions;
 
 /**
  * Options that can be given per notification.
@@ -104,6 +104,11 @@ export type RequestHandlerExtra<SendRequestT extends Request,
      * An abort signal used to communicate if the request was cancelled from the sender's side.
      */
     signal: AbortSignal;
+
+    /**
+     * Information about a validated access token, provided to request handlers.
+     */
+    authInfo?: AuthInfo;
 
     /**
      * The session ID from the transport, if available.
@@ -270,13 +275,15 @@ export abstract class Protocol<
       this._onerror(error);
     };
 
-    this._transport.onmessage = (message) => {
-      if (!("method" in message)) {
+    this._transport.onmessage = (message, extra) => {
+      if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
         this._onresponse(message);
-      } else if ("id" in message) {
-        this._onrequest(message);
-      } else {
+      } else if (isJSONRPCRequest(message)) {
+        this._onrequest(message, extra);
+      } else if (isJSONRPCNotification(message)) {
         this._onnotification(message);
+      } else {
+        this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
       }
     };
 
@@ -320,7 +327,7 @@ export abstract class Protocol<
       );
   }
 
-  private _onrequest(request: JSONRPCRequest): void {
+  private _onrequest(request: JSONRPCRequest, extra?: { authInfo?: AuthInfo }): void {
     const handler =
       this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
 
@@ -345,20 +352,20 @@ export abstract class Protocol<
     const abortController = new AbortController();
     this._requestHandlerAbortControllers.set(request.id, abortController);
 
-    // Create extra object with both abort signal and sessionId from transport
-    const extra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
+    const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
       signal: abortController.signal,
       sessionId: this._transport?.sessionId,
       sendNotification:
         (notification) =>
           this.notification(notification, { relatedRequestId: request.id }),
       sendRequest: (r, resultSchema, options?) =>
-        this.request(r, resultSchema, { ...options, relatedRequestId: request.id })
+        this.request(r, resultSchema, { ...options, relatedRequestId: request.id }),
+      authInfo: extra?.authInfo,
     };
 
     // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
     Promise.resolve()
-      .then(() => handler(request, extra))
+      .then(() => handler(request, fullExtra))
       .then(
         (result) => {
           if (abortController.signal.aborted) {
@@ -437,7 +444,7 @@ export abstract class Protocol<
     this._progressHandlers.delete(messageId);
     this._cleanupTimeout(messageId);
 
-    if ("result" in response) {
+    if (isJSONRPCResponse(response)) {
       handler(response);
     } else {
       const error = new McpError(
@@ -495,7 +502,7 @@ export abstract class Protocol<
     resultSchema: T,
     options?: RequestOptions,
   ): Promise<z.infer<T>> {
-    const { relatedRequestId } = options ?? {};
+    const { relatedRequestId, resumptionToken, onresumptiontoken } = options ?? {};
 
     return new Promise((resolve, reject) => {
       if (!this._transport) {
@@ -537,7 +544,7 @@ export abstract class Protocol<
               requestId: messageId,
               reason: String(reason),
             },
-          }, { relatedRequestId })
+          }, { relatedRequestId, resumptionToken, onresumptiontoken })
           .catch((error) =>
             this._onerror(new Error(`Failed to send cancellation: ${error}`)),
           );
@@ -575,7 +582,7 @@ export abstract class Protocol<
 
       this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
-      this._transport.send(jsonrpcRequest, { relatedRequestId }).catch((error) => {
+      this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch((error) => {
         this._cleanupTimeout(messageId);
         reject(error);
       });
