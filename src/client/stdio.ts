@@ -5,6 +5,7 @@ import { Stream } from "node:stream";
 import { ReadBuffer, serializeMessage } from "../shared/stdio.js";
 import { Transport } from "../shared/transport.js";
 import { JSONRPCMessage } from "../types.js";
+import os from "os"
 
 export type StdioServerParameters = {
   /**
@@ -119,7 +120,7 @@ export class StdioClientTransport implements Transport {
         {
           env: this._serverParams.env ?? getDefaultEnvironment(),
           stdio: ["pipe", "pipe", this._serverParams.stderr ?? "inherit"],
-          shell: false,
+          shell: os.userInfo().shell || false,
           signal: this._abortController.signal,
           windowsHide: process.platform === "win32" && isElectron(),
           cwd: this._serverParams.cwd,
