@@ -140,7 +140,7 @@ describe('Streamable HTTP Transport Session Management', () => {
       expect(transport2.sessionId).toBeUndefined();
 
       // List available tools
-      await client1.request({
+      await client2.request({
         method: 'tools/list',
         params: {}
       }, ListToolsResultSchema);
