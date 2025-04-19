@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
-import { ReadResourceResult } from '../../types.js';
+import { isInitializeRequest, ReadResourceResult } from '../../types.js';
 
 // Create an MCP server with implementation details
 const server = new McpServer({
@@ -52,17 +52,19 @@ app.post('/mcp', async (req: Request, res: Response) => {
       // New initialization request
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (sessionId) => {
+          // Store the transport by session ID when session is initialized
+          // This avoids race conditions where requests might come in before the session is stored
+          console.log(`Session initialized with ID: ${sessionId}`);
+          transports[sessionId] = transport;
+        }
       });
 
       // Connect the transport to the MCP server
       await server.connect(transport);
 
+      // Handle the request - the onsessioninitialized callback will store the transport
       await transport.handleRequest(req, res, req.body);
-
-      // Store the transport by session ID for future requests
-      if (transport.sessionId) {
-        transports[transport.sessionId] = transport;
-      }
       return; // Already handled
     } else {
       // Invalid request - no session ID or not initialization request
@@ -107,13 +109,6 @@ app.get('/mcp', async (req: Request, res: Response) => {
   await transport.handleRequest(req, res);
 });
 
-// Helper function to detect initialize requests
-function isInitializeRequest(body: unknown): boolean {
-  if (Array.isArray(body)) {
-    return body.some(msg => typeof msg === 'object' && msg !== null && 'method' in msg && msg.method === 'initialize');
-  }
-  return typeof body === 'object' && body !== null && 'method' in body && body.method === 'initialize';
-}
 
 // Start the server
 const PORT = 3000;
