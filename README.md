@@ -13,6 +13,7 @@
 - [Running Your Server](#running-your-server)
   - [stdio](#stdio)
   - [Streamable HTTP](#streamable-http)
+  - [Loopback Transport](#loopback-transport-in-memory)
   - [Testing and Debugging](#testing-and-debugging)
 - [Examples](#examples)
   - [Echo Server](#echo-server)
@@ -381,6 +382,46 @@ This stateless approach is useful for:
 - Simple API wrappers
 - RESTful scenarios where each request is independent
 - Horizontally scaled deployments without shared session state
+
+### Loopback Transport (In-Memory)
+
+The Loopback Transport provides an efficient way to connect MCP clients and servers within the same execution context, 
+making it ideal for testing, browser-based applications, and environments where external network calls are unnecessary.
+Unlike stdio or Streamable HTTP, Loopback Transport is intended exclusively for scenarios where clients and servers operate 
+in the same execution context. Note that the stdio transport cannot operate in a browser. While Streamable HTTP can be used 
+in a brower with a lot of complexity, Loopback Transport is a much simpler option.
+
+#### Usage
+
+```typescript
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { LoopbackTransport } from "@modelcontextprotocol/sdk/shared/loopback.js";
+
+// Create server and client
+const server = new McpServer({ name: "example-server", version: "1.0.0" });
+const client = new Client({ name: "example-client", version: "1.0.0" });
+
+// Create loopback transports
+const clientTransport = new LoopbackTransport({ name: "client" });
+const serverTransport = new LoopbackTransport({ name: "server" });
+
+// Connect transports in-memory
+clientTransport.connect(serverTransport);
+
+// Connect to MCP
+await server.connect(serverTransport);
+await client.connect(clientTransport);
+
+// Use client and server as normal
+```
+
+#### When to Use Loopback Transport
+
+- **Testing**: Provides fast, reliable tests without external dependencies.
+- **Browser Applications**: Enables MCP functionality entirely within the browser.
+- **Rapid Prototyping**: Ideal for quick iteration without networking overhead.
+
 
 ### Testing and Debugging
 
