@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { JSONRPCMessage } from "../types.js";
 import { ReadBuffer } from "./stdio.js";
 
