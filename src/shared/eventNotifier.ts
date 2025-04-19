@@ -54,12 +54,12 @@ export type EventNotifier<T, E = Error> = {
    * @example
    *
    * ```ts
-   * const notifier = createEventNotifier<{ type: string; data: unknown }>();
+   * const notifier = createEventNotifier<{ type: string; value: number }>();
    * notifier.onEvent((event) => {
-   *   console.log(`Received ${event.type} with data:`, event.data);
+   *   console.log(`Received ${event.type} with value:`, event.value);
    * });
    *
-   * notifier.notify({ type: 'update', data: { id: 123, status: 'complete' } });
+   * notifier.notify({ type: 'progress', value: 75 });
    * ```
    *
    * @param event The event to send to all listeners or a function that returns such event.
@@ -91,12 +91,15 @@ export type EventNotifier<T, E = Error> = {
  * const stringNotifier = createEventNotifier<string>();
  *
  * // Complex object event notifier
- * interface UserEvent {
- *   type: 'created' | 'updated' | 'deleted';
- *   userId: number;
- *   data?: Record<string, unknown>;
+ * interface TaskEvent {
+ *   type: 'started' | 'completed' | 'failed';
+ *   taskId: number;
+ *   details: {
+ *     name: string;
+ *     duration?: number;
+ *   };
  * }
- * const userNotifier = createEventNotifier<UserEvent>();
+ * const taskNotifier = createEventNotifier<TaskEvent>();
  * ```
  *
  * @template T The type of events this notifier will handle
