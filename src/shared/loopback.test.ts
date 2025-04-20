@@ -176,13 +176,12 @@ describe("LoopbackTransport - Error Cases", () => {
         transport.onmessage = () => {};
         peer.onmessage = () => {};
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any  -- We are making a test for 'broken data'. The type is not important
         const circular: any = {};
         circular.self = circular; // intentionally cause serialization error
 
         await expect(transport.send(circular)).rejects.toThrow(/Error stringifying message/);
     });
-
-
 
 });
 
