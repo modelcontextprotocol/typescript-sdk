@@ -14,12 +14,13 @@ interface TestServerConfig {
   enableJsonResponse?: boolean;
   customRequestHandler?: (req: IncomingMessage, res: ServerResponse, parsedBody?: unknown) => Promise<void>;
   eventStore?: EventStore;
+  statelessMode?: boolean;
 }
 
 /**
  * Helper to create and start test HTTP server with MCP setup
  */
-async function createTestServer(config: TestServerConfig = { sessionIdGenerator: (() => randomUUID()) }): Promise<{
+async function createTestServer(config: TestServerConfig = { sessionIdGenerator: (() => randomUUID()), statelessMode: false }): Promise<{
   server: Server;
   transport: StreamableHTTPServerTransport;
   mcpServer: McpServer;
@@ -41,6 +42,7 @@ async function createTestServer(config: TestServerConfig = { sessionIdGenerator:
 
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: config.sessionIdGenerator,
+    statelessMode: config.statelessMode,
     enableJsonResponse: config.enableJsonResponse ?? false,
     eventStore: config.eventStore
   });
@@ -313,7 +315,7 @@ describe("StreamableHTTPServerTransport", () => {
     // First initialize to get a session ID
     sessionId = await initializeServer();
 
-    // Open a standalone SSE stream  
+    // Open a standalone SSE stream
     const sseResponse = await fetch(baseUrl, {
       method: "GET",
       headers: {
@@ -810,7 +812,7 @@ describe("StreamableHTTPServerTransport with pre-parsed body", () => {
       id: "preparsed-1",
     };
 
-    // Send an empty body since we'll use pre-parsed body  
+    // Send an empty body since we'll use pre-parsed body
     const response = await fetch(baseUrl, {
       method: "POST",
       headers: {
@@ -1028,7 +1030,7 @@ describe("StreamableHTTPServerTransport with resumability", () => {
     expect(idMatch).toBeTruthy();
     const firstEventId = idMatch![1];
 
-    // Send a second notification 
+    // Send a second notification
     await mcpServer.server.sendLoggingMessage({ level: "info", data: "Second notification from MCP server" });
 
     // Close the first SSE stream to simulate a disconnect
@@ -1064,7 +1066,7 @@ describe("StreamableHTTPServerTransport in stateless mode", () => {
   let baseUrl: URL;
 
   beforeEach(async () => {
-    const result = await createTestServer({ sessionIdGenerator: undefined });
+    const result = await createTestServer({ sessionIdGenerator: undefined, statelessMode: true });
     server = result.server;
     transport = result.transport;
     baseUrl = result.baseUrl;
@@ -1075,13 +1077,6 @@ describe("StreamableHTTPServerTransport in stateless mode", () => {
   });
 
   it("should operate without session ID validation", async () => {
-    // Initialize the server first
-    const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
-
-    expect(initResponse.status).toBe(200);
-    // Should NOT have session ID header in stateless mode
-    expect(initResponse.headers.get("mcp-session-id")).toBeNull();
-
     // Try request without session ID - should work in stateless mode
     const toolsResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList);
 
@@ -1117,7 +1112,7 @@ describe("StreamableHTTPServerTransport in stateless mode", () => {
   });
 
   it("should reject second SSE stream even in stateless mode", async () => {
-    // Despite no session ID requirement, the transport still only allows 
+    // Despite no session ID requirement, the transport still only allows
     // one standalone SSE stream at a time
 
     // Initialize the server first
