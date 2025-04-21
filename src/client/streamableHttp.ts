@@ -1,5 +1,5 @@
 import { Transport } from "../shared/transport.js";
-import { isJSONRPCNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
+import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 import { auth, AuthResult, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { EventSourceParserStream } from "eventsource-parser/stream";
 
@@ -420,7 +420,7 @@ export class StreamableHTTPClientTransport implements Transport {
       if (response.status === 202) {
         // if the accepted notification is initialized, we start the SSE stream
         // if it's supported by the server
-        if (isJSONRPCNotification(message) && message.method === "notifications/initialized") {
+        if (isInitializedNotification(message)) {
           // Start without a lastEventId since this is a fresh connection
           this._startOrAuthSse({ resumptionToken: undefined }).catch(err => this.onerror?.(err));
         }
@@ -466,5 +466,49 @@ export class StreamableHTTPClientTransport implements Transport {
 
   get sessionId(): string | undefined {
     return this._sessionId;
+  }
+
+  /**
+   * Terminates the current session by sending a DELETE request to the server.
+   * 
+   * Clients that no longer need a particular session
+   * (e.g., because the user is leaving the client application) SHOULD send an
+   * HTTP DELETE to the MCP endpoint with the Mcp-Session-Id header to explicitly
+   * terminate the session.
+   * 
+   * The server MAY respond with HTTP 405 Method Not Allowed, indicating that
+   * the server does not allow clients to terminate sessions.
+   */
+  async terminateSession(): Promise<void> {
+    if (!this._sessionId) {
+      return; // No session to terminate
+    }
+
+    try {
+      const headers = await this._commonHeaders();
+
+      const init = {
+        ...this._requestInit,
+        method: "DELETE",
+        headers,
+        signal: this._abortController?.signal,
+      };
+
+      const response = await fetch(this._url, init);
+
+      // We specifically handle 405 as a valid response according to the spec,
+      // meaning the server does not support explicit session termination
+      if (!response.ok && response.status !== 405) {
+        throw new StreamableHTTPError(
+          response.status,
+          `Failed to terminate session: ${response.statusText}`
+        );
+      }
+
+      this._sessionId = undefined;
+    } catch (error) {
+      this.onerror?.(error as Error);
+      throw error;
+    }
   }
 }
