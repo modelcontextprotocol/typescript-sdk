@@ -105,6 +105,13 @@ export class Server<
   }
 
   /**
+   * The server's name and version.
+   */
+  getVersion(): { readonly name: string; readonly version: string } {
+    return this._serverInfo;
+  }
+
+  /**
    * Registers new capabilities. This can only be called before connecting to a transport.
    *
    * The new capabilities will be merged with any existing capabilities previously given (e.g., at initialization).
