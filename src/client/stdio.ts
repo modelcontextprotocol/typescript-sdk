@@ -187,7 +187,14 @@ export class StdioClientTransport implements Transport {
 
   async close(): Promise<void> {
     this._abortController.abort();
-    this._process = undefined;
+    if (this._process) {
+      try {
+        this._process.kill();
+      } catch (e) {
+        // Optionally log or ignore
+      }
+      this._process = undefined;
+    }
     this._readBuffer.clear();
   }
 
