@@ -10,7 +10,7 @@ import { z } from "zod";
  * Test server configuration for StreamableHTTPServerTransport tests
  */
 interface TestServerConfig {
-  sessionIdGenerator?: () => string | undefined;
+  sessionIdGenerator: (() => string) | undefined;
   enableJsonResponse?: boolean;
   customRequestHandler?: (req: IncomingMessage, res: ServerResponse, parsedBody?: unknown) => Promise<void>;
   eventStore?: EventStore;
@@ -19,7 +19,7 @@ interface TestServerConfig {
 /**
  * Helper to create and start test HTTP server with MCP setup
  */
-async function createTestServer(config: TestServerConfig = {}): Promise<{
+async function createTestServer(config: TestServerConfig = { sessionIdGenerator: (() => randomUUID()) }): Promise<{
   server: Server;
   transport: StreamableHTTPServerTransport;
   mcpServer: McpServer;
@@ -40,7 +40,7 @@ async function createTestServer(config: TestServerConfig = {}): Promise<{
   );
 
   const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: config.sessionIdGenerator ?? (() => randomUUID()),
+    sessionIdGenerator: config.sessionIdGenerator,
     enableJsonResponse: config.enableJsonResponse ?? false,
     eventStore: config.eventStore
   });
@@ -187,15 +187,11 @@ describe("StreamableHTTPServerTransport", () => {
     expect(sessionId).toBeDefined();
 
     // Try second initialize
-    const secondInitMessage: JSONRPCMessage = {
-      jsonrpc: "2.0",
-      method: "initialize",
-      params: {
-        clientInfo: { name: "test-client-2", version: "1.0" },
-        protocolVersion: "2025-03-26",
-      },
-      id: "init-2",
+    const secondInitMessage = {
+      ...TEST_MESSAGES.initialize,
+      id: "second-init"
     };
+
     const response = await sendPostRequest(baseUrl, secondInitMessage);
 
     expect(response.status).toBe(400);
@@ -685,7 +681,7 @@ describe("StreamableHTTPServerTransport with JSON Response Mode", () => {
   let sessionId: string;
 
   beforeEach(async () => {
-    const result = await createTestServer({ enableJsonResponse: true });
+    const result = await createTestServer({ sessionIdGenerator: (() => randomUUID()), enableJsonResponse: true });
     server = result.server;
     transport = result.transport;
     baseUrl = result.baseUrl;
@@ -788,7 +784,8 @@ describe("StreamableHTTPServerTransport with pre-parsed body", () => {
           console.error("Error handling request:", error);
           if (!res.headersSent) res.writeHead(500).end();
         }
-      }
+      },
+      sessionIdGenerator: (() => randomUUID())
     });
 
     server = result.server;
@@ -1067,7 +1064,7 @@ describe("StreamableHTTPServerTransport in stateless mode", () => {
   let baseUrl: URL;
 
   beforeEach(async () => {
-    const result = await createTestServer({ sessionIdGenerator: () => undefined });
+    const result = await createTestServer({ sessionIdGenerator: undefined });
     server = result.server;
     transport = result.transport;
     baseUrl = result.baseUrl;
@@ -1092,14 +1089,7 @@ describe("StreamableHTTPServerTransport in stateless mode", () => {
   });
 
   it("should handle POST requests with various session IDs in stateless mode", async () => {
-    // Initialize the server first
-    await fetch(baseUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
-      body: JSON.stringify({
-        jsonrpc: "2.0", method: "initialize", params: { clientInfo: { name: "test-client", version: "1.0" }, protocolVersion: "2025-03-26" }, id: "init-1"
-      }),
-    });
+    await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
 
     // Try with a random session ID - should be accepted
     const response1 = await fetch(baseUrl, {
@@ -1131,13 +1121,7 @@ describe("StreamableHTTPServerTransport in stateless mode", () => {
     // one standalone SSE stream at a time
 
     // Initialize the server first
-    await fetch(baseUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
-      body: JSON.stringify({
-        jsonrpc: "2.0", method: "initialize", params: { clientInfo: { name: "test-client", version: "1.0" }, protocolVersion: "2025-03-26" }, id: "init-1"
-      }),
-    });
+    await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
 
     // Open first SSE stream
     const stream1 = await fetch(baseUrl, {

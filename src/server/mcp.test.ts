@@ -101,6 +101,7 @@ describe("ResourceTemplate", () => {
     const abortController = new AbortController();
     const result = await template.listCallback?.({
       signal: abortController.signal,
+      requestId: 'not-implemented',
       sendRequest: () => { throw new Error("Not implemented") },
       sendNotification: () => { throw new Error("Not implemented") }
     });
@@ -403,7 +404,7 @@ describe("tool()", () => {
     ])
   });
 
-  test("should register tool with args schema", async () => {
+  test("should register tool with params", async () => {
     const mcpServer = new McpServer({
       name: "test server",
       version: "1.0",
@@ -492,6 +493,133 @@ describe("tool()", () => {
     expect(result.tools).toHaveLength(1);
     expect(result.tools[0].name).toBe("test");
     expect(result.tools[0].description).toBe("Test description");
+  });
+  
+  test("should register tool with annotations", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.tool("test", { title: "Test Tool", readOnlyHint: true }, async () => ({
+      content: [
+        {
+          type: "text",
+          text: "Test response",
+        },
+      ],
+    }));
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "tools/list",
+      },
+      ListToolsResultSchema,
+    );
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].name).toBe("test");
+    expect(result.tools[0].annotations).toEqual({ title: "Test Tool", readOnlyHint: true });
+  });
+  
+  test("should register tool with params and annotations", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.tool(
+      "test", 
+      { name: z.string() },
+      { title: "Test Tool", readOnlyHint: true },
+      async ({ name }) => ({
+        content: [{ type: "text", text: `Hello, ${name}!` }]
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].name).toBe("test");
+    expect(result.tools[0].inputSchema).toMatchObject({
+      type: "object",
+      properties: { name: { type: "string" } }
+    });
+    expect(result.tools[0].annotations).toEqual({ title: "Test Tool", readOnlyHint: true });
+  });
+  
+  test("should register tool with description, params, and annotations", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.tool(
+      "test", 
+      "A tool with everything",
+      { name: z.string() },
+      { title: "Complete Test Tool", readOnlyHint: true, openWorldHint: false },
+      async ({ name }) => ({
+        content: [{ type: "text", text: `Hello, ${name}!` }]
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].name).toBe("test");
+    expect(result.tools[0].description).toBe("A tool with everything");
+    expect(result.tools[0].inputSchema).toMatchObject({
+      type: "object",
+      properties: { name: { type: "string" } }
+    });
+    expect(result.tools[0].annotations).toEqual({ 
+      title: "Complete Test Tool", 
+      readOnlyHint: true,
+      openWorldHint: false
+    });
   });
 
   test("should validate tool args", async () => {
@@ -644,6 +772,59 @@ describe("tool()", () => {
     );
 
     expect(receivedSessionId).toBe("test-session-123");
+  });
+
+  test("should pass requestId to tool callback via RequestHandlerExtra", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client(
+      {
+        name: "test client",
+        version: "1.0",
+      },
+      {
+        capabilities: {
+          tools: {},
+        },
+      },
+    );
+
+    let receivedRequestId: string | number | undefined;
+    mcpServer.tool("request-id-test", async (extra) => {
+      receivedRequestId = extra.requestId;
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Received request ID: ${extra.requestId}`,
+          },
+        ],
+      };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "request-id-test",
+        },
+      },
+      CallToolResultSchema,
+    );
+
+    expect(receivedRequestId).toBeDefined();
+    expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
+    expect(result.content[0].text).toContain("Received request ID:");
   });
 
   test("should provide sendNotification within tool call", async () => {
@@ -1702,6 +1883,59 @@ describe("resource()", () => {
     expect(result.completion.values).toEqual(["movies", "music"]);
     expect(result.completion.total).toBe(2);
   });
+
+  test("should pass requestId to resource callback via RequestHandlerExtra", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client(
+      {
+        name: "test client",
+        version: "1.0",
+      },
+      {
+        capabilities: {
+          resources: {},
+        },
+      },
+    );
+
+    let receivedRequestId: string | number | undefined;
+    mcpServer.resource("request-id-test", "test://resource", async (_uri, extra) => {
+      receivedRequestId = extra.requestId;
+      return {
+        contents: [
+          {
+            uri: "test://resource",
+            text: `Received request ID: ${extra.requestId}`,
+          },
+        ],
+      };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "resources/read",
+        params: {
+          uri: "test://resource",
+        },
+      },
+      ReadResourceResultSchema,
+    );
+
+    expect(receivedRequestId).toBeDefined();
+    expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
+    expect(result.contents[0].text).toContain("Received request ID:");
+  });
 });
 
 describe("prompt()", () => {
@@ -2510,5 +2744,61 @@ describe("prompt()", () => {
 
     expect(result.completion.values).toEqual(["Alice"]);
     expect(result.completion.total).toBe(1);
+  });
+
+  test("should pass requestId to prompt callback via RequestHandlerExtra", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client(
+      {
+        name: "test client",
+        version: "1.0",
+      },
+      {
+        capabilities: {
+          prompts: {},
+        },
+      },
+    );
+
+    let receivedRequestId: string | number | undefined;
+    mcpServer.prompt("request-id-test", async (extra) => {
+      receivedRequestId = extra.requestId;
+      return {
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: `Received request ID: ${extra.requestId}`,
+            },
+          },
+        ],
+      };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "prompts/get",
+        params: {
+          name: "request-id-test",
+        },
+      },
+      GetPromptResultSchema,
+    );
+
+    expect(receivedRequestId).toBeDefined();
+    expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
+    expect(result.messages[0].content.text).toContain("Received request ID:");
   });
 });

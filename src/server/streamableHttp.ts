@@ -1,6 +1,6 @@
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Transport } from "../shared/transport.js";
-import { isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema, RequestId } from "../types.js";
+import { isInitializeRequest, isJSONRPCError, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema, RequestId } from "../types.js";
 import getRawBody from "raw-body";
 import contentType from "content-type";
 import { randomUUID } from "node:crypto";
@@ -37,7 +37,16 @@ export interface StreamableHTTPServerTransportOptions {
    * 
    * Return undefined to disable session management.
    */
-  sessionIdGenerator: () => string | undefined;
+  sessionIdGenerator: (() => string) | undefined;
+
+  /**
+   * A callback for session initialization events
+   * This is called when the server initializes a new session.
+   * Useful in cases when you need to register multiple mcp sessions
+   * and need to keep track of them.
+   * @param sessionId The generated session ID
+   */
+  onsessioninitialized?: (sessionId: string) => void;
 
   /**
    * If true, the server will return JSON responses instead of starting an SSE stream.
@@ -89,7 +98,7 @@ export interface StreamableHTTPServerTransportOptions {
  */
 export class StreamableHTTPServerTransport implements Transport {
   // when sessionId is not set (undefined), it means the transport is in stateless mode
-  private sessionIdGenerator: () => string | undefined;
+  private sessionIdGenerator: (() => string) | undefined;
   private _started: boolean = false;
   private _streamMapping: Map<string, ServerResponse> = new Map();
   private _requestToStreamMapping: Map<RequestId, string> = new Map();
@@ -98,6 +107,7 @@ export class StreamableHTTPServerTransport implements Transport {
   private _enableJsonResponse: boolean = false;
   private _standaloneSseStreamId: string = '_GET_stream';
   private _eventStore?: EventStore;
+  private _onsessioninitialized?: (sessionId: string) => void;
 
   sessionId?: string | undefined;
   onclose?: () => void;
@@ -108,6 +118,7 @@ export class StreamableHTTPServerTransport implements Transport {
     this.sessionIdGenerator = options.sessionIdGenerator;
     this._enableJsonResponse = options.enableJsonResponse ?? false;
     this._eventStore = options.eventStore;
+    this._onsessioninitialized = options.onsessioninitialized;
   }
 
   /**
@@ -328,13 +339,11 @@ export class StreamableHTTPServerTransport implements Transport {
 
       // Check if this is an initialization request
       // https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle/
-      const isInitializationRequest = messages.some(
-        msg => 'method' in msg && msg.method === 'initialize'
-      );
+      const isInitializationRequest = messages.some(isInitializeRequest);
       if (isInitializationRequest) {
         // If it's a server with session management and the session ID is already set we should reject the request
         // to avoid re-initialization.
-        if (this._initialized) {
+        if (this._initialized && this.sessionId !== undefined) {
           res.writeHead(400).end(JSON.stringify({
             jsonrpc: "2.0",
             error: {
@@ -356,8 +365,14 @@ export class StreamableHTTPServerTransport implements Transport {
           }));
           return;
         }
-        this.sessionId = this.sessionIdGenerator();
+        this.sessionId = this.sessionIdGenerator?.();
         this._initialized = true;
+
+        // If we have a session ID and an onsessioninitialized handler, call it immediately
+        // This is needed in cases where the server needs to keep track of multiple sessions
+        if (this.sessionId && this._onsessioninitialized) {
+          this._onsessioninitialized(this.sessionId);
+        }
 
       }
       // If an Mcp-Session-Id is returned by the server during initialization,
@@ -400,7 +415,7 @@ export class StreamableHTTPServerTransport implements Transport {
         // Store the response for this request to send messages back through this connection
         // We need to track by request ID to maintain the connection
         for (const message of messages) {
-          if ('method' in message && 'id' in message) {
+          if (isJSONRPCRequest(message)) {
             this._streamMapping.set(streamId, res);
             this._requestToStreamMapping.set(message.id, streamId);
           }
@@ -448,6 +463,11 @@ export class StreamableHTTPServerTransport implements Transport {
    * Returns true if the session is valid, false otherwise
    */
   private validateSession(req: IncomingMessage, res: ServerResponse): boolean {
+    if (this.sessionIdGenerator === undefined) {
+      // If the sessionIdGenerator ID is not set, the session management is disabled
+      // and we don't need to validate the session ID
+      return true;
+    }
     if (!this._initialized) {
       // If the server has not been initialized yet, reject all requests
       res.writeHead(400).end(JSON.stringify({
@@ -460,11 +480,7 @@ export class StreamableHTTPServerTransport implements Transport {
       }));
       return false;
     }
-    if (this.sessionId === undefined) {
-      // If the session ID is not set, the session management is disabled
-      // and we don't need to validate the session ID
-      return true;
-    }
+
     const sessionId = req.headers["mcp-session-id"];
 
     if (!sessionId) {
@@ -520,7 +536,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
   async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void> {
     let requestId = options?.relatedRequestId;
-    if ('result' in message || 'error' in message) {
+    if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
       // If the message is a response, use the request ID from the message
       requestId = message.id;
     }
@@ -530,7 +546,7 @@ export class StreamableHTTPServerTransport implements Transport {
     // Those will be sent via dedicated response SSE streams
     if (requestId === undefined) {
       // For standalone SSE streams, we can only send requests and notifications
-      if ('result' in message || 'error' in message) {
+      if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
         throw new Error("Cannot send a response on a standalone SSE stream unless resuming a previous client request");
       }
       const standaloneSse = this._streamMapping.get(this._standaloneSseStreamId)
