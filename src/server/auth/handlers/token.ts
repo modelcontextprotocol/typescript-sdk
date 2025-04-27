@@ -90,13 +90,19 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
 
           const { code, code_verifier } = parseResult.data;
 
-          // Verify PKCE challenge
-          const codeChallenge = await provider.challengeForAuthorizationCode(client, code);
-          if (!(await verifyChallenge(code_verifier, codeChallenge))) {
-            throw new InvalidGrantError("code_verifier does not match the challenge");
+          const skipLocalPkceValidation = provider.skipLocalPkceValidation;
+
+          // Perform local PKCE validation unless explicitly skipped 
+          // (e.g. to validate code_verifier in upstream server)
+          if (!skipLocalPkceValidation) {
+            const codeChallenge = await provider.challengeForAuthorizationCode(client, code);
+            if (!(await verifyChallenge(code_verifier, codeChallenge))) {
+              throw new InvalidGrantError("code_verifier does not match the challenge");
+            }
           }
 
-          const tokens = await provider.exchangeAuthorizationCode(client, code);
+          // Passes the code_verifier to the provider if PKCE validation didn't occur locally
+          const tokens = await provider.exchangeAuthorizationCode(client, code, skipLocalPkceValidation ? code_verifier : undefined);
           res.status(200).json(tokens);
           break;
         }

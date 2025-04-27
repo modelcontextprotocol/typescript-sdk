@@ -12,7 +12,11 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "pkce-challenge": ["node_modules/pkce-challenge/dist/index.node"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

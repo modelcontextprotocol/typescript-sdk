@@ -21,4 +21,10 @@ export interface AuthInfo {
    * When the token expires (in seconds since epoch).
    */
   expiresAt?: number;
+
+  /**
+   * Additional data associated with the token.
+   * This field should be used for any additional data that needs to be attached to the auth info.
+  */
+  extra?: Record<string, unknown>;
 }

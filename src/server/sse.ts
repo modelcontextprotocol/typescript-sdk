@@ -4,6 +4,8 @@ import { Transport } from "../shared/transport.js";
 import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 import getRawBody from "raw-body";
 import contentType from "content-type";
+import { AuthInfo } from "./auth/types.js";
+import { URL } from 'url';
 
 const MAXIMUM_MESSAGE_SIZE = "4mb";
 
@@ -18,7 +20,7 @@ export class SSEServerTransport implements Transport {
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage) => void;
+  onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
 
   /**
    * Creates a new SSE server transport, which will direct the client to POST messages to the relative or absolute URL identified by `_endpoint`.
@@ -44,13 +46,22 @@ export class SSEServerTransport implements Transport {
 
     this.res.writeHead(200, {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
     });
 
     // Send the endpoint event
+    // Use a dummy base URL because this._endpoint is relative.
+    // This allows using URL/URLSearchParams for robust parameter handling.
+    const dummyBase = 'http://localhost'; // Any valid base works
+    const endpointUrl = new URL(this._endpoint, dummyBase);
+    endpointUrl.searchParams.set('sessionId', this._sessionId);
+
+    // Reconstruct the relative URL string (pathname + search + hash)
+    const relativeUrlWithSession = endpointUrl.pathname + endpointUrl.search + endpointUrl.hash;
+
     this.res.write(
-      `event: endpoint\ndata: ${encodeURI(this._endpoint)}?sessionId=${this._sessionId}\n\n`,
+      `event: endpoint\ndata: ${relativeUrlWithSession}\n\n`,
     );
 
     this._sseResponse = this.res;
@@ -66,7 +77,7 @@ export class SSEServerTransport implements Transport {
    * This should be called when a POST request is made to send a message to the server.
    */
   async handlePostMessage(
-    req: IncomingMessage,
+    req: IncomingMessage & { auth?: AuthInfo },
     res: ServerResponse,
     parsedBody?: unknown,
   ): Promise<void> {
@@ -75,6 +86,7 @@ export class SSEServerTransport implements Transport {
       res.writeHead(500).end(message);
       throw new Error(message);
     }
+    const authInfo: AuthInfo | undefined = req.auth;
 
     let body: string | unknown;
     try {
@@ -94,7 +106,7 @@ export class SSEServerTransport implements Transport {
     }
 
     try {
-      await this.handleMessage(typeof body === 'string' ? JSON.parse(body) : body);
+      await this.handleMessage(typeof body === 'string' ? JSON.parse(body) : body, { authInfo });
     } catch {
       res.writeHead(400).end(`Invalid message: ${body}`);
       return;
@@ -106,7 +118,7 @@ export class SSEServerTransport implements Transport {
   /**
    * Handle a client message, regardless of how it arrived. This can be used to inform the server of messages that arrive via a means different than HTTP POST.
    */
-  async handleMessage(message: unknown): Promise<void> {
+  async handleMessage(message: unknown, extra?: { authInfo?: AuthInfo }): Promise<void> {
     let parsedMessage: JSONRPCMessage;
     try {
       parsedMessage = JSONRPCMessageSchema.parse(message);
@@ -115,7 +127,7 @@ export class SSEServerTransport implements Transport {
       throw error;
     }
 
-    this.onmessage?.(parsedMessage);
+    this.onmessage?.(parsedMessage, extra);
   }
 
   async close(): Promise<void> {
