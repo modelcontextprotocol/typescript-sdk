@@ -240,30 +240,6 @@ export class Client<
     this._toolRefreshOptions.onError = handler;
   }
 
-  /**
-   * Manually triggers a refresh of the tools list
-   */
-  public async refreshToolsList(): Promise<
-    ListToolsResult["tools"] | undefined
-  > {
-    if (!this._serverCapabilities?.tools) {
-      return undefined;
-    }
-
-    try {
-      const result = await this.listTools();
-      return result.tools;
-    } catch (error) {
-      // Use error callback if provided, otherwise log to console
-      if (this._toolRefreshOptions.onError) {
-        this._toolRefreshOptions.onError(error instanceof Error ? error : new Error(String(error)));
-      } else {
-        console.error("Failed to manually refresh tools list:", error);
-      }
-      return undefined;
-    }
-  }
-
   protected assertCapability(
     capability: keyof ServerCapabilities,
     method: string,
@@ -576,6 +552,35 @@ export class Client<
     );
   }
 
+  /**
+   * Retrieves the list of available tools from the server.
+   * 
+   * This method is called automatically when a tools list changed notification 
+   * is received (if auto-refresh is enabled and after debouncing).
+   * 
+   * To manually refresh the tools list:
+   * ```typescript
+   * try {
+   *   const result = await client.listTools();
+   *   // Use result.tools
+   * } catch (error) {
+   *   // Handle error
+   * }
+   * ```
+   * 
+   * Alternatively, register an error handler:
+   * ```typescript
+   * client.setToolRefreshErrorHandler((error) => {
+   *   // Handle error
+   * });
+   * 
+   * const result = await client.listTools();
+   * ```
+   * 
+   * @param params Optional parameters for the list tools request
+   * @param options Optional request options
+   * @returns The list tools result containing available tools
+   */
   async listTools(
     params?: ListToolsRequest["params"],
     options?: RequestOptions,
