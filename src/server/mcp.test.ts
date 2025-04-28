@@ -622,6 +622,140 @@ describe("tool()", () => {
     });
   });
 
+  describe('with options argument', () => {
+    test('should register tool with options', async () => {
+      const mcpServer = new McpServer({
+        name: "test server",
+        version: "1.0",
+      });
+      const client = new Client({
+        name: "test client",
+        version: "1.0",
+      });
+
+      mcpServer.tool({
+        name: "test",
+        description: "A tool with everything",
+        paramsSchema: {
+          type: "object",
+          properties: { name: { type: "string" } },
+          additionalProperties: false
+        },
+        annotations: { title: "Complete Test Tool", readOnlyHint: true, openWorldHint: false },
+        cb: async (args) => ({
+          // @ts-expect-error - no type inference when using a JSON Schema object
+          content: [{ type: "text", text: `Hello, ${args.name}!` }]
+        })
+      });
+
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+
+      await Promise.all([
+        client.connect(clientTransport),
+        mcpServer.server.connect(serverTransport),
+      ]);
+
+      const result = await client.request(
+        { method: "tools/list" },
+        ListToolsResultSchema,
+      );
+
+      expect(result.tools).toHaveLength(1);
+      expect(result.tools[0].name).toBe("test");
+      expect(result.tools[0].description).toBe("A tool with everything");
+      expect(result.tools[0].inputSchema).toMatchObject({
+        type: "object",
+        properties: { name: { type: "string" } }
+      });
+      expect(result.tools[0].annotations).toEqual({
+        title: "Complete Test Tool",
+        readOnlyHint: true,
+        openWorldHint: false
+      });
+    });
+
+    test("should validate tool args", async () => {
+      const mcpServer = new McpServer({
+        name: "test server",
+        version: "1.0",
+      });
+
+      const client = new Client(
+        {
+          name: "test client",
+          version: "1.0",
+        },
+        {
+          capabilities: {
+            tools: {},
+          },
+        },
+      );
+
+      mcpServer.tool({
+        name: "test",
+        paramsSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            value: { type: "number" }
+          },
+          additionalProperties: false
+        },
+        cb: async (args) => ({
+          content: [
+            {
+              type: "text",
+              // @ts-expect-error - no type inference when using a JSON Schema object
+              text: `${args.name}: ${args.value}`,
+            },
+          ],
+        }),
+      });
+
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+
+      await Promise.all([
+        client.connect(clientTransport),
+        mcpServer.server.connect(serverTransport),
+      ]);
+
+      await expect(
+        client.request(
+          {
+            method: "tools/call",
+            params: {
+              name: "test",
+              arguments: {
+                name: "test",
+                value: 123,
+              },
+            },
+          },
+          CallToolResultSchema,
+        ),
+      ).resolves.toBeDefined();
+
+      await expect(
+        client.request(
+          {
+            method: "tools/call",
+            params: {
+              name: "test",
+              arguments: {
+                name: "test",
+                value: "not a number",
+              },
+            },
+          },
+          CallToolResultSchema,
+        ),
+      ).rejects.toThrow(/Invalid arguments/);
+    });
+  })
+
   test("should validate tool args", async () => {
     const mcpServer = new McpServer({
       name: "test server",

@@ -1,5 +1,6 @@
 import { Server, ServerOptions } from "./index.js";
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { Ajv } from "ajv";
+import { JsonSchema7ObjectType, zodToJsonSchema } from "zod-to-json-schema";
 import {
   z,
   ZodRawShape,
@@ -46,6 +47,64 @@ import { UriTemplate, Variables } from "../shared/uriTemplate.js";
 import { RequestHandlerExtra } from "../shared/protocol.js";
 import { Transport } from "../shared/transport.js";
 
+type ParametersJsonSchema = { type: 'object' } & Partial<JsonSchema7ObjectType>;
+
+/**
+ * Helper to check if an object is a Zod schema (ZodRawShape)
+ */
+const isZodRawShape = (obj: unknown): obj is ZodRawShape => {
+  if (typeof obj !== "object" || obj === null) return false;
+  // Check that at least one property is a ZodType instance
+  return Object.values(obj as object).some((v) => v instanceof ZodType);
+};
+
+const isJsonSchemaObject = (obj: unknown): obj is ParametersJsonSchema => {
+  return Boolean(
+    obj && typeof obj === "object" && "type" in obj && typeof obj.type === "string"
+  );
+};
+
+const asInputJsonSchema = (input: AnyZodObject | ParametersJsonSchema | undefined): Tool['inputSchema'] => {
+  if(input === undefined) {
+    return EMPTY_OBJECT_JSON_SCHEMA
+  } else if (isJsonSchemaObject(input)) {
+    return input;
+  }
+
+  return zodToJsonSchema(input, { strictUnions: true }) as Tool['inputSchema'];
+}
+
+const parseToolArguments = async (args: unknown, schema: AnyZodObject | ParametersJsonSchema): Promise<object> => {
+  // We're dealing with a Zod schema, so we can use safeParseAsync
+  if('safeParseAsync' in schema) {
+    const parseResult = await schema.safeParseAsync(args);
+
+    if (!parseResult.success) {
+      throw new Error(parseResult.error.message)
+    }
+
+    return parseResult.data;
+  }
+
+  const ajv = new Ajv({ removeAdditional: true });
+  const validateFn = ajv.compile(schema);
+  const argsResult = structuredClone(args) as object;
+
+  if (!validateFn(args)) {
+    throw new Error(ajv.errorsText(validateFn.errors))
+  }
+
+  return argsResult;
+};
+
+type ToolOptions<Args extends ZodRawShape | ParametersJsonSchema | undefined = undefined> = {
+  name: string,
+  description?: string,
+  paramsSchema?: Args,
+  annotations?: ToolAnnotations,
+  cb: ToolCallback<Args>,
+}
+
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
@@ -90,7 +149,7 @@ export class McpServer {
     if (this._toolHandlersInitialized) {
       return;
     }
-    
+
     this.server.assertCanSetRequestHandler(
       ListToolsRequestSchema.shape.method.value,
     );
@@ -114,11 +173,7 @@ export class McpServer {
             return {
               name,
               description: tool.description,
-              inputSchema: tool.inputSchema
-                ? (zodToJsonSchema(tool.inputSchema, {
-                    strictUnions: true,
-                  }) as Tool["inputSchema"])
-                : EMPTY_OBJECT_JSON_SCHEMA,
+              inputSchema: asInputJsonSchema(tool.inputSchema),
               annotations: tool.annotations,
             };
           },
@@ -145,17 +200,17 @@ export class McpServer {
         }
 
         if (tool.inputSchema) {
-          const parseResult = await tool.inputSchema.safeParseAsync(
-            request.params.arguments,
-          );
-          if (!parseResult.success) {
+          let args: object = {};
+          try {
+            args = await parseToolArguments(request.params.arguments, tool.inputSchema);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
             throw new McpError(
               ErrorCode.InvalidParams,
-              `Invalid arguments for tool ${request.params.name}: ${parseResult.error.message}`,
+              `Invalid arguments for tool ${request.params.name}: ${message}`,
             );
           }
 
-          const args = parseResult.data;
           const cb = tool.callback as ToolCallback<ZodRawShape>;
           try {
             return await Promise.resolve(cb(args, extra));
@@ -398,7 +453,7 @@ export class McpServer {
     );
 
     this.setCompletionRequestHandler();
-    
+
     this._resourceHandlersInitialized = true;
   }
 
@@ -481,7 +536,7 @@ export class McpServer {
     );
 
     this.setCompletionRequestHandler();
-    
+
     this._promptHandlersInitialized = true;
   }
 
@@ -597,6 +652,11 @@ export class McpServer {
   }
 
   /**
+   * Registers a tool from the given options.
+   */
+  tool<Args extends ZodRawShape | ParametersJsonSchema | undefined>(options: ToolOptions<Args>): RegisteredTool;
+
+  /**
    * Registers a zero-argument tool `name`, which will run the given function when the client calls it.
    */
   tool(name: string, cb: ToolCallback): RegisteredTool;
@@ -633,7 +693,7 @@ export class McpServer {
     paramsSchemaOrAnnotations: Args | ToolAnnotations,
     cb: ToolCallback<Args>,
   ): RegisteredTool;
-  
+
   /**
    * Registers a tool with both parameter schema and annotations.
    */
@@ -643,7 +703,7 @@ export class McpServer {
     annotations: ToolAnnotations,
     cb: ToolCallback<Args>,
   ): RegisteredTool;
-  
+
   /**
    * Registers a tool with description, parameter schema, and annotations.
    */
@@ -655,54 +715,64 @@ export class McpServer {
     cb: ToolCallback<Args>,
   ): RegisteredTool;
 
-  tool(name: string, ...rest: unknown[]): RegisteredTool {
+  tool(...args: unknown[]): RegisteredTool {
+    const firstArg = args.shift();
+
+    const name = typeof firstArg === "string" ? firstArg : (firstArg as ToolOptions).name;
+    let description: string | undefined;
+    let paramsSchema: AnyZodObject | ParametersJsonSchema | undefined;
+    let annotations: ToolAnnotations | undefined;
+    let cb: ToolCallback<ZodRawShape | undefined>;
+
     if (this._registeredTools[name]) {
       throw new Error(`Tool ${name} is already registered`);
     }
-    
-    // Helper to check if an object is a Zod schema (ZodRawShape)
-    const isZodRawShape = (obj: unknown): obj is ZodRawShape => {
-      if (typeof obj !== "object" || obj === null) return false;
-      // Check that at least one property is a ZodType instance
-      return Object.values(obj as object).some(v => v instanceof ZodType);
-    };
 
-    let description: string | undefined;
-    if (typeof rest[0] === "string") {
-      description = rest.shift() as string;
-    }
-
-    let paramsSchema: ZodRawShape | undefined;
-    let annotations: ToolAnnotations | undefined;
-    
-    // Handle the different overload combinations
-    if (rest.length > 1) {
-      // We have at least two more args before the callback
-      const firstArg = rest[0];
-      
-      if (isZodRawShape(firstArg)) {
-        // We have a params schema as the first arg
-        paramsSchema = rest.shift() as ZodRawShape;
-        
-        // Check if the next arg is potentially annotations  
-        if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !(isZodRawShape(rest[0]))) {
-          // Case: tool(name, paramsSchema, annotations, cb)
-          // Or: tool(name, description, paramsSchema, annotations, cb)
-          annotations = rest.shift() as ToolAnnotations;
-        }
-      } else if (typeof firstArg === "object" && firstArg !== null) {
-        // Not a ZodRawShape, so must be annotations in this position
-        // Case: tool(name, annotations, cb)
-        // Or: tool(name, description, annotations, cb)
-        annotations = rest.shift() as ToolAnnotations;
+    if (typeof firstArg !== 'string') {
+      // We have a ToolOptions object
+      const options = firstArg as ToolOptions<ZodRawShape | ParametersJsonSchema | undefined>;
+      description = options.description;
+      if(options.paramsSchema) {
+        paramsSchema = isJsonSchemaObject(options.paramsSchema)
+          ? options.paramsSchema
+          : z.object(options.paramsSchema);
       }
+      annotations = options.annotations;
+      cb = options.cb;
+    } else {
+      if (typeof args[0] === "string") {
+        description = args.shift() as string;
+      }
+      
+      // Handle the different overload combinations
+      if (args.length > 1) {
+        // We have at least two more args before the callback
+        const firstArg = args[0];
+        
+        if (isZodRawShape(firstArg)) {
+          // We have a params schema as the first arg
+          paramsSchema = z.object(args.shift() as ZodRawShape);
+
+          // Check if the next arg is potentially annotations
+          if (args.length > 1 && typeof args[0] === "object" && args[0] !== null && !(isZodRawShape(args[0]))) {
+            // Case: tool(name, paramsSchema, annotations, cb)
+            // Or: tool(name, description, paramsSchema, annotations, cb)
+            annotations = args.shift() as ToolAnnotations;
+          }
+        } else if (typeof firstArg === "object" && firstArg !== null) {
+          // Not a ZodRawShape, so must be annotations in this position
+          // Case: tool(name, annotations, cb)
+          // Or: tool(name, description, annotations, cb)
+          annotations = args.shift() as ToolAnnotations;
+        }
+      }
+
+      cb = args[0] as ToolCallback<ZodRawShape | undefined>;
     }
 
-    const cb = rest[0] as ToolCallback<ZodRawShape | undefined>;
     const registeredTool: RegisteredTool = {
       description,
-      inputSchema:
-        paramsSchema === undefined ? undefined : z.object(paramsSchema),
+      inputSchema: paramsSchema,
       annotations,
       callback: cb,
       enabled: true,
@@ -904,19 +974,18 @@ export class ResourceTemplate {
  *
  * Parameters will include tool arguments, if applicable, as well as other request handler context.
  */
-export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
-  Args extends ZodRawShape
-    ? (
-        args: z.objectOutputType<Args, ZodTypeAny>,
-        extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
-      ) => CallToolResult | Promise<CallToolResult>
-    : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
+export type ToolCallback<Args extends undefined | ParametersJsonSchema | ZodRawShape = undefined> =
+  Args extends undefined
+  ? (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>
+  : Args extends ZodRawShape
+  ? (args: z.objectOutputType<Args, ZodTypeAny>, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>
+  : (args: object, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>
 
 export type RegisteredTool = {
   description?: string;
-  inputSchema?: AnyZodObject;
+  inputSchema?: AnyZodObject | ParametersJsonSchema;
   annotations?: ToolAnnotations;
-  callback: ToolCallback<undefined | ZodRawShape>;
+  callback: ToolCallback<undefined | ZodRawShape | ParametersJsonSchema>;
   enabled: boolean;
   enable(): void;
   disable(): void;

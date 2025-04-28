@@ -130,3 +130,5 @@ out
 
 .DS_Store
 dist/
+
+.vscode
