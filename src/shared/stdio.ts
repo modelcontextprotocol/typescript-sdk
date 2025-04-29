@@ -1,5 +1,17 @@
 import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 
+export class StdioParseError extends Error {
+  public readonly line: string;
+  constructor(message: string, line: string) {
+    super(message);
+    this.name = "StdioParseError";
+    this.line = line;
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, StdioParseError);
+    }
+  }
+}
+
 /**
  * Buffers a continuous stdio stream into discrete JSON-RPC messages.
  */
@@ -31,7 +43,11 @@ export class ReadBuffer {
 }
 
 export function deserializeMessage(line: string): JSONRPCMessage {
-  return JSONRPCMessageSchema.parse(JSON.parse(line));
+  try {
+    return JSONRPCMessageSchema.parse(JSON.parse(line));
+  } catch (error) {
+    throw new StdioParseError(error instanceof Error ? error.message : String(error), line);
+  }
 }
 
 export function serializeMessage(message: JSONRPCMessage): string {
