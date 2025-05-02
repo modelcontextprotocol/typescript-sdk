@@ -1,8 +1,9 @@
 import { z, ZodTypeAny } from "zod";
 
-export const LATEST_PROTOCOL_VERSION = "2024-11-05";
+export const LATEST_PROTOCOL_VERSION = "2025-03-26";
 export const SUPPORTED_PROTOCOL_VERSIONS = [
   LATEST_PROTOCOL_VERSION,
+  "2024-11-05",
   "2024-10-07",
 ];
 
@@ -19,18 +20,18 @@ export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
  */
 export const CursorSchema = z.string();
 
+const RequestMetaSchema = z
+  .object({
+    /**
+     * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+     */
+    progressToken: z.optional(ProgressTokenSchema),
+  })
+  .passthrough();
+
 const BaseRequestParamsSchema = z
   .object({
-    _meta: z.optional(
-      z
-        .object({
-          /**
-           * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
-           */
-          progressToken: z.optional(ProgressTokenSchema),
-        })
-        .passthrough(),
-    ),
+    _meta: z.optional(RequestMetaSchema),
   })
   .passthrough();
 
@@ -248,6 +249,10 @@ export const InitializeRequestSchema = RequestSchema.extend({
   }),
 });
 
+export const isInitializeRequest = (value: unknown): value is InitializeRequest =>
+  InitializeRequestSchema.safeParse(value).success;
+
+
 /**
  * Capabilities that a server may support. Known capabilities are defined here, in this schema, but this is not a closed set: any server can define its own, additional capabilities.
  */
@@ -336,6 +341,9 @@ export const InitializeResultSchema = ResultSchema.extend({
 export const InitializedNotificationSchema = NotificationSchema.extend({
   method: z.literal("notifications/initialized"),
 });
+
+export const isInitializedNotification = (value: unknown): value is InitializedNotification =>
+  InitializedNotificationSchema.safeParse(value).success;
 
 /* Ping */
 /**
@@ -746,6 +754,62 @@ export const PromptListChangedNotificationSchema = NotificationSchema.extend({
 
 /* Tools */
 /**
+ * Additional properties describing a Tool to clients.
+ *
+ * NOTE: all properties in ToolAnnotations are **hints**.
+ * They are not guaranteed to provide a faithful description of
+ * tool behavior (including descriptive properties like `title`).
+ *
+ * Clients should never make tool use decisions based on ToolAnnotations
+ * received from untrusted servers.
+ */
+export const ToolAnnotationsSchema = z
+  .object({
+    /**
+     * A human-readable title for the tool.
+     */
+    title: z.optional(z.string()),
+
+    /**
+     * If true, the tool does not modify its environment.
+     *
+     * Default: false
+     */
+    readOnlyHint: z.optional(z.boolean()),
+
+    /**
+     * If true, the tool may perform destructive updates to its environment.
+     * If false, the tool performs only additive updates.
+     *
+     * (This property is meaningful only when `readOnlyHint == false`)
+     *
+     * Default: true
+     */
+    destructiveHint: z.optional(z.boolean()),
+
+    /**
+     * If true, calling the tool repeatedly with the same arguments
+     * will have no additional effect on the its environment.
+     *
+     * (This property is meaningful only when `readOnlyHint == false`)
+     *
+     * Default: false
+     */
+    idempotentHint: z.optional(z.boolean()),
+
+    /**
+     * If true, this tool may interact with an "open world" of external
+     * entities. If false, the tool's domain of interaction is closed.
+     * For example, the world of a web search tool is open, whereas that
+     * of a memory tool is not.
+     *
+     * Default: true
+     */
+    openWorldHint: z.optional(z.boolean()),
+  })
+  .passthrough();
+
+/**
  * Definition for a tool the client can call.
  */
 export const ToolSchema = z
@@ -767,6 +831,10 @@ export const ToolSchema = z
         properties: z.optional(z.object({}).passthrough()),
       })
       .passthrough(),
+    /**
+     * Optional additional tool information.
+     */
+    annotations: z.optional(ToolAnnotationsSchema),
   })
   .passthrough();
 
@@ -1173,6 +1241,7 @@ type Infer<Schema extends ZodTypeAny> = Flatten<z.infer<Schema>>;
 export type ProgressToken = Infer<typeof ProgressTokenSchema>;
 export type Cursor = Infer<typeof CursorSchema>;
 export type Request = Infer<typeof RequestSchema>;
+export type RequestMeta = Infer<typeof RequestMetaSchema>;
 export type Notification = Infer<typeof NotificationSchema>;
 export type Result = Infer<typeof ResultSchema>;
 export type RequestId = Infer<typeof RequestIdSchema>;
@@ -1239,6 +1308,7 @@ export type GetPromptResult = Infer<typeof GetPromptResultSchema>;
 export type PromptListChangedNotification = Infer<typeof PromptListChangedNotificationSchema>;
 
 /* Tools */
+export type ToolAnnotations = Infer<typeof ToolAnnotationsSchema>;
 export type Tool = Infer<typeof ToolSchema>;
 export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = Infer<typeof ListToolsResultSchema>;

@@ -39,7 +39,7 @@ describe("OAuth Authorization", () => {
       const [url, options] = calls[0];
       expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
       expect(options.headers).toEqual({
-        "MCP-Protocol-Version": "2024-11-05"
+        "MCP-Protocol-Version": "2025-03-26"
       });
     });
 

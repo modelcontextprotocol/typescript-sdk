@@ -165,6 +165,194 @@ test("should reject unsupported protocol version", async () => {
   expect(clientTransport.close).toHaveBeenCalled();
 });
 
+test("should connect new client to old, supported server version", async () => {
+  const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
+  const server = new Server(
+      {
+        name: "test server",
+        version: "1.0",
+      },
+      {
+        capabilities: {
+          resources: {},
+          tools: {},
+        },
+      },
+  );
+
+  server.setRequestHandler(InitializeRequestSchema, (_request) => ({
+    protocolVersion: OLD_VERSION,
+    capabilities: {
+      resources: {},
+      tools: {},
+    },
+    serverInfo: {
+      name: "old server",
+      version: "1.0",
+    },
+  }));
+
+  server.setRequestHandler(ListResourcesRequestSchema, () => ({
+    resources: [],
+  }));
+
+  server.setRequestHandler(ListToolsRequestSchema, () => ({
+    tools: [],
+  }));
+
+  const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+  const client = new Client(
+      {
+        name: "new client",
+        version: "1.0",
+        protocolVersion: LATEST_PROTOCOL_VERSION,
+      },
+      {
+        capabilities: {
+          sampling: {},
+        },
+        enforceStrictCapabilities: true,
+      },
+  );
+
+  await Promise.all([
+    client.connect(clientTransport),
+    server.connect(serverTransport),
+  ]);
+
+  expect(client.getServerVersion()).toEqual({
+    name: "old server",
+    version: "1.0",
+  });
+});
+
+test("should negotiate version when client is old, and newer server supports its version", async () => {
+  const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
+  const server = new Server(
+      {
+        name: "new server",
+        version: "1.0",
+      },
+      {
+        capabilities: {
+          resources: {},
+          tools: {},
+        },
+      },
+  );
+
+  server.setRequestHandler(InitializeRequestSchema, (_request) => ({
+    protocolVersion: LATEST_PROTOCOL_VERSION,
+    capabilities: {
+      resources: {},
+      tools: {},
+    },
+    serverInfo: {
+      name: "new server",
+      version: "1.0",
+    },
+  }));
+
+  server.setRequestHandler(ListResourcesRequestSchema, () => ({
+    resources: [],
+  }));
+
+  server.setRequestHandler(ListToolsRequestSchema, () => ({
+    tools: [],
+  }));
+
+  const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+  const client = new Client(
+      {
+        name: "old client",
+        version: "1.0",
+        protocolVersion: OLD_VERSION,
+      },
+      {
+        capabilities: {
+          sampling: {},
+        },
+        enforceStrictCapabilities: true,
+      },
+  );
+
+  await Promise.all([
+    client.connect(clientTransport),
+    server.connect(serverTransport),
+  ]);
+
+  expect(client.getServerVersion()).toEqual({
+    name: "new server",
+    version: "1.0",
+  });
+});
+
+test("should throw when client is old, and server doesn't support its version", async () => {
+  const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
+  const FUTURE_VERSION = "FUTURE_VERSION";
+  const server = new Server(
+      {
+        name: "new server",
+        version: "1.0",
+      },
+      {
+        capabilities: {
+          resources: {},
+          tools: {},
+        },
+      },
+  );
+
+  server.setRequestHandler(InitializeRequestSchema, (_request) => ({
+    protocolVersion: FUTURE_VERSION,
+    capabilities: {
+      resources: {},
+      tools: {},
+    },
+    serverInfo: {
+      name: "new server",
+      version: "1.0",
+    },
+  }));
+
+  server.setRequestHandler(ListResourcesRequestSchema, () => ({
+    resources: [],
+  }));
+
+  server.setRequestHandler(ListToolsRequestSchema, () => ({
+    tools: [],
+  }));
+
+  const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+  const client = new Client(
+      {
+        name: "old client",
+        version: "1.0",
+        protocolVersion: OLD_VERSION,
+      },
+      {
+        capabilities: {
+          sampling: {},
+        },
+        enforceStrictCapabilities: true,
+      },
+  );
+
+  await Promise.all([
+    expect(client.connect(clientTransport)).rejects.toThrow(
+        "Server's protocol version is not supported: FUTURE_VERSION"
+    ),
+    server.connect(serverTransport),
+  ]);
+
+});
+
 test("should respect server capabilities", async () => {
   const server = new Server(
     {
