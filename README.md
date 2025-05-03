@@ -256,12 +256,32 @@ app.post('/mcp', async (req, res) => {
         delete transports[transport.sessionId];
       }
     };
+
+    // Create an MCP server
     const server = new McpServer({
-      name: "example-server",
+      name: "Demo",
       version: "1.0.0"
     });
-
-    // ... set up server resources, tools, and prompts ...
+    
+    // Add an addition tool
+    server.tool("add",
+      { a: z.number(), b: z.number() },
+      async ({ a, b }) => ({
+        content: [{ type: "text", text: String(a + b) }]
+      })
+    );
+    
+    // Static resource
+    server.resource(
+      "greeting",
+      "greeting://hi",
+      async (uri) => ({
+        contents: [{
+          uri: uri.href,
+          text: "Hello!"
+        }]
+      })
+    );
 
     // Connect to the MCP server
     await server.connect(transport);
@@ -317,7 +337,32 @@ app.post('/mcp', async (req: Request, res: Response) => {
   // when multiple clients connect concurrently.
   
   try {
-    const server = getServer(); 
+    // Create an MCP server
+    const server = new McpServer({
+      name: "Demo",
+      version: "1.0.0"
+    });
+    
+    // Add an addition tool
+    server.tool("add",
+      { a: z.number(), b: z.number() },
+      async ({ a, b }) => ({
+        content: [{ type: "text", text: String(a + b) }]
+      })
+    );
+    
+    // Static resource
+    server.resource(
+      "greeting",
+      "greeting://hi",
+      async (uri) => ({
+        contents: [{
+          uri: uri.href,
+          text: "Hello!"
+        }]
+      })
+    );
+
     const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
@@ -512,7 +557,7 @@ server.tool(
 
 ### Dynamic Servers
 
-If you want to offer an initial set of tools/prompts/resources, but later add additional ones based on user action or external state change, you can add/update/remove them _after_ the Server is connected. This will automatically emit the corresponding `listChanged` notificaions:
+If you want to offer an initial set of tools/prompts/resources, but later add additional ones based on user action or external state change, you can add/update/remove them _after_ the Server is connected. This will automatically emit the corresponding `listChanged` notifications:
 
 ```ts
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
