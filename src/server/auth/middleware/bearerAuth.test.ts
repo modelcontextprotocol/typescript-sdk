@@ -43,6 +43,7 @@ describe("requireBearerAuth middleware", () => {
       token: "valid-token",
       clientId: "client-123",
       scopes: ["read", "write"],
+      expiresAt: Math.floor(Date.now() / 1000) + 3600, // Token expires in an hour
     };
     mockVerifyAccessToken.mockResolvedValue(validAuthInfo);
 
@@ -60,12 +61,15 @@ describe("requireBearerAuth middleware", () => {
     expect(mockResponse.json).not.toHaveBeenCalled();
   });
   
-  it("should reject expired tokens", async () => {
+  it.each([
+    [Math.floor(Date.now() / 1000) - 100], // Token expired 100 seconds ago
+    [0], // Token expires at the same time as now
+  ])("should reject expired tokens (expiresAt: %s)", async (expiresAt: number) => {
     const expiredAuthInfo: AuthInfo = {
       token: "expired-token",
       clientId: "client-123",
       scopes: ["read", "write"],
-      expiresAt: Math.floor(Date.now() / 1000) - 100, // Token expired 100 seconds ago
+      expiresAt
     };
     mockVerifyAccessToken.mockResolvedValue(expiredAuthInfo);
 
@@ -87,7 +91,38 @@ describe("requireBearerAuth middleware", () => {
     );
     expect(nextFunction).not.toHaveBeenCalled();
   });
-  
+
+  it.each([
+    [undefined], // Token has no expiration time
+    [NaN], // Token has no expiration time
+  ])("should reject tokens with no expiration time (expiresAt: %s)", async (expiresAt: number | undefined) => {
+    const noExpirationAuthInfo: AuthInfo = {
+      token: "no-expiration-token",
+      clientId: "client-123",
+      scopes: ["read", "write"],
+      expiresAt
+    };
+    mockVerifyAccessToken.mockResolvedValue(noExpirationAuthInfo);
+
+    mockRequest.headers = {
+      authorization: "Bearer expired-token",
+    };
+
+    const middleware = requireBearerAuth({ provider: mockProvider });
+    await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
+
+    expect(mockVerifyAccessToken).toHaveBeenCalledWith("expired-token");
+    expect(mockResponse.status).toHaveBeenCalledWith(401);
+    expect(mockResponse.set).toHaveBeenCalledWith(
+      "WWW-Authenticate",
+      expect.stringContaining('Bearer error="invalid_token"')
+    );
+    expect(mockResponse.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: "invalid_token", error_description: "Token has no expiration time" })
+    );
+    expect(nextFunction).not.toHaveBeenCalled();
+  });
+
   it("should accept non-expired tokens", async () => {
     const nonExpiredAuthInfo: AuthInfo = {
       token: "valid-token",
@@ -147,6 +182,7 @@ describe("requireBearerAuth middleware", () => {
       token: "valid-token",
       clientId: "client-123",
       scopes: ["read", "write", "admin"],
+      expiresAt: Math.floor(Date.now() / 1000) + 3600, // Token expires in an hour
     };
     mockVerifyAccessToken.mockResolvedValue(authInfo);
 
