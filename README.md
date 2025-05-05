@@ -512,7 +512,7 @@ server.tool(
 
 ### Dynamic Servers
 
-If you want to offer an initial set of tools/prompts/resources, but later add additional ones based on user action or external state change, you can add/update/remove them _after_ the Server is connected. This will automatically emit the corresponding `listChanged` notificaions:
+If you want to offer an initial set of tools/prompts/resources, but later add additional ones based on user action or external state change, you can add/update/remove them _after_ the Server is connected. This will automatically emit the corresponding `listChanged` notifications:
 
 ```ts
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
