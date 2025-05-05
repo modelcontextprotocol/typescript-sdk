@@ -341,13 +341,19 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
     });
 
     console.log('Tool result:');
-    result.content.forEach(item => {
-      if (item.type === 'text') {
-        console.log(`  ${item.text}`);
-      } else {
-        console.log(`  ${item.type} content:`, item);
-      }
-    });
+    if (result.content) {
+      result.content.forEach(item => {
+        if (item.type === 'text') {
+          console.log(`  ${item.text}`);
+        } else {
+          console.log(`  ${item.type} content:`, item);
+        }
+      });
+    } else if (result.structuredContent) {
+      console.log(`  Structured content: ${result.structuredContent}`);
+    } else {
+      console.log('  No content returned');
+    }
   } catch (error) {
     console.log(`Error calling tool ${name}: ${error}`);
   }

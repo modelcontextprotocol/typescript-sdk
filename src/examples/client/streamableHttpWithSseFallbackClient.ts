@@ -173,13 +173,19 @@ async function startNotificationTool(client: Client): Promise<void> {
     const result = await client.request(request, CallToolResultSchema);
 
     console.log('Tool result:');
-    result.content.forEach(item => {
-      if (item.type === 'text') {
-        console.log(`  ${item.text}`);
-      } else {
-        console.log(`  ${item.type} content:`, item);
-      }
-    });
+    if (result.content) {
+      result.content.forEach(item => {
+        if (item.type === 'text') {
+          console.log(`  ${item.text}`);
+        } else {
+          console.log(`  ${item.type} content:`, item);
+        }
+      });
+    } else if (result.structuredContent) {
+      console.log(`  Structured content: ${result.structuredContent}`);
+    } else {
+      console.log('  No content returned');
+    }
   } catch (error) {
     console.log(`Error calling notification tool: ${error}`);
   }

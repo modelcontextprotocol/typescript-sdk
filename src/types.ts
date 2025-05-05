@@ -832,6 +832,10 @@ export const ToolSchema = z
       })
       .passthrough(),
     /**
+     * A JSON Schema object defining the expected output for the tool.
+     */
+    outputSchema: z.object({type: z.any()}).passthrough().optional(),
+    /**
      * Optional additional tool information.
      */
     annotations: z.optional(ToolAnnotationsSchema),
@@ -858,7 +862,8 @@ export const ListToolsResultSchema = PaginatedResultSchema.extend({
 export const CallToolResultSchema = ResultSchema.extend({
   content: z.array(
     z.union([TextContentSchema, ImageContentSchema, AudioContentSchema, EmbeddedResourceSchema]),
-  ),
+  ).optional(),
+  structuredContent: z.string().optional(),
   isError: z.boolean().default(false).optional(),
 });
 
