@@ -18,18 +18,42 @@ export class StdioServerTransport implements Transport {
     private _stdout: Writable = process.stdout,
   ) {}
 
-  onclose?: () => void;
-  onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage) => void;
+  protected _onclose?: Transport['onclose'];
+  protected _onerror: NonNullable<Transport['onerror']> = () => {};
+  protected _onmessage?: (message: JSONRPCMessage) => void;
+
+  get onmessage() {
+    return this._onmessage;
+  }
+
+  set onmessage(onmessage: StdioServerTransport['_onmessage']) {
+    this._onmessage = onmessage;
+  }
+
+  set onerror(onerror: StdioServerTransport['_onerror']) {
+    this._onerror = onerror;
+  }
+
+  get onerror() {
+    return this._onerror;
+  }
+
+  set onclose(onclose: StdioServerTransport['_onclose']) {
+    this._onclose = onclose;
+  }
+
+  get onclose() {
+    return this._onclose;
+  }
 
   // Arrow functions to bind `this` properly, while maintaining function identity.
   _ondata = (chunk: Buffer) => {
     this._readBuffer.append(chunk);
     this.processReadBuffer();
   };
-  _onerror = (error: Error) => {
-    this.onerror?.(error);
-  };
+  // _onerror = (error: Error) => {
+  //   this.onerror?.(error);
+  // };
 
   /**
    * Starts listening for messages on stdin.

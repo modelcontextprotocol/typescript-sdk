@@ -2,6 +2,7 @@ import { ZodType, z } from "zod";
 import {
   ClientCapabilities,
   ErrorCode,
+  JSONRPCMessage,
   McpError,
   Notification,
   Request,
@@ -10,6 +11,7 @@ import {
 } from "../types.js";
 import { Protocol, mergeCapabilities } from "./protocol.js";
 import { Transport } from "./transport.js";
+import { StreamableHTTPClientTransport } from "../client/streamableHttp.js";
 
 // Mock Transport class
 class MockTransport implements Transport {
@@ -22,6 +24,42 @@ class MockTransport implements Transport {
     this.onclose?.();
   }
   async send(_message: unknown): Promise<void> {}
+}
+
+// Mock Extends Transport
+class MockExtendsTransport extends StreamableHTTPClientTransport {
+  messageHandler?: (
+    ...args: Parameters<
+      NonNullable<StreamableHTTPClientTransport["_onmessage"]>
+    >
+  ) => void;
+
+  constructor(
+    url: URL,
+    opts?: ConstructorParameters<typeof StreamableHTTPClientTransport>["1"] & {
+      messageHandler?: (
+        ...args: Parameters<
+          NonNullable<StreamableHTTPClientTransport["_onmessage"]>
+        >
+      ) => void;
+    }
+  ) {
+    super(url, opts);
+    this.messageHandler = opts?.messageHandler;
+  }
+  get onmessage() {
+    return this._onmessage;
+  }
+  set onmessage(onmessage) {
+    this._onmessage = (
+      ...args: Parameters<
+        NonNullable<StreamableHTTPClientTransport["_onmessage"]>
+      >
+    ) => {
+      this.messageHandler?.(...args);
+      onmessage?.(...args);
+    };
+  }
 }
 
 describe("protocol tests", () => {
@@ -83,9 +121,9 @@ describe("protocol tests", () => {
         resetTimeoutOnProgress: false,
         onprogress: onProgressMock,
       });
-      
+
       jest.advanceTimersByTime(800);
-      
+
       if (transport.onmessage) {
         transport.onmessage({
           jsonrpc: "2.0",
@@ -98,14 +136,14 @@ describe("protocol tests", () => {
         });
       }
       await Promise.resolve();
-      
+
       expect(onProgressMock).toHaveBeenCalledWith({
         progress: 50,
         total: 100,
       });
-      
+
       jest.advanceTimersByTime(201);
-      
+
       await expect(requestPromise).rejects.toThrow("Request timed out");
     });
 
@@ -194,7 +232,9 @@ describe("protocol tests", () => {
           },
         });
       }
-      await expect(requestPromise).rejects.toThrow("Maximum total timeout exceeded");
+      await expect(requestPromise).rejects.toThrow(
+        "Maximum total timeout exceeded"
+      );
       expect(onProgressMock).toHaveBeenCalledTimes(1);
     });
 
@@ -254,6 +294,26 @@ describe("protocol tests", () => {
       }
       await Promise.resolve();
       await expect(requestPromise).resolves.toEqual({ result: "success" });
+    });
+
+    test("should extends transport success", async () => {
+      let handlerCount = 0;
+      const testMessageHandler = () => {
+        handlerCount++;
+      }
+      const transport = new MockExtendsTransport(new URL('http://localhost:3000/'), { messageHandler: testMessageHandler });
+      const onmessage = () => {};
+      transport.onmessage = onmessage;
+      transport.onmessage({
+        jsonrpc: "2.0",
+        method: "notifications/progress",
+        params: {
+          progressToken: 0,
+          progress: 75,
+          total: 100,
+        },
+      });
+      expect(handlerCount === 1);
     });
   });
 });

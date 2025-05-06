@@ -124,9 +124,33 @@ export class StreamableHTTPClientTransport implements Transport {
   private _sessionId?: string;
   private _reconnectionOptions: StreamableHTTPReconnectionOptions;
 
-  onclose?: () => void;
-  onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage) => void;
+  protected _onclose?: Transport['onclose'];
+  protected _onerror?: Transport['onerror'];
+  protected _onmessage?: (message: JSONRPCMessage) => void;
+
+  get onmessage() {
+    return this._onmessage;
+  }
+
+  set onmessage(onmessage: StreamableHTTPClientTransport['_onmessage']) {
+    this._onmessage = onmessage;
+  }
+
+  set onerror(onerror: StreamableHTTPClientTransport['_onerror']) {
+    this._onerror = onerror;
+  }
+
+  get onerror() {
+    return this._onerror;
+  }
+
+  set onclose(onclose: StreamableHTTPClientTransport['_onclose']) {
+    this._onclose = onclose;
+  }
+
+  get onclose() {
+    return this._onclose;
+  }
 
   constructor(
     url: URL,

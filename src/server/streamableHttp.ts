@@ -109,10 +109,43 @@ export class StreamableHTTPServerTransport implements Transport {
   private _eventStore?: EventStore;
   private _onsessioninitialized?: (sessionId: string) => void;
 
-  sessionId?: string | undefined;
-  onclose?: () => void;
-  onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage) => void;
+  protected _onclose?: Transport['onclose'];
+  protected _onerror?: Transport['onerror'];
+  protected _onmessage?: (message: JSONRPCMessage) => void;
+  protected _sessionId?: Transport['sessionId'];
+
+  get onmessage() {
+    return this._onmessage;
+  }
+
+  set onmessage(onmessage: StreamableHTTPServerTransport['_onmessage']) {
+    this._onmessage = onmessage;
+  }
+
+  set onerror(onerror: StreamableHTTPServerTransport['_onerror']) {
+    this._onerror = onerror;
+  }
+
+  get onerror() {
+    return this._onerror;
+  }
+
+  set onclose(onclose: StreamableHTTPServerTransport['_onclose']) {
+    this._onclose = onclose;
+  }
+
+  get onclose() {
+    return this._onclose;
+  }
+
+  set sessionId(sessionId: StreamableHTTPServerTransport['_sessionId']) {
+    this._sessionId = sessionId;
+  }
+
+  get sessionId() {
+    return this._sessionId;
+  }
+
 
   constructor(options: StreamableHTTPServerTransportOptions) {
     this.sessionIdGenerator = options.sessionIdGenerator;

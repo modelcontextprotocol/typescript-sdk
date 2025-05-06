@@ -62,9 +62,33 @@ export class SSEClientTransport implements Transport {
   private _requestInit?: RequestInit;
   private _authProvider?: OAuthClientProvider;
 
-  onclose?: () => void;
-  onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage) => void;
+  protected _onclose?: Transport['onclose'];
+  protected _onerror?: Transport['onerror'];
+  protected _onmessage?: (message: JSONRPCMessage) => void;
+
+  get onmessage() {
+    return this._onmessage;
+  }
+
+  set onmessage(onmessage: SSEClientTransport['_onmessage']) {
+    this._onmessage = onmessage;
+  }
+
+  set onerror(onerror: SSEClientTransport['_onerror']) {
+    this._onerror = onerror;
+  }
+
+  get onerror() {
+    return this._onerror;
+  }
+
+  set onclose(onclose: SSEClientTransport['_onclose']) {
+    this._onclose = onclose;
+  }
+
+  get onclose() {
+    return this._onclose;
+  }
 
   constructor(
     url: URL,

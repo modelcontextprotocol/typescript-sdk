@@ -10,9 +10,33 @@ export class WebSocketClientTransport implements Transport {
   private _socket?: WebSocket;
   private _url: URL;
 
-  onclose?: () => void;
-  onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage) => void;
+  protected _onclose?: Transport['onclose'];
+  protected _onerror?: Transport['onerror'];
+  protected _onmessage?: (message: JSONRPCMessage) => void;
+
+  get onmessage() {
+    return this._onmessage;
+  }
+
+  set onmessage(onmessage: WebSocketClientTransport['_onmessage']) {
+    this._onmessage = onmessage;
+  }
+
+  set onerror(onerror: WebSocketClientTransport['_onerror']) {
+    this._onerror = onerror;
+  }
+
+  get onerror() {
+    return this._onerror;
+  }
+
+  set onclose(onclose: WebSocketClientTransport['_onclose']) {
+    this._onclose = onclose;
+  }
+
+  get onclose() {
+    return this._onclose;
+  }
 
   constructor(url: URL) {
     this._url = url;
