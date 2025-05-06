@@ -52,6 +52,7 @@
     "eventsource": "^3.0.2",
     "express": "^5.0.1",
     "express-rate-limit": "^7.5.0",
+    "json-schema-to-zod": "^2.6.1",
     "pkce-challenge": "^5.0.0",
     "raw-body": "^3.0.0",
     "zod": "^3.23.8",

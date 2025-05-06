@@ -39,7 +39,12 @@ import {
   SubscribeRequest,
   SUPPORTED_PROTOCOL_VERSIONS,
   UnsubscribeRequest,
+  Tool,
+  ErrorCode,
+  McpError,
 } from "../types.js";
+import { z } from "zod";
+import { parseSchema } from "json-schema-to-zod";
 
 export type ClientOptions = ProtocolOptions & {
   /**
@@ -86,6 +91,8 @@ export class Client<
   private _serverVersion?: Implementation;
   private _capabilities: ClientCapabilities;
   private _instructions?: string;
+  private _cachedTools: Map<string, Tool> = new Map();
+  private _cachedToolOutputSchemas: Map<string, z.ZodTypeAny> = new Map();
 
   /**
    * Initializes this client with the given name and version information.
@@ -413,22 +420,83 @@ export class Client<
       | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
     options?: RequestOptions,
   ) {
-    return this.request(
+    const result = await this.request(
       { method: "tools/call", params },
       resultSchema,
       options,
     );
+
+    // Check if the tool has an outputSchema
+    const outputSchema = this._cachedToolOutputSchemas.get(params.name);
+    if (outputSchema) {
+      // If tool has outputSchema, it MUST return structuredContent
+      if (!result.structuredContent) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          `Tool ${params.name} has an output schema but did not return structured content`
+        );
+      }
+
+      try {
+        // Parse the structured content as JSON
+        const contentData = JSON.parse(result.structuredContent as string);
+        
+        // Validate the content against the schema
+        const validationResult = outputSchema.safeParse(contentData);
+        
+        if (!validationResult.success) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `Structured content does not match the tool's output schema: ${validationResult.error.message}`
+          );
+        }
+      } catch (error) {
+        if (error instanceof McpError) {
+          throw error;
+        }
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          `Failed to validate structured content: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+
+    return result;
   }
 
   async listTools(
     params?: ListToolsRequest["params"],
     options?: RequestOptions,
   ) {
-    return this.request(
+    const result = await this.request(
       { method: "tools/list", params },
       ListToolsResultSchema,
       options,
     );
+
+    // Cache the tools and their output schemas for future validation
+    this._cachedTools.clear();
+    this._cachedToolOutputSchemas.clear();
+    
+    for (const tool of result.tools) {
+      this._cachedTools.set(tool.name, tool);
+      
+      // If the tool has an outputSchema, create and cache the Zod schema
+      if (tool.outputSchema) {
+        try {
+          const zodSchemaCode = parseSchema(tool.outputSchema);
+          // The library returns a string of Zod code, we need to evaluate it
+          // Using Function constructor to safely evaluate the Zod schema
+          const createSchema = new Function('z', `return ${zodSchemaCode}`);
+          const zodSchema = createSchema(z);
+          this._cachedToolOutputSchemas.set(tool.name, zodSchema);
+        } catch (error) {
+          console.warn(`Failed to create Zod schema for tool ${tool.name}: ${error}`);
+        }
+      }
+    }
+
+    return result;
   }
 
   async sendRootsListChanged() {
