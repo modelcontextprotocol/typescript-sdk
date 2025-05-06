@@ -748,11 +748,11 @@ describe("tool()", () => {
       },
       async ({ input }) => ({
         // When outputSchema is defined, return structuredContent instead of content
-        structuredContent: JSON.stringify({
+        structuredContent: {
           processedInput: input,
           resultType: "structured",
           timestamp: "2023-01-01T00:00:00Z"
-        }),
+        },
       }),
     );
 
@@ -813,10 +813,14 @@ describe("tool()", () => {
     expect(result.structuredContent).toBeDefined();
     expect(result.content).toBeUndefined(); // Should not have content when structuredContent is used
     
-    const parsed = JSON.parse(result.structuredContent || "{}");
-    expect(parsed.processedInput).toBe("hello");
-    expect(parsed.resultType).toBe("structured");
-    expect(parsed.timestamp).toBe("2023-01-01T00:00:00Z");
+    const structuredContent = result.structuredContent as { 
+      processedInput: string;
+      resultType: string;
+      timestamp: string;
+    };
+    expect(structuredContent.processedInput).toBe("hello");
+    expect(structuredContent.resultType).toBe("structured");
+    expect(structuredContent.timestamp).toBe("2023-01-01T00:00:00Z");
   });
 
   test("should pass sessionId to tool callback via RequestHandlerExtra", async () => {

@@ -1,8 +1,9 @@
 import { z, ZodTypeAny } from "zod";
 
-export const LATEST_PROTOCOL_VERSION = "2025-03-26";
+export const LATEST_PROTOCOL_VERSION = "DRAFT-2025-v2";
 export const SUPPORTED_PROTOCOL_VERSIONS = [
   LATEST_PROTOCOL_VERSION,
+  "2025-03-26",
   "2024-11-05",
   "2024-10-07",
 ];
@@ -829,12 +830,16 @@ export const ToolSchema = z
       .object({
         type: z.literal("object"),
         properties: z.optional(z.object({}).passthrough()),
+        required: z.optional(z.array(z.string())),
       })
       .passthrough(),
     /**
-     * A JSON Schema object defining the expected output for the tool.
+     * An optional JSON Schema object defining the structure of the tool's output.
+     *
+     * If set, a CallToolResult for this Tool MUST contain a structuredContent field whose contents validate against this schema.
+     * If not set, a CallToolResult for this Tool MUST NOT contain a structuredContent field and MUST contain a content field.
      */
-    outputSchema: z.object({type: z.any()}).passthrough().optional(),
+    outputSchema: z.optional(z.object({}).passthrough()),
     /**
      * Optional additional tool information.
      */
@@ -858,14 +863,75 @@ export const ListToolsResultSchema = PaginatedResultSchema.extend({
 
 /**
  * The server's response to a tool call.
+ *
+ * Any errors that originate from the tool SHOULD be reported inside the result
+ * object, with `isError` set to true, _not_ as an MCP protocol-level error
+ * response. Otherwise, the LLM would not be able to see that an error occurred
+ * and self-correct.
+ *
+ * However, any errors in _finding_ the tool, an error indicating that the
+ * server does not support tool calls, or any other exceptional conditions,
+ * should be reported as an MCP error response.
  */
-export const CallToolResultSchema = ResultSchema.extend({
-  content: z.array(
-    z.union([TextContentSchema, ImageContentSchema, AudioContentSchema, EmbeddedResourceSchema]),
-  ).optional(),
-  structuredContent: z.string().optional(),
-  isError: z.boolean().default(false).optional(),
+export const ContentListSchema = z.array(
+  z.union([
+    TextContentSchema,
+    ImageContentSchema,
+    AudioContentSchema,
+    EmbeddedResourceSchema,
+  ]),
+);
+
+export const CallToolUnstructuredResultSchema = ResultSchema.extend({
+  /**
+   * A list of content objects that represent the result of the tool call.
+   *
+   * If the Tool does not define an outputSchema, this field MUST be present in the result.
+   */
+  content: ContentListSchema,
+  
+  /**
+   * Structured output must not be provided in an unstructured tool result.
+   */
+  structuredContent: z.never().optional(),
+  
+  /**
+   * Whether the tool call ended in an error.
+   *
+   * If not set, this is assumed to be false (the call was successful).
+   */
+  isError: z.optional(z.boolean()),
 });
+
+export const CallToolStructuredResultSchema = ResultSchema.extend({
+  /**
+   * An object containing structured tool output.
+   *
+   * If the Tool defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
+   */
+  structuredContent: z.object({}).passthrough(),
+  
+  /**
+   * A list of content objects that represent the result of the tool call.
+   *
+   * If the Tool defines an outputSchema, this field MAY be present in the result.
+   * Tools may use this field to provide compatibility with older clients that do not support structured content.
+   * Clients that support structured content should ignore this field.
+   */
+  content: z.optional(ContentListSchema),
+  
+  /**
+   * Whether the tool call ended in an error.
+   *
+   * If not set, this is assumed to be false (the call was successful).
+   */
+  isError: z.optional(z.boolean()),
+});
+
+export const CallToolResultSchema = z.union([
+  CallToolUnstructuredResultSchema,
+  CallToolStructuredResultSchema,
+]);
 
 /**
  * CallToolResultSchema extended with backwards compatibility to protocol version 2024-10-07.
@@ -1317,6 +1383,9 @@ export type ToolAnnotations = Infer<typeof ToolAnnotationsSchema>;
 export type Tool = Infer<typeof ToolSchema>;
 export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
+export type ContentList = Infer<typeof ContentListSchema>;
+export type CallToolUnstructuredResult = Infer<typeof CallToolUnstructuredResultSchema>;
+export type CallToolStructuredResult = Infer<typeof CallToolStructuredResultSchema>;
 export type CallToolResult = Infer<typeof CallToolResultSchema>;
 export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;

@@ -438,11 +438,8 @@ export class Client<
       }
 
       try {
-        // Parse the structured content as JSON
-        const contentData = JSON.parse(result.structuredContent as string);
-        
-        // Validate the content against the schema
-        const validationResult = outputSchema.safeParse(contentData);
+        // Validate the structured content (which is already an object) against the schema
+        const validationResult = outputSchema.safeParse(result.structuredContent);
         
         if (!validationResult.success) {
           throw new McpError(
@@ -457,6 +454,14 @@ export class Client<
         throw new McpError(
           ErrorCode.InvalidParams,
           `Failed to validate structured content: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    } else {
+      // If tool doesn't have outputSchema, it MUST NOT return structuredContent
+      if (result.structuredContent) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          `Tool without outputSchema cannot return structuredContent`
         );
       }
     }
