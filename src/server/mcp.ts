@@ -86,7 +86,7 @@ const parseToolArguments = async (args: unknown, schema: AnyZodObject | Paramete
     return parseResult.data;
   }
 
-  const ajv = new Ajv({ removeAdditional: true });
+  const ajv = new Ajv({ removeAdditional: true, strict: false });
   const validateFn = ajv.compile(schema);
   const argsResult = structuredClone(args) as object;
 
