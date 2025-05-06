@@ -163,6 +163,25 @@ server.tool(
     };
   }
 );
+
+// Tool defined using JSON Schema
+server.tool({
+  name: "count-fingers",
+  paramsSchema: {
+    type: "object",
+    properties: {
+      hands: { type: "number" }
+    },
+    additionalProperties: false
+  },
+  cb: async (args) => {
+    return {
+      content: [
+        { type: "text", text: String(args.hands * 5) }
+      ]
+    };
+  }
+})
 ```
 
 ### Prompts
