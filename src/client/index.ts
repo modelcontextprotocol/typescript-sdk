@@ -429,32 +429,35 @@ export class Client<
     // Check if the tool has an outputSchema
     const outputSchema = this._cachedToolOutputSchemas.get(params.name);
     if (outputSchema) {
-      // If tool has outputSchema, it MUST return structuredContent
-      if (!result.structuredContent) {
+      // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
+      if (!result.structuredContent && !result.isError) {
         throw new McpError(
           ErrorCode.InvalidRequest,
           `Tool ${params.name} has an output schema but did not return structured content`
         );
       }
 
-      try {
-        // Validate the structured content (which is already an object) against the schema
-        const validationResult = outputSchema.safeParse(result.structuredContent);
-        
-        if (!validationResult.success) {
+      // Only validate structured content if present (not when there's an error)
+      if (result.structuredContent) {
+        try {
+          // Validate the structured content (which is already an object) against the schema
+          const validationResult = outputSchema.safeParse(result.structuredContent);
+          
+          if (!validationResult.success) {
+            throw new McpError(
+              ErrorCode.InvalidParams,
+              `Structured content does not match the tool's output schema: ${validationResult.error.message}`
+            );
+          }
+        } catch (error) {
+          if (error instanceof McpError) {
+            throw error;
+          }
           throw new McpError(
             ErrorCode.InvalidParams,
-            `Structured content does not match the tool's output schema: ${validationResult.error.message}`
+            `Failed to validate structured content: ${error instanceof Error ? error.message : String(error)}`
           );
         }
-      } catch (error) {
-        if (error instanceof McpError) {
-          throw error;
-        }
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          `Failed to validate structured content: ${error instanceof Error ? error.message : String(error)}`
-        );
       }
     } else {
       // If tool doesn't have outputSchema, it MUST NOT return structuredContent

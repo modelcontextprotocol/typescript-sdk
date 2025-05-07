@@ -811,7 +811,8 @@ describe("tool()", () => {
     );
 
     expect(result.structuredContent).toBeDefined();
-    expect(result.content).toBeUndefined(); // Should not have content when structuredContent is used
+    // For backward compatibility, content is auto-generated from structuredContent
+    expect(result.content).toBeDefined();
     
     const structuredContent = result.structuredContent as { 
       processedInput: string;
