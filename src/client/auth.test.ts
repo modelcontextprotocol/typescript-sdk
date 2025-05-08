@@ -4,6 +4,8 @@ import {
   exchangeAuthorization,
   refreshAuthorization,
   registerClient,
+  discoverOAuthProtectedResourceMetadata,
+  extractResourceMetadataUrl,
 } from "./auth.js";
 
 // Mock fetch globally
@@ -13,6 +15,168 @@ global.fetch = mockFetch;
 describe("OAuth Authorization", () => {
   beforeEach(() => {
     mockFetch.mockReset();
+  });
+
+  describe("extractResourceMetadataUrl", () => {
+    it("returns resource metadata url when present", async () => {
+      const resourceUrl = "https://resource.example.com/.well-known/oauth-protected-resource"
+      const mockResponse = {
+        headers: {
+          get: jest.fn((name) => name === "WWW-Authenticate" ? `Bearer realm="mcp", resource_metadata="${resourceUrl}"` : null),
+        }
+      } as unknown as Response
+
+      expect(extractResourceMetadataUrl(mockResponse)).toEqual(new URL(resourceUrl));
+    });
+
+    it("returns undefined if not bearer", async () => {
+      const resourceUrl = "https://resource.example.com/.well-known/oauth-protected-resource"
+      const mockResponse = {
+        headers: {
+          get: jest.fn((name) => name === "WWW-Authenticate" ? `Basic realm="mcp", resource_metadata="${resourceUrl}"` : null),
+        }
+      } as unknown as Response
+
+      expect(extractResourceMetadataUrl(mockResponse)).toBeUndefined();
+    });
+
+    it("returns undefined if resource_metadata not present", async () => {
+      const mockResponse = {
+        headers: {
+          get: jest.fn((name) => name === "WWW-Authenticate" ? `Basic realm="mcp"` : null),
+        }
+      } as unknown as Response
+
+      expect(extractResourceMetadataUrl(mockResponse)).toBeUndefined();
+    });
+
+    it("returns undefined on invalid url", async () => {
+      const resourceUrl = "invalid-url"
+      const mockResponse = {
+        headers: {
+          get: jest.fn((name) => name === "WWW-Authenticate" ? `Basic realm="mcp", resource_metadata="${resourceUrl}"` : null),
+        }
+      } as unknown as Response
+
+      expect(extractResourceMetadataUrl(mockResponse)).toBeUndefined();
+    });
+  });
+
+  describe("discoverOAuthProtectedResourceMetadata", () => {
+    const validMetadata = {
+      resource: "https://resource.example.com",
+      authorization_servers: ["https://auth.example.com"],
+    };
+
+    it("returns metadata when discovery succeeds", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validMetadata,
+      });
+
+      const metadata = await discoverOAuthProtectedResourceMetadata("https://resource.example.com");
+      expect(metadata).toEqual(validMetadata);
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(1);
+      const [url, options] = calls[0];
+      expect(url.toString()).toBe("https://resource.example.com/.well-known/oauth-protected-resource");
+      expect(options.headers).toEqual({
+        "MCP-Protocol-Version": "2024-11-05"
+      });
+    });
+
+    it("returns metadata when first fetch fails but second without MCP header succeeds", async () => {
+      // Set up a counter to control behavior
+      let callCount = 0;
+
+      // Mock implementation that changes behavior based on call count
+      mockFetch.mockImplementation((_url, _options) => {
+        callCount++;
+
+        if (callCount === 1) {
+          // First call with MCP header - fail with TypeError (simulating CORS error)
+          // We need to use TypeError specifically because that's what the implementation checks for
+          return Promise.reject(new TypeError("Network error"));
+        } else {
+          // Second call without header - succeed
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => validMetadata
+          });
+        }
+      });
+
+      // Should succeed with the second call
+      const metadata = await discoverOAuthProtectedResourceMetadata("https://resource.example.com");
+      expect(metadata).toEqual(validMetadata);
+
+      // Verify both calls were made
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      // Verify first call had MCP header
+      expect(mockFetch.mock.calls[0][1]?.headers).toHaveProperty("MCP-Protocol-Version");
+    });
+
+    it("throws an error when all fetch attempts fail", async () => {
+      // Set up a counter to control behavior
+      let callCount = 0;
+
+      // Mock implementation that changes behavior based on call count
+      mockFetch.mockImplementation((_url, _options) => {
+        callCount++;
+
+        if (callCount === 1) {
+          // First call - fail with TypeError
+          return Promise.reject(new TypeError("First failure"));
+        } else {
+          // Second call - fail with different error
+          return Promise.reject(new Error("Second failure"));
+        }
+      });
+
+      // Should fail with the second error
+      await expect(discoverOAuthProtectedResourceMetadata("https://resource.example.com"))
+        .rejects.toThrow("Second failure");
+
+      // Verify both calls were made
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws on 404 errors", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      await expect(discoverOAuthProtectedResourceMetadata("https://resource.example.com"))
+        .rejects.toThrow("Resource server does not implement OAuth 2.0 Protected Resource Metadata.");
+    });
+
+    it("throws on non-404 errors", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+      });
+
+      await expect(discoverOAuthProtectedResourceMetadata("https://resource.example.com"))
+        .rejects.toThrow("HTTP 500");
+    });
+
+    it("validates metadata schema", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          // Missing required fields
+          scopes_supported: ["email", "mcp"],
+        }),
+      });
+
+      await expect(discoverOAuthProtectedResourceMetadata("https://resource.example.com"))
+        .rejects.toThrow();
+    });
   });
 
   describe("discoverOAuthMetadata", () => {
@@ -158,6 +322,8 @@ describe("OAuth Authorization", () => {
       const { authorizationUrl, codeVerifier } = await startAuthorization(
         "https://auth.example.com",
         {
+          resource: "https://resource.example.com",
+          metadata: undefined,
           clientInformation: validClientInfo,
           redirectUrl: "http://localhost:3000/callback",
         }
@@ -166,6 +332,7 @@ describe("OAuth Authorization", () => {
       expect(authorizationUrl.toString()).toMatch(
         /^https:\/\/auth\.example\.com\/authorize\?/
       );
+      expect(authorizationUrl.searchParams.get("resource")).toBe("https://resource.example.com");
       expect(authorizationUrl.searchParams.get("response_type")).toBe("code");
       expect(authorizationUrl.searchParams.get("code_challenge")).toBe("test_challenge");
       expect(authorizationUrl.searchParams.get("code_challenge_method")).toBe(
@@ -181,6 +348,7 @@ describe("OAuth Authorization", () => {
       const { authorizationUrl } = await startAuthorization(
         "https://auth.example.com",
         {
+          resource: "https://resource.example.com",
           metadata: validMetadata,
           clientInformation: validClientInfo,
           redirectUrl: "http://localhost:3000/callback",
@@ -200,6 +368,7 @@ describe("OAuth Authorization", () => {
 
       await expect(
         startAuthorization("https://auth.example.com", {
+          resource: "https://resource.example.com",
           metadata,
           clientInformation: validClientInfo,
           redirectUrl: "http://localhost:3000/callback",
@@ -216,6 +385,7 @@ describe("OAuth Authorization", () => {
 
       await expect(
         startAuthorization("https://auth.example.com", {
+          resource: "https://resource.example.com",
           metadata,
           clientInformation: validClientInfo,
           redirectUrl: "http://localhost:3000/callback",

@@ -1,7 +1,8 @@
 import { EventSource, type ErrorEvent, type EventSourceInit } from "eventsource";
 import { Transport } from "../shared/transport.js";
 import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
-import { auth, AuthResult, OAuthClientProvider, UnauthorizedError } from "./auth.js";
+import { auth, AuthResult, discoverOAuthProtectedResourceMetadata, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
+import { OAuthProtectedResourceMetadata } from "src/shared/auth.js";
 
 export class SseError extends Error {
   constructor(
@@ -19,23 +20,23 @@ export class SseError extends Error {
 export type SSEClientTransportOptions = {
   /**
    * An OAuth client provider to use for authentication.
-   * 
+   *
    * When an `authProvider` is specified and the SSE connection is started:
    * 1. The connection is attempted with any existing access token from the `authProvider`.
    * 2. If the access token has expired, the `authProvider` is used to refresh the token.
    * 3. If token refresh fails or no access token exists, and auth is required, `OAuthClientProvider.redirectToAuthorization` is called, and an `UnauthorizedError` will be thrown from `connect`/`start`.
-   * 
+   *
    * After the user has finished authorizing via their user agent, and is redirected back to the MCP client application, call `SSEClientTransport.finishAuth` with the authorization code before retrying the connection.
-   * 
+   *
    * If an `authProvider` is not provided, and auth is required, an `UnauthorizedError` will be thrown.
-   * 
+   *
    * `UnauthorizedError` might also be thrown when sending any message over the SSE transport, indicating that the session has expired, and needs to be re-authed and reconnected.
    */
   authProvider?: OAuthClientProvider;
 
   /**
    * Customizes the initial SSE request to the server (the request that begins the stream).
-   * 
+   *
    * NOTE: Setting this property will prevent an `Authorization` header from
    * being automatically attached to the SSE request, if an `authProvider` is
    * also given. This can be worked around by setting the `Authorization` header
@@ -58,6 +59,7 @@ export class SSEClientTransport implements Transport {
   private _endpoint?: URL;
   private _abortController?: AbortController;
   private _url: URL;
+  private _protectedResourceMetadata: OAuthProtectedResourceMetadata | undefined;
   private _eventSourceInit?: EventSourceInit;
   private _requestInit?: RequestInit;
   private _authProvider?: OAuthClientProvider;
@@ -71,6 +73,7 @@ export class SSEClientTransport implements Transport {
     opts?: SSEClientTransportOptions,
   ) {
     this._url = url;
+    this._protectedResourceMetadata = undefined;
     this._eventSourceInit = opts?.eventSourceInit;
     this._requestInit = opts?.requestInit;
     this._authProvider = opts?.authProvider;
@@ -83,7 +86,7 @@ export class SSEClientTransport implements Transport {
 
     let result: AuthResult;
     try {
-      result = await auth(this._authProvider, { serverUrl: this._url });
+      result = await auth(this._authProvider, { resourceServerUrl: this._url, protectedResourceMetadata: this._protectedResourceMetadata });
     } catch (error) {
       this.onerror?.(error as Error);
       throw error;
@@ -193,7 +196,7 @@ export class SSEClientTransport implements Transport {
       throw new UnauthorizedError("No auth provider");
     }
 
-    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode });
+    const result = await auth(this._authProvider, { resourceServerUrl: this._url, authorizationCode, protectedResourceMetadata: this._protectedResourceMetadata });
     if (result !== "AUTHORIZED") {
       throw new UnauthorizedError("Failed to authorize");
     }
@@ -225,7 +228,13 @@ export class SSEClientTransport implements Transport {
       const response = await fetch(this._endpoint, init);
       if (!response.ok) {
         if (response.status === 401 && this._authProvider) {
-          const result = await auth(this._authProvider, { serverUrl: this._url });
+
+          const resourceMetadataUrl = extractResourceMetadataUrl(response);
+          this._protectedResourceMetadata = await discoverOAuthProtectedResourceMetadata(this._url, {
+            resourceMetadataUrl: resourceMetadataUrl
+          })
+
+          const result = await auth(this._authProvider, { resourceServerUrl: this._url, protectedResourceMetadata: this._protectedResourceMetadata });
           if (result !== "AUTHORIZED") {
             throw new UnauthorizedError();
           }
