@@ -13,6 +13,7 @@
 - [Running Your Server](#running-your-server)
   - [stdio](#stdio)
   - [Streamable HTTP](#streamable-http)
+  - [Using with Node.js HTTP Frameworks (Fastify, Express, etc.)](#using-with-nodejs-http-frameworks-fastify-express-etc)
   - [Testing and Debugging](#testing-and-debugging)
 - [Examples](#examples)
   - [Echo Server](#echo-server)
@@ -380,6 +381,55 @@ This stateless approach is useful for:
 - Simple API wrappers
 - RESTful scenarios where each request is independent
 - Horizontally scaled deployments without shared session state
+
+### Using with Node.js HTTP Frameworks (Fastify, Express, etc.)
+
+The `StreamableHTTPServerTransport` works directly with Node.js's native `IncomingMessage` and `ServerResponse` objects. To simplify integration with common Node.js web frameworks like Fastify or Express, the SDK provides the `RawHttpServerAdapter`. This adapter wraps `StreamableHTTPServerTransport` and exposes a `handleNodeRequest` method.
+
+The `RawHttpServerAdapter` expects your framework's request and response objects to provide access to the underlying Node.js `request.raw` and `response.raw` objects. It also expects that your framework can provide the pre-parsed request body (e.g., `request.body`).
+
+**Key features:**
+- Implements the `Transport` interface, so it can be directly passed to `McpServer.connect()`.
+- Delegates to an internal `StreamableHTTPServerTransport` instance.
+- Simplifies request/response handling by working with the raw Node.js objects exposed by many frameworks.
+
+**Example with a Fastify-like setup:**
+
+```typescript
+import { McpServer, StreamableHTTPServerTransportOptions } from "@modelcontextprotocol/sdk/server"; // Or specific paths
+import { RawHttpServerAdapter } from "@modelcontextprotocol/sdk/server/raw-http-adapter"; // Adjust path as needed
+import { randomUUID } from "node:crypto";
+// import YourFramework from 'your-framework'; // e.g., Fastify or Express
+
+// const frameworkApp = YourFramework();
+// const mcpServer = new McpServer({ name: "MyFrameworkMCPServer", version: "1.0.0" });
+
+const mcpAdapterOptions: StreamableHTTPServerTransportOptions = {
+  sessionIdGenerator: () => randomUUID(),
+  // enableJsonResponse: true, // Useful for POSTs if SSE is not desired for responses
+};
+const mcpAdapter = new RawHttpServerAdapter(mcpAdapterOptions);
+
+await mcpServer.connect(mcpAdapter);
+
+// In your framework's route handler for the MCP endpoint (e.g., /mcp)
+// frameworkApp.all('/mcp', async (request, reply) => {
+//   try {
+//     await mcpAdapter.handleNodeRequest(
+//       { raw: request.raw, body: request.body }, // From your framework
+//       { raw: reply.raw }                          // From your framework
+//     );
+//     // IMPORTANT for SSE: Do not let your framework automatically end the response here.
+//     // The mcpAdapter will manage the response stream (reply.raw).
+//   } catch (error) {
+//     // Handle error
+//     if (!reply.raw.headersSent) { /* send error response via reply.raw */ }
+//   }
+// });
+
+// frameworkApp.listen({ port: 3000 });
+```
+Refer to the example in `src/examples/server/simpleFastifyServer.ts` for a runnable demonstration with Fastify.
 
 ### Testing and Debugging
 
