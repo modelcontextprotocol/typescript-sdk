@@ -659,7 +659,7 @@ export class McpServer {
     if (this._registeredTools[name]) {
       throw new Error(`Tool ${name} is already registered`);
     }
-
+    
     // Runtime type guard for Zod types that works across bundles/realms
     const isZodType = (value: unknown): value is ZodTypeAny => {
       if (typeof value !== "object" || value === null) return false;
@@ -693,23 +693,18 @@ export class McpServer {
 
     let paramsSchema: ZodRawShape | undefined;
     let annotations: ToolAnnotations | undefined;
-
+    
     // Handle the different overload combinations
     if (rest.length > 1) {
       // We have at least two more args before the callback
       const firstArg = rest[0];
-
+      
       if (isZodRawShape(firstArg)) {
         // We have a params schema as the first arg
         paramsSchema = rest.shift() as ZodRawShape;
-
-        // Check if the next arg is potentially annotations
-        if (
-          rest.length > 1 &&
-          typeof rest[0] === "object" &&
-          rest[0] !== null &&
-          !isZodRawShape(rest[0])
-        ) {
+        
+        // Check if the next arg is potentially annotations  
+        if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !(isZodRawShape(rest[0]))) {
           // Case: tool(name, paramsSchema, annotations, cb)
           // Or: tool(name, description, paramsSchema, annotations, cb)
           annotations = rest.shift() as ToolAnnotations;
@@ -735,29 +730,23 @@ export class McpServer {
       remove: () => registeredTool.update({ name: null }),
       update: (updates) => {
         if (typeof updates.name !== "undefined" && updates.name !== name) {
-          delete this._registeredTools[name];
-          if (updates.name)
-            this._registeredTools[updates.name] = registeredTool;
+          delete this._registeredTools[name]
+          if (updates.name) this._registeredTools[updates.name] = registeredTool
         }
-        if (typeof updates.description !== "undefined")
-          registeredTool.description = updates.description;
-        if (typeof updates.paramsSchema !== "undefined")
-          registeredTool.inputSchema = z.object(updates.paramsSchema);
-        if (typeof updates.callback !== "undefined")
-          registeredTool.callback = updates.callback;
-        if (typeof updates.annotations !== "undefined")
-          registeredTool.annotations = updates.annotations;
-        if (typeof updates.enabled !== "undefined")
-          registeredTool.enabled = updates.enabled;
-        this.sendToolListChanged();
+        if (typeof updates.description !== "undefined") registeredTool.description = updates.description
+        if (typeof updates.paramsSchema !== "undefined") registeredTool.inputSchema = z.object(updates.paramsSchema)
+        if (typeof updates.callback !== "undefined") registeredTool.callback = updates.callback
+        if (typeof updates.annotations !== "undefined") registeredTool.annotations = updates.annotations
+        if (typeof updates.enabled !== "undefined") registeredTool.enabled = updates.enabled
+        this.sendToolListChanged()
       },
     };
     this._registeredTools[name] = registeredTool;
 
     this.setToolRequestHandlers();
-    this.sendToolListChanged();
+    this.sendToolListChanged()
 
-    return registeredTool;
+    return registeredTool
   }
 
   /**

@@ -177,6 +177,31 @@ describe("OAuth Authorization", () => {
       expect(codeVerifier).toBe("test_verifier");
     });
 
+    it("includes scope parameter when provided", async () => {
+      const { authorizationUrl } = await startAuthorization(
+        "https://auth.example.com",
+        {
+          clientInformation: validClientInfo,
+          redirectUrl: "http://localhost:3000/callback",
+          scope: "read write profile",
+        }
+      );
+
+      expect(authorizationUrl.searchParams.get("scope")).toBe("read write profile");
+    });
+
+    it("excludes scope parameter when not provided", async () => {
+      const { authorizationUrl } = await startAuthorization(
+        "https://auth.example.com",
+        {
+          clientInformation: validClientInfo,
+          redirectUrl: "http://localhost:3000/callback",
+        }
+      );
+
+      expect(authorizationUrl.searchParams.has("scope")).toBe(false);
+    });
+
     it("uses metadata authorization_endpoint when provided", async () => {
       const { authorizationUrl } = await startAuthorization(
         "https://auth.example.com",
