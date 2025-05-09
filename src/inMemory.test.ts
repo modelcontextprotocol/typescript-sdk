@@ -96,10 +96,43 @@ describe("InMemoryTransport", () => {
   });
 
   test("should throw error when sending after close", async () => {
-    await clientTransport.close();
+    const [client, server] = InMemoryTransport.createLinkedPair();
+    let clientError: Error | undefined;
+    let serverError: Error | undefined;
+
+    client.onerror = (err) => {
+      clientError = err;
+    };
+
+    server.onerror = (err) => {
+      serverError = err;
+    };
+
+    await client.close();
+
+    // Attempt to send message from client
     await expect(
-      clientTransport.send({ jsonrpc: "2.0", method: "test", id: 1 }),
+      client.send({
+        jsonrpc: "2.0",
+        method: "test",
+        id: 1,
+      }),
     ).rejects.toThrow("Not connected");
+
+    // Attempt to send message from server
+    await expect(
+      server.send({
+        jsonrpc: "2.0",
+        method: "test",
+        id: 2,
+      }),
+    ).rejects.toThrow("Not connected");
+
+    // Verify that both sides received errors
+    expect(clientError).toBeDefined();
+    expect(clientError?.message).toBe("Not connected");
+    expect(serverError).toBeDefined();
+    expect(serverError?.message).toBe("Not connected");
   });
 
   test("should queue messages sent before start", async () => {
@@ -117,5 +150,66 @@ describe("InMemoryTransport", () => {
     await clientTransport.send(message);
     await serverTransport.start();
     expect(receivedMessage).toEqual(message);
+  });
+
+  describe("error handling", () => {
+    test("should trigger onerror when sending without connection", async () => {
+      const transport = new InMemoryTransport();
+      let error: Error | undefined;
+
+      transport.onerror = (err) => {
+        error = err;
+      };
+
+      await expect(
+        transport.send({
+          jsonrpc: "2.0",
+          method: "test",
+          id: 1,
+        }),
+      ).rejects.toThrow("Not connected");
+
+      expect(error).toBeDefined();
+      expect(error?.message).toBe("Not connected");
+    });
+
+    test("should trigger onerror when sending after close", async () => {
+      const [client, server] = InMemoryTransport.createLinkedPair();
+      let clientError: Error | undefined;
+      let serverError: Error | undefined;
+
+      client.onerror = (err) => {
+        clientError = err;
+      };
+
+      server.onerror = (err) => {
+        serverError = err;
+      };
+
+      await client.close();
+
+      // Attempt to send message from client
+      await expect(
+        client.send({
+          jsonrpc: "2.0",
+          method: "test",
+          id: 1,
+        }),
+      ).rejects.toThrow("Not connected");
+
+      // Attempt to send message from server
+      await expect(
+        server.send({
+          jsonrpc: "2.0",
+          method: "test",
+          id: 2,
+        }),
+      ).rejects.toThrow("Not connected");
+
+      // Verify that both sides received errors
+      expect(clientError?.message).toBe("Not connected");
+      expect(serverError).toBeDefined();
+      expect(serverError?.message).toBe("Not connected");
+    });
   });
 });
