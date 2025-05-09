@@ -92,7 +92,7 @@ export class SSEServerTransport implements Transport {
     try {
       const ct = contentType.parse(req.headers["content-type"] ?? "");
       if (ct.type !== "application/json") {
-        throw new Error(`Unsupported content-type: ${ct}`);
+        throw new Error(`Unsupported content-type: ${ct.type}`);
       }
 
       body = parsedBody ?? await getRawBody(req, {
