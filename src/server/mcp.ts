@@ -111,7 +111,7 @@ export class McpServer {
           ([, tool]) => tool.enabled,
         ).map(
           ([name, tool]): Tool => {
-            return {
+            const toolDefinition: Tool = {
               name,
               description: tool.description,
               inputSchema: tool.inputSchema
@@ -121,6 +121,13 @@ export class McpServer {
                 : EMPTY_OBJECT_JSON_SCHEMA,
               annotations: tool.annotations,
             };
+            
+            // Only include outputSchema if it's defined
+            if (tool.outputSchema) {
+              toolDefinition.outputSchema = tool.outputSchema;
+            }
+            
+            return toolDefinition;
           },
         ),
       }),
@@ -144,6 +151,8 @@ export class McpServer {
           );
         }
 
+        let result: CallToolResult;
+
         if (tool.inputSchema) {
           const parseResult = await tool.inputSchema.safeParseAsync(
             request.params.arguments,
@@ -158,9 +167,9 @@ export class McpServer {
           const args = parseResult.data;
           const cb = tool.callback as ToolCallback<ZodRawShape>;
           try {
-            return await Promise.resolve(cb(args, extra));
+            result = await Promise.resolve(cb(args, extra));
           } catch (error) {
-            return {
+            result = {
               content: [
                 {
                   type: "text",
@@ -173,9 +182,9 @@ export class McpServer {
         } else {
           const cb = tool.callback as ToolCallback<undefined>;
           try {
-            return await Promise.resolve(cb(extra));
+            result = await Promise.resolve(cb(extra));
           } catch (error) {
-            return {
+            result = {
               content: [
                 {
                   type: "text",
@@ -186,6 +195,46 @@ export class McpServer {
             };
           }
         }
+
+        // Handle structured output and backward compatibility
+        if (tool.outputSchema) {
+          // Tool has outputSchema, so result must have structuredContent (unless it's an error)
+          if (!result.structuredContent && !result.isError) {
+            throw new McpError(
+              ErrorCode.InternalError,
+              `Tool ${request.params.name} has outputSchema but returned no structuredContent`,
+            );
+          }
+          
+          // For backward compatibility, if structuredContent is provided but no content,
+          // automatically serialize the structured content to text
+          if (result.structuredContent && !result.content) {
+            result.content = [
+              {
+                type: "text",
+                text: JSON.stringify(result.structuredContent, null, 2),
+              },
+            ];
+          }
+        } else {
+          // Tool has no outputSchema
+          if (result.structuredContent) {
+            throw new McpError(
+              ErrorCode.InternalError,
+              `Tool ${request.params.name} has no outputSchema but returned structuredContent`,
+            );
+          }
+          
+          // Tool must have content if no outputSchema
+          if (!result.content && !result.isError) {
+            throw new McpError(
+              ErrorCode.InternalError,
+              `Tool ${request.params.name} has no outputSchema and must return content`,
+            );
+          }
+        }
+
+        return result;
       },
     );
 
@@ -655,6 +704,50 @@ export class McpServer {
     cb: ToolCallback<Args>,
   ): RegisteredTool;
 
+  /**
+   * Registers a tool with output schema.
+   */
+  tool<Args extends ZodRawShape>(
+    name: string,
+    paramsSchema: Args,
+    outputSchema: Tool["outputSchema"],
+    cb: ToolCallback<Args>,
+  ): RegisteredTool;
+
+  /**
+   * Registers a tool with description and output schema.
+   */
+  tool<Args extends ZodRawShape>(
+    name: string,
+    description: string,
+    paramsSchema: Args,
+    outputSchema: Tool["outputSchema"],
+    cb: ToolCallback<Args>,
+  ): RegisteredTool;
+
+  /**
+   * Registers a tool with parameter schema, output schema, and annotations.
+   */
+  tool<Args extends ZodRawShape>(
+    name: string,
+    paramsSchema: Args,
+    outputSchema: Tool["outputSchema"],
+    annotations: ToolAnnotations,
+    cb: ToolCallback<Args>,
+  ): RegisteredTool;
+
+  /**
+   * Registers a tool with description, parameter schema, output schema, and annotations.
+   */
+  tool<Args extends ZodRawShape>(
+    name: string,
+    description: string,
+    paramsSchema: Args,
+    outputSchema: Tool["outputSchema"],
+    annotations: ToolAnnotations,
+    cb: ToolCallback<Args>,
+  ): RegisteredTool;
+
   tool(name: string, ...rest: unknown[]): RegisteredTool {
     if (this._registeredTools[name]) {
       throw new Error(`Tool ${name} is already registered`);
@@ -666,6 +759,7 @@ export class McpServer {
     }
 
     let paramsSchema: ZodRawShape | undefined;
+    let outputSchema: Tool["outputSchema"] | undefined;
     let annotations: ToolAnnotations | undefined;
     
     // Handle the different overload combinations
@@ -677,17 +771,36 @@ export class McpServer {
         // We have a params schema as the first arg
         paramsSchema = rest.shift() as ZodRawShape;
         
-        // Check if the next arg is potentially annotations  
-        if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !(isZodRawShape(rest[0]))) {
-          // Case: tool(name, paramsSchema, annotations, cb)
-          // Or: tool(name, description, paramsSchema, annotations, cb)
-          annotations = rest.shift() as ToolAnnotations;
+        // Check if the next arg is potentially annotations or outputSchema
+        if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null) {
+          const nextArg = rest[0];
+          
+          // Check if it's a JSON Schema (outputSchema)
+          if (typeof nextArg === "object" && "type" in nextArg) {
+            outputSchema = rest.shift() as Tool["outputSchema"];
+            
+            // Check if there's still an annotations object
+            if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !(isZodRawShape(rest[0]))) {
+              annotations = rest.shift() as ToolAnnotations;
+            }
+          } else if (!(isZodRawShape(nextArg))) {
+            // It's annotations
+            annotations = rest.shift() as ToolAnnotations;
+          }
         }
       } else if (typeof firstArg === "object" && firstArg !== null) {
-        // Not a ZodRawShape, so must be annotations in this position
-        // Case: tool(name, annotations, cb)
-        // Or: tool(name, description, annotations, cb)
-        annotations = rest.shift() as ToolAnnotations;
+        // Check if it's a JSON Schema (outputSchema)
+        if ("type" in firstArg) {
+          outputSchema = rest.shift() as Tool["outputSchema"];
+          
+          // Check if there's still an annotations object
+          if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !(isZodRawShape(rest[0]))) {
+            annotations = rest.shift() as ToolAnnotations;
+          }
+        } else {
+          // It's annotations
+          annotations = rest.shift() as ToolAnnotations;
+        }
       }
     }
 
@@ -696,6 +809,7 @@ export class McpServer {
       description,
       inputSchema:
         paramsSchema === undefined ? undefined : z.object(paramsSchema),
+      outputSchema,
       annotations,
       callback: cb,
       enabled: true,
@@ -709,6 +823,7 @@ export class McpServer {
         }
         if (typeof updates.description !== "undefined") registeredTool.description = updates.description
         if (typeof updates.paramsSchema !== "undefined") registeredTool.inputSchema = z.object(updates.paramsSchema)
+        if (typeof updates.outputSchema !== "undefined") registeredTool.outputSchema = updates.outputSchema
         if (typeof updates.callback !== "undefined") registeredTool.callback = updates.callback
         if (typeof updates.annotations !== "undefined") registeredTool.annotations = updates.annotations
         if (typeof updates.enabled !== "undefined") registeredTool.enabled = updates.enabled
@@ -896,6 +1011,11 @@ export class ResourceTemplate {
  * Callback for a tool handler registered with Server.tool().
  *
  * Parameters will include tool arguments, if applicable, as well as other request handler context.
+ * 
+ * The callback should return:
+ * - `structuredContent` if the tool has an outputSchema defined
+ * - `content` if the tool does not have an outputSchema
+ * - Both fields are optional but typically one should be provided
  */
 export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
   Args extends ZodRawShape
@@ -908,12 +1028,13 @@ export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
 export type RegisteredTool = {
   description?: string;
   inputSchema?: AnyZodObject;
+  outputSchema?: Tool["outputSchema"];
   annotations?: ToolAnnotations;
   callback: ToolCallback<undefined | ZodRawShape>;
   enabled: boolean;
   enable(): void;
   disable(): void;
-  update<Args extends ZodRawShape>(updates: { name?: string | null, description?: string, paramsSchema?: Args, callback?: ToolCallback<Args>, annotations?: ToolAnnotations, enabled?: boolean }): void
+  update<Args extends ZodRawShape>(updates: { name?: string | null, description?: string, paramsSchema?: Args, outputSchema?: Tool["outputSchema"], callback?: ToolCallback<Args>, annotations?: ToolAnnotations, enabled?: boolean }): void
   remove(): void
 };
 

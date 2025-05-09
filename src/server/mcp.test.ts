@@ -768,6 +768,109 @@ describe("tool()", () => {
     mcpServer.tool("tool2", () => ({ content: [] }));
   });
 
+  test("should support tool with outputSchema and structuredContent", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client(
+      {
+        name: "test client",
+        version: "1.0",
+      },
+      {
+        capabilities: {
+          tools: {},
+        },
+      },
+    );
+
+    // Register a tool with outputSchema
+    const registeredTool = mcpServer.tool(
+      "test",
+      "Test tool with structured output",
+      {
+        input: z.string(),
+      },
+      async ({ input }) => ({
+        // When outputSchema is defined, return structuredContent instead of content
+        structuredContent: {
+          processedInput: input,
+          resultType: "structured",
+          timestamp: "2023-01-01T00:00:00Z"
+        },
+      }),
+    );
+
+    // Update the tool to add outputSchema
+    registeredTool.update({
+      outputSchema: {
+        type: "object",
+        properties: {
+          processedInput: { type: "string" },
+          resultType: { type: "string" },
+          timestamp: { type: "string", format: "date-time" }
+        },
+        required: ["processedInput", "resultType", "timestamp"]
+      }
+    });
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Verify the tool registration includes outputSchema
+    const listResult = await client.request(
+      {
+        method: "tools/list",
+      },
+      ListToolsResultSchema,
+    );
+
+    expect(listResult.tools).toHaveLength(1);
+    expect(listResult.tools[0].outputSchema).toEqual({
+      type: "object",
+      properties: {
+        processedInput: { type: "string" },
+        resultType: { type: "string" },
+        timestamp: { type: "string", format: "date-time" }
+      },
+      required: ["processedInput", "resultType", "timestamp"]
+    });
+
+    // Call the tool and verify it returns structuredContent
+    const result = await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "test",
+          arguments: {
+            input: "hello",
+          },
+        },
+      },
+      CallToolResultSchema,
+    );
+
+    expect(result.structuredContent).toBeDefined();
+    // For backward compatibility, content is auto-generated from structuredContent
+    expect(result.content).toBeDefined();
+    
+    const structuredContent = result.structuredContent as { 
+      processedInput: string;
+      resultType: string;
+      timestamp: string;
+    };
+    expect(structuredContent.processedInput).toBe("hello");
+    expect(structuredContent.resultType).toBe("structured");
+    expect(structuredContent.timestamp).toBe("2023-01-01T00:00:00Z");
+  });
+
   test("should pass sessionId to tool callback via RequestHandlerExtra", async () => {
     const mcpServer = new McpServer({
       name: "test server",
@@ -871,7 +974,7 @@ describe("tool()", () => {
 
     expect(receivedRequestId).toBeDefined();
     expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
-    expect(result.content[0].text).toContain("Received request ID:");
+    expect(result.content && result.content[0].text).toContain("Received request ID:");
   });
 
   test("should provide sendNotification within tool call", async () => {
