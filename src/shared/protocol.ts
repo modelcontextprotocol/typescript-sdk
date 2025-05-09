@@ -279,15 +279,21 @@ export abstract class Protocol<
    */
   async connect(transport: Transport): Promise<void> {
     this._transport = transport;
+    const _onclose = this.transport?.onclose;
     this._transport.onclose = () => {
+      _onclose?.();
       this._onclose();
     };
 
+    const _onerror = this.transport?.onerror;
     this._transport.onerror = (error: Error) => {
+      _onerror?.(error);
       this._onerror(error);
     };
 
+    const _onmessage = this._transport?.onmessage;
     this._transport.onmessage = (message, extra) => {
+      _onmessage?.(message, extra);
       if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
         this._onresponse(message);
       } else if (isJSONRPCRequest(message)) {
@@ -295,7 +301,9 @@ export abstract class Protocol<
       } else if (isJSONRPCNotification(message)) {
         this._onnotification(message);
       } else {
-        this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
+        this._onerror(
+          new Error(`Unknown message type: ${JSON.stringify(message)}`),
+        );
       }
     };
 
