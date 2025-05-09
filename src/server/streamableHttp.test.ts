@@ -5,6 +5,7 @@ import { EventStore, StreamableHTTPServerTransport, EventId, StreamId } from "./
 import { McpServer } from "./mcp.js";
 import { CallToolResult, JSONRPCMessage } from "../types.js";
 import { z } from "zod";
+import { AuthInfo } from "./auth/types.js";
 
 /**
  * Test server configuration for StreamableHTTPServerTransport tests
@@ -52,6 +53,61 @@ async function createTestServer(config: TestServerConfig = { sessionIdGenerator:
       if (config.customRequestHandler) {
         await config.customRequestHandler(req, res);
       } else {
+        await transport.handleRequest(req, res);
+      }
+    } catch (error) {
+      console.error("Error handling request:", error);
+      if (!res.headersSent) res.writeHead(500).end();
+    }
+  });
+
+  const baseUrl = await new Promise<URL>((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address() as AddressInfo;
+      resolve(new URL(`http://127.0.0.1:${addr.port}`));
+    });
+  });
+
+  return { server, transport, mcpServer, baseUrl };
+}
+
+/**
+ * Helper to create and start authenticated test HTTP server with MCP setup
+ */
+async function createTestAuthServer(config: TestServerConfig = { sessionIdGenerator: (() => randomUUID()) }): Promise<{
+  server: Server;
+  transport: StreamableHTTPServerTransport;
+  mcpServer: McpServer;
+  baseUrl: URL;
+}> {
+  const mcpServer = new McpServer(
+    { name: "test-server", version: "1.0.0" },
+    { capabilities: { logging: {} } }
+  );
+
+  mcpServer.tool(
+    "profile",
+    "A user profile data tool",
+    { active: z.boolean().describe("Profile status") },
+    async ({ active }, { authInfo }): Promise<CallToolResult> => {
+      return { content: [{ type: "text", text: `${active ? 'Active' : 'Inactive'} profile from token: ${authInfo?.token}!` }] };
+    }
+  );
+
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: config.sessionIdGenerator,
+    enableJsonResponse: config.enableJsonResponse ?? false,
+    eventStore: config.eventStore
+  });
+
+  await mcpServer.connect(transport);
+
+  const server = createServer(async (req: IncomingMessage & { auth?: AuthInfo }, res) => {
+    try {
+      if (config.customRequestHandler) {
+        await config.customRequestHandler(req, res);
+      } else {
+        req.auth = { token: req.headers["authorization"]?.split(" ")[1] } as AuthInfo;
         await transport.handleRequest(req, res);
       }
     } catch (error) {
@@ -120,10 +176,11 @@ async function readSSEEvent(response: Response): Promise<string> {
 /**
  * Helper to send JSON-RPC request
  */
-async function sendPostRequest(baseUrl: URL, message: JSONRPCMessage | JSONRPCMessage[], sessionId?: string): Promise<Response> {
+async function sendPostRequest(baseUrl: URL, message: JSONRPCMessage | JSONRPCMessage[], sessionId?: string, extraHeaders?: Record<string, string>): Promise<Response> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json, text/event-stream",
+    ...extraHeaders
   };
 
   if (sessionId) {
@@ -670,6 +727,105 @@ describe("StreamableHTTPServerTransport", () => {
     expect(response.status).toBe(404);
     const errorData = await response.json();
     expectErrorResponse(errorData, -32001, /Session not found/);
+  });
+});
+
+describe("StreamableHTTPServerTransport with AuthInfo", () => {
+  let server: Server;
+  let transport: StreamableHTTPServerTransport;
+  let baseUrl: URL;
+  let sessionId: string;
+
+  beforeEach(async () => {
+    const result = await createTestAuthServer();
+    server = result.server;
+    transport = result.transport;
+    baseUrl = result.baseUrl;
+  });
+
+  afterEach(async () => {
+    await stopTestServer({ server, transport });
+  });
+
+  async function initializeServer(): Promise<string> {
+    const response = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+
+    expect(response.status).toBe(200);
+    const newSessionId = response.headers.get("mcp-session-id");
+    expect(newSessionId).toBeDefined();
+    return newSessionId as string;
+  }
+
+  it("should call a tool with authInfo", async () => {
+    sessionId = await initializeServer();
+
+    const toolCallMessage: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: {
+        name: "profile",
+        arguments: {active: true},
+      },
+      id: "call-1",
+    };
+
+    const response = await sendPostRequest(baseUrl, toolCallMessage, sessionId, {'authorization': 'Bearer test-token'});
+    expect(response.status).toBe(200);
+
+    const text = await readSSEEvent(response);
+    const eventLines = text.split("\n");
+    const dataLine = eventLines.find(line => line.startsWith("data:"));
+    expect(dataLine).toBeDefined();
+
+    const eventData = JSON.parse(dataLine!.substring(5));
+    expect(eventData).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        content: [
+          {
+            type: "text",
+            text: "Active profile from token: test-token!",
+          },
+        ],
+      },
+      id: "call-1",
+    });
+  });
+  
+  it("should calls tool without authInfo when it is optional", async () => {
+    sessionId = await initializeServer();
+
+    const toolCallMessage: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: {
+        name: "profile",
+        arguments: {active: false},
+      },
+      id: "call-1",
+    };
+
+    const response = await sendPostRequest(baseUrl, toolCallMessage, sessionId);
+    expect(response.status).toBe(200);
+
+    const text = await readSSEEvent(response);
+    const eventLines = text.split("\n");
+    const dataLine = eventLines.find(line => line.startsWith("data:"));
+    expect(dataLine).toBeDefined();
+
+    const eventData = JSON.parse(dataLine!.substring(5));
+    expect(eventData).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        content: [
+          {
+            type: "text",
+            text: "Inactive profile from token: undefined!",
+          },
+        ],
+      },
+      id: "call-1",
+    });
   });
 });
 
