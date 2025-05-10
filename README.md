@@ -1,9 +1,10 @@
 # MCP TypeScript SDK ![NPM Version](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fsdk) ![MIT licensed](https://img.shields.io/npm/l/%40modelcontextprotocol%2Fsdk)
 
 ## Table of Contents
+
 - [Overview](#overview)
 - [Installation](#installation)
-- [Quickstart](#quickstart)
+- [Quickstart](#quick-start)
 - [What is MCP?](#what-is-mcp)
 - [Core Concepts](#core-concepts)
   - [Server](#server)
@@ -18,11 +19,14 @@
   - [Echo Server](#echo-server)
   - [SQLite Explorer](#sqlite-explorer)
 - [Advanced Usage](#advanced-usage)
+  - [Dynamic Servers](#dynamic-servers)
   - [Low-Level Server](#low-level-server)
   - [Writing MCP Clients](#writing-mcp-clients)
-  - [Server Capabilities](#server-capabilities)
-  - [Proxy OAuth Server](#proxy-authorization-requests-upstream)
+  - [Proxy Authorization Requests Upstream](#proxy-authorization-requests-upstream)
   - [Backwards Compatibility](#backwards-compatibility)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Overview
 
@@ -377,6 +381,7 @@ app.listen(PORT, () => {
 ```
 
 This stateless approach is useful for:
+
 - Simple API wrappers
 - RESTful scenarios where each request is independent
 - Horizontally scaled deployments without shared session state
@@ -720,6 +725,7 @@ app.use(mcpAuthRouter({
 ```
 
 This setup allows you to:
+
 - Forward OAuth requests to an external provider
 - Add custom token validation logic
 - Manage client registrations
@@ -833,7 +839,7 @@ app.listen(3000);
 
 ## Contributing
 
-Issues and pull requests are welcome on GitHub at https://github.com/modelcontextprotocol/typescript-sdk.
+Issues and pull requests are welcome on GitHub at <https://github.com/modelcontextprotocol/typescript-sdk>.
 
 ## License
 

@@ -1,7 +1,8 @@
 # MCP TypeScript SDK Guide
 
 ## Build & Test Commands
-```
+
+```sh
 npm run build        # Build ESM and CJS versions
 npm run lint         # Run ESLint
 npm test             # Run all tests
@@ -10,6 +11,7 @@ npx jest -t "test name"        # Run tests matching pattern
 ```
 
 ## Code Style Guidelines
+
 - **TypeScript**: Strict type checking, ES modules, explicit return types
 - **Naming**: PascalCase for classes/types, camelCase for functions/variables
 - **Files**: Lowercase with hyphens, test files with `.test.ts` suffix
@@ -20,6 +22,7 @@ npx jest -t "test name"        # Run tests matching pattern
 - **Comments**: JSDoc for public APIs, inline comments for complex logic
 
 ## Project Structure
+
 - `/src`: Source code with client, server, and shared modules
 - Tests alongside source files with `.test.ts` suffix
 - Node.js >= 18 required
