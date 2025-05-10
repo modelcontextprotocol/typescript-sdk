@@ -14,10 +14,43 @@ export class InMemoryTransport implements Transport {
   private _otherTransport?: InMemoryTransport;
   private _messageQueue: QueuedMessage[] = [];
 
-  onclose?: () => void;
-  onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
-  sessionId?: string;
+  protected _onclose?: Transport['onclose'];
+  protected _onerror?: Transport['onerror'];
+  protected _onmessage?: Transport['onmessage'];
+  protected _sessionId?: Transport['sessionId'];
+
+  get onmessage() {
+    return this._onmessage;
+  }
+
+  set onmessage(onmessage: InMemoryTransport['_onmessage']) {
+    this._onmessage = onmessage;
+  }
+
+  set onerror(onerror: InMemoryTransport['_onerror']) {
+    this._onerror = onerror;
+  }
+
+  get onerror() {
+    return this._onerror;
+  }
+
+  set onclose(onclose: InMemoryTransport['_onclose']) {
+    this._onclose = onclose;
+  }
+
+  get onclose() {
+    return this._onclose;
+  }
+
+  set sessionId(sessionId: InMemoryTransport['_sessionId']) {
+    this._sessionId = sessionId;
+  }
+
+  get sessionId() {
+    return this._sessionId;
+  }
+
 
   /**
    * Creates a pair of linked in-memory transports that can communicate with each other. One should be passed to a Client and one to a Server.
