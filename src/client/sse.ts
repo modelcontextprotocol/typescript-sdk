@@ -35,11 +35,6 @@ export type SSEClientTransportOptions = {
 
   /**
    * Customizes the initial SSE request to the server (the request that begins the stream).
-   * 
-   * NOTE: Setting this property will prevent an `Authorization` header from
-   * being automatically attached to the SSE request, if an `authProvider` is
-   * also given. This can be worked around by setting the `Authorization` header
-   * manually.
    */
   eventSourceInit?: EventSourceInit;
 
