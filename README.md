@@ -686,7 +686,8 @@ You can proxy OAuth requests to an external authorization provider:
 
 ```typescript
 import express from 'express';
-import { ProxyOAuthServerProvider, mcpAuthRouter } from '@modelcontextprotocol/sdk';
+import { ProxyOAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/providers/proxyProvider.js';
+import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 
 const app = express();
 
