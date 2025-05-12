@@ -145,7 +145,8 @@ export async function auth(
   const { authorizationUrl, codeVerifier } = await startAuthorization(serverUrl, {
     metadata,
     clientInformation,
-    redirectUrl: provider.redirectUrl
+    redirectUrl: provider.redirectUrl,
+    scope: provider.clientMetadata.scope
   });
 
   await provider.saveCodeVerifier(codeVerifier);
@@ -202,10 +203,12 @@ export async function startAuthorization(
     metadata,
     clientInformation,
     redirectUrl,
+    scope,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
     redirectUrl: string | URL;
+    scope?: string;
   },
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
   const responseType = "code";
@@ -246,6 +249,10 @@ export async function startAuthorization(
     codeChallengeMethod,
   );
   authorizationUrl.searchParams.set("redirect_uri", String(redirectUrl));
+  
+  if (scope) {
+    authorizationUrl.searchParams.set("scope", scope);
+  }
 
   return { authorizationUrl, codeVerifier };
 }

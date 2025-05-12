@@ -39,7 +39,7 @@ describe("OAuth Authorization", () => {
       const [url, options] = calls[0];
       expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
       expect(options.headers).toEqual({
-        "MCP-Protocol-Version": "2024-11-05"
+        "MCP-Protocol-Version": "2025-03-26"
       });
     });
 
@@ -175,6 +175,31 @@ describe("OAuth Authorization", () => {
         "http://localhost:3000/callback"
       );
       expect(codeVerifier).toBe("test_verifier");
+    });
+
+    it("includes scope parameter when provided", async () => {
+      const { authorizationUrl } = await startAuthorization(
+        "https://auth.example.com",
+        {
+          clientInformation: validClientInfo,
+          redirectUrl: "http://localhost:3000/callback",
+          scope: "read write profile",
+        }
+      );
+
+      expect(authorizationUrl.searchParams.get("scope")).toBe("read write profile");
+    });
+
+    it("excludes scope parameter when not provided", async () => {
+      const { authorizationUrl } = await startAuthorization(
+        "https://auth.example.com",
+        {
+          clientInformation: validClientInfo,
+          redirectUrl: "http://localhost:3000/callback",
+        }
+      );
+
+      expect(authorizationUrl.searchParams.has("scope")).toBe(false);
     });
 
     it("uses metadata authorization_endpoint when provided", async () => {
