@@ -81,6 +81,32 @@ export interface OAuthClientProvider {
    * Implementations must verify the returned resource matches the MCP server.
    */
   validateResourceURL?(serverUrl: string | URL, resource?: string): Promise<URL | undefined>;
+
+  /**
+   * Optional method that allows the OAuth client to delegate authorization
+   * to an existing implementation, such as a platform or app-level identity provider.
+   *
+   * If this method returns "AUTHORIZED", the standard authorization flow will be bypassed.
+   * If it returns `undefined`, the SDK will proceed with its default OAuth implementation.
+   *
+   * When returning "AUTHORIZED", the implementation must ensure tokens have been saved
+   * through the provider's saveTokens method, or are accessible via the tokens() method.
+   *
+   * This method is useful when the host application already manages OAuth tokens or user sessions
+   * and does not need the SDK to handle the entire authorization flow directly.
+   *
+   * For example, in a mobile app, this could delegate to the native platform authentication,
+   * or in a browser application, it could use existing tokens from localStorage.
+   *
+   * Note: This method will NOT be called when processing an authorization code callback.
+   *
+   * @param serverUrl The URL of the authorization server.
+   * @param options The options for the method
+   * @param options.resource The protected resource (RFC 8707) to authorize (may be undefined if not available)
+   * @param options.metadata The OAuth metadata if available (may be undefined if discovery fails)
+   * @returns "AUTHORIZED" if delegation succeeded and tokens are already available; otherwise `undefined`.
+   */
+  delegateAuthorization?(serverUrl: string | URL, options?: {  resource?: URL, metadata?: OAuthMetadata}): "AUTHORIZED" | undefined | Promise<"AUTHORIZED" | undefined>;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -123,6 +149,15 @@ export async function auth(
   const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
 
   const metadata = await discoverOAuthMetadata(authorizationServerUrl);
+
+  // Delegate the authorization if supported and if not already in the middle of the standard flow
+  if (provider.delegateAuthorization && authorizationCode === undefined) {
+    const options = resource || metadata ? { resource, metadata } : undefined;
+    const result = await provider.delegateAuthorization(authorizationServerUrl, options);
+    if (result === "AUTHORIZED") {
+      return "AUTHORIZED";
+    }
+  }
 
   // Handle client registration if needed
   let clientInformation = await Promise.resolve(provider.clientInformation());
