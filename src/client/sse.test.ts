@@ -68,6 +68,71 @@ describe("SSEClientTransport", () => {
   });
 
   describe("connection handling", () => {
+    it("maintains custom path when constructing endpoint URL", async () => {
+      // Create a URL with a custom path
+      const customPathUrl = new URL("/custom/path/sse", baseUrl);
+      transport = new SSEClientTransport(customPathUrl);
+      
+      // Start the transport
+      await transport.start();
+
+      // Send a test message to verify the endpoint URL
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        id: "test-1",
+        method: "test",
+        params: {}
+      };
+
+      await transport.send(message);
+
+      // Verify the POST request maintains the custom path
+      expect(lastServerRequest.url).toBe("/custom/path/messages");
+    });
+
+    it("handles multiple levels of custom paths", async () => {
+      // Test with a deeper nested path
+      const nestedPathUrl = new URL("/api/v1/custom/deep/path/sse", baseUrl);
+      transport = new SSEClientTransport(nestedPathUrl);
+      
+      await transport.start();
+
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        id: "test-1",
+        method: "test",
+        params: {}
+      };
+
+      await transport.send(message);
+
+      // Verify the POST request maintains the full custom path
+      expect(lastServerRequest.url).toBe("/api/v1/custom/deep/path/messages");
+    });
+
+    it("maintains custom path for SSE connection", async () => {
+      const customPathUrl = new URL("/custom/path/sse", baseUrl);
+      transport = new SSEClientTransport(customPathUrl);
+      await transport.start();
+      expect(lastServerRequest.url).toBe("/custom/path/sse");
+    });
+
+    it("handles URLs with query parameters", async () => {
+      const urlWithQuery = new URL("/custom/path/sse?param=value", baseUrl);
+      transport = new SSEClientTransport(urlWithQuery);
+      await transport.start();
+      
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        id: "test-1",
+        method: "test",
+        params: {}
+      };
+      
+      await transport.send(message);
+      expect(lastServerRequest.url).toBe("/custom/path/messages");
+    });
+
     it("establishes SSE connection and receives endpoint", async () => {
       transport = new SSEClientTransport(baseUrl);
       await transport.start();
@@ -397,18 +462,18 @@ describe("SSEClientTransport", () => {
               return;
             }
 
-            res.writeHead(200, {
-              "Content-Type": "text/event-stream",
-              "Cache-Control": "no-cache, no-transform",
-              Connection: "keep-alive",
-            });
-            res.write("event: endpoint\n");
-            res.write(`data: ${baseUrl.href}\n\n`);
+          res.writeHead(200, {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+          });
+          res.write("event: endpoint\n");
+          res.write(`data: ${baseUrl.href}\n\n`);
             break;
 
           case "POST":
-            res.writeHead(401);
-            res.end();
+          res.writeHead(401);
+          res.end();
             break;
         }
       });
@@ -517,25 +582,25 @@ describe("SSEClientTransport", () => {
           return;
         }
 
-        const auth = req.headers.authorization;
-        if (auth === "Bearer expired-token") {
+          const auth = req.headers.authorization;
+          if (auth === "Bearer expired-token") {
+            res.writeHead(401).end();
+            return;
+          }
+
+          if (auth === "Bearer new-token") {
+            res.writeHead(200, {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache, no-transform",
+              Connection: "keep-alive",
+            });
+            res.write("event: endpoint\n");
+            res.write(`data: ${baseUrl.href}\n\n`);
+            connectionAttempts++;
+            return;
+          }
+
           res.writeHead(401).end();
-          return;
-        }
-
-        if (auth === "Bearer new-token") {
-          res.writeHead(200, {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache, no-transform",
-            Connection: "keep-alive",
-          });
-          res.write("event: endpoint\n");
-          res.write(`data: ${baseUrl.href}\n\n`);
-          connectionAttempts++;
-          return;
-        }
-
-        res.writeHead(401).end();
       });
 
       await new Promise<void>(resolve => {
@@ -610,13 +675,13 @@ describe("SSEClientTransport", () => {
               return;
             }
 
-            res.writeHead(200, {
-              "Content-Type": "text/event-stream",
-              "Cache-Control": "no-cache, no-transform",
-              Connection: "keep-alive",
-            });
-            res.write("event: endpoint\n");
-            res.write(`data: ${baseUrl.href}\n\n`);
+          res.writeHead(200, {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+          });
+          res.write("event: endpoint\n");
+          res.write(`data: ${baseUrl.href}\n\n`);
             break;
 
           case "POST": {
@@ -625,19 +690,19 @@ describe("SSEClientTransport", () => {
               return;
             }
 
-            const auth = req.headers.authorization;
-            if (auth === "Bearer expired-token") {
-              res.writeHead(401).end();
-              return;
-            }
-
-            if (auth === "Bearer new-token") {
-              res.writeHead(200).end();
-              postAttempts++;
-              return;
-            }
-
+          const auth = req.headers.authorization;
+          if (auth === "Bearer expired-token") {
             res.writeHead(401).end();
+            return;
+          }
+
+          if (auth === "Bearer new-token") {
+            res.writeHead(200).end();
+            postAttempts++;
+            return;
+          }
+
+          res.writeHead(401).end();
             break;
           }
         }
