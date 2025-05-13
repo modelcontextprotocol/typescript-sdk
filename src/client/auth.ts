@@ -5,7 +5,7 @@ import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthTokensSchem
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
- * 
+ *
  * This client relies upon a concept of an authorized "session," the exact
  * meaning of which is application-defined. Tokens, authorization codes, and
  * code verifiers should not cross different sessions.
@@ -32,7 +32,7 @@ export interface OAuthClientProvider {
    * If implemented, this permits the OAuth client to dynamically register with
    * the server. Client information saved this way should later be read via
    * `clientInformation()`.
-   * 
+   *
    * This method is not required to be implemented if client information is
    * statically known (e.g., pre-registered).
    */
@@ -66,6 +66,22 @@ export interface OAuthClientProvider {
    * the authorization result.
    */
   codeVerifier(): string | Promise<string>;
+
+  /**
+   * Optional method that allows the OAuth client to delegate authorization
+   * to an existing implementation, such as a platform or app-level identity provider.
+   *
+   * If this method returns "AUTHORIZED", the standard authorization flow will be bypassed.
+   * If it returns `undefined`, the SDK will proceed with its default OAuth implementation.
+   *
+   * This method is useful when the host application already manages OAuth tokens or user sessions
+   * and does not need the SDK to handle entire authorization flow directly.
+   *
+   * @param serverUrl The URL of the authorization server.
+   * @param metadata The OAuth metadata if available.
+   * @returns "AUTHORIZED" if delegation succeeded and tokens are already available; otherwise `undefined`.
+   */
+  delegateAuthorization?(serverUrl: string | URL, metadata: OAuthMetadata | undefined): "AUTHORIZED" | undefined | Promise<"AUTHORIZED" | undefined>;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -78,7 +94,7 @@ export class UnauthorizedError extends Error {
 
 /**
  * Orchestrates the full auth flow with a server.
- * 
+ *
  * This can be used as a single entry point for all authorization functionality,
  * instead of linking together the other lower-level functions in this module.
  */
@@ -93,6 +109,14 @@ export async function auth(
     scope?: string;
   }): Promise<AuthResult> {
   const metadata = await discoverOAuthMetadata(serverUrl);
+
+  // Delegate the authorization if supported and if not already in the middle of the standard flow
+  if (provider.delegateAuthorization && authorizationCode === undefined) {
+    const result = await provider.delegateAuthorization(serverUrl, metadata);
+    if (result === "AUTHORIZED") {
+      return "AUTHORIZED";
+    }
+  }
 
   // Handle client registration if needed
   let clientInformation = await Promise.resolve(provider.clientInformation());
@@ -256,7 +280,7 @@ export async function startAuthorization(
     codeChallengeMethod,
   );
   authorizationUrl.searchParams.set("redirect_uri", String(redirectUrl));
-  
+
   if (scope) {
     authorizationUrl.searchParams.set("scope", scope);
   }
