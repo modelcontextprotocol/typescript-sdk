@@ -153,7 +153,7 @@ export async function auth(
     metadata,
     clientInformation,
     redirectUrl: provider.redirectUrl,
-    scope,
+    scope: scope || provider.clientMetadata.scope,
   });
 
   await provider.saveCodeVerifier(codeVerifier);
