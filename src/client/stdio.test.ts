@@ -1,9 +1,7 @@
 import { JSONRPCMessage } from "../types.js";
-import { StdioClientTransport, StdioServerParameters } from "./stdio.js";
+import { StdioClientTransport, getDefaultServerParameters } from "./stdio.js";
 
-const serverParameters: StdioServerParameters = {
-  command: "/usr/bin/tee",
-};
+const serverParameters = getDefaultServerParameters();
 
 test("should start then close cleanly", async () => {
   const client = new StdioClientTransport(serverParameters);
