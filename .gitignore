@@ -130,3 +130,6 @@ out
 
 .DS_Store
 dist/
+
+# Ignoring IntelliJ files
+.idea/
