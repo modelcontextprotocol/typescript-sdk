@@ -342,6 +342,9 @@ describe("OAuth Authorization", () => {
       access_token: "newaccess123",
       token_type: "Bearer",
       expires_in: 3600,
+    }
+    const validTokensWithNewRefreshToken = {
+      ...validTokens,
       refresh_token: "newrefresh123",
     };
 
@@ -356,7 +359,7 @@ describe("OAuth Authorization", () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: async () => validTokens,
+        json: async () => validTokensWithNewRefreshToken,
       });
 
       const tokens = await refreshAuthorization("https://auth.example.com", {
@@ -364,7 +367,7 @@ describe("OAuth Authorization", () => {
         refreshToken: "refresh123",
       });
 
-      expect(tokens).toEqual(validTokens);
+      expect(tokens).toEqual(validTokensWithNewRefreshToken);
       expect(mockFetch).toHaveBeenCalledWith(
         expect.objectContaining({
           href: "https://auth.example.com/token",
@@ -382,6 +385,22 @@ describe("OAuth Authorization", () => {
       expect(body.get("refresh_token")).toBe("refresh123");
       expect(body.get("client_id")).toBe("client123");
       expect(body.get("client_secret")).toBe("secret123");
+    });
+
+    it("exchanges refresh token for new tokens and keep existing refresh token if none is returned", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validTokens,
+      });
+
+      const refreshToken = "refresh123";
+      const tokens = await refreshAuthorization("https://auth.example.com", {
+        clientInformation: validClientInfo,
+        refreshToken,
+      });
+
+      expect(tokens).toEqual({ refresh_token: refreshToken, ...validTokens });
     });
 
     it("validates token response schema", async () => {

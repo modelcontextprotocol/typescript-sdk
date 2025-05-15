@@ -385,7 +385,7 @@ export async function refreshAuthorization(
     throw new Error(`Token refresh failed: HTTP ${response.status}`);
   }
 
-  return OAuthTokensSchema.parse(await response.json());
+  return OAuthTokensSchema.parse({ refresh_token: refreshToken, ...(await response.json()) });
 }
 
 /**
