@@ -5,6 +5,8 @@ import { authorizationHandler, AuthorizationHandlerOptions } from "./handlers/au
 import { revocationHandler, RevocationHandlerOptions } from "./handlers/revoke.js";
 import { metadataHandler } from "./handlers/metadata.js";
 import { OAuthServerProvider } from "./provider.js";
+import { OAuthProtectedResourceMetadata } from "../../shared/auth.js";
+import { DRAFT_PROTOCOL_VERSION, LATEST_PROTOCOL_VERSION, ProtocolVersion } from "../../types.js";
 
 export type AuthRouterOptions = {
   /**
@@ -19,7 +21,7 @@ export type AuthRouterOptions = {
 
   /**
    * The base URL of the authorization server to use for the metadata endpoints.
-   * 
+   *
    * If not provided, the issuer URL will be used as the base URL.
    */
   baseUrl?: URL;
@@ -29,37 +31,48 @@ export type AuthRouterOptions = {
    */
   serviceDocumentationUrl?: URL;
 
+  /**
+   * The MCP protocol version being used, will default to the latest non-draft version.
+   */
+  protocolVersion?: ProtocolVersion;
+
   // Individual options per route
   authorizationOptions?: Omit<AuthorizationHandlerOptions, "provider">;
   clientRegistrationOptions?: Omit<ClientRegistrationHandlerOptions, "clientsStore">;
   revocationOptions?: Omit<RevocationHandlerOptions, "provider">;
   tokenOptions?: Omit<TokenHandlerOptions, "provider">;
+  protectedResourceOptions?: Omit<ProtectedResourceRouterOptions, "issuerUrl" | "serviceDocumentationUrl">;
 };
+
+const checkIssuerUrl = (issuer: URL): void => {
+  // Technically RFC 8414 does not permit a localhost HTTPS exemption, but this will be necessary for ease of testing
+  if (issuer.protocol !== "https:" && issuer.hostname !== "localhost" && issuer.hostname !== "127.0.0.1") {
+    throw new Error("Issuer URL must be HTTPS");
+  }
+  if (issuer.hash) {
+    throw new Error(`Issuer URL must not have a fragment: ${issuer}`);
+  }
+  if (issuer.search) {
+    throw new Error(`Issuer URL must not have a query string: ${issuer}`);
+  }
+}
 
 /**
  * Installs standard MCP authorization endpoints, including dynamic client registration and token revocation (if supported). Also advertises standard authorization server metadata, for easier discovery of supported configurations by clients.
- * 
+ *
  * By default, rate limiting is applied to all endpoints to prevent abuse.
- * 
+ *
  * This router MUST be installed at the application root, like so:
- * 
+ *
  *  const app = express();
  *  app.use(mcpAuthRouter(...));
  */
 export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
   const issuer = options.issuerUrl;
   const baseUrl = options.baseUrl;
+  const mcpProtocolVersion = options.protocolVersion || LATEST_PROTOCOL_VERSION;
 
-  // Technically RFC 8414 does not permit a localhost HTTPS exemption, but this will be necessary for ease of testing
-  if (issuer.protocol !== "https:" && issuer.hostname !== "localhost" && issuer.hostname !== "127.0.0.1") {
-    throw new Error("Issuer URL must be HTTPS");
-  }
-  if (issuer.hash) {
-    throw new Error("Issuer URL must not have a fragment");
-  }
-  if (issuer.search) {
-    throw new Error("Issuer URL must not have a query string");
-  }
+  checkIssuerUrl(issuer);
 
   const authorization_endpoint = "/authorize";
   const token_endpoint = "/token";
@@ -84,6 +97,7 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
     registration_endpoint: registration_endpoint ? new URL(registration_endpoint, baseUrl || issuer).href : undefined,
   };
 
+
   const router = express.Router();
 
   router.use(
@@ -97,6 +111,17 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
   );
 
   router.use("/.well-known/oauth-authorization-server", metadataHandler(metadata));
+
+  if (mcpProtocolVersion === DRAFT_PROTOCOL_VERSION) {
+    if (!options.protectedResourceOptions) {
+      throw new Error(`Must specify protectedResourceOptions if using ${DRAFT_PROTOCOL_VERSION}`);
+    }
+    router.use(mcpProtectedResourceRouter({
+      issuerUrl: issuer,
+      serviceDocumentationUrl: options.serviceDocumentationUrl,
+      ...options.protectedResourceOptions
+    }))
+  }
 
   if (registration_endpoint) {
     router.use(
@@ -114,6 +139,59 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
       revocationHandler({ provider: options.provider, ...options.revocationOptions })
     );
   }
+
+  return router;
+}
+
+
+export type ProtectedResourceRouterOptions = {
+  /**
+   * The authorization server's issuer identifier, which is a URL that uses the "https" scheme and has no query or fragment components.
+   */
+  issuerUrl: URL;
+
+  /**
+   * The MCP server URL that is proteted.
+   *
+   */
+  serverUrl: URL;
+
+  /**
+   * An optional URL of a page containing human-readable information that developers might want or need to know when using the authorization server.
+   */
+  serviceDocumentationUrl?: URL;
+
+  /**
+   * A list of valid scopes for the resource.
+   */
+  scopesSupported?: Array<string>;
+
+  /**
+   * A human readable resource name for the MCP server
+   */
+  resourceName?: string;
+};
+
+
+export function mcpProtectedResourceRouter(options: ProtectedResourceRouterOptions) {
+  const issuer = options.issuerUrl;
+  checkIssuerUrl(issuer);
+
+  const router = express.Router();
+
+  const protectedResourceMetadata: OAuthProtectedResourceMetadata = {
+    resource: options.serverUrl.href,
+
+    authorization_servers: [
+      issuer.href
+    ],
+
+    scopes_supported: options.scopesSupported,
+    resource_name: options.resourceName,
+    resource_documentation: options.serviceDocumentationUrl?.href,
+  };
+
+  router.use("/.well-known/oauth-protected-resource", metadataHandler(protectedResourceMetadata));
 
   return router;
 }

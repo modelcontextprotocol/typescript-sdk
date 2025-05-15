@@ -1,10 +1,18 @@
 import { z, ZodTypeAny } from "zod";
 
-export const LATEST_PROTOCOL_VERSION = "2025-03-26";
+export type ProtocolVersion =
+  "2025-03-26" |
+  "2024-11-05" |
+  "2024-10-07" |
+  "DRAFT-2025-v2";
+
+export const LATEST_PROTOCOL_VERSION: ProtocolVersion = "2025-03-26";
+export const DRAFT_PROTOCOL_VERSION: ProtocolVersion = "DRAFT-2025-v2";
 export const SUPPORTED_PROTOCOL_VERSIONS = [
   LATEST_PROTOCOL_VERSION,
   "2024-11-05",
   "2024-10-07",
+  DRAFT_PROTOCOL_VERSION,
 ];
 
 /* JSON-RPC types */

@@ -245,6 +245,39 @@ describe('MCP Auth Router', () => {
       expect(response.body.revocation_endpoint).toBeUndefined();
       expect(response.body.revocation_endpoint_auth_methods_supported).toBeUndefined();
       expect(response.body.service_documentation).toBeUndefined();
+
+      // Verify no oauth-protected-resource endpoint added
+      const response2 = await supertest(minimalApp)
+        .get('/.well-known/oauth-protected-resource');
+
+      expect(response2.status).toBe(404);
+    });
+
+    it('provides protected resource metadata when protocol version is draft', async () => {
+      // Setup router with draft protocol version
+      const draftApp = express();
+      const options: AuthRouterOptions = {
+        provider: mockProvider,
+        issuerUrl: new URL('https://auth.example.com'),
+        protocolVersion: 'DRAFT-2025-v2',
+        protectedResourceOptions: {
+          serverUrl: new URL('https://api.example.com'),
+          scopesSupported: ['read', 'write'],
+          resourceName: 'Test API'
+        }
+      };
+      draftApp.use(mcpAuthRouter(options));
+
+      const response = await supertest(draftApp)
+        .get('/.well-known/oauth-protected-resource');
+
+      expect(response.status).toBe(200);
+
+      // Verify protected resource metadata
+      expect(response.body.resource).toBe('https://api.example.com/');
+      expect(response.body.authorization_servers).toContain('https://auth.example.com/');
+      expect(response.body.scopes_supported).toEqual(['read', 'write']);
+      expect(response.body.resource_name).toBe('Test API');
     });
   });
 
