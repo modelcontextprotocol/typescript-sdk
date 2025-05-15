@@ -84,7 +84,14 @@ export class UnauthorizedError extends Error {
  */
 export async function auth(
   provider: OAuthClientProvider,
-  { serverUrl, authorizationCode }: { serverUrl: string | URL, authorizationCode?: string }): Promise<AuthResult> {
+  { serverUrl,
+    authorizationCode,
+    scope,
+  }: {
+    serverUrl: string | URL;
+    authorizationCode?: string;
+    scope?: string;
+  }): Promise<AuthResult> {
   const metadata = await discoverOAuthMetadata(serverUrl);
 
   // Handle client registration if needed
@@ -146,7 +153,7 @@ export async function auth(
     metadata,
     clientInformation,
     redirectUrl: provider.redirectUrl,
-    scope: provider.clientMetadata.scope
+    scope: scope || provider.clientMetadata.scope,
   });
 
   await provider.saveCodeVerifier(codeVerifier);
