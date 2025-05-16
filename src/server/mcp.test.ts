@@ -79,6 +79,99 @@ describe("McpServer", () => {
       }
     ])
   });
+
+  /***
+   * Test: Progress Notification with Message Field
+   */
+  test("should send progress notifications with message field", async () => {
+    const mcpServer = new McpServer(
+      {
+        name: "test server",
+        version: "1.0",
+      }
+    );
+
+    // Create a tool that sends progress updates
+    mcpServer.tool(
+      "long-operation",
+      "A long running operation with progress updates",
+      {
+        steps: z.number().min(1).describe("Number of steps to perform"),
+      },
+      async ({ steps }, { sendNotification, _meta }) => {
+        const progressToken = _meta?.progressToken;
+
+        if (progressToken) {
+          // Send progress notification for each step
+          for (let i = 1; i <= steps; i++) {
+            await sendNotification({
+              method: "notifications/progress",
+              params: {
+                progressToken,
+                progress: i,
+                total: steps,
+                message: `Completed step ${i} of ${steps}`,
+              },
+            });
+          }
+        }
+
+        return { content: [{ type: "text" as const, text: `Operation completed with ${steps} steps` }] };
+      }
+    );
+
+    const progressUpdates: Array<{ progress: number, total?: number, message?: string }> = [];
+
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Call the tool with progress tracking
+    await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "long-operation",
+          arguments: { steps: 3 },
+          _meta: {
+            progressToken: "progress-test-1"
+          }
+        }
+      },
+      CallToolResultSchema,
+      {
+        onprogress: (progress) => {
+          progressUpdates.push(progress);
+        }
+      }
+    );
+
+    // Verify progress notifications were received with message field
+    expect(progressUpdates).toHaveLength(3);
+    expect(progressUpdates[0]).toMatchObject({
+      progress: 1,
+      total: 3,
+      message: "Completed step 1 of 3",
+    });
+    expect(progressUpdates[1]).toMatchObject({
+      progress: 2,
+      total: 3,
+      message: "Completed step 2 of 3",
+    });
+    expect(progressUpdates[2]).toMatchObject({
+      progress: 3,
+      total: 3,
+      message: "Completed step 3 of 3",
+    });
+  });
 });
 
 describe("ResourceTemplate", () => {

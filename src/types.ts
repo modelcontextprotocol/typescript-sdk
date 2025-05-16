@@ -364,6 +364,10 @@ export const ProgressSchema = z
      * Total number of items to process (or total progress required), if known.
      */
     total: z.optional(z.number()),
+    /**
+     * An optional message describing the current progress.
+     */
+    message: z.optional(z.string()),
   })
   .passthrough();
 

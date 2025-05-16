@@ -255,6 +255,74 @@ describe("protocol tests", () => {
       await Promise.resolve();
       await expect(requestPromise).resolves.toEqual({ result: "success" });
     });
+
+    test("should handle progress notifications with message field", async () => {
+      await protocol.connect(transport);
+      const request = { method: "example", params: {} };
+      const mockSchema: ZodType<{ result: string }> = z.object({
+        result: z.string(),
+      });
+      const onProgressMock = jest.fn();
+
+      const requestPromise = protocol.request(request, mockSchema, {
+        timeout: 1000,
+        onprogress: onProgressMock,
+      });
+
+      jest.advanceTimersByTime(200);
+
+      if (transport.onmessage) {
+        transport.onmessage({
+          jsonrpc: "2.0",
+          method: "notifications/progress",
+          params: {
+            progressToken: 0,
+            progress: 25,
+            total: 100,
+            message: "Initializing process...",
+          },
+        });
+      }
+      await Promise.resolve();
+
+      expect(onProgressMock).toHaveBeenCalledWith({
+        progress: 25,
+        total: 100,
+        message: "Initializing process...",
+      });
+
+      jest.advanceTimersByTime(200);
+
+      if (transport.onmessage) {
+        transport.onmessage({
+          jsonrpc: "2.0",
+          method: "notifications/progress",
+          params: {
+            progressToken: 0,
+            progress: 75,
+            total: 100,
+            message: "Processing data...",
+          },
+        });
+      }
+      await Promise.resolve();
+
+      expect(onProgressMock).toHaveBeenCalledWith({
+        progress: 75,
+        total: 100,
+        message: "Processing data...",
+      });
+
+      if (transport.onmessage) {
+        transport.onmessage({
+          jsonrpc: "2.0",
+          id: 0,
+          result: { result: "success" },
+        });
+      }
+      await Promise.resolve();
+      await expect(requestPromise).resolves.toEqual({ result: "success" });
+    });
   });
 });
 
