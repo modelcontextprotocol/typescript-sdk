@@ -50,11 +50,21 @@ export class SSEServerTransport implements Transport {
       Connection: "keep-alive",
     });
 
-    // Send the endpoint event
-    // Use a dummy base URL because this._endpoint is relative.
-    // This allows using URL/URLSearchParams for robust parameter handling.
-    const dummyBase = 'http://localhost'; // Any valid base works
-    const endpointUrl = new URL(this._endpoint, dummyBase);
+    // Send the endpoint event with a properly formatted URL that preserves any path prefix
+    let endpointUrl: URL;
+    
+    if (this._endpoint === '' || this._endpoint.startsWith('/')) {
+      const dummyBase = 'http://localhost';
+      endpointUrl = new URL(this._endpoint || '/', dummyBase);
+    } else {
+      try {
+        endpointUrl = new URL(this._endpoint);
+      } catch (error) {
+        const dummyBase = 'http://localhost';
+        endpointUrl = new URL('/', dummyBase);
+      }
+    }
+    
     endpointUrl.searchParams.set('sessionId', this._sessionId);
 
     // Reconstruct the relative URL string (pathname + search + hash)

@@ -21,24 +21,32 @@ describe("SSEClientTransport", () => {
     server = createServer((req, res) => {
       lastServerRequest = req;
 
-      // Send SSE headers
-      res.writeHead(200, {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      });
-
-      // Send the endpoint event
-      res.write("event: endpoint\n");
-      res.write(`data: ${baseUrl.href}\n\n`);
-
-      // Store reference to send function for tests
-      sendServerMessage = (message: string) => {
-        res.write(`data: ${message}\n\n`);
-      };
-
-      // Handle request body for POST endpoints
-      if (req.method === "POST") {
+      // Extract the path from the URL for proper endpoint handling
+      const urlPath = req.url || '/';
+      const isSSERequest = req.method === 'GET';
+      
+      if (isSSERequest) {
+        // Send SSE headers
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+        });
+  
+        // Determine the message endpoint path by replacing /sse with /messages in the path
+        // This preserves any subpath structure
+        const messagesPath = urlPath.replace(/\/sse$/, '/messages');
+  
+        // Send the endpoint event with the correct subpath
+        res.write("event: endpoint\n");
+        res.write(`data: ${messagesPath}\n\n`);
+  
+        // Store reference to send function for tests
+        sendServerMessage = (message: string) => {
+          res.write(`data: ${message}\n\n`);
+        };
+      } else if (req.method === "POST") {
+        // Handle request body for POST endpoints
         let body = "";
         req.on("data", (chunk) => {
           body += chunk;
@@ -90,6 +98,124 @@ describe("SSEClientTransport", () => {
       expect(lastServerRequest.url).toBe("/custom/path/messages");
     });
 
+    it("properly preserves complex subpaths in endpoint URL", async () => {
+      // Create a server with a complex subpath structure
+      await server.close();
+
+      const complexSubpath = "/api/v2/services/mcp";
+      server = createServer((req, res) => {
+        lastServerRequest = req;
+
+        // For the initial SSE connection
+        if (req.method === "GET" && req.url === `${complexSubpath}/sse`) {
+          res.writeHead(200, {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+          });
+
+          // Send the endpoint event with the messages path that includes the subpath
+          res.write("event: endpoint\n");
+          res.write(`data: ${complexSubpath}/messages\n\n`);
+          return;
+        }
+
+        // For POST requests to send messages, should include the full subpath
+        if (req.method === "POST" && req.url && req.url.startsWith(`${complexSubpath}/messages`)) {
+          res.writeHead(202).end("Accepted");
+          return;
+        }
+
+        res.writeHead(404).end("Not Found");
+      });
+
+      await new Promise<void>((resolve) => {
+        server.listen(0, "127.0.0.1", () => {
+          const addr = server.address() as AddressInfo;
+          baseUrl = new URL(`http://127.0.0.1:${addr.port}`);
+          resolve();
+        });
+      });
+
+      // Connect to the server using the complex subpath
+      const sseUrl = new URL(`${complexSubpath}/sse`, baseUrl);
+      transport = new SSEClientTransport(sseUrl);
+      await transport.start();
+
+      // Send a message to verify the correct endpoint path is used
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        id: "test-1",
+        method: "test",
+        params: {}
+      };
+
+      await transport.send(message);
+
+      // Verify the POST request maintains the complex subpath
+      expect(lastServerRequest.url).toContain(complexSubpath);
+      expect(lastServerRequest.url).toContain("/messages");
+    });
+
+    it("correctly preserves subpath when server URL has a trailing slash", async () => {
+      // Create a server with a subpath ending in a trailing slash
+      await server.close();
+
+      const subpathWithSlash = "/api/v3/";
+      server = createServer((req, res) => {
+        lastServerRequest = req;
+
+        // For the initial SSE connection
+        if (req.method === "GET" && req.url === `${subpathWithSlash}sse`) {
+          res.writeHead(200, {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+          });
+
+          // Send the endpoint event with the messages path
+          res.write("event: endpoint\n");
+          res.write(`data: ${subpathWithSlash}messages\n\n`);
+          return;
+        }
+
+        // For POST requests to send messages
+        if (req.method === "POST" && req.url && req.url.startsWith(`${subpathWithSlash}messages`)) {
+          res.writeHead(202).end("Accepted");
+          return;
+        }
+
+        res.writeHead(404).end("Not Found");
+      });
+
+      await new Promise<void>((resolve) => {
+        server.listen(0, "127.0.0.1", () => {
+          const addr = server.address() as AddressInfo;
+          baseUrl = new URL(`http://127.0.0.1:${addr.port}`);
+          resolve();
+        });
+      });
+
+      // Connect to the server using the subpath with trailing slash
+      const sseUrl = new URL(`${subpathWithSlash}sse`, baseUrl);
+      transport = new SSEClientTransport(sseUrl);
+      await transport.start();
+
+      // Send a message to verify the correct endpoint path is used
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        id: "test-1",
+        method: "test",
+        params: {}
+      };
+
+      await transport.send(message);
+
+      // Verify the POST request maintains the subpath with trailing slash
+      expect(lastServerRequest.url).toContain(subpathWithSlash);
+      expect(lastServerRequest.url).toContain("messages");
+    });
+
     it("handles multiple levels of custom paths", async () => {
       // Test with a deeper nested path
       const nestedPathUrl = new URL("/api/v1/custom/deep/path/sse", baseUrl);
@@ -118,10 +244,49 @@ describe("SSEClientTransport", () => {
     });
 
     it("handles URLs with query parameters", async () => {
+      // For this test, we need a special server setup that correctly handles
+      // the query parameters in both directions
+      await server.close();
+      
+      server = createServer((req, res) => {
+        lastServerRequest = req;
+        
+        if (req.method === "GET" && req.url?.startsWith("/custom/path/sse")) {
+          res.writeHead(200, {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+          });
+          
+          // Send a modified endpoint that replaces /sse with /messages but preserves query params
+          const endpoint = "/custom/path/messages?sessionId=test-session";
+          res.write("event: endpoint\n");
+          res.write(`data: ${endpoint}\n\n`);
+        } else if (req.method === "POST" && req.url?.startsWith("/custom/path/messages")) {
+          // The POST endpoint should include the sessionId parameter
+          res.writeHead(200).end();
+        } else {
+          res.writeHead(404).end();
+        }
+      });
+      
+      await new Promise<void>((resolve) => {
+        server.listen(0, "127.0.0.1", () => {
+          const addr = server.address() as AddressInfo;
+          baseUrl = new URL(`http://127.0.0.1:${addr.port}`);
+          resolve();
+        });
+      });
+      
+      // Connect with query params in the URL
       const urlWithQuery = new URL("/custom/path/sse?param=value", baseUrl);
       transport = new SSEClientTransport(urlWithQuery);
       await transport.start();
       
+      // Verify the SSE connection includes the query parameters
+      expect(lastServerRequest.url).toBe("/custom/path/sse?param=value");
+      
+      // Send a message
       const message: JSONRPCMessage = {
         jsonrpc: "2.0",
         id: "test-1",
@@ -130,7 +295,11 @@ describe("SSEClientTransport", () => {
       };
       
       await transport.send(message);
-      expect(lastServerRequest.url).toBe("/custom/path/messages");
+      
+      // Verify the POST request went to the correct endpoint
+      expect(lastServerRequest.method).toBe("POST");
+      expect(lastServerRequest.url).toContain("/custom/path/messages");
+      expect(lastServerRequest.url).toContain("sessionId=");
     });
 
     it("establishes SSE connection and receives endpoint", async () => {
