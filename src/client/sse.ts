@@ -147,7 +147,13 @@ export class SSEClientTransport implements Transport {
           this._endpoint = new URL(messageEvent.data, this._url);
           
           // If the original URL had a custom path, preserve it in the endpoint URL
-          this._endpoint.pathname = this._url.pathname;
+          const originalPath = this._url.pathname;
+          if (originalPath && originalPath !== '/' && originalPath !== '/sse') {
+            // Extract the base path from the original URL (everything before the /sse suffix)
+            const basePath = originalPath.replace(/\/sse$/, '');
+            // The endpoint should use the same base path but with /messages instead of /sse
+            this._endpoint.pathname = basePath + '/messages';
+          }
           
           if (this._endpoint.origin !== this._url.origin) {
             throw new Error(
