@@ -391,6 +391,50 @@ describe("OAuth Authorization", () => {
       expect(authorizationUrl.searchParams.has("state")).toBe(false);
     });
 
+
+    it("includes resource parameter when provided", async () => {
+      const { authorizationUrl } = await startAuthorization(
+        "https://auth.example.com",
+        {
+          clientInformation: validClientInfo,
+          redirectUrl: "http://localhost:3000/callback",
+          resources: ["https://api.example.com/resource"],
+        }
+      );
+
+      expect(authorizationUrl.searchParams.get("resource")).toBe(
+        "https://api.example.com/resource"
+      );
+    });
+
+    it("includes multiple resource parameters when provided", async () => {
+      const { authorizationUrl } = await startAuthorization(
+        "https://auth.example.com",
+        {
+          clientInformation: validClientInfo,
+          redirectUrl: "http://localhost:3000/callback",
+          resources: ["https://api.example.com/resource1", "https://api.example.com/resource2"],
+        }
+      );
+
+      expect(authorizationUrl.searchParams.getAll("resource")).toEqual([
+        "https://api.example.com/resource1",
+        "https://api.example.com/resource2",
+      ]);
+    });
+
+    it("excludes resource parameter when not provided", async () => {
+      const { authorizationUrl } = await startAuthorization(
+        "https://auth.example.com",
+        {
+          clientInformation: validClientInfo,
+          redirectUrl: "http://localhost:3000/callback",
+        }
+      );
+
+      expect(authorizationUrl.searchParams.has("resource")).toBe(false);
+    });
+
     it("uses metadata authorization_endpoint when provided", async () => {
       const { authorizationUrl } = await startAuthorization(
         "https://auth.example.com",

@@ -71,6 +71,19 @@ export interface OAuthClientProvider {
    * the authorization result.
    */
   codeVerifier(): string | Promise<string>;
+
+  /**
+   * The resource to be used for the current session.
+   *
+   * Implements RFC 8707 Resource Indicators.
+   *
+   * This is placed in the provider to ensure the strong binding between tokens
+   * and their intended resource throughout the authorization session.
+   * 
+   * This method is optional and only needs to be implemented if using
+   * Resource Indicators (RFC 8707).
+   */
+  resource?(): string | undefined;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -142,6 +155,7 @@ export async function auth(
       authorizationCode,
       codeVerifier,
       redirectUri: provider.redirectUrl,
+      resource: provider.resource?.(),
     });
 
     await provider.saveTokens(tokens);
@@ -158,6 +172,7 @@ export async function auth(
         metadata,
         clientInformation,
         refreshToken: tokens.refresh_token,
+        resource: provider.resource?.(),
       });
 
       await provider.saveTokens(newTokens);
@@ -170,12 +185,20 @@ export async function auth(
   const state = provider.state ? await provider.state() : undefined;
 
   // Start new authorization flow
-  const { authorizationUrl, codeVerifier } = await startAuthorization(authorizationServerUrl, {
+
+const resource = provider.resource?.();  
+const { authorizationUrl, codeVerifier } = await startAuthorization(authorizationServerUrl, {
     metadata,
     clientInformation,
     state,
     redirectUrl: provider.redirectUrl,
     scope: scope || provider.clientMetadata.scope,
+    /**
+       * Although RFC 8707 supports multiple resources, we currently only support
+       * a single resource per auth session to maintain a 1:1 token-resource binding
+       * based on current auth flow implementation
+       */
+    resources: resource ? [resource] : undefined,
   });
 
   await provider.saveCodeVerifier(codeVerifier);
@@ -310,13 +333,20 @@ export async function startAuthorization(
     redirectUrl,
     scope,
     state,
+    resources,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
     redirectUrl: string | URL;
     scope?: string;
     state?: string;
-  },
+    /**
+     * Array type to align with RFC 8707 which supports multiple resources,
+     * making it easier to extend for multiple resource indicators in the future
+     * (though current implementation only uses a single resource)
+     */
+    resources?: string[];
+  }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
   const responseType = "code";
   const codeChallengeMethod = "S256";
@@ -365,6 +395,12 @@ export async function startAuthorization(
     authorizationUrl.searchParams.set("scope", scope);
   }
 
+  if (resources?.length) {
+    for (const resource of resources) {
+      authorizationUrl.searchParams.append("resource", resource);
+    }
+  }
+
   return { authorizationUrl, codeVerifier };
 }
 
@@ -379,13 +415,15 @@ export async function exchangeAuthorization(
     authorizationCode,
     codeVerifier,
     redirectUri,
+    resource,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
     authorizationCode: string;
     codeVerifier: string;
     redirectUri: string | URL;
-  },
+    resource?: string;
+  }
 ): Promise<OAuthTokens> {
   const grantType = "authorization_code";
 
@@ -412,6 +450,7 @@ export async function exchangeAuthorization(
     code: authorizationCode,
     code_verifier: codeVerifier,
     redirect_uri: String(redirectUri),
+    ...(resource ? { resource } : {}),
   });
 
   if (clientInformation.client_secret) {
@@ -442,11 +481,13 @@ export async function refreshAuthorization(
     metadata,
     clientInformation,
     refreshToken,
+    resource,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
     refreshToken: string;
-  },
+    resource?: string;
+  }
 ): Promise<OAuthTokens> {
   const grantType = "refresh_token";
 
@@ -471,6 +512,7 @@ export async function refreshAuthorization(
     grant_type: grantType,
     client_id: clientInformation.client_id,
     refresh_token: refreshToken,
+    ...(resource ? { resource } : {}),
   });
 
   if (clientInformation.client_secret) {
