@@ -3,8 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
+import { mcpAuthRouter, mcpProtectedResourceRouter, getOAuthProtectedResourceMetadataUrl } from '../../server/auth/router.js';
+import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
 import { CallToolResult, GetPromptResult, isInitializeRequest, ReadResourceResult } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
+import { DemoInMemoryAuthProvider } from './demoInMemoryOAuthProvider.js';
+
+// Check for OAuth flag
+const useOAuth = process.argv.includes('--oauth');
 
 // Create an MCP server with implementation details
 const getServer = () => {
@@ -40,7 +46,7 @@ const getServer = () => {
       name: z.string().describe('Name to greet'),
     },
     {
-      title: 'Multiple Greeting Tool', 
+      title: 'Multiple Greeting Tool',
       readOnlyHint: true,
       openWorldHint: false
     },
@@ -159,14 +165,67 @@ const getServer = () => {
   return server;
 };
 
+const MCP_PORT = 3000;
+const AUTH_PORT = 3001;
+
 const app = express();
 app.use(express.json());
+
+// Set up OAuth if enabled
+let authMiddleware = null;
+if (useOAuth) {
+  const provider = new DemoInMemoryAuthProvider();
+
+  // Create auth middleware for MCP endpoints
+  const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}`);
+  const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
+
+  // Create separate auth server app
+  const authApp = express();
+  authApp.use(express.json());
+
+  // Add OAuth routes to the auth server
+  authApp.use(mcpAuthRouter({
+    provider,
+    issuerUrl: authServerUrl,
+    baseUrl: authServerUrl,
+    scopesSupported: ['mcp:tools'],
+    // This endpoint is set up on the Authorization server, but really shouldn't be.
+    protectedResourceOptions: {
+      serverUrl: mcpServerUrl,
+      resourceName: 'MCP Demo Server',
+    },
+  }));
+
+  // Start the auth server
+  authApp.listen(AUTH_PORT, () => {
+    console.log(`OAuth Authorization Server listening on port ${AUTH_PORT}`);
+  });
+
+  // Add protected resource metadata to the main MCP server
+  app.use(mcpProtectedResourceRouter({
+    issuerUrl: authServerUrl,
+    serverUrl: mcpServerUrl,
+    scopesSupported: ['mcp:tools'],
+    resourceName: 'MCP Demo Server',
+  }));
+
+  authMiddleware = requireBearerAuth({
+    provider,
+    requiredScopes: ['mcp:tools'],
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
+  });
+}
 
 // Map to store transports by session ID
 const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
-app.post('/mcp', async (req: Request, res: Response) => {
+// MCP POST endpoint with optional auth
+const mcpPostHandler = async (req: Request, res: Response) => {
   console.log('Received MCP request:', req.body);
+  if (useOAuth && req.auth) {
+    console.log('Authenticated user:', req.auth);
+  }
   try {
     // Check for existing session ID
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
@@ -234,14 +293,25 @@ app.post('/mcp', async (req: Request, res: Response) => {
       });
     }
   }
-});
+};
+
+// Set up routes with conditional auth middleware
+if (useOAuth && authMiddleware) {
+  app.post('/mcp', authMiddleware, mcpPostHandler);
+} else {
+  app.post('/mcp', mcpPostHandler);
+}
 
 // Handle GET requests for SSE streams (using built-in support from StreamableHTTP)
-app.get('/mcp', async (req: Request, res: Response) => {
+const mcpGetHandler = async (req: Request, res: Response) => {
   const sessionId = req.headers['mcp-session-id'] as string | undefined;
   if (!sessionId || !transports[sessionId]) {
     res.status(400).send('Invalid or missing session ID');
     return;
+  }
+
+  if (useOAuth && req.auth) {
+    console.log('Authenticated SSE connection from user:', req.auth);
   }
 
   // Check for Last-Event-ID header for resumability
@@ -254,10 +324,17 @@ app.get('/mcp', async (req: Request, res: Response) => {
 
   const transport = transports[sessionId];
   await transport.handleRequest(req, res);
-});
+};
+
+// Set up GET route with conditional auth middleware
+if (useOAuth && authMiddleware) {
+  app.get('/mcp', authMiddleware, mcpGetHandler);
+} else {
+  app.get('/mcp', mcpGetHandler);
+}
 
 // Handle DELETE requests for session termination (according to MCP spec)
-app.delete('/mcp', async (req: Request, res: Response) => {
+const mcpDeleteHandler = async (req: Request, res: Response) => {
   const sessionId = req.headers['mcp-session-id'] as string | undefined;
   if (!sessionId || !transports[sessionId]) {
     res.status(400).send('Invalid or missing session ID');
@@ -275,12 +352,17 @@ app.delete('/mcp', async (req: Request, res: Response) => {
       res.status(500).send('Error processing session termination');
     }
   }
-});
+};
 
-// Start the server
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`MCP Streamable HTTP Server listening on port ${PORT}`);
+// Set up DELETE route with conditional auth middleware
+if (useOAuth && authMiddleware) {
+  app.delete('/mcp', authMiddleware, mcpDeleteHandler);
+} else {
+  app.delete('/mcp', mcpDeleteHandler);
+}
+
+app.listen(MCP_PORT, () => {
+  console.log(`MCP Streamable HTTP Server listening on port ${MCP_PORT}`);
 });
 
 // Handle server shutdown
