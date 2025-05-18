@@ -143,7 +143,6 @@ export class SSEClientTransport implements Transport {
         const messageEvent = event as MessageEvent;
 
         try {
-          // Resolve the endpoint against the original URL to preserve any subpaths
           this._endpoint = new URL(messageEvent.data, this._url);
           
           if (this._endpoint.origin !== this._url.origin) {
