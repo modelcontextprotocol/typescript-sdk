@@ -7,8 +7,12 @@ import { AuthInfo } from 'src/server/auth/types.js';
 
 
 /**
- * Simple in-memory implementation of OAuth clients store for demo purposes.
- * In production, this should be backed by a persistent database.
+ * 🚨 DEMO ONLY - NOT FOR PRODUCTION
+ *
+ * This example demonstrates MCP OAuth flow but lacks some of the features required for production use,
+ * for example:
+ * - Persistent token storage
+ * - Rate limiting
  */
 export class DemoInMemoryClientsStore implements OAuthRegisteredClientsStore {
   private clients = new Map<string, OAuthClientInformationFull>();
@@ -24,8 +28,12 @@ export class DemoInMemoryClientsStore implements OAuthRegisteredClientsStore {
 }
 
 /**
- * Simple in-memory implementation of OAuth server provider for demo purposes.
- * Do not use this in production.
+ * 🚨 DEMO ONLY - NOT FOR PRODUCTION
+ *
+ * This example demonstrates MCP OAuth flow but lacks some of the features required for production use,
+ * for example:
+ * - Persistent token storage
+ * - Rate limiting
  */
 export class DemoInMemoryAuthProvider implements OAuthServerProvider {
   clientsStore = new DemoInMemoryClientsStore();
@@ -75,6 +83,8 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
   async exchangeAuthorizationCode(
     client: OAuthClientInformationFull,
     authorizationCode: string,
+    // Note: code verifier is checked in token.ts by default
+    // it's unused here for that reason.
     _codeVerifier?: string
   ): Promise<OAuthTokens> {
     const codeData = this.codes.get(authorizationCode);
@@ -86,10 +96,7 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
       throw new Error(`Authorization code was not issued to this client, ${codeData.client.client_id} != ${client.client_id}`);
     }
 
-    // Remove the used code
     this.codes.delete(authorizationCode);
-
-    // Generate access token
     const token = randomUUID();
 
     const tokenData = {
@@ -100,7 +107,6 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
       type: 'access'
     };
 
-    // Store the token
     this.tokens.set(token, tokenData);
 
     return {

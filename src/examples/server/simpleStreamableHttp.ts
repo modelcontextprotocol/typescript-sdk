@@ -181,6 +181,9 @@ if (useOAuth) {
   const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
   // Create separate auth server app
+  // NOTE: This is a separate app on a separate domain to illustrate
+  // how to use a separate OAuth Authorization Server for demonstration
+  // purposes. Creating
   const authApp = express();
   authApp.use(express.json());
 
@@ -189,7 +192,8 @@ if (useOAuth) {
     provider,
     issuerUrl: authServerUrl,
     scopesSupported: ['mcp:tools'],
-    // This endpoint is set up on the Authorization server, but really shouldn't be.
+    // This endpoint is set up on the Authorization server, because
+    // we're abusing the SDK to create a standalone Authorization server.
     protectedResourceOptions: {
       serverUrl: mcpServerUrl,
       resourceName: 'MCP Demo Server',
