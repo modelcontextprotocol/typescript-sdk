@@ -69,7 +69,7 @@ export interface OAuthServerProvider {
 /**
  * Slim implementation useful for token verification
  */
-export interface TokenVerifier {
+export interface OAuthTokenVerifier {
   /**
    * Verifies an access token and returns information about it.
    */

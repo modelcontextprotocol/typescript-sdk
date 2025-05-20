@@ -8,7 +8,6 @@ import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
 import { CallToolResult, GetPromptResult, isInitializeRequest, ReadResourceResult } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
-import { DemoRemoteOAuthProvider } from './demoRemoteOAuthProvider.js';
 import { OAuthMetadata } from 'src/shared/auth.js';
 
 // Check for OAuth flag
@@ -182,9 +181,40 @@ if (useOAuth) {
 
   const oauthMetadata: OAuthMetadata = setupAuthServer(authServerUrl);
 
-  const remoteProvider = new DemoRemoteOAuthProvider(
-      oauthMetadata
-  );
+  const tokenVerifier = {
+    verifyAccessToken: async (token: string) => {
+      const endpoint = oauthMetadata.introspection_endpoint;
+
+      if (!endpoint) {
+        throw new Error('No token verification endpoint available in metadata');
+      }
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          token: token
+        }).toString()
+      });
+
+
+      if (!response.ok) {
+        throw new Error(`Invalid or expired token: ${await response.text()}`);
+      }
+
+      const data = await response.json();
+
+      // Convert the response to AuthInfo format
+      return {
+        token,
+        clientId: data.client_id,
+        scopes: data.scope ? data.scope.split(' ') : [],
+        expiresAt: data.exp,
+      };
+    }
+  }
   // Add metadata routes to the main MCP server
   app.use(mcpAuthMetadataRouter({
     oauthMetadata,
@@ -194,7 +224,7 @@ if (useOAuth) {
   }));
 
   authMiddleware = requireBearerAuth({
-    provider: remoteProvider,
+    verifier: tokenVerifier,
     requiredScopes: ['mcp:tools'],
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
   });
