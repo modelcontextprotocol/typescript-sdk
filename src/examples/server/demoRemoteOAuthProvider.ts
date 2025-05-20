@@ -11,15 +11,26 @@ import { AuthInfo } from "src/server/auth/types.js";
  * This provider acts as a client to an external OAuth server and forwards
  * all authorization, token, and verification requests.
  */
-export class ForwardingOAuthProvider implements OAuthServerProvider {
+export class DemoRemoteOAuthProvider implements OAuthServerProvider {
   private metadata: OAuthMetadata;
-  // private clients = new Map<string, OAuthClientInformationFull>();
 
   constructor(oauthMetadata: OAuthMetadata) {
-    this.metadata = oauthMetadata;
+    this.metadata = oauthMetadata;// Validate required endpoints exist in the metadata
+    if (!oauthMetadata.authorization_endpoint) {
+      throw new Error('Missing required authorization_endpoint in OAuth metadata');
+    }
+
+    if (!oauthMetadata.token_endpoint) {
+      throw new Error('Missing required token_endpoint in OAuth metadata');
+    }
+
+    // For token verification, either introspection endpoint or userinfo endpoint is needed
+    if (!oauthMetadata.introspection_endpoint) {
+      throw new Error('Missing required introspection_endpoint in OAuth metadata');
+    }
   }
 
-  // This is not needed.
+  // This is not needed, since the AS handles client registration
   clientsStore: OAuthRegisteredClientsStore = {
     async getClient(_clientId: string) {
       throw new Error("Not Implemented");
@@ -64,6 +75,7 @@ export class ForwardingOAuthProvider implements OAuthServerProvider {
     _client: OAuthClientInformationFull,
     _authorizationCode: string
   ): Promise<string> {
+    // This won't be called in the forwarding flow
     throw new Error("Not Implemented");
   }
 
@@ -111,7 +123,7 @@ export class ForwardingOAuthProvider implements OAuthServerProvider {
   }
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
-    // Use introspection endpoint if available, or userinfo endpoint
+    // Use introspection endpoint if available
     const endpoint = this.metadata.introspection_endpoint;
 
     if (!endpoint) {
@@ -119,14 +131,18 @@ export class ForwardingOAuthProvider implements OAuthServerProvider {
     }
 
     const response = await fetch(endpoint, {
-      method: 'GET',
+      method: 'POST',
       headers: {
-        'Authorization': `Bearer ${token}`
-      }
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        token: token
+      }).toString()
     });
 
+
     if (!response.ok) {
-      throw new Error('Invalid or expired token');
+      throw new Error(`Invalid or expired token: ${await response.text()}`);
     }
 
     const data = await response.json();

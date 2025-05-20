@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { AuthorizationParams, OAuthServerProvider } from '../../server/auth/provider.js';
 import { OAuthRegisteredClientsStore } from '../../server/auth/clients.js';
-import { OAuthClientInformationFull, OAuthTokens } from 'src/shared/auth.js';
-import { Response } from "express";
+import { OAuthClientInformationFull, OAuthMetadata, OAuthTokens } from 'src/shared/auth.js';
+import express, { Request, Response } from "express";
 import { AuthInfo } from 'src/server/auth/types.js';
+import { mcpAuthRouter } from 'src/server/auth/router.js';
 
 
 /**
@@ -138,4 +139,69 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
       expiresAt: Math.floor(tokenData.expiresAt / 1000),
     };
   }
+}
+
+
+export const setupAuthServer = async (authServerUrl: URL): Promise<OAuthMetadata> => {
+  // Create separate auth server app
+  // NOTE: This is a separate app on a separate port to illustrate
+  // how to separate an OAuth Authorization Server from a Resource
+  // server in the SDK. The SDK is not intended to be provide a standalone
+  // authorization server.
+  const provider = new DemoInMemoryAuthProvider();
+  const authApp = express();
+  authApp.use(express.json());
+  // For introspection requests
+  authApp.use(express.urlencoded());
+
+  // Add OAuth routes to the auth server
+  authApp.use(mcpAuthRouter({
+    provider,
+    issuerUrl: authServerUrl,
+    scopesSupported: ['mcp:tools'],
+    // This metadata doesn't make sense on the Authorization server, but
+    // we're abusing the SDK to create a standalone Authorization server.
+    // Instead, developers should use established Authorization servers,
+    // and create the router based on their metadata.
+    protectedResourceOptions: {
+      serverUrl: authServerUrl,
+    },
+  }));
+
+  authApp.post('/introspect', async (req: Request, res: Response) => {
+    try {
+      const { token } = req.body;
+      if (!token) {
+        res.status(400).json({ error: 'Token is required' });
+        return;
+      }
+
+      const tokenInfo = await provider.verifyAccessToken(token);
+      res.json({
+        active: true,
+        client_id: tokenInfo.clientId,
+        scope: tokenInfo.scopes.join(' '),
+        exp: tokenInfo.expiresAt
+      });
+      return
+    } catch (error) {
+      res.status(401).json({
+        active: false,
+        error: 'Unauthorized',
+        error_description: `Invalid token: ${error}`
+      });
+    }
+  });
+
+  const auth_port = authServerUrl.port;
+  // Start the auth server
+  authApp.listen(auth_port, () => {
+    console.log(`OAuth Authorization Server listening on port ${auth_port}`);
+  });
+
+  const resp = await fetch(new URL("/.well-known/oauth-authorization-server", authServerUrl));
+  const oauthMetadata: OAuthMetadata = await resp.json();
+  oauthMetadata.introspection_endpoint = new URL("/introspect", authServerUrl).href;
+
+  return oauthMetadata;
 }
