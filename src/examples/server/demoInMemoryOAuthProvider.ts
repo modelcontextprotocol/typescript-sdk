@@ -7,14 +7,6 @@ import { AuthInfo } from 'src/server/auth/types.js';
 import { createOAuthMetadata, mcpAuthRouter } from 'src/server/auth/router.js';
 
 
-/**
- * 🚨 DEMO ONLY - NOT FOR PRODUCTION
- *
- * This example demonstrates MCP OAuth flow but lacks some of the features required for production use,
- * for example:
- * - Persistent token storage
- * - Rate limiting
- */
 export class DemoInMemoryClientsStore implements OAuthRegisteredClientsStore {
   private clients = new Map<string, OAuthClientInformationFull>();
 
