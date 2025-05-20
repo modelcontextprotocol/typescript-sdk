@@ -151,10 +151,12 @@ export const setupAuthServer = (authServerUrl: URL): OAuthMetadata => {
     provider,
     issuerUrl: authServerUrl,
     scopesSupported: ['mcp:tools'],
-    // This metadata doesn't make sense on the Authorization server, but
-    // we're abusing the SDK to create a standalone Authorization server.
-    // Instead, developers should use established Authorization servers,
-    // and create the router based on their metadata.
+    // Resource metadata doesn't make sense on an Authorization server,
+    // but, we're abusing the SDK to create a standalone Authorization server here.
+    // In practice, developers should use an existing authorization server
+    // at their organization, a 3rd party authorization server, or
+    // have their MCP server be an authorization server via using `mcpAuthRouter`
+    // directly in their server.
     protectedResourceOptions: {
       serverUrl: authServerUrl,
     },
