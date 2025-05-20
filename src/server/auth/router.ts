@@ -178,7 +178,8 @@ export function mcpAuthMetadataRouter(options: AuthMetadataOptions) {
 
   const { provider,
     serviceDocumentationUrl,
-    scopesSupported
+    scopesSupported,
+    resourceName
   } = options;
 
   const metadata = createOAuthMetadata({
@@ -195,6 +196,7 @@ export function mcpAuthMetadataRouter(options: AuthMetadataOptions) {
     issuerUrl: options.authorizationServerUrl,
     serviceDocumentationUrl,
     scopesSupported,
+    resourceName,
   }))
 
   return router;
