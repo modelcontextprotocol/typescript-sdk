@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
-import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from '../../server/auth/router.js';
+import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';
 import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
 import { CallToolResult, GetPromptResult, isInitializeRequest, ReadResourceResult } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
@@ -181,9 +181,10 @@ if (useOAuth) {
   const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
   // Create separate auth server app
-  // NOTE: This is a separate app on a separate domain to illustrate
-  // how to use a separate OAuth Authorization Server for demonstration
-  // purposes. Creating
+  // NOTE: This is a separate app on a separate port to illustrate
+  // how to separate an OAuth Authorization Server from a Resource
+  // server in the SDK. The SDK is not intended to be provide a standalone
+  // authorization server.
   const authApp = express();
   authApp.use(express.json());
 
@@ -205,15 +206,12 @@ if (useOAuth) {
     console.log(`OAuth Authorization Server listening on port ${AUTH_PORT}`);
   });
 
-  // Add both resource metadata and oauth server metadata (for backwards compatiblity) to the main MCP server
-  app.use(mcpAuthRouter({
+  // Add metadata routes to the main MCP server
+  app.use(mcpAuthMetadataRouter({
     provider,
-    issuerUrl: authServerUrl,
-    scopesSupported: ['mcp:tools'],
-    protectedResourceOptions: {
-      serverUrl: mcpServerUrl,
-      resourceName: 'MCP Demo Server',
-    },
+    resourceServerUrl: mcpServerUrl,
+    authorizationServerUrl: authServerUrl,
+    resourceName: 'MCP Demo Server',
   }));
 
   authMiddleware = requireBearerAuth({

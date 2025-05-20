@@ -56,17 +56,13 @@ const checkIssuerUrl = (issuer: URL): void => {
   }
 }
 
-/**
- * Installs standard MCP authorization endpoints, including dynamic client registration and token revocation (if supported). Also advertises standard authorization server metadata, for easier discovery of supported configurations by clients.
- *
- * By default, rate limiting is applied to all endpoints to prevent abuse.
- *
- * This router MUST be installed at the application root, like so:
- *
- *  const app = express();
- *  app.use(mcpAuthRouter(...));
- */
-export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
+const createOAuthMetadata = (options: {
+  provider: OAuthServerProvider,
+  issuerUrl: URL,
+  baseUrl?: URL
+  serviceDocumentationUrl?: URL,
+  scopesSupported?: string[];
+}): OAuthMetadata => {
   const issuer = options.issuerUrl;
   const baseUrl = options.baseUrl;
 
@@ -97,16 +93,33 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
     registration_endpoint: registration_endpoint ? new URL(registration_endpoint, baseUrl || issuer).href : undefined,
   };
 
+  return metadata
+}
+
+/**
+ * Installs standard MCP authorization server endpoints, including dynamic client registration and token revocation (if supported).
+ * Also advertises standard authorization server metadata, for easier discovery of supported configurations by clients.
+ * Note: if your MCP server is only a resource server and not an authorization server, use mcpAuthMetadataRouter instead.
+ *
+ * By default, rate limiting is applied to all endpoints to prevent abuse.
+ *
+ * This router MUST be installed at the application root, like so:
+ *
+ *  const app = express();
+ *  app.use(mcpAuthRouter(...));
+ */
+export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
+  const metadata = createOAuthMetadata(options);
 
   const router = express.Router();
 
   router.use(
-    authorization_endpoint,
+    new URL(metadata.authorization_endpoint).pathname,
     authorizationHandler({ provider: options.provider, ...options.authorizationOptions })
   );
 
   router.use(
-    token_endpoint,
+    new URL(metadata.token_endpoint).pathname,
     tokenHandler({ provider: options.provider, ...options.tokenOptions })
   );
 
@@ -114,20 +127,21 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
 
   // Always include protected resource metadata
   const defaultProtectedResourceOptions = {
-    serverUrl: issuer, // Use issuer as default server URL
+    // Use issuer as the server URL if no override provided
+    serverUrl: new URL(metadata.issuer),
   };
 
   router.use(mcpProtectedResourceRouter({
-    issuerUrl: issuer,
+    issuerUrl: options.issuerUrl,
     serviceDocumentationUrl: options.serviceDocumentationUrl,
     scopesSupported: options.scopesSupported,
     ...defaultProtectedResourceOptions,
     ...options.protectedResourceOptions
   }))
 
-  if (registration_endpoint) {
+  if (metadata.registration_endpoint) {
     router.use(
-      registration_endpoint,
+      new URL(metadata.registration_endpoint).pathname,
       clientRegistrationHandler({
         clientsStore: options.provider.clientsStore,
         ...options,
@@ -135,9 +149,9 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
     );
   }
 
-  if (revocation_endpoint) {
+  if (metadata.revocation_endpoint) {
     router.use(
-      revocation_endpoint,
+      new URL(metadata.revocation_endpoint).pathname,
       revocationHandler({ provider: options.provider, ...options.revocationOptions })
     );
   }
@@ -145,6 +159,40 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
   return router;
 }
 
+export function mcpAuthMetadataRouter(options: {
+    provider: OAuthServerProvider;
+    resourceServerUrl: URL;
+    authorizationServerUrl: URL;
+    authorizationServerBaseUrl?: URL;
+    serviceDocumentationUrl?: URL;
+    scopesSupported?: string[];
+    resourceName?: string;
+}) {
+  const router = express.Router();
+
+  const { provider,
+    serviceDocumentationUrl,
+    scopesSupported
+  } = options;
+
+  const metadata = createOAuthMetadata({
+    provider,
+    issuerUrl: options.authorizationServerUrl,
+    baseUrl: options.authorizationServerBaseUrl,
+    serviceDocumentationUrl,
+    scopesSupported,
+  });
+  router.use("/.well-known/oauth-authorization-server", metadataHandler(metadata));
+
+  router.use(mcpProtectedResourceRouter({
+    serverUrl: options.resourceServerUrl,
+    issuerUrl: options.authorizationServerUrl,
+    serviceDocumentationUrl,
+    scopesSupported,
+  }))
+
+  return router;
+}
 
 export type ProtectedResourceRouterOptions = {
   /**
@@ -173,7 +221,6 @@ export type ProtectedResourceRouterOptions = {
    */
   resourceName?: string;
 };
-
 
 export function mcpProtectedResourceRouter(options: ProtectedResourceRouterOptions) {
   const issuer = options.issuerUrl;
