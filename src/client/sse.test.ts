@@ -9,6 +9,7 @@ describe("SSEClientTransport", () => {
   let server: Server;
   let transport: SSEClientTransport;
   let baseUrl: URL;
+  let customMessagesPath: string | null = null;
   let lastServerRequest: IncomingMessage;
   let sendServerMessage: ((message: string) => void) | null = null;
 
@@ -30,7 +31,7 @@ describe("SSEClientTransport", () => {
 
       // Send the endpoint event
       res.write("event: endpoint\n");
-      res.write(`data: ${baseUrl.href}\n\n`);
+      res.write(`data: ${baseUrl.href}${customMessagesPath}\n\n`);
 
       // Store reference to send function for tests
       sendServerMessage = (message: string) => {
@@ -68,6 +69,57 @@ describe("SSEClientTransport", () => {
   });
 
   describe("connection handling", () => {
+
+    afterEach(() => {
+      customMessagesPath = null;
+    })
+
+    // Test for custom path
+    it("uses non-standard path for POST messages", async () => {
+      customMessagesPath = "test/custom-messages-path";
+      transport = new SSEClientTransport(baseUrl);
+      await transport.start();
+
+      const testMessage: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        id: "test-1",
+        method: "test",
+        params: { foo: "bar" },
+      };
+
+      await transport.send(testMessage);
+
+      console.log("Last server request URL:", lastServerRequest.url);
+
+      expect(lastServerRequest.url).toBe("/" + customMessagesPath);
+    });
+
+    // Test for custom path
+    it("uses non-standard path for POST messages when given custom sse path", async () => {
+      customMessagesPath = "test/custom-messages-path";
+      const customSsePath = "test/custom-sse-path";
+      
+      // append the custom path to the base URL
+      const newUrl = new URL(baseUrl);
+      newUrl.pathname = customSsePath;
+
+      transport = new SSEClientTransport(newUrl);
+      await transport.start();
+
+      const testMessage: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        id: "test-1",
+        method: "test",
+        params: { foo: "bar" },
+      };
+
+      await transport.send(testMessage);
+
+      console.log("Last server request URL:", lastServerRequest.url);
+
+      expect(lastServerRequest.url).toBe("/" + customMessagesPath);
+    });
+
     it("establishes SSE connection and receives endpoint", async () => {
       transport = new SSEClientTransport(baseUrl);
       await transport.start();
