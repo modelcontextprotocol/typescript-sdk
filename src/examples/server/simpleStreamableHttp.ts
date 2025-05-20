@@ -1,13 +1,15 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, Express } from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
-import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';
+import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter, createOAuthMetadata } from '../../server/auth/router.js';
 import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
 import { CallToolResult, GetPromptResult, isInitializeRequest, ReadResourceResult } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import { DemoInMemoryAuthProvider } from './demoInMemoryOAuthProvider.js';
+import { ForwardingOAuthProvider } from './demoRemoteOAuthProvider.js';
+import { OAuthMetadata } from 'src/shared/auth.js';
 
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
@@ -165,26 +167,13 @@ const getServer = () => {
   return server;
 };
 
-const MCP_PORT = 3000;
-const AUTH_PORT = 3001;
-
-const app = express();
-app.use(express.json());
-
-// Set up OAuth if enabled
-let authMiddleware = null;
-if (useOAuth) {
-  const provider = new DemoInMemoryAuthProvider();
-
-  // Create auth middleware for MCP endpoints
-  const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}`);
-  const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
-
+const setupAuthServer = async (authServerUrl: URL): Promise<OAuthMetadata> => {
   // Create separate auth server app
   // NOTE: This is a separate app on a separate port to illustrate
   // how to separate an OAuth Authorization Server from a Resource
   // server in the SDK. The SDK is not intended to be provide a standalone
   // authorization server.
+  const provider = new DemoInMemoryAuthProvider();
   const authApp = express();
   authApp.use(express.json());
 
@@ -196,8 +185,7 @@ if (useOAuth) {
     // This endpoint is set up on the Authorization server, because
     // we're abusing the SDK to create a standalone Authorization server.
     protectedResourceOptions: {
-      serverUrl: mcpServerUrl,
-      resourceName: 'MCP Demo Server',
+      serverUrl: authServerUrl,
     },
   }));
 
@@ -206,16 +194,41 @@ if (useOAuth) {
     console.log(`OAuth Authorization Server listening on port ${AUTH_PORT}`);
   });
 
+  const resp = await fetch(new URL("/.well-known/oauth-authorization-server", authServerUrl));
+  const oauthMetadata: OAuthMetadata = await resp.json();
+
+  return oauthMetadata;
+}
+
+const MCP_PORT = 3000;
+const AUTH_PORT = 3001;
+
+const app = express();
+app.use(express.json());
+
+// Set up OAuth if enabled
+let authMiddleware = null;
+if (useOAuth) {
+
+  // Create auth middleware for MCP endpoints
+  const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}`);
+  const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
+
+  const oauthMetadata = await setupAuthServer(authServerUrl);
+
+  const forwardingProvider = new ForwardingOAuthProvider(
+      oauthMetadata
+  );
   // Add metadata routes to the main MCP server
   app.use(mcpAuthMetadataRouter({
-    provider,
+    provider: forwardingProvider,
     resourceServerUrl: mcpServerUrl,
     authorizationServerUrl: authServerUrl,
     resourceName: 'MCP Demo Server',
   }));
 
   authMiddleware = requireBearerAuth({
-    provider,
+    provider: forwardingProvider,
     requiredScopes: ['mcp:tools'],
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
   });

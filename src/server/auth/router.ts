@@ -56,7 +56,7 @@ const checkIssuerUrl = (issuer: URL): void => {
   }
 }
 
-const createOAuthMetadata = (options: {
+export const createOAuthMetadata = (options: {
   provider: OAuthServerProvider,
   issuerUrl: URL,
   baseUrl?: URL
@@ -159,7 +159,11 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
   return router;
 }
 
-export function mcpAuthMetadataRouter(options: {
+export type AuthMetadataOptions = {
+  /**
+   * A provider implementing the actual authorization logic for this router.
+   * Note: the provider should reference an authorization server
+   */
     provider: OAuthServerProvider;
     resourceServerUrl: URL;
     authorizationServerUrl: URL;
@@ -167,7 +171,9 @@ export function mcpAuthMetadataRouter(options: {
     serviceDocumentationUrl?: URL;
     scopesSupported?: string[];
     resourceName?: string;
-}) {
+}
+
+export function mcpAuthMetadataRouter(options: AuthMetadataOptions) {
   const router = express.Router();
 
   const { provider,
