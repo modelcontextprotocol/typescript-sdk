@@ -1,4 +1,4 @@
-import { mcpAuthRouter, AuthRouterOptions } from './router.js';
+import { mcpAuthRouter, AuthRouterOptions, mcpAuthMetadataRouter, AuthMetadataOptions } from './router.js';
 import { OAuthServerProvider, AuthorizationParams } from './provider.js';
 import { OAuthRegisteredClientsStore } from './clients.js';
 import { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '../../shared/auth.js';
@@ -7,75 +7,76 @@ import supertest from 'supertest';
 import { AuthInfo } from './types.js';
 import { InvalidTokenError } from './errors.js';
 
+// Setup mock provider with full capabilities
+const mockClientStore: OAuthRegisteredClientsStore = {
+  async getClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {
+    if (clientId === 'valid-client') {
+      return {
+        client_id: 'valid-client',
+        client_secret: 'valid-secret',
+        redirect_uris: ['https://example.com/callback']
+      };
+    }
+    return undefined;
+  },
+
+  async registerClient(client: OAuthClientInformationFull): Promise<OAuthClientInformationFull> {
+    return client;
+  }
+};
+
+const mockProvider: OAuthServerProvider = {
+  clientsStore: mockClientStore,
+
+  async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
+    const redirectUrl = new URL(params.redirectUri);
+    redirectUrl.searchParams.set('code', 'mock_auth_code');
+    if (params.state) {
+      redirectUrl.searchParams.set('state', params.state);
+    }
+    res.redirect(302, redirectUrl.toString());
+  },
+
+  async challengeForAuthorizationCode(): Promise<string> {
+    return 'mock_challenge';
+  },
+
+  async exchangeAuthorizationCode(): Promise<OAuthTokens> {
+    return {
+      access_token: 'mock_access_token',
+      token_type: 'bearer',
+      expires_in: 3600,
+      refresh_token: 'mock_refresh_token'
+    };
+  },
+
+  async exchangeRefreshToken(): Promise<OAuthTokens> {
+    return {
+      access_token: 'new_mock_access_token',
+      token_type: 'bearer',
+      expires_in: 3600,
+      refresh_token: 'new_mock_refresh_token'
+    };
+  },
+
+  async verifyAccessToken(token: string): Promise<AuthInfo> {
+    if (token === 'valid_token') {
+      return {
+        token,
+        clientId: 'valid-client',
+        scopes: ['read', 'write'],
+        expiresAt: Date.now() / 1000 + 3600
+      };
+    }
+    throw new InvalidTokenError('Token is invalid or expired');
+  },
+
+  async revokeToken(_client: OAuthClientInformationFull, _request: OAuthTokenRevocationRequest): Promise<void> {
+    // Success - do nothing in mock
+  }
+};
+
 describe('MCP Auth Router', () => {
-  // Setup mock provider with full capabilities
-  const mockClientStore: OAuthRegisteredClientsStore = {
-    async getClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {
-      if (clientId === 'valid-client') {
-        return {
-          client_id: 'valid-client',
-          client_secret: 'valid-secret',
-          redirect_uris: ['https://example.com/callback']
-        };
-      }
-      return undefined;
-    },
-
-    async registerClient(client: OAuthClientInformationFull): Promise<OAuthClientInformationFull> {
-      return client;
-    }
-  };
-
-  const mockProvider: OAuthServerProvider = {
-    clientsStore: mockClientStore,
-
-    async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
-      const redirectUrl = new URL(params.redirectUri);
-      redirectUrl.searchParams.set('code', 'mock_auth_code');
-      if (params.state) {
-        redirectUrl.searchParams.set('state', params.state);
-      }
-      res.redirect(302, redirectUrl.toString());
-    },
-
-    async challengeForAuthorizationCode(): Promise<string> {
-      return 'mock_challenge';
-    },
-
-    async exchangeAuthorizationCode(): Promise<OAuthTokens> {
-      return {
-        access_token: 'mock_access_token',
-        token_type: 'bearer',
-        expires_in: 3600,
-        refresh_token: 'mock_refresh_token'
-      };
-    },
-
-    async exchangeRefreshToken(): Promise<OAuthTokens> {
-      return {
-        access_token: 'new_mock_access_token',
-        token_type: 'bearer',
-        expires_in: 3600,
-        refresh_token: 'new_mock_refresh_token'
-      };
-    },
-
-    async verifyAccessToken(token: string): Promise<AuthInfo> {
-      if (token === 'valid_token') {
-        return {
-          token,
-          clientId: 'valid-client',
-          scopes: ['read', 'write'],
-          expiresAt: Date.now() / 1000 + 3600
-        };
-      }
-      throw new InvalidTokenError('Token is invalid or expired');
-    },
-
-    async revokeToken(_client: OAuthClientInformationFull, _request: OAuthTokenRevocationRequest): Promise<void> {
-      // Success - do nothing in mock
-    }
-  };
 
   // Provider without registration and revocation
   const mockProviderMinimal: OAuthServerProvider = {
@@ -382,6 +383,117 @@ describe('MCP Auth Router', () => {
           token: 'token_to_revoke'
         });
       expect(revokeResponse.status).toBe(404);
+    });
+  });
+});
+
+describe('MCP Auth Metadata Router', () => {
+
+  describe('Router creation', () => {
+    it('successfully creates router with valid options', () => {
+      const options: AuthMetadataOptions = {
+        provider: mockProvider,
+        resourceServerUrl: new URL('https://api.example.com'),
+        authorizationServerUrl: new URL('https://auth.example.com')
+      };
+
+      expect(() => mcpAuthMetadataRouter(options)).not.toThrow();
+    });
+  });
+
+  describe('Metadata endpoints', () => {
+    let app: express.Express;
+
+    beforeEach(() => {
+      app = express();
+      const options: AuthMetadataOptions = {
+        provider: mockProvider,
+        resourceServerUrl: new URL('https://api.example.com'),
+        authorizationServerUrl: new URL('https://auth.example.com'),
+        serviceDocumentationUrl: new URL('https://docs.example.com'),
+        scopesSupported: ['read', 'write'],
+        resourceName: 'Test API'
+      };
+      app.use(mcpAuthMetadataRouter(options));
+    });
+
+    it('returns OAuth authorization server metadata', async () => {
+      const response = await supertest(app)
+        .get('/.well-known/oauth-authorization-server');
+
+      expect(response.status).toBe(200);
+
+      // Verify metadata points to authorization server
+      expect(response.body.issuer).toBe('https://auth.example.com/');
+      expect(response.body.authorization_endpoint).toBe('https://auth.example.com/authorize');
+      expect(response.body.token_endpoint).toBe('https://auth.example.com/token');
+      expect(response.body.response_types_supported).toEqual(['code']);
+      expect(response.body.grant_types_supported).toEqual(['authorization_code', 'refresh_token']);
+      expect(response.body.code_challenge_methods_supported).toEqual(['S256']);
+      expect(response.body.token_endpoint_auth_methods_supported).toEqual(['client_secret_post']);
+      expect(response.body.service_documentation).toBe('https://docs.example.com/');
+      expect(response.body.scopes_supported).toEqual(['read', 'write']);
+    });
+
+    it('returns OAuth protected resource metadata', async () => {
+      const response = await supertest(app)
+        .get('/.well-known/oauth-protected-resource');
+
+      expect(response.status).toBe(200);
+
+      // Verify protected resource metadata
+      expect(response.body.resource).toBe('https://api.example.com/');
+      expect(response.body.authorization_servers).toEqual(['https://auth.example.com/']);
+      expect(response.body.scopes_supported).toEqual(['read', 'write']);
+      expect(response.body.resource_name).toBe('Test API');
+      expect(response.body.resource_documentation).toBe('https://docs.example.com/');
+    });
+
+    it('works with separate base URL for authorization server', async () => {
+      const separateApp = express();
+      const options: AuthMetadataOptions = {
+        provider: mockProvider,
+        resourceServerUrl: new URL('https://api.example.com'),
+        authorizationServerUrl: new URL('https://auth.example.com'),
+        authorizationServerBaseUrl: new URL('https://oauth.example.com')
+      };
+      separateApp.use(mcpAuthMetadataRouter(options));
+
+      const response = await supertest(separateApp)
+        .get('/.well-known/oauth-authorization-server');
+
+      expect(response.status).toBe(200);
+      expect(response.body.issuer).toBe('https://auth.example.com/');
+      expect(response.body.authorization_endpoint).toBe('https://oauth.example.com/authorize');
+      expect(response.body.token_endpoint).toBe('https://oauth.example.com/token');
+    });
+
+    it('works with minimal configuration', async () => {
+      const minimalApp = express();
+      const options: AuthMetadataOptions = {
+        provider: mockProvider,
+        resourceServerUrl: new URL('https://api.example.com'),
+        authorizationServerUrl: new URL('https://auth.example.com')
+      };
+      minimalApp.use(mcpAuthMetadataRouter(options));
+
+      const authResponse = await supertest(minimalApp)
+        .get('/.well-known/oauth-authorization-server');
+
+      expect(authResponse.status).toBe(200);
+      expect(authResponse.body.issuer).toBe('https://auth.example.com/');
+      expect(authResponse.body.service_documentation).toBeUndefined();
+      expect(authResponse.body.scopes_supported).toBeUndefined();
+
+      const resourceResponse = await supertest(minimalApp)
+        .get('/.well-known/oauth-protected-resource');
+
+      expect(resourceResponse.status).toBe(200);
+      expect(resourceResponse.body.resource).toBe('https://api.example.com/');
+      expect(resourceResponse.body.authorization_servers).toEqual(['https://auth.example.com/']);
+      expect(resourceResponse.body.scopes_supported).toBeUndefined();
+      expect(resourceResponse.body.resource_name).toBeUndefined();
+      expect(resourceResponse.body.resource_documentation).toBeUndefined();
     });
   });
 });
