@@ -159,14 +159,30 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
 
 export type AuthMetadataOptions = {
   /**
-   * A provider implementing the actual authorization logic for this router.
-   * Note: the provider should reference an authorization server
+   * OAuth Metadata as would be returned from the authorization server
+   * this MCP server relies on
    */
-    oauthMetadata: OAuthMetadata;
-    resourceServerUrl: URL;
-    serviceDocumentationUrl?: URL;
-    scopesSupported?: string[];
-    resourceName?: string;
+  oauthMetadata: OAuthMetadata;
+
+  /**
+   * The url of the MCP server, for use in protected resource metadata
+   */
+  resourceServerUrl: URL;
+
+  /**
+   * The url for documentation for the MCP server
+   */
+  serviceDocumentationUrl?: URL;
+
+  /**
+   * An optional list of scopes supported by this MCP server
+   */
+  scopesSupported?: string[];
+
+  /**
+   * An optional resource name to display in resource metadata
+   */
+  resourceName?: string;
 }
 
 export function mcpAuthMetadataRouter(options: AuthMetadataOptions) {
