@@ -1601,6 +1601,67 @@ describe("resource()", () => {
     expect(result.resources[0].name).toBe("test");
     expect(result.resources[0].uri).toBe("test://resource");
   });
+  
+  /***
+   * Test: Resource Registration with registerResource
+   */
+  test("should register resource with registerResource method", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.registerResource("test-resource", {
+      uri: "test://registered-resource",
+      description: "A test resource registered with registerResource"
+    }, async () => ({
+      contents: [
+        {
+          uri: "test://registered-resource",
+          text: "Content from registered resource",
+        },
+      ],
+    }));
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Check if resource is listed correctly
+    const listResult = await client.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    );
+
+    expect(listResult.resources).toHaveLength(1);
+    expect(listResult.resources[0].name).toBe("test-resource");
+    expect(listResult.resources[0].uri).toBe("test://registered-resource");
+    expect(listResult.resources[0].description).toBe("A test resource registered with registerResource");
+    
+    // Check if resource can be read
+    const readResult = await client.request(
+      {
+        method: "resources/read",
+        params: {
+          uri: "test://registered-resource",
+        },
+      },
+      ReadResourceResultSchema,
+    );
+
+    expect(readResult.contents).toHaveLength(1);
+    expect(readResult.contents[0].text).toBe("Content from registered resource");
+  });
 
   /***
    * Test: Update Resource with URI
@@ -2159,6 +2220,92 @@ describe("resource()", () => {
         ],
       }));
     }).toThrow(/already registered/);
+  });
+  
+  /***
+   * Test: Preventing Duplicate Resource Registration with registerResource
+   */
+  test("should prevent duplicate resource registration with registerResource", () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    mcpServer.resource("test", "test://resource", async () => ({
+      contents: [
+        {
+          uri: "test://resource",
+          text: "Test content",
+        },
+      ],
+    }));
+
+    expect(() => {
+      mcpServer.registerResource("test2", {
+        uri: "test://resource",
+        description: "Duplicate resource"
+      }, async () => ({
+        contents: [
+          {
+            uri: "test://resource",
+            text: "Test content 2",
+          },
+        ],
+      }));
+    }).toThrow(/already registered/);
+  });
+  
+  /***
+   * Test: Resource Registration with registerResource and Metadata
+   */
+  test("should register resource with registerResource and metadata", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.registerResource("metadata-resource", {
+      uri: "test://metadata-resource",
+      description: "Resource with metadata",
+      metadata: {
+        mimeType: "application/json",
+        custom: "custom-value"
+      }
+    }, async () => ({
+      contents: [
+        {
+          uri: "test://metadata-resource",
+          text: "{\"test\": \"data\"}",
+          mimeType: "application/json"
+        },
+      ],
+    }));
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    );
+
+    expect(result.resources).toHaveLength(1);
+    expect(result.resources[0].name).toBe("metadata-resource");
+    expect(result.resources[0].uri).toBe("test://metadata-resource");
+    expect(result.resources[0].description).toBe("Resource with metadata");
+    expect(result.resources[0].mimeType).toBe("application/json");
+    expect(result.resources[0].custom).toBe("custom-value");
   });
 
   /***

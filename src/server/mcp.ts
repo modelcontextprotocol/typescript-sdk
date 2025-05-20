@@ -826,6 +826,59 @@ export class McpServer {
   }
 
   /**
+   * Registers a resource with a config object and callback.
+   * Similar to the resource() method but with a more structured configuration.
+   */
+  registerResource(
+    name: string,
+    config: {
+      uri: string;
+      description?: string;
+      metadata?: ResourceMetadata;
+    },
+    readCallback: ReadResourceCallback
+  ): RegisteredResource {
+    if (this._registeredResources[config.uri]) {
+      throw new Error(`Resource ${config.uri} is already registered`);
+    }
+
+    const { uri, description, metadata } = config;
+    const resourceMetadata = { ...metadata };
+    
+    // Add description to metadata if provided
+    if (description) {
+      resourceMetadata.description = description;
+    }
+
+    const registeredResource: RegisteredResource = {
+      name,
+      metadata: resourceMetadata,
+      readCallback,
+      enabled: true,
+      disable: () => registeredResource.update({ enabled: false }),
+      enable: () => registeredResource.update({ enabled: true }),
+      remove: () => registeredResource.update({ uri: null }),
+      update: (updates) => {
+        if (typeof updates.uri !== "undefined" && updates.uri !== uri) {
+          delete this._registeredResources[uri]
+          if (updates.uri) this._registeredResources[updates.uri] = registeredResource
+        }
+        if (typeof updates.name !== "undefined") registeredResource.name = updates.name
+        if (typeof updates.metadata !== "undefined") registeredResource.metadata = updates.metadata
+        if (typeof updates.callback !== "undefined") registeredResource.readCallback = updates.callback
+        if (typeof updates.enabled !== "undefined") registeredResource.enabled = updates.enabled
+        this.sendResourceListChanged()
+      },
+    };
+    
+    this._registeredResources[uri] = registeredResource;
+    this.setResourceRequestHandlers();
+    this.sendResourceListChanged();
+    
+    return registeredResource;
+  }
+
+  /**
    * Registers a zero-argument prompt `name`, which will run the given function when the client calls it.
    */
   prompt(name: string, cb: PromptCallback): RegisteredPrompt;
