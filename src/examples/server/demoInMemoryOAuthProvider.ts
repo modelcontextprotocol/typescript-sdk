@@ -4,7 +4,7 @@ import { OAuthRegisteredClientsStore } from '../../server/auth/clients.js';
 import { OAuthClientInformationFull, OAuthMetadata, OAuthTokens } from 'src/shared/auth.js';
 import express, { Request, Response } from "express";
 import { AuthInfo } from 'src/server/auth/types.js';
-import { mcpAuthRouter } from 'src/server/auth/router.js';
+import { createOAuthMetadata, mcpAuthRouter } from 'src/server/auth/router.js';
 
 
 /**
@@ -142,7 +142,7 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
 }
 
 
-export const setupAuthServer = async (authServerUrl: URL): Promise<OAuthMetadata> => {
+export const setupAuthServer = (authServerUrl: URL): OAuthMetadata => {
   // Create separate auth server app
   // NOTE: This is a separate app on a separate port to illustrate
   // how to separate an OAuth Authorization Server from a Resource
@@ -199,8 +199,14 @@ export const setupAuthServer = async (authServerUrl: URL): Promise<OAuthMetadata
     console.log(`OAuth Authorization Server listening on port ${auth_port}`);
   });
 
-  const resp = await fetch(new URL("/.well-known/oauth-authorization-server", authServerUrl));
-  const oauthMetadata: OAuthMetadata = await resp.json();
+  // Note: we could fetch this from the server, but then we end up
+  // with some top level async which gets annoying.
+  const oauthMetadata: OAuthMetadata = createOAuthMetadata({
+    provider,
+    issuerUrl: authServerUrl,
+    scopesSupported: ['mcp:tools'],
+  })
+
   oauthMetadata.introspection_endpoint = new URL("/introspect", authServerUrl).href;
 
   return oauthMetadata;

@@ -180,7 +180,7 @@ if (useOAuth) {
   const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}`);
   const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
-  const oauthMetadata: OAuthMetadata = await setupAuthServer(authServerUrl);
+  const oauthMetadata: OAuthMetadata = setupAuthServer(authServerUrl);
 
   const remoteProvider = new DemoRemoteOAuthProvider(
       oauthMetadata
