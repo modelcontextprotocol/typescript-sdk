@@ -147,19 +147,12 @@ export const setupAuthServer = (authServerUrl: URL): OAuthMetadata => {
   authApp.use(express.urlencoded());
 
   // Add OAuth routes to the auth server
+  // NOTE: this will also add a protected resource metadata route,
+  // but it won't be used, so leave it.
   authApp.use(mcpAuthRouter({
     provider,
     issuerUrl: authServerUrl,
     scopesSupported: ['mcp:tools'],
-    // Resource metadata doesn't make sense on an Authorization server,
-    // but, we're abusing the SDK to create a standalone Authorization server here.
-    // In practice, developers should use an existing authorization server
-    // at their organization, a 3rd party authorization server, or
-    // have their MCP server be an authorization server via using `mcpAuthRouter`
-    // directly in their server.
-    protectedResourceOptions: {
-      serverUrl: authServerUrl,
-    },
   }));
 
   authApp.post('/introspect', async (req: Request, res: Response) => {

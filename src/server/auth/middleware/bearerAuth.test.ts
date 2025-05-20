@@ -2,17 +2,11 @@ import { Request, Response } from "express";
 import { requireBearerAuth } from "./bearerAuth.js";
 import { AuthInfo } from "../types.js";
 import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from "../errors.js";
-import { OAuthServerProvider } from "../provider.js";
-import { OAuthRegisteredClientsStore } from "../clients.js";
+import { OAuthTokenVerifier } from "../provider.js";
 
-// Mock provider
+// Mock verifier
 const mockVerifyAccessToken = jest.fn();
-const mockProvider: OAuthServerProvider = {
-  clientsStore: {} as OAuthRegisteredClientsStore,
-  authorize: jest.fn(),
-  challengeForAuthorizationCode: jest.fn(),
-  exchangeAuthorizationCode: jest.fn(),
-  exchangeRefreshToken: jest.fn(),
+const mockVerifier: OAuthTokenVerifier = {
   verifyAccessToken: mockVerifyAccessToken,
 };
 
@@ -50,7 +44,7 @@ describe("requireBearerAuth middleware", () => {
       authorization: "Bearer valid-token",
     };
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("valid-token");
@@ -59,7 +53,7 @@ describe("requireBearerAuth middleware", () => {
     expect(mockResponse.status).not.toHaveBeenCalled();
     expect(mockResponse.json).not.toHaveBeenCalled();
   });
-  
+
   it("should reject expired tokens", async () => {
     const expiredAuthInfo: AuthInfo = {
       token: "expired-token",
@@ -73,7 +67,7 @@ describe("requireBearerAuth middleware", () => {
       authorization: "Bearer expired-token",
     };
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("expired-token");
@@ -87,7 +81,7 @@ describe("requireBearerAuth middleware", () => {
     );
     expect(nextFunction).not.toHaveBeenCalled();
   });
-  
+
   it("should accept non-expired tokens", async () => {
     const nonExpiredAuthInfo: AuthInfo = {
       token: "valid-token",
@@ -101,7 +95,7 @@ describe("requireBearerAuth middleware", () => {
       authorization: "Bearer valid-token",
     };
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("valid-token");
@@ -124,7 +118,7 @@ describe("requireBearerAuth middleware", () => {
     };
 
     const middleware = requireBearerAuth({
-      provider: mockProvider,
+      verifier: mockVerifier,
       requiredScopes: ["read", "write"]
     });
 
@@ -155,7 +149,7 @@ describe("requireBearerAuth middleware", () => {
     };
 
     const middleware = requireBearerAuth({
-      provider: mockProvider,
+      verifier: mockVerifier,
       requiredScopes: ["read", "write"]
     });
 
@@ -169,7 +163,7 @@ describe("requireBearerAuth middleware", () => {
   });
 
   it("should return 401 when no Authorization header is present", async () => {
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).not.toHaveBeenCalled();
@@ -189,7 +183,7 @@ describe("requireBearerAuth middleware", () => {
       authorization: "InvalidFormat",
     };
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).not.toHaveBeenCalled();
@@ -214,7 +208,7 @@ describe("requireBearerAuth middleware", () => {
 
     mockVerifyAccessToken.mockRejectedValue(new InvalidTokenError("Token expired"));
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("invalid-token");
@@ -236,7 +230,7 @@ describe("requireBearerAuth middleware", () => {
 
     mockVerifyAccessToken.mockRejectedValue(new InsufficientScopeError("Required scopes: read, write"));
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("valid-token");
@@ -258,7 +252,7 @@ describe("requireBearerAuth middleware", () => {
 
     mockVerifyAccessToken.mockRejectedValue(new ServerError("Internal server issue"));
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("valid-token");
@@ -276,7 +270,7 @@ describe("requireBearerAuth middleware", () => {
 
     mockVerifyAccessToken.mockRejectedValue(new OAuthError("custom_error", "Some OAuth error"));
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("valid-token");
@@ -294,7 +288,7 @@ describe("requireBearerAuth middleware", () => {
 
     mockVerifyAccessToken.mockRejectedValue(new Error("Unexpected error"));
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("valid-token");
@@ -311,7 +305,7 @@ describe("requireBearerAuth middleware", () => {
     it("should include resource_metadata in WWW-Authenticate header for 401 responses", async () => {
       mockRequest.headers = {};
 
-      const middleware = requireBearerAuth({ provider: mockProvider, resourceMetadataUrl });
+      const middleware = requireBearerAuth({ verifier: mockVerifier, resourceMetadataUrl });
       await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
       expect(mockResponse.status).toHaveBeenCalledWith(401);
@@ -329,7 +323,7 @@ describe("requireBearerAuth middleware", () => {
 
       mockVerifyAccessToken.mockRejectedValue(new InvalidTokenError("Token expired"));
 
-      const middleware = requireBearerAuth({ provider: mockProvider, resourceMetadataUrl });
+      const middleware = requireBearerAuth({ verifier: mockVerifier, resourceMetadataUrl });
       await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
       expect(mockResponse.status).toHaveBeenCalledWith(401);
@@ -347,7 +341,7 @@ describe("requireBearerAuth middleware", () => {
 
       mockVerifyAccessToken.mockRejectedValue(new InsufficientScopeError("Required scopes: admin"));
 
-      const middleware = requireBearerAuth({ provider: mockProvider, resourceMetadataUrl });
+      const middleware = requireBearerAuth({ verifier: mockVerifier, resourceMetadataUrl });
       await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
       expect(mockResponse.status).toHaveBeenCalledWith(403);
@@ -371,7 +365,7 @@ describe("requireBearerAuth middleware", () => {
         authorization: "Bearer expired-token",
       };
 
-      const middleware = requireBearerAuth({ provider: mockProvider, resourceMetadataUrl });
+      const middleware = requireBearerAuth({ verifier: mockVerifier, resourceMetadataUrl });
       await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
       expect(mockResponse.status).toHaveBeenCalledWith(401);
@@ -395,7 +389,7 @@ describe("requireBearerAuth middleware", () => {
       };
 
       const middleware = requireBearerAuth({
-        provider: mockProvider,
+        verifier: mockVerifier,
         requiredScopes: ["read", "write"],
         resourceMetadataUrl
       });
@@ -417,7 +411,7 @@ describe("requireBearerAuth middleware", () => {
 
       mockVerifyAccessToken.mockRejectedValue(new ServerError("Internal server issue"));
 
-      const middleware = requireBearerAuth({ provider: mockProvider, resourceMetadataUrl });
+      const middleware = requireBearerAuth({ verifier: mockVerifier, resourceMetadataUrl });
       await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
       expect(mockResponse.status).toHaveBeenCalledWith(500);
