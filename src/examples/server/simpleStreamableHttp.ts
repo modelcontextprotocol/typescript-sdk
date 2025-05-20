@@ -187,9 +187,8 @@ if (useOAuth) {
   );
   // Add metadata routes to the main MCP server
   app.use(mcpAuthMetadataRouter({
-    provider: remoteProvider,
+    oauthMetadata,
     resourceServerUrl: mcpServerUrl,
-    authorizationServerUrl: authServerUrl,
     scopesSupported: ['mcp:tools'],
     resourceName: 'MCP Demo Server',
   }));

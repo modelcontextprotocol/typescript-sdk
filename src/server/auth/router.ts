@@ -35,12 +35,17 @@ export type AuthRouterOptions = {
    */
   scopesSupported?: string[];
 
+
+  /**
+   * The resource name to be displayed in protected resource metadata
+   */
+  resourceName?: string;
+
   // Individual options per route
   authorizationOptions?: Omit<AuthorizationHandlerOptions, "provider">;
   clientRegistrationOptions?: Omit<ClientRegistrationHandlerOptions, "clientsStore">;
   revocationOptions?: Omit<RevocationHandlerOptions, "provider">;
   tokenOptions?: Omit<TokenHandlerOptions, "provider">;
-  protectedResourceOptions?: Omit<ProtectedResourceRouterOptions, "issuerUrl" | "serviceDocumentationUrl" | "scopesSupported">;
 };
 
 const checkIssuerUrl = (issuer: URL): void => {
@@ -109,39 +114,32 @@ export const createOAuthMetadata = (options: {
  *  app.use(mcpAuthRouter(...));
  */
 export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
-  const metadata = createOAuthMetadata(options);
+  const oauthMetadata = createOAuthMetadata(options);
 
   const router = express.Router();
 
   router.use(
-    new URL(metadata.authorization_endpoint).pathname,
+    new URL(oauthMetadata.authorization_endpoint).pathname,
     authorizationHandler({ provider: options.provider, ...options.authorizationOptions })
   );
 
   router.use(
-    new URL(metadata.token_endpoint).pathname,
+    new URL(oauthMetadata.token_endpoint).pathname,
     tokenHandler({ provider: options.provider, ...options.tokenOptions })
   );
 
-  router.use("/.well-known/oauth-authorization-server", metadataHandler(metadata));
-
-  // Always include protected resource metadata
-  const defaultProtectedResourceOptions = {
-    // Use issuer as the server URL if no override provided
-    serverUrl: new URL(metadata.issuer),
-  };
-
-  router.use(mcpProtectedResourceRouter({
-    issuerUrl: options.issuerUrl,
+  router.use(mcpAuthMetadataRouter({
+    oauthMetadata,
+    // This router is used for AS+RS combo's, so the issuer is also the resource server
+    resourceServerUrl: new URL(oauthMetadata.issuer),
     serviceDocumentationUrl: options.serviceDocumentationUrl,
     scopesSupported: options.scopesSupported,
-    ...defaultProtectedResourceOptions,
-    ...options.protectedResourceOptions
-  }))
+    resourceName: options.resourceName
+  }));
 
-  if (metadata.registration_endpoint) {
+  if (oauthMetadata.registration_endpoint) {
     router.use(
-      new URL(metadata.registration_endpoint).pathname,
+      new URL(oauthMetadata.registration_endpoint).pathname,
       clientRegistrationHandler({
         clientsStore: options.provider.clientsStore,
         ...options,
@@ -149,9 +147,9 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
     );
   }
 
-  if (metadata.revocation_endpoint) {
+  if (oauthMetadata.revocation_endpoint) {
     router.use(
-      new URL(metadata.revocation_endpoint).pathname,
+      new URL(oauthMetadata.revocation_endpoint).pathname,
       revocationHandler({ provider: options.provider, ...options.revocationOptions })
     );
   }
@@ -164,83 +162,23 @@ export type AuthMetadataOptions = {
    * A provider implementing the actual authorization logic for this router.
    * Note: the provider should reference an authorization server
    */
-    provider: OAuthServerProvider;
+    oauthMetadata: OAuthMetadata;
     resourceServerUrl: URL;
-    authorizationServerUrl: URL;
-    authorizationServerBaseUrl?: URL;
     serviceDocumentationUrl?: URL;
     scopesSupported?: string[];
     resourceName?: string;
 }
 
 export function mcpAuthMetadataRouter(options: AuthMetadataOptions) {
-  const router = express.Router();
-
-  const { provider,
-    serviceDocumentationUrl,
-    scopesSupported,
-    resourceName
-  } = options;
-
-  const metadata = createOAuthMetadata({
-    provider,
-    issuerUrl: options.authorizationServerUrl,
-    baseUrl: options.authorizationServerBaseUrl,
-    serviceDocumentationUrl,
-    scopesSupported,
-  });
-  router.use("/.well-known/oauth-authorization-server", metadataHandler(metadata));
-
-  router.use(mcpProtectedResourceRouter({
-    serverUrl: options.resourceServerUrl,
-    issuerUrl: options.authorizationServerUrl,
-    serviceDocumentationUrl,
-    scopesSupported,
-    resourceName,
-  }))
-
-  return router;
-}
-
-export type ProtectedResourceRouterOptions = {
-  /**
-   * The authorization server's issuer identifier, which is a URL that uses the "https" scheme and has no query or fragment components.
-   */
-  issuerUrl: URL;
-
-  /**
-   * The MCP server URL that is proteted.
-   *
-   */
-  serverUrl: URL;
-
-  /**
-   * An optional URL of a page containing human-readable information that developers might want or need to know when using the authorization server.
-   */
-  serviceDocumentationUrl?: URL;
-
-  /**
-   * A list of valid scopes for the resource.
-   */
-  scopesSupported?: Array<string>;
-
-  /**
-   * A human readable resource name for the MCP server
-   */
-  resourceName?: string;
-};
-
-export function mcpProtectedResourceRouter(options: ProtectedResourceRouterOptions) {
-  const issuer = options.issuerUrl;
-  checkIssuerUrl(issuer);
+  checkIssuerUrl(new URL(options.oauthMetadata.issuer));
 
   const router = express.Router();
 
   const protectedResourceMetadata: OAuthProtectedResourceMetadata = {
-    resource: options.serverUrl.href,
+    resource: options.resourceServerUrl.href,
 
     authorization_servers: [
-      issuer.href
+      options.oauthMetadata.issuer
     ],
 
     scopes_supported: options.scopesSupported,
@@ -249,6 +187,9 @@ export function mcpProtectedResourceRouter(options: ProtectedResourceRouterOptio
   };
 
   router.use("/.well-known/oauth-protected-resource", metadataHandler(protectedResourceMetadata));
+
+  // Always add this for backwards compatibility
+  router.use("/.well-known/oauth-authorization-server", metadataHandler(options.oauthMetadata));
 
   return router;
 }
