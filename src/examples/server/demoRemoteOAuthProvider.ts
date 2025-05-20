@@ -8,6 +8,10 @@ import { AuthInfo } from "src/server/auth/types.js";
 /**
  * An OAuthProvider that forwards requests to endpoints provided in OAuthMetadata.
  *
+ * This is meant for an MCP server acting solely as a Resource Server and
+ * relying on a separate Authorization server. For more details, see:
+ * https://modelcontextprotocol.io/specification/draft/basic/authorization#2-2-roles
+ *
  * This provider acts as a client to an external OAuth server and forwards
  * all authorization, token, and verification requests.
  */
@@ -16,14 +20,6 @@ export class DemoRemoteOAuthProvider implements OAuthServerProvider {
 
   constructor(oauthMetadata: OAuthMetadata) {
     this.metadata = oauthMetadata;// Validate required endpoints exist in the metadata
-    if (!oauthMetadata.authorization_endpoint) {
-      throw new Error('Missing required authorization_endpoint in OAuth metadata');
-    }
-
-    if (!oauthMetadata.token_endpoint) {
-      throw new Error('Missing required token_endpoint in OAuth metadata');
-    }
-
     // For token verification, either introspection endpoint or userinfo endpoint is needed
     if (!oauthMetadata.introspection_endpoint) {
       throw new Error('Missing required introspection_endpoint in OAuth metadata');
@@ -42,75 +38,29 @@ export class DemoRemoteOAuthProvider implements OAuthServerProvider {
   };
 
   async authorize(
-    client: OAuthClientInformationFull,
-    params: AuthorizationParams,
-    res: Response
+    _client: OAuthClientInformationFull,
+    _params: AuthorizationParams,
+    _res: Response
   ): Promise<void> {
-    // Forward to authorization endpoint from metadata
-    const authEndpoint = this.metadata.authorization_endpoint;
-
-    const searchParams = new URLSearchParams({
-      client_id: client.client_id,
-      response_type: 'code',
-      redirect_uri: client.redirect_uris[0],
-      code_challenge: params.codeChallenge,
-      code_challenge_method: 'S256',
-    });
-
-    if (params.state) {
-      searchParams.set('state', params.state);
-    }
-
-    if (params.scopes && params.scopes.length > 0) {
-      searchParams.set('scope', params.scopes.join(' '));
-    }
-
-    const authUrl = new URL(authEndpoint);
-    authUrl.search = searchParams.toString();
-
-    res.redirect(authUrl.toString());
+    // Not implemented, this is handled by the authorization server.
+    throw new Error("Not Implemented");
   }
 
   async challengeForAuthorizationCode(
     _client: OAuthClientInformationFull,
     _authorizationCode: string
   ): Promise<string> {
-    // This won't be called in the forwarding flow
+    // Not implemented, this is handled by the authorization server.
     throw new Error("Not Implemented");
   }
 
   async exchangeAuthorizationCode(
-    client: OAuthClientInformationFull,
-    authorizationCode: string,
-    codeVerifier?: string
+    _client: OAuthClientInformationFull,
+    _authorizationCode: string,
+    _codeVerifier?: string
   ): Promise<OAuthTokens> {
-    // Forward to token endpoint from metadata
-    const tokenEndpoint = this.metadata.token_endpoint;
-
-    const params = new URLSearchParams({
-      grant_type: 'authorization_code',
-      code: authorizationCode,
-      client_id: client.client_id,
-      redirect_uri: client.redirect_uris[0],
-    });
-
-    if (codeVerifier) {
-      params.append('code_verifier', codeVerifier);
-    }
-
-    const response = await fetch(tokenEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: params.toString(),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to exchange token: ${response.statusText}`);
-    }
-
-    return await response.json();
+    // Not implemented, this is handled by the authorization server.
+    throw new Error("Not Implemented");
   }
 
   async exchangeRefreshToken(
@@ -118,7 +68,7 @@ export class DemoRemoteOAuthProvider implements OAuthServerProvider {
     _refreshToken: string,
     _scopes?: string[]
   ): Promise<OAuthTokens> {
-    // Not implemented for brevity, but follows token above.
+    // Not implemented, this is handled by the authorization server.
     throw new Error("Not Implemented");
   }
 
@@ -150,9 +100,9 @@ export class DemoRemoteOAuthProvider implements OAuthServerProvider {
     // Convert the response to AuthInfo format
     return {
       token,
-      clientId: data.client_id || data.azp,
+      clientId: data.client_id,
       scopes: data.scope ? data.scope.split(' ') : [],
-      expiresAt: data.exp || Math.floor(Date.now() / 1000) + 3600,
+      expiresAt: data.exp,
     };
   }
 }
