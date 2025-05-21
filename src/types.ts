@@ -892,7 +892,7 @@ export const CallToolResultSchema = ResultSchema.extend({
    *
    * If the Tool defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
    */
-  structuredContent: z.object({}).passthrough().optional(),
+  structuredContent: z.any().optional(),
 
   /**
    * Whether the tool call ended in an error.
