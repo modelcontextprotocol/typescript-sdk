@@ -43,7 +43,8 @@ import {
   ErrorCode,
   McpError,
 } from "../types.js";
-import { Ajv, type ValidateFunction } from "ajv";
+import Ajv from "ajv";
+import type { ValidateFunction } from "ajv";
 
 export type ClientOptions = ProtocolOptions & {
   /**
@@ -102,7 +103,7 @@ export class Client<
   ) {
     super(options);
     this._capabilities = options?.capabilities ?? {};
-    this._ajv = new Ajv({ strict: false, validateFormats: true });
+    this._ajv = new Ajv();
   }
 
   /**

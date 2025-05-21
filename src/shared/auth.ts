@@ -1,6 +1,28 @@
 import { z } from "zod";
 
 /**
+ * RFC 9728 OAuth Protected Resource Metadata
+ */
+export const OAuthProtectedResourceMetadataSchema = z
+  .object({
+    resource: z.string().url(),
+    authorization_servers: z.array(z.string().url()).optional(),
+    jwks_uri: z.string().url().optional(),
+    scopes_supported: z.array(z.string()).optional(),
+    bearer_methods_supported: z.array(z.string()).optional(),
+    resource_signing_alg_values_supported: z.array(z.string()).optional(),
+    resource_name: z.string().optional(),
+    resource_documentation: z.string().optional(),
+    resource_policy_uri: z.string().url().optional(),
+    resource_tos_uri: z.string().url().optional(),
+    tls_client_certificate_bound_access_tokens: z.boolean().optional(),
+    authorization_details_types_supported: z.array(z.string()).optional(),
+    dpop_signing_alg_values_supported: z.array(z.string()).optional(),
+    dpop_bound_access_tokens_required: z.boolean().optional(),
+  })
+  .passthrough();
+
+/**
  * RFC 8414 OAuth 2.0 Authorization Server Metadata
  */
 export const OAuthMetadataSchema = z
@@ -109,6 +131,7 @@ export const OAuthTokenRevocationRequestSchema = z.object({
   token_type_hint: z.string().optional(),
 }).strip();
 
+
 export type OAuthMetadata = z.infer<typeof OAuthMetadataSchema>;
 export type OAuthTokens = z.infer<typeof OAuthTokensSchema>;
 export type OAuthErrorResponse = z.infer<typeof OAuthErrorResponseSchema>;
@@ -117,3 +140,4 @@ export type OAuthClientInformation = z.infer<typeof OAuthClientInformationSchema
 export type OAuthClientInformationFull = z.infer<typeof OAuthClientInformationFullSchema>;
 export type OAuthClientRegistrationError = z.infer<typeof OAuthClientRegistrationErrorSchema>;
 export type OAuthTokenRevocationRequest = z.infer<typeof OAuthTokenRevocationRequestSchema>;
+export type OAuthProtectedResourceMetadata = z.infer<typeof OAuthProtectedResourceMetadataSchema>;

@@ -1,11 +1,11 @@
 import pkceChallenge from "pkce-challenge";
 import { LATEST_PROTOCOL_VERSION } from "../types.js";
-import type { OAuthClientMetadata, OAuthClientInformation, OAuthTokens, OAuthMetadata, OAuthClientInformationFull } from "../shared/auth.js";
-import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthTokensSchema } from "../shared/auth.js";
+import type { OAuthClientMetadata, OAuthClientInformation, OAuthTokens, OAuthMetadata, OAuthClientInformationFull, OAuthProtectedResourceMetadata } from "../shared/auth.js";
+import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthProtectedResourceMetadataSchema, OAuthTokensSchema } from "../shared/auth.js";
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
- * 
+ *
  * This client relies upon a concept of an authorized "session," the exact
  * meaning of which is application-defined. Tokens, authorization codes, and
  * code verifiers should not cross different sessions.
@@ -32,7 +32,7 @@ export interface OAuthClientProvider {
    * If implemented, this permits the OAuth client to dynamically register with
    * the server. Client information saved this way should later be read via
    * `clientInformation()`.
-   * 
+   *
    * This method is not required to be implemented if client information is
    * statically known (e.g., pre-registered).
    */
@@ -78,7 +78,7 @@ export class UnauthorizedError extends Error {
 
 /**
  * Orchestrates the full auth flow with a server.
- * 
+ *
  * This can be used as a single entry point for all authorization functionality,
  * instead of linking together the other lower-level functions in this module.
  */
@@ -87,12 +87,26 @@ export async function auth(
   { serverUrl,
     authorizationCode,
     scope,
+    resourceMetadataUrl
   }: {
     serverUrl: string | URL;
     authorizationCode?: string;
     scope?: string;
-  }): Promise<AuthResult> {
-  const metadata = await discoverOAuthMetadata(serverUrl);
+    resourceMetadataUrl?: URL }): Promise<AuthResult> {
+
+  let authorizationServerUrl = serverUrl;
+  try {
+    const resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+      resourceMetadataUrl || serverUrl);
+
+    if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
+      authorizationServerUrl = resourceMetadata.authorization_servers[0];
+    }
+  } catch (error) {
+    console.warn("Could not load OAuth Protected Resource metadata, falling back to /.well-known/oauth-authorization-server", error)
+  }
+
+  const metadata = await discoverOAuthMetadata(authorizationServerUrl);
 
   // Handle client registration if needed
   let clientInformation = await Promise.resolve(provider.clientInformation());
@@ -105,7 +119,7 @@ export async function auth(
       throw new Error("OAuth client information must be saveable for dynamic registration");
     }
 
-    const fullInformation = await registerClient(serverUrl, {
+    const fullInformation = await registerClient(authorizationServerUrl, {
       metadata,
       clientMetadata: provider.clientMetadata,
     });
@@ -117,7 +131,7 @@ export async function auth(
   // Exchange authorization code for tokens
   if (authorizationCode !== undefined) {
     const codeVerifier = await provider.codeVerifier();
-    const tokens = await exchangeAuthorization(serverUrl, {
+    const tokens = await exchangeAuthorization(authorizationServerUrl, {
       metadata,
       clientInformation,
       authorizationCode,
@@ -135,7 +149,7 @@ export async function auth(
   if (tokens?.refresh_token) {
     try {
       // Attempt to refresh the token
-      const newTokens = await refreshAuthorization(serverUrl, {
+      const newTokens = await refreshAuthorization(authorizationServerUrl, {
         metadata,
         clientInformation,
         refreshToken: tokens.refresh_token,
@@ -149,7 +163,7 @@ export async function auth(
   }
 
   // Start new authorization flow
-  const { authorizationUrl, codeVerifier } = await startAuthorization(serverUrl, {
+  const { authorizationUrl, codeVerifier } = await startAuthorization(authorizationServerUrl, {
     metadata,
     clientInformation,
     redirectUrl: provider.redirectUrl,
@@ -162,16 +176,92 @@ export async function auth(
 }
 
 /**
+ * Extract resource_metadata from response header.
+ */
+export function extractResourceMetadataUrl(res: Response): URL | undefined {
+
+  const authenticateHeader = res.headers.get("WWW-Authenticate");
+  if (!authenticateHeader) {
+    return undefined;
+  }
+
+  const [type, scheme] = authenticateHeader.split(' ');
+  if (type.toLowerCase() !== 'bearer' || !scheme) {
+    console.log("Invalid WWW-Authenticate header format, expected 'Bearer'");
+    return undefined;
+  }
+  const regex = /resource_metadata="([^"]*)"/;
+  const match = regex.exec(authenticateHeader);
+
+  if (!match) {
+    return undefined;
+  }
+
+  try {
+    return new URL(match[1]);
+  } catch {
+    console.log("Invalid resource metadata url: ", match[1]);
+    return undefined;
+  }
+}
+
+/**
+ * Looks up RFC 9728 OAuth 2.0 Protected Resource Metadata.
+ *
+ * If the server returns a 404 for the well-known endpoint, this function will
+ * return `undefined`. Any other errors will be thrown as exceptions.
+ */
+export async function discoverOAuthProtectedResourceMetadata(
+  serverUrl: string | URL,
+  opts?: { protocolVersion?: string, resourceMetadataUrl?: string | URL },
+): Promise<OAuthProtectedResourceMetadata> {
+
+  let url: URL
+  if (opts?.resourceMetadataUrl) {
+    url = new URL(opts?.resourceMetadataUrl);
+  } else {
+    url = new URL("/.well-known/oauth-protected-resource", serverUrl);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        "MCP-Protocol-Version": opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION
+      }
+    });
+  } catch (error) {
+    // CORS errors come back as TypeError
+    if (error instanceof TypeError) {
+      response = await fetch(url);
+    } else {
+      throw error;
+    }
+  }
+
+  if (response.status === 404) {
+    throw new Error(`Resource server does not implement OAuth 2.0 Protected Resource Metadata.`);
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `HTTP ${response.status} trying to load well-known OAuth protected resource metadata.`,
+    );
+  }
+  return OAuthProtectedResourceMetadataSchema.parse(await response.json());
+}
+
+/**
  * Looks up RFC 8414 OAuth 2.0 Authorization Server Metadata.
  *
  * If the server returns a 404 for the well-known endpoint, this function will
  * return `undefined`. Any other errors will be thrown as exceptions.
  */
 export async function discoverOAuthMetadata(
-  serverUrl: string | URL,
+  authorizationServerUrl: string | URL,
   opts?: { protocolVersion?: string },
 ): Promise<OAuthMetadata | undefined> {
-  const url = new URL("/.well-known/oauth-authorization-server", serverUrl);
+  const url = new URL("/.well-known/oauth-authorization-server", authorizationServerUrl);
   let response: Response;
   try {
     response = await fetch(url, {
@@ -205,7 +295,7 @@ export async function discoverOAuthMetadata(
  * Begins the authorization flow with the given server, by generating a PKCE challenge and constructing the authorization URL.
  */
 export async function startAuthorization(
-  serverUrl: string | URL,
+  authorizationServerUrl: string | URL,
   {
     metadata,
     clientInformation,
@@ -240,7 +330,7 @@ export async function startAuthorization(
       );
     }
   } else {
-    authorizationUrl = new URL("/authorize", serverUrl);
+    authorizationUrl = new URL("/authorize", authorizationServerUrl);
   }
 
   // Generate PKCE challenge
@@ -256,7 +346,7 @@ export async function startAuthorization(
     codeChallengeMethod,
   );
   authorizationUrl.searchParams.set("redirect_uri", String(redirectUrl));
-  
+
   if (scope) {
     authorizationUrl.searchParams.set("scope", scope);
   }
@@ -268,7 +358,7 @@ export async function startAuthorization(
  * Exchanges an authorization code for an access token with the given server.
  */
 export async function exchangeAuthorization(
-  serverUrl: string | URL,
+  authorizationServerUrl: string | URL,
   {
     metadata,
     clientInformation,
@@ -298,7 +388,7 @@ export async function exchangeAuthorization(
       );
     }
   } else {
-    tokenUrl = new URL("/token", serverUrl);
+    tokenUrl = new URL("/token", authorizationServerUrl);
   }
 
   // Exchange code for tokens
@@ -333,7 +423,7 @@ export async function exchangeAuthorization(
  * Exchange a refresh token for an updated access token.
  */
 export async function refreshAuthorization(
-  serverUrl: string | URL,
+  authorizationServerUrl: string | URL,
   {
     metadata,
     clientInformation,
@@ -359,7 +449,7 @@ export async function refreshAuthorization(
       );
     }
   } else {
-    tokenUrl = new URL("/token", serverUrl);
+    tokenUrl = new URL("/token", authorizationServerUrl);
   }
 
   // Exchange refresh token
@@ -380,7 +470,6 @@ export async function refreshAuthorization(
     },
     body: params,
   });
-
   if (!response.ok) {
     throw new Error(`Token refresh failed: HTTP ${response.status}`);
   }
@@ -392,7 +481,7 @@ export async function refreshAuthorization(
  * Performs OAuth 2.0 Dynamic Client Registration according to RFC 7591.
  */
 export async function registerClient(
-  serverUrl: string | URL,
+  authorizationServerUrl: string | URL,
   {
     metadata,
     clientMetadata,
@@ -410,7 +499,7 @@ export async function registerClient(
 
     registrationUrl = new URL(metadata.registration_endpoint);
   } else {
-    registrationUrl = new URL("/register", serverUrl);
+    registrationUrl = new URL("/register", authorizationServerUrl);
   }
 
   const response = await fetch(registrationUrl, {
