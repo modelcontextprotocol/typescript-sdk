@@ -90,7 +90,7 @@ export class McpServer {
     if (this._toolHandlersInitialized) {
       return;
     }
-    
+
     this.server.assertCanSetRequestHandler(
       ListToolsRequestSchema.shape.method.value,
     );
@@ -111,16 +111,25 @@ export class McpServer {
           ([, tool]) => tool.enabled,
         ).map(
           ([name, tool]): Tool => {
-            return {
+            const toolDefinition: Tool = {
               name,
               description: tool.description,
               inputSchema: tool.inputSchema
                 ? (zodToJsonSchema(tool.inputSchema, {
-                    strictUnions: true,
-                  }) as Tool["inputSchema"])
+                  strictUnions: true,
+                }) as Tool["inputSchema"])
                 : EMPTY_OBJECT_JSON_SCHEMA,
               annotations: tool.annotations,
             };
+
+            if (tool.outputSchema) {
+              toolDefinition.outputSchema = zodToJsonSchema(
+                tool.outputSchema, 
+                { strictUnions: true }
+              ) as Tool["outputSchema"];
+            }
+
+            return toolDefinition;
           },
         ),
       }),
@@ -144,6 +153,8 @@ export class McpServer {
           );
         }
 
+        let result: CallToolResult;
+
         if (tool.inputSchema) {
           const parseResult = await tool.inputSchema.safeParseAsync(
             request.params.arguments,
@@ -158,9 +169,9 @@ export class McpServer {
           const args = parseResult.data;
           const cb = tool.callback as ToolCallback<ZodRawShape>;
           try {
-            return await Promise.resolve(cb(args, extra));
+            result = await Promise.resolve(cb(args, extra));
           } catch (error) {
-            return {
+            result = {
               content: [
                 {
                   type: "text",
@@ -173,9 +184,9 @@ export class McpServer {
         } else {
           const cb = tool.callback as ToolCallback<undefined>;
           try {
-            return await Promise.resolve(cb(extra));
+            result = await Promise.resolve(cb(extra));
           } catch (error) {
-            return {
+            result = {
               content: [
                 {
                   type: "text",
@@ -186,6 +197,46 @@ export class McpServer {
             };
           }
         }
+
+        // Handle structured output and backward compatibility
+        if (tool.outputSchema) {
+          // Tool has outputSchema, so result must have structuredContent (unless it's an error)
+          if (!result.structuredContent && !result.isError) {
+            throw new McpError(
+              ErrorCode.InternalError,
+              `Tool ${request.params.name} has outputSchema but returned no structuredContent`,
+            );
+          }
+
+          // For backward compatibility, if structuredContent is provided but no content,
+          // automatically serialize the structured content to text
+          if (result.structuredContent && !result.content) {
+            result.content = [
+              {
+                type: "text",
+                text: JSON.stringify(result.structuredContent, null, 2),
+              },
+            ];
+          }
+        } else {
+          // Tool must have content if no outputSchema
+          if (!result.content && !result.isError) {
+            throw new McpError(
+              ErrorCode.InternalError,
+              `Tool ${request.params.name} has no outputSchema and must return content`,
+            );
+          }
+
+          // If structuredContent is provided, it's an error
+          if (result.structuredContent) {
+            throw new McpError(
+              ErrorCode.InternalError,
+              `Tool ${request.params.name} has no outputSchema but returned structuredContent`,
+            );
+          }
+        }
+
+        return result;
       },
     );
 
@@ -398,7 +449,7 @@ export class McpServer {
     );
 
     this.setCompletionRequestHandler();
-    
+
     this._resourceHandlersInitialized = true;
   }
 
@@ -481,7 +532,7 @@ export class McpServer {
     );
 
     this.setCompletionRequestHandler();
-    
+
     this._promptHandlersInitialized = true;
   }
 
@@ -596,6 +647,47 @@ export class McpServer {
     }
   }
 
+  private _createRegisteredTool(
+    name: string,
+    description: string | undefined,
+    inputSchema: ZodRawShape | undefined,
+    outputSchema: ZodRawShape | undefined,
+    annotations: ToolAnnotations | undefined,
+    callback: ToolCallback<ZodRawShape | undefined>
+  ): RegisteredTool {
+    const registeredTool: RegisteredTool = {
+      description,
+      inputSchema:
+        inputSchema === undefined ? undefined : z.object(inputSchema),
+      outputSchema:
+        outputSchema === undefined ? undefined : z.object(outputSchema),
+      annotations,
+      callback,
+      enabled: true,
+      disable: () => registeredTool.update({ enabled: false }),
+      enable: () => registeredTool.update({ enabled: true }),
+      remove: () => registeredTool.update({ name: null }),
+      update: (updates) => {
+        if (typeof updates.name !== "undefined" && updates.name !== name) {
+          delete this._registeredTools[name]
+          if (updates.name) this._registeredTools[updates.name] = registeredTool
+        }
+        if (typeof updates.description !== "undefined") registeredTool.description = updates.description
+        if (typeof updates.paramsSchema !== "undefined") registeredTool.inputSchema = z.object(updates.paramsSchema)
+        if (typeof updates.callback !== "undefined") registeredTool.callback = updates.callback
+        if (typeof updates.annotations !== "undefined") registeredTool.annotations = updates.annotations
+        if (typeof updates.enabled !== "undefined") registeredTool.enabled = updates.enabled
+        this.sendToolListChanged()
+      },
+    };
+    this._registeredTools[name] = registeredTool;
+
+    this.setToolRequestHandlers();
+    this.sendToolListChanged()
+
+    return registeredTool
+  }
+
   /**
    * Registers a zero-argument tool `name`, which will run the given function when the client calls it.
    */
@@ -633,7 +725,7 @@ export class McpServer {
     paramsSchemaOrAnnotations: Args | ToolAnnotations,
     cb: ToolCallback<Args>,
   ): RegisteredTool;
-  
+
   /**
    * Registers a tool with both parameter schema and annotations.
    */
@@ -643,7 +735,7 @@ export class McpServer {
     annotations: ToolAnnotations,
     cb: ToolCallback<Args>,
   ): RegisteredTool;
-  
+
   /**
    * Registers a tool with description, parameter schema, and annotations.
    */
@@ -655,29 +747,38 @@ export class McpServer {
     cb: ToolCallback<Args>,
   ): RegisteredTool;
 
+
+  /**
+   * tool() implementation. Parses arguments passed to overrides defined above.
+   */
   tool(name: string, ...rest: unknown[]): RegisteredTool {
     if (this._registeredTools[name]) {
       throw new Error(`Tool ${name} is already registered`);
     }
 
     let description: string | undefined;
+    let inputSchema: ZodRawShape | undefined;
+    let outputSchema: ZodRawShape | undefined;
+    let annotations: ToolAnnotations | undefined;
+
+    // Tool properties are passed as separate arguments, with omissions allowed.
+    // Support for this style is frozen as of protocol version 2025-03-26. Future additions
+    // to tool definition should *NOT* be added.
+
     if (typeof rest[0] === "string") {
       description = rest.shift() as string;
     }
 
-    let paramsSchema: ZodRawShape | undefined;
-    let annotations: ToolAnnotations | undefined;
-    
     // Handle the different overload combinations
     if (rest.length > 1) {
-      // We have at least two more args before the callback
+      // We have at least one more arg before the callback
       const firstArg = rest[0];
-      
+
       if (isZodRawShape(firstArg)) {
         // We have a params schema as the first arg
-        paramsSchema = rest.shift() as ZodRawShape;
-        
-        // Check if the next arg is potentially annotations  
+        inputSchema = rest.shift() as ZodRawShape;
+
+        // Check if the next arg is potentially annotations
         if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !(isZodRawShape(rest[0]))) {
           // Case: tool(name, paramsSchema, annotations, cb)
           // Or: tool(name, description, paramsSchema, annotations, cb)
@@ -690,37 +791,38 @@ export class McpServer {
         annotations = rest.shift() as ToolAnnotations;
       }
     }
+    const callback = rest[0] as ToolCallback<ZodRawShape | undefined>;
 
-    const cb = rest[0] as ToolCallback<ZodRawShape | undefined>;
-    const registeredTool: RegisteredTool = {
+    return this._createRegisteredTool(name, description, inputSchema, outputSchema, annotations, callback)
+  }
+
+  /**
+   * Registers a tool with a config object and callback.
+   */
+  registerTool<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape>(
+    name: string,
+    config: {
+      description?: string;
+      inputSchema?: InputArgs;
+      outputSchema?: OutputArgs;
+      annotations?: ToolAnnotations;
+    },
+    cb: ToolCallback<InputArgs>
+  ): RegisteredTool {
+    if (this._registeredTools[name]) {
+      throw new Error(`Tool ${name} is already registered`);
+    }
+
+    const { description, inputSchema, outputSchema, annotations } = config;
+
+    return this._createRegisteredTool(
+      name,
       description,
-      inputSchema:
-        paramsSchema === undefined ? undefined : z.object(paramsSchema),
+      inputSchema,
+      outputSchema,
       annotations,
-      callback: cb,
-      enabled: true,
-      disable: () => registeredTool.update({ enabled: false }),
-      enable: () => registeredTool.update({ enabled: true }),
-      remove: () => registeredTool.update({ name: null }),
-      update: (updates) => {
-        if (typeof updates.name !== "undefined" && updates.name !== name) {
-          delete this._registeredTools[name]
-          if (updates.name) this._registeredTools[updates.name] = registeredTool
-        }
-        if (typeof updates.description !== "undefined") registeredTool.description = updates.description
-        if (typeof updates.paramsSchema !== "undefined") registeredTool.inputSchema = z.object(updates.paramsSchema)
-        if (typeof updates.callback !== "undefined") registeredTool.callback = updates.callback
-        if (typeof updates.annotations !== "undefined") registeredTool.annotations = updates.annotations
-        if (typeof updates.enabled !== "undefined") registeredTool.enabled = updates.enabled
-        this.sendToolListChanged()
-      },
-    };
-    this._registeredTools[name] = registeredTool;
-
-    this.setToolRequestHandlers();
-    this.sendToolListChanged()
-
-    return registeredTool
+      cb as ToolCallback<ZodRawShape | undefined>
+    )
   }
 
   /**
@@ -896,24 +998,39 @@ export class ResourceTemplate {
  * Callback for a tool handler registered with Server.tool().
  *
  * Parameters will include tool arguments, if applicable, as well as other request handler context.
+ *
+ * The callback should return:
+ * - `structuredContent` if the tool has an outputSchema defined
+ * - `content` if the tool does not have an outputSchema
+ * - Both fields are optional but typically one should be provided
  */
 export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
   Args extends ZodRawShape
-    ? (
-        args: z.objectOutputType<Args, ZodTypeAny>,
-        extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
-      ) => CallToolResult | Promise<CallToolResult>
-    : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
+  ? (
+    args: z.objectOutputType<Args, ZodTypeAny>,
+    extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+  ) => CallToolResult | Promise<CallToolResult>
+  : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
 
 export type RegisteredTool = {
   description?: string;
   inputSchema?: AnyZodObject;
+  outputSchema?: AnyZodObject;
   annotations?: ToolAnnotations;
   callback: ToolCallback<undefined | ZodRawShape>;
   enabled: boolean;
   enable(): void;
   disable(): void;
-  update<Args extends ZodRawShape>(updates: { name?: string | null, description?: string, paramsSchema?: Args, callback?: ToolCallback<Args>, annotations?: ToolAnnotations, enabled?: boolean }): void
+  update<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape>(
+    updates: { 
+      name?: string | null, 
+      description?: string, 
+      paramsSchema?: InputArgs, 
+      outputSchema?: OutputArgs, 
+      annotations?: ToolAnnotations, 
+      callback?: ToolCallback<InputArgs>, 
+      enabled?: boolean 
+  }): void
   remove(): void
 };
 
@@ -986,23 +1103,23 @@ export type RegisteredResourceTemplate = {
   enabled: boolean;
   enable(): void;
   disable(): void;
-  update(updates: { name?: string | null, template?: ResourceTemplate, metadata?: ResourceMetadata, callback?: ReadResourceTemplateCallback, enabled?: boolean  }): void
+  update(updates: { name?: string | null, template?: ResourceTemplate, metadata?: ResourceMetadata, callback?: ReadResourceTemplateCallback, enabled?: boolean }): void
   remove(): void
 };
 
 type PromptArgsRawShape = {
   [k: string]:
-    | ZodType<string, ZodTypeDef, string>
-    | ZodOptional<ZodType<string, ZodTypeDef, string>>;
+  | ZodType<string, ZodTypeDef, string>
+  | ZodOptional<ZodType<string, ZodTypeDef, string>>;
 };
 
 export type PromptCallback<
   Args extends undefined | PromptArgsRawShape = undefined,
 > = Args extends PromptArgsRawShape
   ? (
-      args: z.objectOutputType<Args, ZodTypeAny>,
-      extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
-    ) => GetPromptResult | Promise<GetPromptResult>
+    args: z.objectOutputType<Args, ZodTypeAny>,
+    extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+  ) => GetPromptResult | Promise<GetPromptResult>
   : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
 
 export type RegisteredPrompt = {

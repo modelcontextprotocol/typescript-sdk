@@ -12,6 +12,7 @@ import {
   InitializeRequestSchema,
   ListResourcesRequestSchema,
   ListToolsRequestSchema,
+  CallToolRequestSchema,
   CreateMessageRequestSchema,
   ListRootsRequestSchema,
   ErrorCode,
@@ -20,6 +21,9 @@ import { Transport } from "../shared/transport.js";
 import { Server } from "../server/index.js";
 import { InMemoryTransport } from "../inMemory.js";
 
+/***
+ * Test: Initialize with Matching Protocol Version
+ */
 test("should initialize with matching protocol version", async () => {
   const clientTransport: Transport = {
     start: jest.fn().mockResolvedValue(undefined),
@@ -75,6 +79,9 @@ test("should initialize with matching protocol version", async () => {
   expect(client.getInstructions()).toEqual("test instructions");
 });
 
+/***
+ * Test: Initialize with Supported Older Protocol Version
+ */
 test("should initialize with supported older protocol version", async () => {
   const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
   const clientTransport: Transport = {
@@ -123,6 +130,9 @@ test("should initialize with supported older protocol version", async () => {
   expect(client.getInstructions()).toBeUndefined();
 });
 
+/***
+ * Test: Reject Unsupported Protocol Version
+ */
 test("should reject unsupported protocol version", async () => {
   const clientTransport: Transport = {
     start: jest.fn().mockResolvedValue(undefined),
@@ -165,6 +175,9 @@ test("should reject unsupported protocol version", async () => {
   expect(clientTransport.close).toHaveBeenCalled();
 });
 
+/***
+ * Test: Connect New Client to Old Supported Server Version
+ */
 test("should connect new client to old, supported server version", async () => {
   const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
   const server = new Server(
@@ -228,6 +241,9 @@ test("should connect new client to old, supported server version", async () => {
   });
 });
 
+/***
+ * Test: Version Negotiation with Old Client and Newer Server
+ */
 test("should negotiate version when client is old, and newer server supports its version", async () => {
   const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
   const server = new Server(
@@ -291,6 +307,9 @@ test("should negotiate version when client is old, and newer server supports its
   });
 });
 
+/***
+ * Test: Throw when Old Client and Server Version Mismatch
+ */
 test("should throw when client is old, and server doesn't support its version", async () => {
   const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
   const FUTURE_VERSION = "FUTURE_VERSION";
@@ -353,6 +372,9 @@ test("should throw when client is old, and server doesn't support its version", 
 
 });
 
+/***
+ * Test: Respect Server Capabilities
+ */
 test("should respect server capabilities", async () => {
   const server = new Server(
     {
@@ -433,6 +455,9 @@ test("should respect server capabilities", async () => {
   ).rejects.toThrow("Server does not support completions");
 });
 
+/***
+ * Test: Respect Client Notification Capabilities
+ */
 test("should respect client notification capabilities", async () => {
   const server = new Server(
     {
@@ -489,6 +514,9 @@ test("should respect client notification capabilities", async () => {
   );
 });
 
+/***
+ * Test: Respect Server Notification Capabilities
+ */
 test("should respect server notification capabilities", async () => {
   const server = new Server(
     {
@@ -535,6 +563,9 @@ test("should respect server notification capabilities", async () => {
   );
 });
 
+/***
+ * Test: Only Allow setRequestHandler for Declared Capabilities
+ */
 test("should only allow setRequestHandler for declared capabilities", () => {
   const client = new Client(
     {
@@ -566,9 +597,10 @@ test("should only allow setRequestHandler for declared capabilities", () => {
   }).toThrow("Client does not support roots capability");
 });
 
-/*
-  Test that custom request/notification/result schemas can be used with the Client class.
-  */
+/***
+ * Test: Type Checking
+ * Test that custom request/notification/result schemas can be used with the Client class.
+ */
 test("should typecheck", () => {
   const GetWeatherRequestSchema = RequestSchema.extend({
     method: z.literal("weather/get"),
@@ -645,6 +677,9 @@ test("should typecheck", () => {
     });
 });
 
+/***
+ * Test: Handle Client Cancelling a Request
+ */
 test("should handle client cancelling a request", async () => {
   const server = new Server(
     {
@@ -700,6 +735,9 @@ test("should handle client cancelling a request", async () => {
   await expect(listResourcesPromise).rejects.toBe("Cancelled by test");
 });
 
+/***
+ * Test: Handle Request Timeout
+ */
 test("should handle request timeout", async () => {
   const server = new Server(
     {
@@ -753,4 +791,475 @@ test("should handle request timeout", async () => {
   ).rejects.toMatchObject({
     code: ErrorCode.RequestTimeout,
   });
+});
+
+describe('outputSchema validation', () => {
+  /***
+   * Test: Validate structuredContent Against outputSchema
+   */
+  test('should validate structuredContent against outputSchema', async () => {
+    const server = new Server({
+      name: 'test-server',
+      version: '1.0.0',
+    }, {
+      capabilities: {
+        tools: {},
+      },
+    });
+
+    // Set up server handlers
+    server.setRequestHandler(InitializeRequestSchema, async (request) => ({
+      protocolVersion: request.params.protocolVersion,
+      capabilities: {},
+      serverInfo: {
+        name: 'test-server',
+        version: '1.0.0',
+      }
+    }));
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: [
+        {
+          name: 'test-tool',
+          description: 'A test tool',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+          outputSchema: {
+            type: 'object',
+            properties: {
+              result: { type: 'string' },
+              count: { type: 'number' },
+            },
+            required: ['result', 'count'],
+            additionalProperties: false,
+          },
+        },
+      ],
+    }));
+
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      if (request.params.name === 'test-tool') {
+        return {
+          structuredContent: { result: 'success', count: 42 },
+        };
+      }
+      throw new Error('Unknown tool');
+    });
+
+    const client = new Client({
+      name: 'test-client',
+      version: '1.0.0',
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+
+    // List tools to cache the schemas
+    await client.listTools();
+
+    // Call the tool - should validate successfully
+    const result = await client.callTool({ name: 'test-tool' });
+    expect(result.structuredContent).toEqual({ result: 'success', count: 42 });
+  });
+
+  /***
+   * Test: Throw Error when structuredContent Does Not Match Schema
+   */
+  test('should throw error when structuredContent does not match schema', async () => {
+    const server = new Server({
+      name: 'test-server',
+      version: '1.0.0',
+    }, {
+      capabilities: {
+        tools: {},
+      },
+    });
+
+    // Set up server handlers
+    server.setRequestHandler(InitializeRequestSchema, async (request) => ({
+      protocolVersion: request.params.protocolVersion,
+      capabilities: {},
+      serverInfo: {
+        name: 'test-server',
+        version: '1.0.0',
+      }
+    }));
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: [
+        {
+          name: 'test-tool',
+          description: 'A test tool',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+          outputSchema: {
+            type: 'object',
+            properties: {
+              result: { type: 'string' },
+              count: { type: 'number' },
+            },
+            required: ['result', 'count'],
+            additionalProperties: false,
+          },
+        },
+      ],
+    }));
+
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      if (request.params.name === 'test-tool') {
+        // Return invalid structured content (count is string instead of number)
+        return {
+          structuredContent: { result: 'success', count: 'not a number' },
+        };
+      }
+      throw new Error('Unknown tool');
+    });
+
+    const client = new Client({
+      name: 'test-client',
+      version: '1.0.0',
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+
+    // List tools to cache the schemas
+    await client.listTools();
+
+    // Call the tool - should throw validation error
+    await expect(client.callTool({ name: 'test-tool' })).rejects.toThrow(
+      /Structured content does not match the tool's output schema/
+    );
+  });
+
+  /***
+   * Test: Throw Error when Tool with outputSchema Returns No structuredContent
+   */
+  test('should throw error when tool with outputSchema returns no structuredContent', async () => {
+    const server = new Server({
+      name: 'test-server',
+      version: '1.0.0',
+    }, {
+      capabilities: {
+        tools: {},
+      },
+    });
+
+    // Set up server handlers
+    server.setRequestHandler(InitializeRequestSchema, async (request) => ({
+      protocolVersion: request.params.protocolVersion,
+      capabilities: {},
+      serverInfo: {
+        name: 'test-server',
+        version: '1.0.0',
+      }
+    }));
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: [
+        {
+          name: 'test-tool',
+          description: 'A test tool',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+          outputSchema: {
+            type: 'object',
+            properties: {
+              result: { type: 'string' },
+            },
+            required: ['result'],
+          },
+        },
+      ],
+    }));
+
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      if (request.params.name === 'test-tool') {
+        // Return content instead of structuredContent
+        return {
+          content: [{ type: 'text', text: 'This should be structured content' }],
+        };
+      }
+      throw new Error('Unknown tool');
+    });
+
+    const client = new Client({
+      name: 'test-client',
+      version: '1.0.0',
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+
+    // List tools to cache the schemas
+    await client.listTools();
+
+    // Call the tool - should throw error
+    await expect(client.callTool({ name: 'test-tool' })).rejects.toThrow(
+      /Tool test-tool has an output schema but did not return structured content/
+    );
+  });
+
+  /***
+   * Test: Handle Tools Without outputSchema Normally
+   */
+  test('should handle tools without outputSchema normally', async () => {
+    const server = new Server({
+      name: 'test-server',
+      version: '1.0.0',
+    }, {
+      capabilities: {
+        tools: {},
+      },
+    });
+
+    // Set up server handlers
+    server.setRequestHandler(InitializeRequestSchema, async (request) => ({
+      protocolVersion: request.params.protocolVersion,
+      capabilities: {},
+      serverInfo: {
+        name: 'test-server',
+        version: '1.0.0',
+      }
+    }));
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: [
+        {
+          name: 'test-tool',
+          description: 'A test tool',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+          // No outputSchema
+        },
+      ],
+    }));
+
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      if (request.params.name === 'test-tool') {
+        // Return regular content
+        return {
+          content: [{ type: 'text', text: 'Normal response' }],
+        };
+      }
+      throw new Error('Unknown tool');
+    });
+
+    const client = new Client({
+      name: 'test-client',
+      version: '1.0.0',
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+
+    // List tools to cache the schemas
+    await client.listTools();
+
+    // Call the tool - should work normally without validation
+    const result = await client.callTool({ name: 'test-tool' });
+    expect(result.content).toEqual([{ type: 'text', text: 'Normal response' }]);
+  });
+
+  /***
+   * Test: Handle Complex JSON Schema Validation
+   */
+  test('should handle complex JSON schema validation', async () => {
+    const server = new Server({
+      name: 'test-server',
+      version: '1.0.0',
+    }, {
+      capabilities: {
+        tools: {},
+      },
+    });
+
+    // Set up server handlers
+    server.setRequestHandler(InitializeRequestSchema, async (request) => ({
+      protocolVersion: request.params.protocolVersion,
+      capabilities: {},
+      serverInfo: {
+        name: 'test-server',
+        version: '1.0.0',
+      }
+    }));
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: [
+        {
+          name: 'complex-tool',
+          description: 'A tool with complex schema',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+          outputSchema: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', minLength: 3 },
+              age: { type: 'integer', minimum: 0, maximum: 120 },
+              active: { type: 'boolean' },
+              tags: {
+                type: 'array',
+                items: { type: 'string' },
+                minItems: 1,
+              },
+              metadata: {
+                type: 'object',
+                properties: {
+                  created: { type: 'string' },
+                },
+                required: ['created'],
+              },
+            },
+            required: ['name', 'age', 'active', 'tags', 'metadata'],
+            additionalProperties: false,
+          },
+        },
+      ],
+    }));
+
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      if (request.params.name === 'complex-tool') {
+        return {
+          structuredContent: {
+            name: 'John Doe',
+            age: 30,
+            active: true,
+            tags: ['user', 'admin'],
+            metadata: {
+              created: '2023-01-01T00:00:00Z',
+            },
+          },
+        };
+      }
+      throw new Error('Unknown tool');
+    });
+
+    const client = new Client({
+      name: 'test-client',
+      version: '1.0.0',
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+
+    // List tools to cache the schemas
+    await client.listTools();
+
+    // Call the tool - should validate successfully
+    const result = await client.callTool({ name: 'complex-tool' });
+    expect(result.structuredContent).toBeDefined();
+    const structuredContent = result.structuredContent as { name: string; age: number };
+    expect(structuredContent.name).toBe('John Doe');
+    expect(structuredContent.age).toBe(30);
+  });
+
+  /***
+   * Test: Fail Validation with Additional Properties When Not Allowed
+   */
+  test('should fail validation with additional properties when not allowed', async () => {
+    const server = new Server({
+      name: 'test-server',
+      version: '1.0.0',
+    }, {
+      capabilities: {
+        tools: {},
+      },
+    });
+
+    // Set up server handlers
+    server.setRequestHandler(InitializeRequestSchema, async (request) => ({
+      protocolVersion: request.params.protocolVersion,
+      capabilities: {},
+      serverInfo: {
+        name: 'test-server',
+        version: '1.0.0',
+      }
+    }));
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: [
+        {
+          name: 'strict-tool',
+          description: 'A tool with strict schema',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+          outputSchema: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+            },
+            required: ['name'],
+            additionalProperties: false,
+          },
+        },
+      ],
+    }));
+
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      if (request.params.name === 'strict-tool') {
+        // Return structured content with extra property
+        return {
+          structuredContent: {
+            name: 'John',
+            extraField: 'not allowed',
+          },
+        };
+      }
+      throw new Error('Unknown tool');
+    });
+
+    const client = new Client({
+      name: 'test-client',
+      version: '1.0.0',
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+
+    // List tools to cache the schemas
+    await client.listTools();
+
+    // Call the tool - should throw validation error due to additional property
+    await expect(client.callTool({ name: 'strict-tool' })).rejects.toThrow(
+      /Structured content does not match the tool's output schema/
+    );
+  });
+
+
 });

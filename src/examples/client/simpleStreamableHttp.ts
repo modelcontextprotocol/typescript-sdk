@@ -341,7 +341,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
     });
 
     console.log('Tool result:');
-    result.content.forEach(item => {
+    result.content?.forEach(item => {
       if (item.type === 'text') {
         console.log(`  ${item.text}`);
       } else {

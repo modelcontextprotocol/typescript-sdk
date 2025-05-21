@@ -61,7 +61,7 @@ async function main(): Promise<void> {
     // Log the results from each tool call
     for (const [caller, result] of Object.entries(toolResults)) {
       console.log(`\n=== Tool result for ${caller} ===`);
-      result.content.forEach((item: { type: string; text?: string; }) => {
+      result.content?.forEach((item: { type: string; text?: string; }) => {
         if (item.type === 'text') {
           console.log(`  ${item.text}`);
         } else {
