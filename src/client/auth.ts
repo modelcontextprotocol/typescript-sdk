@@ -133,13 +133,13 @@ export async function auth(
   // Exchange authorization code for tokens
   if (authorizationCode !== undefined) {
     const codeVerifier = await provider.codeVerifier();
-    const tokens = await exchangeAuthorization(authorizationServerUrl, provider, {
+    const tokens = await exchangeAuthorization(authorizationServerUrl, {
       metadata,
       clientInformation,
       authorizationCode,
       codeVerifier,
       redirectUri: provider.redirectUrl,
-    });
+    }, provider);
 
     await provider.saveTokens(tokens);
     return "AUTHORIZED";
@@ -151,11 +151,11 @@ export async function auth(
   if (tokens?.refresh_token) {
     try {
       // Attempt to refresh the token
-      const newTokens = await refreshAuthorization(authorizationServerUrl, provider, {
+      const newTokens = await refreshAuthorization(authorizationServerUrl, {
         metadata,
         clientInformation,
         refreshToken: tokens.refresh_token,
-      });
+      }, provider);
 
       await provider.saveTokens(newTokens);
       return "AUTHORIZED";
@@ -361,7 +361,6 @@ export async function startAuthorization(
  */
 export async function exchangeAuthorization(
   authorizationServerUrl: string | URL,
-  provider: OAuthClientProvider,
   {
     metadata,
     clientInformation,
@@ -375,6 +374,7 @@ export async function exchangeAuthorization(
     codeVerifier: string;
     redirectUri: string | URL;
   },
+  provider?: OAuthClientProvider
 ): Promise<OAuthTokens> {
   const grantType = "authorization_code";
 
@@ -406,7 +406,7 @@ export async function exchangeAuthorization(
     redirect_uri: String(redirectUri),
   });
 
-  if (provider.authToTokenEndpoint) {
+  if (provider?.authToTokenEndpoint) {
     provider.authToTokenEndpoint(headers, params);
   } else if (clientInformation.client_secret) {
     params.set("client_secret", clientInformation.client_secret);
@@ -430,7 +430,6 @@ export async function exchangeAuthorization(
  */
 export async function refreshAuthorization(
   authorizationServerUrl: string | URL,
-  provider: OAuthClientProvider,
   {
     metadata,
     clientInformation,
@@ -440,6 +439,7 @@ export async function refreshAuthorization(
     clientInformation: OAuthClientInformation;
     refreshToken: string;
   },
+  provider?: OAuthClientProvider,
 ): Promise<OAuthTokens> {
   const grantType = "refresh_token";
 
@@ -469,7 +469,7 @@ export async function refreshAuthorization(
     refresh_token: refreshToken,
   });
 
-  if (provider.authToTokenEndpoint) {
+  if (provider?.authToTokenEndpoint) {
     provider.authToTokenEndpoint(headers, params);
   } else if (clientInformation.client_secret) {
     params.set("client_secret", clientInformation.client_secret);
