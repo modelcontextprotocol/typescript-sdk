@@ -559,6 +559,22 @@ describe("OAuth Authorization", () => {
   });
 
   describe("refreshAuthorization", () => {
+    const mockProvider: OAuthClientProvider = {
+      get redirectUrl() { return "http://localhost:3000/callback"; },
+      get clientMetadata() {
+        return {
+          redirect_uris: ["http://localhost:3000/callback"],
+          client_name: "Test Client",
+        };
+      },
+      clientInformation: jest.fn(),
+      tokens: jest.fn(),
+      saveTokens: jest.fn(),
+      redirectToAuthorization: jest.fn(),
+      saveCodeVerifier: jest.fn(),
+      codeVerifier: jest.fn(),
+    };
+	  
     const validTokens = {
       access_token: "newaccess123",
       token_type: "Bearer",
@@ -583,7 +599,7 @@ describe("OAuth Authorization", () => {
         json: async () => validTokensWithNewRefreshToken,
       });
 
-      const tokens = await refreshAuthorization("https://auth.example.com", {
+      const tokens = await refreshAuthorization("https://auth.example.com", mockProvider, {
         clientInformation: validClientInfo,
         refreshToken: "refresh123",
       });
@@ -595,12 +611,11 @@ describe("OAuth Authorization", () => {
         }),
         expect.objectContaining({
           method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
         })
       );
 
+      const headers = mockFetch.mock.calls[0][1].headers as Headers;
+      expect(headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
       const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
       expect(body.get("grant_type")).toBe("refresh_token");
       expect(body.get("refresh_token")).toBe("refresh123");
@@ -616,7 +631,7 @@ describe("OAuth Authorization", () => {
       });
 
       const refreshToken = "refresh123";
-      const tokens = await refreshAuthorization("https://auth.example.com", {
+      const tokens = await refreshAuthorization("https://auth.example.com", mockProvider, {
         clientInformation: validClientInfo,
         refreshToken,
       });
@@ -635,7 +650,7 @@ describe("OAuth Authorization", () => {
       });
 
       await expect(
-        refreshAuthorization("https://auth.example.com", {
+        refreshAuthorization("https://auth.example.com", mockProvider, {
           clientInformation: validClientInfo,
           refreshToken: "refresh123",
         })
@@ -649,7 +664,7 @@ describe("OAuth Authorization", () => {
       });
 
       await expect(
-        refreshAuthorization("https://auth.example.com", {
+        refreshAuthorization("https://auth.example.com", mockProvider, {
           clientInformation: validClientInfo,
           refreshToken: "refresh123",
         })

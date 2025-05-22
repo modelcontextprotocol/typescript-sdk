@@ -151,7 +151,7 @@ export async function auth(
   if (tokens?.refresh_token) {
     try {
       // Attempt to refresh the token
-      const newTokens = await refreshAuthorization(authorizationServerUrl, {
+      const newTokens = await refreshAuthorization(authorizationServerUrl, provider, {
         metadata,
         clientInformation,
         refreshToken: tokens.refresh_token,
@@ -394,10 +394,10 @@ export async function exchangeAuthorization(
     tokenUrl = new URL("/token", authorizationServerUrl);
   }
 
+  // Exchange code for tokens
   const headers = new Headers({
     "Content-Type": "application/x-www-form-urlencoded",
   });
-  // Exchange code for tokens
   const params = new URLSearchParams({
     grant_type: grantType,
     client_id: clientInformation.client_id,
@@ -430,6 +430,7 @@ export async function exchangeAuthorization(
  */
 export async function refreshAuthorization(
   authorizationServerUrl: string | URL,
+  provider: OAuthClientProvider,
   {
     metadata,
     clientInformation,
@@ -459,21 +460,24 @@ export async function refreshAuthorization(
   }
 
   // Exchange refresh token
+  const headers = new Headers({
+    "Content-Type": "application/x-www-form-urlencoded",
+  });
   const params = new URLSearchParams({
     grant_type: grantType,
     client_id: clientInformation.client_id,
     refresh_token: refreshToken,
   });
 
-  if (clientInformation.client_secret) {
+  if (provider.authToTokenEndpoint) {
+    provider.authToTokenEndpoint(headers, params);
+  } else if (clientInformation.client_secret) {
     params.set("client_secret", clientInformation.client_secret);
   }
 
   const response = await fetch(tokenUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
+    headers: headers,
     body: params,
   });
   if (!response.ok) {
