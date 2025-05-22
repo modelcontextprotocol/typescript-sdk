@@ -414,6 +414,22 @@ describe("OAuth Authorization", () => {
   });
 
   describe("exchangeAuthorization", () => {
+    const mockProvider: OAuthClientProvider = {
+      get redirectUrl() { return "http://localhost:3000/callback"; },
+      get clientMetadata() {
+        return {
+          redirect_uris: ["http://localhost:3000/callback"],
+          client_name: "Test Client",
+        };
+      },
+      clientInformation: jest.fn(),
+      tokens: jest.fn(),
+      saveTokens: jest.fn(),
+      redirectToAuthorization: jest.fn(),
+      saveCodeVerifier: jest.fn(),
+      codeVerifier: jest.fn(),
+    };
+    
     const validTokens = {
       access_token: "access123",
       token_type: "Bearer",
@@ -435,7 +451,7 @@ describe("OAuth Authorization", () => {
         json: async () => validTokens,
       });
 
-      const tokens = await exchangeAuthorization("https://auth.example.com", {
+      const tokens = await exchangeAuthorization("https://auth.example.com", mockProvider, {
         clientInformation: validClientInfo,
         authorizationCode: "code123",
         codeVerifier: "verifier123",
@@ -449,9 +465,9 @@ describe("OAuth Authorization", () => {
         }),
         expect.objectContaining({
           method: "POST",
-          headers: {
+          headers: new Headers({
             "Content-Type": "application/x-www-form-urlencoded",
-          },
+          }),
         })
       );
 
@@ -475,7 +491,7 @@ describe("OAuth Authorization", () => {
       });
 
       await expect(
-        exchangeAuthorization("https://auth.example.com", {
+        exchangeAuthorization("https://auth.example.com", mockProvider, {
           clientInformation: validClientInfo,
           authorizationCode: "code123",
           codeVerifier: "verifier123",
@@ -491,7 +507,7 @@ describe("OAuth Authorization", () => {
       });
 
       await expect(
-        exchangeAuthorization("https://auth.example.com", {
+        exchangeAuthorization("https://auth.example.com", mockProvider, {
           clientInformation: validClientInfo,
           authorizationCode: "code123",
           codeVerifier: "verifier123",
