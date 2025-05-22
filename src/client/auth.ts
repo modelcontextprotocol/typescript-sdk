@@ -66,6 +66,8 @@ export interface OAuthClientProvider {
    * the authorization result.
    */
   codeVerifier(): string | Promise<string>;
+  
+  authToTokenEndpoint?(headers: Headers, params: URLSearchParams): void | Promise<void>;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -131,7 +133,7 @@ export async function auth(
   // Exchange authorization code for tokens
   if (authorizationCode !== undefined) {
     const codeVerifier = await provider.codeVerifier();
-    const tokens = await exchangeAuthorization(authorizationServerUrl, {
+    const tokens = await exchangeAuthorization(authorizationServerUrl, provider, {
       metadata,
       clientInformation,
       authorizationCode,
@@ -359,6 +361,7 @@ export async function startAuthorization(
  */
 export async function exchangeAuthorization(
   authorizationServerUrl: string | URL,
+  provider: OAuthClientProvider,
   {
     metadata,
     clientInformation,
@@ -391,6 +394,9 @@ export async function exchangeAuthorization(
     tokenUrl = new URL("/token", authorizationServerUrl);
   }
 
+  const headers = new Headers({
+    "Content-Type": "application/x-www-form-urlencoded",
+  });
   // Exchange code for tokens
   const params = new URLSearchParams({
     grant_type: grantType,
@@ -400,15 +406,15 @@ export async function exchangeAuthorization(
     redirect_uri: String(redirectUri),
   });
 
-  if (clientInformation.client_secret) {
+  if (provider.authToTokenEndpoint) {
+    provider.authToTokenEndpoint(headers, params);
+  } else if (clientInformation.client_secret) {
     params.set("client_secret", clientInformation.client_secret);
   }
 
   const response = await fetch(tokenUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
+    headers: headers,
     body: params,
   });
 
