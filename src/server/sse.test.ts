@@ -105,5 +105,65 @@ describe('SSEServerTransport', () => {
         `event: endpoint\ndata: /?sessionId=${expectedSessionId}\n\n`
       );
     });
+    
+    it('should correctly preserve the subpath in endpoint URL', async () => {
+      const mockRes = createMockResponse();
+      const endpoint = '/subpath/messages';
+      const transport = new SSEServerTransport(endpoint, mockRes);
+      const expectedSessionId = transport.sessionId;
+
+      await transport.start();
+
+      expect(mockRes.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
+      expect(mockRes.write).toHaveBeenCalledTimes(1);
+      expect(mockRes.write).toHaveBeenCalledWith(
+        `event: endpoint\ndata: /subpath/messages?sessionId=${expectedSessionId}\n\n`
+      );
+    });
+
+    it('should correctly preserve nested subpaths in endpoint URL', async () => {
+      const mockRes = createMockResponse();
+      const endpoint = '/api/v1/subpath/messages';
+      const transport = new SSEServerTransport(endpoint, mockRes);
+      const expectedSessionId = transport.sessionId;
+
+      await transport.start();
+
+      expect(mockRes.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
+      expect(mockRes.write).toHaveBeenCalledTimes(1);
+      expect(mockRes.write).toHaveBeenCalledWith(
+        `event: endpoint\ndata: /api/v1/subpath/messages?sessionId=${expectedSessionId}\n\n`
+      );
+    });
+
+    it('should correctly preserve the subpath with existing query parameters', async () => {
+      const mockRes = createMockResponse();
+      const endpoint = '/api/v1/subpath/messages?foo=bar';
+      const transport = new SSEServerTransport(endpoint, mockRes);
+      const expectedSessionId = transport.sessionId;
+
+      await transport.start();
+
+      expect(mockRes.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
+      expect(mockRes.write).toHaveBeenCalledTimes(1);
+      expect(mockRes.write).toHaveBeenCalledWith(
+        `event: endpoint\ndata: /api/v1/subpath/messages?foo=bar&sessionId=${expectedSessionId}\n\n`
+      );
+    });
+
+    it('should correctly handle absolute URLs as endpoints', async () => {
+      const mockRes = createMockResponse();
+      const endpoint = 'https://example.com/subpath/messages';
+      const transport = new SSEServerTransport(endpoint, mockRes);
+      const expectedSessionId = transport.sessionId;
+
+      await transport.start();
+
+      expect(mockRes.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
+      expect(mockRes.write).toHaveBeenCalledTimes(1);
+      expect(mockRes.write).toHaveBeenCalledWith(
+        `event: endpoint\ndata: /subpath/messages?sessionId=${expectedSessionId}\n\n`
+      );
+    });
   });
 });
