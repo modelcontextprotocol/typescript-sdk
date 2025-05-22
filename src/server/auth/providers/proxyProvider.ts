@@ -158,6 +158,10 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
       grant_type: "authorization_code",
       client_id: client.client_id,
       code: authorizationCode,
+      // redirect_uri is required by the spec if used
+      // in the original authorization request
+      // https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
+      ...(redirectUri ? { redirect_uri : redirectUri } : {}),
     });
 
     if (client.client_secret) {
