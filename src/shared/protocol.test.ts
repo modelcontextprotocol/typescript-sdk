@@ -339,6 +339,7 @@ describe("mergeCapabilities", () => {
       experimental: {
         feature: true,
       },
+      elicitation: {},
       roots: {
         newProp: true,
       },
@@ -347,6 +348,7 @@ describe("mergeCapabilities", () => {
     const merged = mergeCapabilities(base, additional);
     expect(merged).toEqual({
       sampling: {},
+      elicitation: {},
       roots: {
         listChanged: true,
         newProp: true,

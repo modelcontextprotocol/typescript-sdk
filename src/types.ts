@@ -219,6 +219,10 @@ export const ClientCapabilitiesSchema = z
      */
     sampling: z.optional(z.object({}).passthrough()),
     /**
+     * Present if the client supports eliciting user input.
+     */
+    elicitation: z.optional(z.object({}).passthrough()),
+    /**
      * Present if the client supports listing roots.
      */
     roots: z.optional(
@@ -1088,6 +1092,107 @@ export const CreateMessageResultSchema = ResultSchema.extend({
   ]),
 });
 
+/* Elicitation */
+/**
+ * Primitive schema definition for boolean fields.
+ */
+export const BooleanSchemaSchema = z
+  .object({
+    type: z.literal("boolean"),
+    title: z.optional(z.string()),
+    description: z.optional(z.string()),
+    default: z.optional(z.boolean()),
+  })
+  .passthrough();
+
+/**
+ * Primitive schema definition for string fields.
+ */
+export const StringSchemaSchema = z
+  .object({
+    type: z.literal("string"),
+    title: z.optional(z.string()),
+    description: z.optional(z.string()),
+    minLength: z.optional(z.number()),
+    maxLength: z.optional(z.number()),
+    format: z.optional(z.enum(["email", "uri", "date", "date-time"])),
+  })
+  .passthrough();
+
+/**
+ * Primitive schema definition for number fields.
+ */
+export const NumberSchemaSchema = z
+  .object({
+    type: z.enum(["number", "integer"]),
+    title: z.optional(z.string()),
+    description: z.optional(z.string()),
+    minimum: z.optional(z.number()),
+    maximum: z.optional(z.number()),
+  })
+  .passthrough();
+
+/**
+ * Primitive schema definition for enum fields.
+ */
+export const EnumSchemaSchema = z
+  .object({
+    type: z.literal("string"),
+    title: z.optional(z.string()),
+    description: z.optional(z.string()),
+    enum: z.array(z.string()),
+    enumNames: z.optional(z.array(z.string())),
+  })
+  .passthrough();
+
+/**
+ * Union of all primitive schema definitions.
+ */
+export const PrimitiveSchemaDefinitionSchema = z.union([
+  BooleanSchemaSchema,
+  StringSchemaSchema,
+  NumberSchemaSchema,
+  EnumSchemaSchema,
+]);
+
+/**
+ * A request from the server to elicit user input via the client.
+ * The client should present the message and form fields to the user.
+ */
+export const ElicitRequestSchema = RequestSchema.extend({
+  method: z.literal("elicitation/create"),
+  params: BaseRequestParamsSchema.extend({
+    /**
+     * The message to present to the user.
+     */
+    message: z.string(),
+    /**
+     * The schema for the requested user input.
+     */
+    requestedSchema: z
+      .object({
+        type: z.literal("object"),
+        properties: z.record(z.string(), PrimitiveSchemaDefinitionSchema),
+        required: z.optional(z.array(z.string())),
+      })
+      .passthrough(),
+  }),
+});
+
+/**
+ * The client's response to an elicitation/create request from the server.
+ */
+export const ElicitResultSchema = ResultSchema.extend({
+  /**
+   * The user's response action.
+   */
+  action: z.enum(["accept", "decline", "cancel"]),
+  /**
+   * The collected user input content (only present if action is "accept").
+   */
+  content: z.optional(z.record(z.string(), z.unknown())),
+});
+
 /* Autocomplete */
 /**
  * A reference to a resource or resource template definition.
@@ -1227,6 +1332,7 @@ export const ClientNotificationSchema = z.union([
 export const ClientResultSchema = z.union([
   EmptyResultSchema,
   CreateMessageResultSchema,
+  ElicitResultSchema,
   ListRootsResultSchema,
 ]);
 
@@ -1234,6 +1340,7 @@ export const ClientResultSchema = z.union([
 export const ServerRequestSchema = z.union([
   PingRequestSchema,
   CreateMessageRequestSchema,
+  ElicitRequestSchema,
   ListRootsRequestSchema,
 ]);
 
@@ -1375,6 +1482,15 @@ export type LoggingMessageNotification = Infer<typeof LoggingMessageNotification
 export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
 export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
 export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
+
+/* Elicitation */
+export type BooleanSchema = Infer<typeof BooleanSchemaSchema>;
+export type StringSchema = Infer<typeof StringSchemaSchema>;
+export type NumberSchema = Infer<typeof NumberSchemaSchema>;
+export type EnumSchema = Infer<typeof EnumSchemaSchema>;
+export type PrimitiveSchemaDefinition = Infer<typeof PrimitiveSchemaDefinitionSchema>;
+export type ElicitRequest = Infer<typeof ElicitRequestSchema>;
+export type ElicitResult = Infer<typeof ElicitResultSchema>;
 
 /* Autocomplete */
 export type ResourceReference = Infer<typeof ResourceReferenceSchema>;

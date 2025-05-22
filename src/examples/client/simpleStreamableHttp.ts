@@ -14,7 +14,9 @@ import {
   ListResourcesResultSchema,
   LoggingMessageNotificationSchema,
   ResourceListChangedNotificationSchema,
+  ElicitRequestSchema,
 } from '../../types.js';
+import Ajv from "ajv";
 
 // Create readline interface for user input
 const readline = createInterface({
@@ -54,6 +56,7 @@ function printHelp(): void {
   console.log('  call-tool <name> [args]    - Call a tool with optional JSON arguments');
   console.log('  greet [name]               - Call the greet tool');
   console.log('  multi-greet [name]         - Call the multi-greet tool with notifications');
+  console.log('  collect-info [type]        - Test elicitation with collect-user-info tool (contact/preferences/feedback)');
   console.log('  start-notifications [interval] [count] - Start periodic notifications');
   console.log('  run-notifications-tool-with-resumability [interval] [count] - Run notification tool with resumability');
   console.log('  list-prompts               - List available prompts');
@@ -113,6 +116,10 @@ function commandLoop(): void {
 
         case 'multi-greet':
           await callMultiGreetTool(args[1] || 'MCP User');
+          break;
+
+        case 'collect-info':
+          await callCollectInfoTool(args[1] || 'contact');
           break;
 
         case 'start-notifications': {
@@ -191,14 +198,211 @@ async function connect(url?: string): Promise<void> {
   console.log(`Connecting to ${serverUrl}...`);
 
   try {
-    // Create a new client
+    // Create a new client with elicitation capability
     client = new Client({
       name: 'example-client',
       version: '1.0.0'
+    }, {
+      capabilities: {
+        elicitation: {},
+      },
     });
     client.onerror = (error) => {
       console.error('\x1b[31mClient error:', error, '\x1b[0m');
     }
+
+    // Set up elicitation request handler with proper validation
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      console.log('\n🔔 Elicitation Request Received:');
+      console.log(`Message: ${request.params.message}`);
+      console.log('Requested Schema:');
+      console.log(JSON.stringify(request.params.requestedSchema, null, 2));
+
+      const schema = request.params.requestedSchema;
+      const properties = schema.properties;
+      const required = schema.required || [];
+
+      // Set up AJV validator for the requested schema
+      const ajv = new Ajv();
+      const validate = ajv.compile(schema);
+
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      while (attempts < maxAttempts) {
+        attempts++;
+        console.log(`\nPlease provide the following information (attempt ${attempts}/${maxAttempts}):`);
+
+        const content: Record<string, unknown> = {};
+        let inputCancelled = false;
+
+        // Collect input for each field
+        for (const [fieldName, fieldSchema] of Object.entries(properties)) {
+          const field = fieldSchema as {
+            type?: string;
+            title?: string;
+            description?: string;
+            default?: unknown;
+            enum?: string[];
+            minimum?: number;
+            maximum?: number;
+            minLength?: number;
+            maxLength?: number;
+            format?: string;
+          };
+
+          const isRequired = required.includes(fieldName);
+          let prompt = `${field.title || fieldName}`;
+
+          // Add helpful information to the prompt
+          if (field.description) {
+            prompt += ` (${field.description})`;
+          }
+          if (field.enum) {
+            prompt += ` [options: ${field.enum.join(', ')}]`;
+          }
+          if (field.type === 'number' || field.type === 'integer') {
+            if (field.minimum !== undefined && field.maximum !== undefined) {
+              prompt += ` [${field.minimum}-${field.maximum}]`;
+            } else if (field.minimum !== undefined) {
+              prompt += ` [min: ${field.minimum}]`;
+            } else if (field.maximum !== undefined) {
+              prompt += ` [max: ${field.maximum}]`;
+            }
+          }
+          if (field.type === 'string' && field.format) {
+            prompt += ` [format: ${field.format}]`;
+          }
+          if (isRequired) {
+            prompt += ' *required*';
+          }
+          if (field.default !== undefined) {
+            prompt += ` [default: ${field.default}]`;
+          }
+
+          prompt += ': ';
+
+          const answer = await new Promise<string>((resolve) => {
+            readline.question(prompt, (input) => {
+              resolve(input.trim());
+            });
+          });
+
+          // Check for cancellation
+          if (answer.toLowerCase() === 'cancel' || answer.toLowerCase() === 'c') {
+            inputCancelled = true;
+            break;
+          }
+
+          // Parse and validate the input
+          try {
+            if (answer === '' && field.default !== undefined) {
+              content[fieldName] = field.default;
+            } else if (answer === '' && !isRequired) {
+              // Skip optional empty fields
+              continue;
+            } else if (answer === '') {
+              throw new Error(`${fieldName} is required`);
+            } else {
+              // Parse the value based on type
+              let parsedValue: unknown;
+
+              if (field.type === 'boolean') {
+                parsedValue = answer.toLowerCase() === 'true' || answer.toLowerCase() === 'yes' || answer === '1';
+              } else if (field.type === 'number') {
+                parsedValue = parseFloat(answer);
+                if (isNaN(parsedValue as number)) {
+                  throw new Error(`${fieldName} must be a valid number`);
+                }
+              } else if (field.type === 'integer') {
+                parsedValue = parseInt(answer, 10);
+                if (isNaN(parsedValue as number)) {
+                  throw new Error(`${fieldName} must be a valid integer`);
+                }
+              } else if (field.enum) {
+                if (!field.enum.includes(answer)) {
+                  throw new Error(`${fieldName} must be one of: ${field.enum.join(', ')}`);
+                }
+                parsedValue = answer;
+              } else {
+                parsedValue = answer;
+              }
+
+              content[fieldName] = parsedValue;
+            }
+          } catch (error) {
+            console.log(`❌ Error: ${error}`);
+            // Continue to next attempt
+            break;
+          }
+        }
+
+        if (inputCancelled) {
+          return { action: 'cancel' };
+        }
+
+        // If we didn't complete all fields due to an error, try again
+        if (Object.keys(content).length !== Object.keys(properties).filter(name =>
+          required.includes(name) || content[name] !== undefined
+        ).length) {
+          if (attempts < maxAttempts) {
+            console.log('Please try again...');
+            continue;
+          } else {
+            console.log('Maximum attempts reached. Declining request.');
+            return { action: 'decline' };
+          }
+        }
+
+        // Validate the complete object against the schema
+        const isValid = validate(content);
+
+        if (!isValid) {
+          console.log('❌ Validation errors:');
+          validate.errors?.forEach(error => {
+            console.log(`  - ${error.dataPath || 'root'}: ${error.message}`);
+          });
+
+          if (attempts < maxAttempts) {
+            console.log('Please correct the errors and try again...');
+            continue;
+          } else {
+            console.log('Maximum attempts reached. Declining request.');
+            return { action: 'decline' };
+          }
+        }
+
+        // Show the collected data and ask for confirmation
+        console.log('\n✅ Collected data:');
+        console.log(JSON.stringify(content, null, 2));
+
+        const confirmAnswer = await new Promise<string>((resolve) => {
+          readline.question('\nSubmit this information? (yes/no/cancel): ', (input) => {
+            resolve(input.trim().toLowerCase());
+          });
+        });
+
+
+        if (confirmAnswer === 'yes' || confirmAnswer === 'y') {
+          return {
+            action: 'accept',
+            content,
+          };
+        } else if (confirmAnswer === 'cancel' || confirmAnswer === 'c') {
+          return { action: 'cancel' };
+        } else if (confirmAnswer === 'no' || confirmAnswer === 'n') {
+          if (attempts < maxAttempts) {
+            console.log('Please re-enter the information...');
+            continue;
+          } else {
+            return { action: 'decline' };
+          }
+        }
+      }
+
+      console.log('Maximum attempts reached. Declining request.');
+      return { action: 'decline' };
+    });
 
     transport = new StreamableHTTPClientTransport(
       new URL(serverUrl),
@@ -364,6 +568,11 @@ async function callGreetTool(name: string): Promise<void> {
 async function callMultiGreetTool(name: string): Promise<void> {
   console.log('Calling multi-greet tool with notifications...');
   await callTool('multi-greet', { name });
+}
+
+async function callCollectInfoTool(infoType: string): Promise<void> {
+  console.log(`Testing elicitation with collect-user-info tool (${infoType})...`);
+  await callTool('collect-user-info', { infoType });
 }
 
 async function startNotifications(interval: number, count: number): Promise<void> {
