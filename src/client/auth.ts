@@ -22,6 +22,11 @@ export interface OAuthClientProvider {
   get clientMetadata(): OAuthClientMetadata;
 
   /**
+   * Returns a OAuth2 state parameter.
+   */
+  state?(): string | Promise<string>;
+
+  /**
    * Loads information about this OAuth client, as registered already with the
    * server, or returns `undefined` if the client is not registered with the
    * server.
@@ -148,10 +153,13 @@ export async function auth(
     }
   }
 
+  const state = provider.state ? await provider.state() : undefined;
+
   // Start new authorization flow
   const { authorizationUrl, codeVerifier } = await startAuthorization(serverUrl, {
     metadata,
     clientInformation,
+    state,
     redirectUrl: provider.redirectUrl,
     scope: scope || provider.clientMetadata.scope,
   });
@@ -211,11 +219,13 @@ export async function startAuthorization(
     clientInformation,
     redirectUrl,
     scope,
+    state,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
     redirectUrl: string | URL;
     scope?: string;
+    state?: string;
   },
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
   const responseType = "code";
@@ -256,6 +266,10 @@ export async function startAuthorization(
     codeChallengeMethod,
   );
   authorizationUrl.searchParams.set("redirect_uri", String(redirectUrl));
+
+  if (state) {
+    authorizationUrl.searchParams.set("state", state);
+  }
   
   if (scope) {
     authorizationUrl.searchParams.set("scope", scope);
