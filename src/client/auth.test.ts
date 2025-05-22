@@ -623,6 +623,44 @@ describe("OAuth Authorization", () => {
       expect(body.get("client_secret")).toBe("secret123");
     });
 
+    it("exchanges refresh token for new tokens with auth", async () => {
+      mockProvider.authToTokenEndpoint = function(headers: Headers, params: URLSearchParams) {
+        headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
+        params.set("example_param", "example_value")
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validTokensWithNewRefreshToken,
+      });
+
+      const tokens = await refreshAuthorization("https://auth.example.com", mockProvider, {
+        clientInformation: validClientInfo,
+        refreshToken: "refresh123",
+      });
+
+      expect(tokens).toEqual(validTokensWithNewRefreshToken);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          href: "https://auth.example.com/token",
+        }),
+        expect.objectContaining({
+          method: "POST",
+        })
+      );
+
+      const headers = mockFetch.mock.calls[0][1].headers as Headers;
+      expect(headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
+      expect(headers.get("Authorization")).toBe("Basic Y2xpZW50MTIzOnNlY3JldDEyMw==");
+      const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
+      expect(body.get("grant_type")).toBe("refresh_token");
+      expect(body.get("refresh_token")).toBe("refresh123");
+      expect(body.get("client_id")).toBe("client123");
+      expect(body.get("example_param")).toBe("example_value");
+      expect(body.get("client_secret")).toBeUndefined;
+    });
+
     it("exchanges refresh token for new tokens and keep existing refresh token if none is returned", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
