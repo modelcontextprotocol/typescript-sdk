@@ -46,7 +46,7 @@
     "client": "tsx src/cli.ts client"
   },
   "dependencies": {
-    "ajv": "^8.17.1",
+    "ajv": "^6.12.6",
     "content-type": "^1.0.5",
     "cors": "^2.8.5",
     "cross-spawn": "^7.0.5",

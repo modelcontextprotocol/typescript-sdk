@@ -264,12 +264,12 @@ async function terminateSession(): Promise<void> {
     console.log('Terminating session with ID:', transport.sessionId);
     await transport.terminateSession();
     console.log('Session terminated successfully');
-    
+
     // Check if sessionId was cleared after termination
     if (!transport.sessionId) {
       console.log('Session ID has been cleared');
       sessionId = undefined;
-      
+
       // Also close the transport and clear client objects
       await transport.close();
       console.log('Transport closed after session termination');
@@ -341,7 +341,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
     });
 
     console.log('Tool result:');
-    result.content?.forEach(item => {
+    result.content.forEach(item => {
       if (item.type === 'text') {
         console.log(`  ${item.text}`);
       } else {
@@ -456,7 +456,7 @@ async function cleanup(): Promise<void> {
           console.error('Error terminating session:', error);
         }
       }
-      
+
       // Then close the transport
       await transport.close();
     } catch (error) {

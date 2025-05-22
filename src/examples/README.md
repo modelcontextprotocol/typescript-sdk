@@ -67,6 +67,9 @@ A server that implements the Streamable HTTP transport (protocol version 2025-03
 
 ```bash
 npx tsx src/examples/server/simpleStreamableHttp.ts
+
+# To add a demo of authentication to this example, use:
+npx tsx src/examples/server/simpleStreamableHttp.ts --oauth
 ```
 
 ##### JSON Response Mode Server
