@@ -55,6 +55,7 @@ function printHelp(): void {
   console.log('  greet [name]               - Call the greet tool');
   console.log('  multi-greet [name]         - Call the multi-greet tool with notifications');
   console.log('  start-notifications [interval] [count] - Start periodic notifications');
+  console.log('  run-notifications-tool-with-resumability [interval] [count] - Run notification tool with resumability');
   console.log('  list-prompts               - List available prompts');
   console.log('  get-prompt [name] [args]   - Get a prompt with optional JSON arguments');
   console.log('  list-resources             - List available resources');
@@ -118,6 +119,13 @@ function commandLoop(): void {
           const interval = args[1] ? parseInt(args[1], 10) : 2000;
           const count = args[2] ? parseInt(args[2], 10) : 10;
           await startNotifications(interval, count);
+          break;
+        }
+
+        case 'run-notifications-tool-with-resumability': {
+          const interval = args[1] ? parseInt(args[1], 10) : 2000;
+          const count = args[2] ? parseInt(args[2], 10) : 10;
+          await runNotificationsToolWithResumability(interval, count);
           break;
         }
 
@@ -333,12 +341,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
     };
 
     console.log(`Calling tool '${name}' with args:`, args);
-    const onLastEventIdUpdate = (event: string) => {
-      notificationsToolLastEventId = event;
-    };
-    const result = await client.request(request, CallToolResultSchema, {
-      resumptionToken: notificationsToolLastEventId, onresumptiontoken: onLastEventIdUpdate
-    });
+    const result = await client.request(request, CallToolResultSchema);
 
     console.log('Tool result:');
     result.content.forEach(item => {
@@ -353,6 +356,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
   }
 }
 
+
 async function callGreetTool(name: string): Promise<void> {
   await callTool('greet', { name });
 }
@@ -365,6 +369,47 @@ async function callMultiGreetTool(name: string): Promise<void> {
 async function startNotifications(interval: number, count: number): Promise<void> {
   console.log(`Starting notification stream: interval=${interval}ms, count=${count || 'unlimited'}`);
   await callTool('start-notification-stream', { interval, count });
+}
+
+async function runNotificationsToolWithResumability(interval: number, count: number): Promise<void> {
+  if (!client) {
+    console.log('Not connected to server.');
+    return;
+  }
+
+  try {
+    console.log(`Starting notification stream with resumability: interval=${interval}ms, count=${count || 'unlimited'}`);
+    console.log(`Using resumption token: ${notificationsToolLastEventId || 'none'}`);
+    
+    const request: CallToolRequest = {
+      method: 'tools/call',
+      params: {
+        name: 'start-notification-stream',
+        arguments: { interval, count }
+      }
+    };
+
+    const onLastEventIdUpdate = (event: string) => {
+      notificationsToolLastEventId = event;
+      console.log(`Updated resumption token: ${event}`);
+    };
+    
+    const result = await client.request(request, CallToolResultSchema, {
+      resumptionToken: notificationsToolLastEventId,
+      onresumptiontoken: onLastEventIdUpdate
+    });
+
+    console.log('Tool result:');
+    result.content.forEach(item => {
+      if (item.type === 'text') {
+        console.log(`  ${item.text}`);
+      } else {
+        console.log(`  ${item.type} content:`, item);
+      }
+    });
+  } catch (error) {
+    console.log(`Error starting notification stream: ${error}`);
+  }
 }
 
 async function listPrompts(): Promise<void> {
