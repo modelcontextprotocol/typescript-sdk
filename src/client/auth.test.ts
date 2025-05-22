@@ -366,6 +366,31 @@ describe("OAuth Authorization", () => {
       expect(authorizationUrl.searchParams.has("scope")).toBe(false);
     });
 
+    it("includes state parameter when provided", async () => {
+      const { authorizationUrl } = await startAuthorization(
+        "https://auth.example.com",
+        {
+          clientInformation: validClientInfo,
+          redirectUrl: "http://localhost:3000/callback",
+          state: "foobar",
+        }
+      );
+
+      expect(authorizationUrl.searchParams.get("state")).toBe("foobar");
+    });
+
+    it("excludes state parameter when not provided", async () => {
+      const { authorizationUrl } = await startAuthorization(
+        "https://auth.example.com",
+        {
+          clientInformation: validClientInfo,
+          redirectUrl: "http://localhost:3000/callback",
+        }
+      );
+
+      expect(authorizationUrl.searchParams.has("state")).toBe(false);
+    });
+
     it("uses metadata authorization_endpoint when provided", async () => {
       const { authorizationUrl } = await startAuthorization(
         "https://auth.example.com",
