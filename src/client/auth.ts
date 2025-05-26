@@ -67,7 +67,7 @@ export interface OAuthClientProvider {
    */
   codeVerifier(): string | Promise<string>;
   
-  authToTokenEndpoint?(headers: Headers, params: URLSearchParams): void | Promise<void>;
+  authToTokenEndpoint?(url: URL, headers: Headers, params: URLSearchParams): void | Promise<void>;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -407,7 +407,7 @@ export async function exchangeAuthorization(
   });
 
   if (provider?.authToTokenEndpoint) {
-    provider.authToTokenEndpoint(headers, params);
+    provider.authToTokenEndpoint(tokenUrl, headers, params);
   } else if (clientInformation.client_secret) {
     params.set("client_secret", clientInformation.client_secret);
   }
@@ -470,7 +470,7 @@ export async function refreshAuthorization(
   });
 
   if (provider?.authToTokenEndpoint) {
-    provider.authToTokenEndpoint(headers, params);
+    provider.authToTokenEndpoint(tokenUrl, headers, params);
   } else if (clientInformation.client_secret) {
     params.set("client_secret", clientInformation.client_secret);
   }

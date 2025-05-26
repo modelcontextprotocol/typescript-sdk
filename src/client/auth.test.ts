@@ -480,9 +480,10 @@ describe("OAuth Authorization", () => {
     });
 
     it("exchanges code for tokens with auth", async () => {
-      mockProvider.authToTokenEndpoint = function(headers: Headers, params: URLSearchParams) {
+      mockProvider.authToTokenEndpoint = function(url: URL, headers: Headers, params: URLSearchParams) {
         headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
-        params.set("example_param", "example_value")
+        params.set("example_url", url.toString());
+        params.set("example_param", "example_value");
       };
 
       mockFetch.mockResolvedValueOnce({
@@ -517,6 +518,7 @@ describe("OAuth Authorization", () => {
       expect(body.get("code_verifier")).toBe("verifier123");
       expect(body.get("client_id")).toBe("client123");
       expect(body.get("redirect_uri")).toBe("http://localhost:3000/callback");
+      expect(body.get("example_url")).toBe("https://auth.example.com/token");
       expect(body.get("example_param")).toBe("example_value");
       expect(body.get("client_secret")).toBeUndefined;
     });
@@ -624,9 +626,10 @@ describe("OAuth Authorization", () => {
     });
 
     it("exchanges refresh token for new tokens with auth", async () => {
-      mockProvider.authToTokenEndpoint = function(headers: Headers, params: URLSearchParams) {
+      mockProvider.authToTokenEndpoint = function(url: URL, headers: Headers, params: URLSearchParams) {
         headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
-        params.set("example_param", "example_value")
+        params.set("example_url", url.toString());
+        params.set("example_param", "example_value");
       };
 
       mockFetch.mockResolvedValueOnce({
@@ -657,6 +660,7 @@ describe("OAuth Authorization", () => {
       expect(body.get("grant_type")).toBe("refresh_token");
       expect(body.get("refresh_token")).toBe("refresh123");
       expect(body.get("client_id")).toBe("client123");
+      expect(body.get("example_url")).toBe("https://auth.example.com/token");
       expect(body.get("example_param")).toBe("example_value");
       expect(body.get("client_secret")).toBeUndefined;
     });
