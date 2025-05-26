@@ -389,40 +389,49 @@ export async function exchangeAuthorization(
 ): Promise<OAuthTokens> {
   const grantType = "authorization_code";
 
-  let tokenUrl: URL;
-  if (metadata) {
-    tokenUrl = new URL(metadata.token_endpoint);
+  const tokenUrl = metadata?.token_endpoint
+      ? new URL(metadata.token_endpoint)
+      : new URL("/token", authorizationServerUrl);
 
-    if (
-      metadata.grant_types_supported &&
+  if (
+      metadata?.grant_types_supported &&
       !metadata.grant_types_supported.includes(grantType)
-    ) {
-      throw new Error(
+  ) {
+    throw new Error(
         `Incompatible auth server: does not support grant type ${grantType}`,
-      );
-    }
-  } else {
-    tokenUrl = new URL("/token", authorizationServerUrl);
+    );
   }
+
+  const headers: HeadersInit = {
+    "Content-Type": "application/x-www-form-urlencoded",
+  };
 
   // Exchange code for tokens
   const params = new URLSearchParams({
     grant_type: grantType,
-    client_id: clientInformation.client_id,
     code: authorizationCode,
     code_verifier: codeVerifier,
     redirect_uri: String(redirectUri),
   });
 
-  if (clientInformation.client_secret) {
-    params.set("client_secret", clientInformation.client_secret);
+  const { client_id, client_secret } = clientInformation;
+  const supportedMethods =
+      metadata?.token_endpoint_auth_methods_supported ?? [];
+
+  const useBasicAuth = !!client_secret && supportedMethods.includes("client_secret_basic");
+
+  if (client_secret && useBasicAuth) {
+    headers["Authorization"] = `Basic ${Buffer.from(`${client_id}:${client_secret}`).toString("base64")}`;
+  } else {
+    params.set("client_id", client_id);
+    if (client_secret) {
+      params.set("client_secret", client_secret);
+    }
   }
 
   const response = await fetch(tokenUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
+    headers,
     body: params,
   });
 

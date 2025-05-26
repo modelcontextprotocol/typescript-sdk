@@ -808,4 +808,58 @@ describe("OAuth Authorization", () => {
       );
     });
   });
+
+  describe("exchangeAuthorization with client_secret_basic", () => {
+    const validTokens = {
+      access_token: "access123",
+      token_type: "Bearer",
+      expires_in: 3600,
+      refresh_token: "refresh123",
+    };
+
+    const validClientInfo = {
+      client_id: "client123",
+      client_secret: "secret123",
+      redirect_uris: ["http://localhost:3000/callback"],
+      client_name: "Test Client",
+    };
+
+    const metadataWithBasicOnly = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/auth",
+      token_endpoint: "https://auth.example.com/token",
+      response_types_supported: ["code"],
+      code_challenge_methods_supported: ["S256"],
+      token_endpoint_auth_methods_supported: ["client_secret_basic"],
+    };
+
+    it("sends credentials in Authorization header when client_secret_basic is supported", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validTokens,
+      });
+
+      const tokens = await exchangeAuthorization("https://auth.example.com", {
+        metadata: metadataWithBasicOnly,
+        clientInformation: validClientInfo,
+        authorizationCode: "code123",
+        codeVerifier: "verifier123",
+        redirectUri: "http://localhost:3000/callback",
+      });
+
+      expect(tokens).toEqual(validTokens);
+      const request = mockFetch.mock.calls[0][1];
+
+      // Check Authorization header
+      const authHeader = request.headers["Authorization"];
+      const expected = "Basic " + Buffer.from("client123:secret123").toString("base64");
+      expect(authHeader).toBe(expected);
+
+      const body = request.body as URLSearchParams;
+      expect(body.get("client_id")).toBeNull();     // should not be in body
+      expect(body.get("client_secret")).toBeNull(); // should not be in body
+    });
+  });
+
 });
