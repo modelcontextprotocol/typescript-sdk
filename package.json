@@ -20,8 +20,8 @@
   ],
   "exports": {
     "./*": {
-      "import": "./dist/esm/*",
-      "require": "./dist/cjs/*"
+      "import": "./dist/esm/*.js",
+      "require": "./dist/cjs/*.js"
     }
   },
   "typesVersions": {
