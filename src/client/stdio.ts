@@ -45,20 +45,20 @@ export type StdioServerParameters = {
 export const DEFAULT_INHERITED_ENV_VARS =
   process.platform === "win32"
     ? [
-        "APPDATA",
-        "HOMEDRIVE",
-        "HOMEPATH",
-        "LOCALAPPDATA",
-        "PATH",
-        "PROCESSOR_ARCHITECTURE",
-        "SYSTEMDRIVE",
-        "SYSTEMROOT",
-        "TEMP",
-        "USERNAME",
-        "USERPROFILE",
-      ]
+      "APPDATA",
+      "HOMEDRIVE",
+      "HOMEPATH",
+      "LOCALAPPDATA",
+      "PATH",
+      "PROCESSOR_ARCHITECTURE",
+      "SYSTEMDRIVE",
+      "SYSTEMROOT",
+      "TEMP",
+      "USERNAME",
+      "USERPROFILE",
+    ]
     : /* list inspired by the default env inheritance of sudo */
-      ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"];
+    ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"];
 
 /**
  * Returns a default environment object including only environment variables deemed safe to inherit.
@@ -112,7 +112,7 @@ export class StdioClientTransport implements Transport {
   async start(): Promise<void> {
     if (this._process) {
       throw new Error(
-        "StdioClientTransport already started! If using Client class, note that connect() calls start() automatically."
+        "StdioClientTransport already started! If using Client class, note that connect() calls start() automatically.",
       );
     }
 
@@ -127,7 +127,7 @@ export class StdioClientTransport implements Transport {
           signal: this._abortController.signal,
           windowsHide: process.platform === "win32" && isElectron(),
           cwd: this._serverParams.cwd,
-        }
+        },
       );
 
       this._process.on("error", (error) => {
@@ -201,8 +201,35 @@ export class StdioClientTransport implements Transport {
 
   async close(): Promise<void> {
     this._abortController.abort();
+
+    const taskProcess = this._process;
     this._process = undefined;
     this._readBuffer.clear();
+
+    if (!taskProcess || taskProcess.exitCode !== null) {
+      return;
+    }
+
+    taskProcess.kill("SIGTERM");
+
+    const exited = await Promise.race([
+      new Promise<boolean>((resolve) => {
+        const onExit = () => resolve(true);
+        taskProcess.once("exit", onExit);
+        taskProcess.once("close", onExit);
+      }),
+      new Promise<boolean>((resolve) => {
+        setTimeout(() => resolve(false), 1000);
+      }),
+    ]);
+
+    if (!exited) {
+      taskProcess.kill("SIGKILL");
+      await new Promise<void>((resolve) => {
+        taskProcess.once("exit", resolve);
+        taskProcess.once("close", resolve);
+      });
+    }
   }
 
   send(message: JSONRPCMessage): Promise<void> {
