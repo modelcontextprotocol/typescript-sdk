@@ -25,6 +25,7 @@ import {
 } from "../types.js";
 import { Transport, TransportSendOptions } from "./transport.js";
 import { AuthInfo } from "../server/auth/types.js";
+import { IncomingHttpHeaders } from "node:http";
 
 /**
  * Callback for progress notifications.
@@ -126,6 +127,11 @@ export type RequestHandlerExtra<SendRequestT extends Request,
      * This can be useful for tracking or logging purposes.
      */
     requestId: RequestId;
+
+    /**
+     * The headers from the original request.
+     */
+    requestHeaders?: IncomingHttpHeaders;
 
     /**
      * Sends a notification that relates to the current request being handled.
@@ -339,7 +345,7 @@ export abstract class Protocol<
       );
   }
 
-  private _onrequest(request: JSONRPCRequest, extra?: { authInfo?: AuthInfo }): void {
+  private _onrequest(request: JSONRPCRequest, extra?: { authInfo?: AuthInfo, requestHeaders?: IncomingHttpHeaders }): void {
     const handler =
       this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
 
@@ -375,6 +381,7 @@ export abstract class Protocol<
         this.request(r, resultSchema, { ...options, relatedRequestId: request.id }),
       authInfo: extra?.authInfo,
       requestId: request.id,
+      requestHeaders: extra?.requestHeaders,
     };
 
     // Starting with Promise.resolve() puts any synchronous errors into the monad as well.

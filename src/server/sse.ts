@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { IncomingMessage, ServerResponse } from "node:http";
+import { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 import { Transport } from "../shared/transport.js";
 import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 import getRawBody from "raw-body";
@@ -20,7 +20,7 @@ export class SSEServerTransport implements Transport {
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
+  onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo, requestHeaders?: IncomingHttpHeaders }) => void;
 
   /**
    * Creates a new SSE server transport, which will direct the client to POST messages to the relative or absolute URL identified by `_endpoint`.
@@ -106,7 +106,7 @@ export class SSEServerTransport implements Transport {
     }
 
     try {
-      await this.handleMessage(typeof body === 'string' ? JSON.parse(body) : body, { authInfo });
+      await this.handleMessage(typeof body === 'string' ? JSON.parse(body) : body, { authInfo, requestHeaders: req.headers });
     } catch {
       res.writeHead(400).end(`Invalid message: ${body}`);
       return;
@@ -118,7 +118,7 @@ export class SSEServerTransport implements Transport {
   /**
    * Handle a client message, regardless of how it arrived. This can be used to inform the server of messages that arrive via a means different than HTTP POST.
    */
-  async handleMessage(message: unknown, extra?: { authInfo?: AuthInfo }): Promise<void> {
+  async handleMessage(message: unknown, extra?: { authInfo?: AuthInfo, requestHeaders?: IncomingHttpHeaders }): Promise<void> {
     let parsedMessage: JSONRPCMessage;
     try {
       parsedMessage = JSONRPCMessageSchema.parse(message);
