@@ -118,7 +118,7 @@ export class SSEServerTransport implements Transport {
   /**
    * Handle a client message, regardless of how it arrived. This can be used to inform the server of messages that arrive via a means different than HTTP POST.
    */
-  async handleMessage(message: unknown, extra?: { authInfo?: AuthInfo, requestHeaders?: IncomingHttpHeaders }): Promise<void> {
+  async handleMessage(message: unknown, extra?: { authInfo?: AuthInfo, requestHeaders: IncomingHttpHeaders }): Promise<void> {
     let parsedMessage: JSONRPCMessage;
     try {
       parsedMessage = JSONRPCMessageSchema.parse(message);

@@ -1,3 +1,4 @@
+import { IncomingHttpHeaders } from "http";
 import { AuthInfo } from "../server/auth/types.js";
 import { JSONRPCMessage, RequestId } from "../types.js";
 
@@ -69,7 +70,7 @@ export interface Transport {
    * Includes the authInfo if the transport is authenticated.
    * 
    */
-  onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
+  onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo, requestHeaders?: IncomingHttpHeaders }) => void;
 
   /**
    * The session ID generated for this connection.

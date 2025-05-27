@@ -131,7 +131,7 @@ export type RequestHandlerExtra<SendRequestT extends Request,
     /**
      * The headers from the original request.
      */
-    requestHeaders?: IncomingHttpHeaders;
+    requestHeaders: IncomingHttpHeaders;
 
     /**
      * Sends a notification that relates to the current request being handled.
@@ -381,7 +381,7 @@ export abstract class Protocol<
         this.request(r, resultSchema, { ...options, relatedRequestId: request.id }),
       authInfo: extra?.authInfo,
       requestId: request.id,
-      requestHeaders: extra?.requestHeaders,
+      requestHeaders: extra?.requestHeaders ?? {},
     };
 
     // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
