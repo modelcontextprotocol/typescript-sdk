@@ -31,6 +31,7 @@ const TokenRequestSchema = z.object({
 const AuthorizationCodeGrantSchema = z.object({
   code: z.string(),
   code_verifier: z.string(),
+  redirect_uri: z.string().optional(),
 });
 
 const RefreshTokenGrantSchema = z.object({
@@ -88,7 +89,7 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
             throw new InvalidRequestError(parseResult.error.message);
           }
 
-          const { code, code_verifier } = parseResult.data;
+          const { code, code_verifier, redirect_uri } = parseResult.data;
 
           const skipLocalPkceValidation = provider.skipLocalPkceValidation;
 
@@ -102,7 +103,12 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
           }
 
           // Passes the code_verifier to the provider if PKCE validation didn't occur locally
-          const tokens = await provider.exchangeAuthorizationCode(client, code, skipLocalPkceValidation ? code_verifier : undefined);
+          const tokens = await provider.exchangeAuthorizationCode(
+            client, 
+            code, 
+            skipLocalPkceValidation ? code_verifier : undefined,
+            redirect_uri
+          );
           res.status(200).json(tokens);
           break;
         }

@@ -33,6 +33,12 @@ A full-featured interactive client that connects to a Streamable HTTP server, de
 npx tsx src/examples/client/simpleStreamableHttp.ts
 ```
 
+Example client with OAuth:
+
+```bash
+npx tsx src/examples/client/simpleOAuthClient.js
+```
+
 ### Backwards Compatible Client
 
 A client that implements backwards compatibility according to the [MCP specification](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility), allowing it to work with both new and legacy servers. This client demonstrates:

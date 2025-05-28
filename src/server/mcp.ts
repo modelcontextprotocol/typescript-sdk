@@ -198,40 +198,22 @@ export class McpServer {
           }
         }
 
-        // Handle structured output and backward compatibility
         if (tool.outputSchema) {
-          // Tool has outputSchema, so result must have structuredContent (unless it's an error)
-          if (!result.structuredContent && !result.isError) {
+          if (!result.structuredContent) {
             throw new McpError(
-              ErrorCode.InternalError,
-              `Tool ${request.params.name} has outputSchema but returned no structuredContent`,
+              ErrorCode.InvalidParams,
+              `Tool ${request.params.name} has an output schema but no structured content was provided`,
             );
           }
 
-          // For backward compatibility, if structuredContent is provided but no content,
-          // automatically serialize the structured content to text
-          if (result.structuredContent && !result.content) {
-            result.content = [
-              {
-                type: "text",
-                text: JSON.stringify(result.structuredContent, null, 2),
-              },
-            ];
-          }
-        } else {
-          // Tool must have content if no outputSchema
-          if (!result.content && !result.isError) {
+          // if the tool has an output schema, validate structured content
+          const parseResult = await tool.outputSchema.safeParseAsync(
+            result.structuredContent,
+          );
+          if (!parseResult.success) {
             throw new McpError(
-              ErrorCode.InternalError,
-              `Tool ${request.params.name} has no outputSchema and must return content`,
-            );
-          }
-
-          // If structuredContent is provided, it's an error
-          if (result.structuredContent) {
-            throw new McpError(
-              ErrorCode.InternalError,
-              `Tool ${request.params.name} has no outputSchema but returned structuredContent`,
+              ErrorCode.InvalidParams,
+              `Invalid structured content for tool ${request.params.name}: ${parseResult.error.message}`,
             );
           }
         }
