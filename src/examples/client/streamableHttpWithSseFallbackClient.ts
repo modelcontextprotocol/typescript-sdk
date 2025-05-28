@@ -173,7 +173,7 @@ async function startNotificationTool(client: Client): Promise<void> {
     const result = await client.request(request, CallToolResultSchema);
 
     console.log('Tool result:');
-    result.content?.forEach(item => {
+    result.content.forEach(item => {
       if (item.type === 'text') {
         console.log(`  ${item.text}`);
       } else {

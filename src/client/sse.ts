@@ -99,11 +99,11 @@ export class SSEClientTransport implements Transport {
   }
 
   private async _commonHeaders(): Promise<HeadersInit> {
-    const headers: HeadersInit = {};
+    const headers: HeadersInit = { ...this._requestInit?.headers };
     if (this._authProvider) {
       const tokens = await this._authProvider.tokens();
       if (tokens) {
-        headers["Authorization"] = `Bearer ${tokens.access_token}`;
+        (headers as Record<string, string>)["Authorization"] = `Bearer ${tokens.access_token}`;
       }
     }
 

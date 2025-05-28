@@ -36,7 +36,12 @@ export interface OAuthServerProvider {
   /**
    * Exchanges an authorization code for an access token.
    */
-  exchangeAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string, codeVerifier?: string): Promise<OAuthTokens>;
+  exchangeAuthorizationCode(
+    client: OAuthClientInformationFull, 
+    authorizationCode: string, 
+    codeVerifier?: string,
+    redirectUri?: string
+  ): Promise<OAuthTokens>;
 
   /**
    * Exchanges a refresh token for an access token.

@@ -151,7 +151,8 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
   async exchangeAuthorizationCode(
     client: OAuthClientInformationFull,
     authorizationCode: string,
-    codeVerifier?: string
+    codeVerifier?: string,
+    redirectUri?: string
   ): Promise<OAuthTokens> {
     const params = new URLSearchParams({
       grant_type: "authorization_code",
@@ -165,6 +166,10 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
 
     if (codeVerifier) {
       params.append("code_verifier", codeVerifier);
+    }
+
+    if (redirectUri) {
+      params.append("redirect_uri", redirectUri);
     }
 
     const response = await fetch(this._endpoints.tokenUrl, {

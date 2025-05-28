@@ -142,6 +142,28 @@ describe("Proxy OAuth Server Provider", () => {
       expect(tokens).toEqual(mockTokenResponse);
     });
 
+    it("includes redirect_uri in token request when provided", async () => {
+      const redirectUri = "https://example.com/callback";
+      const tokens = await provider.exchangeAuthorizationCode(
+        validClient,
+        "test-code",
+        "test-verifier",
+        redirectUri
+      );
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "https://auth.example.com/token",
+        expect.objectContaining({
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: expect.stringContaining(`redirect_uri=${encodeURIComponent(redirectUri)}`)
+        })
+      );
+      expect(tokens).toEqual(mockTokenResponse);
+    });
+
     it("exchanges refresh token for new tokens", async () => {
       const tokens = await provider.exchangeRefreshToken(
         validClient,
