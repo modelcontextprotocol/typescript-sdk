@@ -175,7 +175,7 @@ export async function auth(
     clientInformation,
     state,
     redirectUrl: provider.redirectUrl,
-    scope: scope || provider.clientMetadata.scope,
+    scope: scope || provider.clientMetadata.scope || (clientInformation as OAuthClientInformationFull).scope,
   });
 
   await provider.saveCodeVerifier(codeVerifier);

@@ -17,6 +17,7 @@ global.fetch = mockFetch;
 describe("OAuth Authorization", () => {
   beforeEach(() => {
     mockFetch.mockReset();
+    jest.clearAllMocks();
   });
 
   describe("extractResourceMetadataUrl", () => {
@@ -625,6 +626,7 @@ describe("OAuth Authorization", () => {
     });
   });
 
+  
   describe("registerClient", () => {
     const validClientMetadata = {
       redirect_uris: ["http://localhost:3000/callback"],
@@ -712,6 +714,7 @@ describe("OAuth Authorization", () => {
     });
   });
 
+
   describe("auth function", () => {
     const mockProvider: OAuthClientProvider = {
       get redirectUrl() { return "http://localhost:3000/callback"; },
@@ -727,10 +730,77 @@ describe("OAuth Authorization", () => {
       redirectToAuthorization: jest.fn(),
       saveCodeVerifier: jest.fn(),
       codeVerifier: jest.fn(),
+      saveClientInformation: jest.fn(),
+    };
+
+    const validMetadata = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      registration_endpoint: "https://auth.example.com/register",
+      response_types_supported: ["code"],
+      code_challenge_methods_supported: ["S256"],
+    };
+
+    const validClientInfo = {
+      client_id: "client123",
+      client_secret: "secret123",
+      redirect_uris: ["http://localhost:3000/callback"],
+      client_name: "Test Client",
     };
 
     beforeEach(() => {
       jest.clearAllMocks();
+    });
+
+
+    it("uses scope from registered client information if not present in clientMetadata", async () => {
+      // Mock fetch for metadata discovery and registration
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        }) // protected resource metadata
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => validMetadata,
+        }) // discovery
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ...validClientInfo,
+            scope: "dynamic scope from registration",
+          }),
+        }); // registration
+
+      // Provider: clientInformation returns undefined first, then fullInformation after registration
+      const fullInformation = {
+        ...validClientInfo,
+        scope: "dynamic scope from registration",
+      };
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const clientInformationMock = jest
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(fullInformation);
+
+      
+
+      await auth(mockProvider, {
+        serverUrl: "https://auth.example.com",
+      });
+
+      // Check saveClientInformation was called with fullInformation
+      expect(mockProvider.saveClientInformation).toHaveBeenCalledWith(fullInformation);
+
+      // Check that redirectToAuthorization was called with a URL containing the correct scope from registration
+      expect(mockProvider.redirectToAuthorization).toHaveBeenCalledTimes(1);
+      const urlArg = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0][0];
+      expect(urlArg).toBeInstanceOf(URL);
+      expect(urlArg.searchParams.get("scope")).toBe("dynamic scope from registration");
     });
 
     it("falls back to /.well-known/oauth-authorization-server when no protected-resource-metadata", async () => {
