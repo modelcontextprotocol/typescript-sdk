@@ -83,7 +83,7 @@ export class Server<
   /**
    * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
    */
-  oninitialized?: () => void;
+  onInitialized?: () => void;
 
   /**
    * Initializes this server with the given name and version information.
@@ -97,10 +97,10 @@ export class Server<
     this._instructions = options?.instructions;
 
     this.setRequestHandler(InitializeRequestSchema, (request) =>
-      this._oninitialize(request),
+      this._onInitialized(request),
     );
     this.setNotificationHandler(InitializedNotificationSchema, () =>
-      this.oninitialized?.(),
+      this.onInitialized?.(),
     );
   }
 
@@ -243,7 +243,7 @@ export class Server<
     }
   }
 
-  private async _oninitialize(
+  private async _onInitialized(
     request: InitializeRequest,
   ): Promise<InitializeResult> {
     const requestedVersion = request.params.protocolVersion;
