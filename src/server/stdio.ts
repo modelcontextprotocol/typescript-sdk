@@ -1,3 +1,4 @@
+import type { Buffer } from "node:buffer";
 import process from "node:process";
 import { Readable, Writable } from "node:stream";
 import { ReadBuffer, serializeMessage } from "../shared/stdio.js";
