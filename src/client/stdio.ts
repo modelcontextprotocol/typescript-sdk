@@ -39,6 +39,15 @@ export type StdioServerParameters = {
   cwd?: string;
 };
 
+// Configure default server parameters based on OS
+// Uses 'more' command for Windows and 'tee' command for Unix/Linux
+export const getDefaultServerParameters = (): StdioServerParameters => {
+  if (process.platform === "win32") {
+    return { command: "more" };
+  }
+  return { command: "/usr/bin/tee" };
+};
+
 /**
  * Environment variables to inherit by default, if an environment is not explicitly given.
  */
