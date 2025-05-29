@@ -1,6 +1,7 @@
 import { StreamableHTTPClientTransport, StreamableHTTPReconnectionOptions } from "./streamableHttp.js";
 import { OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { JSONRPCMessage } from "../types.js";
+import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from "../server/auth/errors.js";
 
 
 describe("StreamableHTTPClientTransport", () => {
@@ -17,6 +18,7 @@ describe("StreamableHTTPClientTransport", () => {
       redirectToAuthorization: jest.fn(),
       saveCodeVerifier: jest.fn(),
       codeVerifier: jest.fn(),
+      invalidateCredentials: jest.fn(),
     };
     transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), { authProvider: mockAuthProvider });
     jest.spyOn(global, "fetch");
@@ -562,5 +564,161 @@ describe("StreamableHTTPClientTransport", () => {
 
     await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
     expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
+  });
+
+  it("invalidates all credentials on InvalidClientError during auth", async () => {
+    const message: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      method: "test",
+      params: {},
+      id: "test-id"
+    };
+
+    mockAuthProvider.tokens.mockResolvedValue({
+      access_token: "test-token",
+      token_type: "Bearer",
+      refresh_token: "test-refresh"
+    });
+
+    const unauthedResponse = {
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      headers: new Headers()
+    };
+    (global.fetch as jest.Mock)
+      // Initial connection
+      .mockResolvedValueOnce(unauthedResponse)
+      // Resource discovery
+      .mockResolvedValueOnce(unauthedResponse)
+      // OAuth metadata discovery
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          issuer: "http://localhost:1234",
+          authorization_endpoint: "http://localhost:1234/authorize",
+          token_endpoint: "http://localhost:1234/token",
+          response_types_supported: ["code"],
+          code_challenge_methods_supported: ["S256"],
+        }),
+      })
+      // Token refresh fails with InvalidClientError
+      .mockResolvedValueOnce(Response.json(
+        new InvalidClientError("Client authentication failed").toResponseObject(),
+        { status: 400 }
+      ))
+      // Fallback should fail to complete the flow
+      .mockResolvedValue({
+        ok: false,
+        status: 404
+      });
+
+    await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+    expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
+  });
+
+  it("invalidates all credentials on UnauthorizedClientError during auth", async () => {
+    const message: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      method: "test",
+      params: {},
+      id: "test-id"
+    };
+
+    mockAuthProvider.tokens.mockResolvedValue({
+      access_token: "test-token",
+      token_type: "Bearer",
+      refresh_token: "test-refresh"
+    });
+
+    const unauthedResponse = {
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      headers: new Headers()
+    };
+    (global.fetch as jest.Mock)
+      // Initial connection
+      .mockResolvedValueOnce(unauthedResponse)
+      // Resource discovery
+      .mockResolvedValueOnce(unauthedResponse)
+      // OAuth metadata discovery
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          issuer: "http://localhost:1234",
+          authorization_endpoint: "http://localhost:1234/authorize",
+          token_endpoint: "http://localhost:1234/token",
+          response_types_supported: ["code"],
+          code_challenge_methods_supported: ["S256"],
+        }),
+      })
+      // Token refresh fails with UnauthorizedClientError
+      .mockResolvedValueOnce(Response.json(
+        new UnauthorizedClientError("Client not authorized").toResponseObject(),
+        { status: 400 }
+      ))
+      // Fallback should fail to complete the flow
+      .mockResolvedValue({
+        ok: false,
+        status: 404
+      });
+
+    await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+    expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
+  });
+
+  it("invalidates tokens on InvalidGrantError during auth", async () => {
+    const message: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      method: "test",
+      params: {},
+      id: "test-id"
+    };
+
+    mockAuthProvider.tokens.mockResolvedValue({
+      access_token: "test-token",
+      token_type: "Bearer",
+      refresh_token: "test-refresh"
+    });
+
+    const unauthedResponse = {
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      headers: new Headers()
+    };
+    (global.fetch as jest.Mock)
+      // Initial connection
+      .mockResolvedValueOnce(unauthedResponse)
+      // Resource discovery
+      .mockResolvedValueOnce(unauthedResponse)
+      // OAuth metadata discovery
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          issuer: "http://localhost:1234",
+          authorization_endpoint: "http://localhost:1234/authorize",
+          token_endpoint: "http://localhost:1234/token",
+          response_types_supported: ["code"],
+          code_challenge_methods_supported: ["S256"],
+        }),
+      })
+      // Token refresh fails with InvalidGrantError
+      .mockResolvedValueOnce(Response.json(
+        new InvalidGrantError("Invalid refresh token").toResponseObject(),
+        { status: 400 }
+      ))
+      // Fallback should fail to complete the flow
+      .mockResolvedValue({
+        ok: false,
+        status: 404
+      });
+
+    await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+    expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
   });
 });

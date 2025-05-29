@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { requireBearerAuth } from "./bearerAuth.js";
 import { AuthInfo } from "../types.js";
-import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from "../errors.js";
+import { InsufficientScopeError, InvalidTokenError, CustomOAuthError, ServerError } from "../errors.js";
 import { OAuthTokenVerifier } from "../provider.js";
 
 // Mock verifier
@@ -268,7 +268,7 @@ describe("requireBearerAuth middleware", () => {
       authorization: "Bearer valid-token",
     };
 
-    mockVerifyAccessToken.mockRejectedValue(new OAuthError("custom_error", "Some OAuth error"));
+    mockVerifyAccessToken.mockRejectedValue(new CustomOAuthError("custom_error", "Some OAuth error"));
 
     const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
