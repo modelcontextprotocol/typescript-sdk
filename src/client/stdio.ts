@@ -56,6 +56,7 @@ export const DEFAULT_INHERITED_ENV_VARS =
         "TEMP",
         "USERNAME",
         "USERPROFILE",
+        "PROGRAMFILES",
       ]
     : /* list inspired by the default env inheritance of sudo */
       ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"];
