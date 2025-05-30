@@ -484,8 +484,7 @@ describe("tool()", () => {
       ],
     }));
 
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
     await Promise.all([
       client.connect(clientTransport),
@@ -2937,7 +2936,7 @@ describe("prompt()", () => {
     result = await client.request(
       { method: "prompts/list" },
       ListPromptsResultSchema,
-    );
+       );
 
     expect(result.prompts).toHaveLength(1);
     expect(result.prompts[0].name).toBe("prompt2");
@@ -3498,5 +3497,38 @@ describe("prompt()", () => {
     expect(receivedRequestId).toBeDefined();
     expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
     expect(result.messages[0].content.text).toContain("Received request ID:");
+  });
+});
+
+describe("registration checks", () => {
+  /**
+   * Test: hasTool, hasResource, hasPrompt
+   */
+  test("should check tool/resource/prompt registration", () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    // Register tool, resource, prompt
+    mcpServer.tool("tool1", async () => ({ content: [] }));
+    mcpServer.resource("resource1", "test://resource1", async () => ({ contents: [] }));
+    // For prompt, return a valid prompt result (with messages)
+    mcpServer.prompt("prompt1", async () => ({
+      messages: [
+        {
+          role: "assistant",
+          content: { type: "text", text: "dummy" },
+        },
+      ],
+    }));
+
+    // Check registration
+    expect(mcpServer.hasTool("tool1")).toBe(true);
+    expect(mcpServer.hasTool("not-exist")).toBe(false);
+    expect(mcpServer.hasResource("test://resource1")).toBe(true);
+    expect(mcpServer.hasResource("not-exist://uri")).toBe(false);
+    expect(mcpServer.hasPrompt("prompt1")).toBe(true);
+    expect(mcpServer.hasPrompt("not-exist")).toBe(false);
   });
 });

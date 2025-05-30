@@ -881,6 +881,33 @@ export class McpServer {
   }
 
   /**
+   * Checks if a tool with the given name is registered.
+   * @param name Tool name
+   * @returns True if the tool is registered
+   */
+  hasTool(name: string): boolean {
+    return !!this._registeredTools[name];
+  }
+
+  /**
+   * Checks if a resource with the given URI is registered.
+   * @param uri Resource URI
+   * @returns True if the resource is registered
+   */
+  hasResource(uri: string): boolean {
+    return !!this._registeredResources[uri];
+  }
+
+  /**
+   * Checks if a prompt with the given name is registered.
+   * @param name Prompt name
+   * @returns True if the prompt is registered
+   */
+  hasPrompt(name: string): boolean {
+    return !!this._registeredPrompts[name];
+  }
+
+  /**
    * Checks if the server is connected to a transport.
    * @returns True if the server is connected
    */
