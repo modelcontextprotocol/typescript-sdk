@@ -934,9 +934,9 @@ export class ResourceTemplate {
     uriTemplate: string | UriTemplate,
     private _callbacks: {
       /**
-       * A callback to list all resources matching this template. This is required to specified, even if `undefined`, to avoid accidentally forgetting resource listing.
+       * A callback to list all resources matching this template.
        */
-      list: ListResourcesCallback | undefined;
+      list?: ListResourcesCallback;
 
       /**
        * An optional callback to autocomplete variables within the URI template. Useful for clients and users to discover possible values.
@@ -944,7 +944,7 @@ export class ResourceTemplate {
       complete?: {
         [variable: string]: CompleteResourceTemplateCallback;
       };
-    },
+    } = {},
   ) {
     this._uriTemplate =
       typeof uriTemplate === "string"
