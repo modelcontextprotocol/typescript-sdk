@@ -541,7 +541,10 @@ export abstract class Protocol<
         this._progressHandlers.set(messageId, options.onprogress);
         jsonrpcRequest.params = {
           ...request.params,
-          _meta: { progressToken: messageId },
+          _meta: {
+            ...(request.params?._meta || {}),
+            progressToken: messageId
+          },
         };
       }
 
