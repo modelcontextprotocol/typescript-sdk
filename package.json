@@ -38,6 +38,7 @@
     "build": "npm run build:esm && npm run build:cjs",
     "build:esm": "tsc -p tsconfig.prod.json && echo '{\"type\": \"module\"}' > dist/esm/package.json",
     "build:cjs": "tsc -p tsconfig.cjs.json && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json",
+    "prepare": "npm run build",
     "prepack": "npm run build:esm && npm run build:cjs",
     "lint": "eslint src/",
     "test": "jest",
