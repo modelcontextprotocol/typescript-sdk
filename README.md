@@ -312,16 +312,27 @@ app.listen(3000);
 For simpler use cases where session management isn't needed:
 
 ```typescript
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import express from "express";
+
+const server = new McpServer({
+  name: "Stateless Streamable HTTP Server",
+  version: "1.0.0"
+});
+
+// register tools here
+
 const app = express();
 app.use(express.json());
 
-app.post('/mcp', async (req: Request, res: Response) => {
+
+app.post('/mcp', async (req: express.Request, res: express.Response) => {
   // In stateless mode, create a new instance of transport and server for each request
   // to ensure complete isolation. A single instance would cause request ID collisions
   // when multiple clients connect concurrently.
   
   try {
-    const server = getServer(); 
     const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
@@ -347,7 +358,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/mcp', async (req: Request, res: Response) => {
+app.get('/mcp', async (req: express.Request, res: express.Response) => {
   console.log('Received GET MCP request');
   res.writeHead(405).end(JSON.stringify({
     jsonrpc: "2.0",
@@ -359,7 +370,7 @@ app.get('/mcp', async (req: Request, res: Response) => {
   }));
 });
 
-app.delete('/mcp', async (req: Request, res: Response) => {
+app.delete('/mcp', async (req: express.Request, res: express.Response) => {
   console.log('Received DELETE MCP request');
   res.writeHead(405).end(JSON.stringify({
     jsonrpc: "2.0",
