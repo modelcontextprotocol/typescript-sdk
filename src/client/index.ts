@@ -303,6 +303,14 @@ export class Client<
         }
         break;
 
+      case "elicitation/create":
+        if (!this._capabilities.elicitation) {
+          throw new Error(
+            `Client does not support elicitation capability (required for ${method})`,
+          );
+        }
+        break;
+
       case "roots/list":
         if (!this._capabilities.roots) {
           throw new Error(
