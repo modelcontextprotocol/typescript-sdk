@@ -3,6 +3,14 @@ import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPC
 import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { EventSourceParserStream } from "eventsource-parser/stream";
 
+// Polyfill fetch if not available in the environment
+if (!globalThis.fetch) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+  const crossFetch = require("cross-fetch" as any);
+  globalThis.fetch = crossFetch.fetch;
+  globalThis.Headers = crossFetch.Headers;
+}
+
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
   initialReconnectionDelay: 1000,
