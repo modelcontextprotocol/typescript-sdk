@@ -236,6 +236,10 @@ export class McpServer {
       CompleteRequestSchema.shape.method.value,
     );
 
+    this.server.registerCapabilities({
+      completions: {},
+    });
+
     this.server.setRequestHandler(
       CompleteRequestSchema,
       async (request): Promise<CompleteResult> => {
