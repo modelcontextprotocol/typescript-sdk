@@ -1,4 +1,4 @@
-import { IncomingMessage, ServerResponse } from "node:http";
+import { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 import { Transport } from "../shared/transport.js";
 import { isInitializeRequest, isJSONRPCError, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema, RequestId } from "../types.js";
 import getRawBody from "raw-body";
@@ -113,7 +113,7 @@ export class StreamableHTTPServerTransport implements Transport {
   sessionId?: string | undefined;
   onclose?: () => void;
   onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
+  onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo, requestHeaders?: IncomingHttpHeaders }) => void;
 
   constructor(options: StreamableHTTPServerTransportOptions) {
     this.sessionIdGenerator = options.sessionIdGenerator;
@@ -395,7 +395,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
         // handle each message
         for (const message of messages) {
-          this.onmessage?.(message, { authInfo });
+          this.onmessage?.(message, { authInfo, requestHeaders: req.headers });
         }
       } else if (hasRequests) {
         // The default behavior is to use SSE streaming
@@ -430,7 +430,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
         // handle each message
         for (const message of messages) {
-          this.onmessage?.(message, { authInfo });
+          this.onmessage?.(message, { authInfo, requestHeaders: req.headers });
         }
         // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
         // This will be handled by the send() method when responses are ready
