@@ -1,5 +1,5 @@
 {
-  "name": "@modelcontextprotocol/sdk",
+  "name": "composiohq-modelcontextprotocol-typescript-sdk",
   "version": "1.12.2",
   "description": "Model Context Protocol implementation for TypeScript",
   "license": "MIT",
