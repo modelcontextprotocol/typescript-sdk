@@ -124,7 +124,7 @@ export class McpServer {
 
             if (tool.outputSchema) {
               toolDefinition.outputSchema = zodToJsonSchema(
-                tool.outputSchema, 
+                tool.outputSchema,
                 { strictUnions: true }
               ) as Tool["outputSchema"];
             }
@@ -492,6 +492,8 @@ export class McpServer {
           );
         }
 
+        let result: GetPromptResult;
+
         if (prompt.argsSchema) {
           const parseResult = await prompt.argsSchema.safeParseAsync(
             request.params.arguments,
@@ -505,11 +507,13 @@ export class McpServer {
 
           const args = parseResult.data;
           const cb = prompt.callback as PromptCallback<PromptArgsRawShape>;
-          return await Promise.resolve(cb(args, extra));
+          result = await Promise.resolve(cb(args, extra));
         } else {
           const cb = prompt.callback as PromptCallback<undefined>;
-          return await Promise.resolve(cb(extra));
+          result = await Promise.resolve(cb(extra));
         }
+
+        return result;
       },
     );
 
@@ -1004,15 +1008,15 @@ export type RegisteredTool = {
   enable(): void;
   disable(): void;
   update<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape>(
-    updates: { 
-      name?: string | null, 
-      description?: string, 
-      paramsSchema?: InputArgs, 
-      outputSchema?: OutputArgs, 
-      annotations?: ToolAnnotations, 
-      callback?: ToolCallback<InputArgs>, 
-      enabled?: boolean 
-  }): void
+    updates: {
+      name?: string | null,
+      description?: string,
+      paramsSchema?: InputArgs,
+      outputSchema?: OutputArgs,
+      annotations?: ToolAnnotations,
+      callback?: ToolCallback<InputArgs>,
+      enabled?: boolean
+    }): void
   remove(): void
 };
 

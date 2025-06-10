@@ -27,6 +27,9 @@ import {
   ServerRequest,
   ServerResult,
   SUPPORTED_PROTOCOL_VERSIONS,
+  formatPromptMessage,
+  supportsContentArrays,
+  GetPromptResult,
 } from "../types.js";
 
 export type ServerOptions = ProtocolOptions & {
@@ -79,6 +82,7 @@ export class Server<
   private _clientVersion?: Implementation;
   private _capabilities: ServerCapabilities;
   private _instructions?: string;
+  private _negotiatedProtocolVersion?: string;
 
   /**
    * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
@@ -250,11 +254,14 @@ export class Server<
 
     this._clientCapabilities = request.params.capabilities;
     this._clientVersion = request.params.clientInfo;
+    
+    // Store the negotiated protocol version
+    this._negotiatedProtocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion)
+      ? requestedVersion
+      : LATEST_PROTOCOL_VERSION;
 
     return {
-      protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion)
-        ? requestedVersion
-        : LATEST_PROTOCOL_VERSION,
+      protocolVersion: this._negotiatedProtocolVersion,
       capabilities: this.getCapabilities(),
       serverInfo: this._serverInfo,
       ...(this._instructions && { instructions: this._instructions }),
@@ -273,6 +280,35 @@ export class Server<
    */
   getClientVersion(): Implementation | undefined {
     return this._clientVersion;
+  }
+
+  /**
+   * After initialization has completed, this will be populated with the negotiated protocol version.
+   */
+  getNegotiatedProtocolVersion(): string | undefined {
+    return this._negotiatedProtocolVersion;
+  }
+
+  /**
+   * Override formatResponse to automatically format prompt responses based on protocol version
+   */
+  protected override formatResponse(method: string, result: ServerResult | ResultT): ServerResult | ResultT {
+    if (method === "prompts/get") {
+      const protocolVersion = this.getNegotiatedProtocolVersion();
+      if (protocolVersion && result && typeof result === 'object' && 'messages' in result) {
+        if (!supportsContentArrays(protocolVersion)) {
+          // For older clients, convert array content to single objects
+          const promptResult = result as GetPromptResult;
+          return {
+            ...result,
+            messages: promptResult.messages.map(message =>
+              formatPromptMessage(message, protocolVersion)
+            ),
+          } as ServerResult | ResultT;
+        }
+      }
+    }
+    return result;
   }
 
   private getCapabilities(): ServerCapabilities {

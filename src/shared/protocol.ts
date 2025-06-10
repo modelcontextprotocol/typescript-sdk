@@ -386,8 +386,11 @@ export abstract class Protocol<
             return;
           }
 
+          // Allow subclasses to format responses based on protocol version
+          const formattedResult = this.formatResponse(request.method, result);
+
           return this._transport?.send({
-            result,
+            result: formattedResult,
             jsonrpc: "2.0",
             id: request.id,
           });
@@ -646,6 +649,14 @@ export abstract class Protocol<
     this._requestHandlers.set(method, (request, extra) => {
       return Promise.resolve(handler(requestSchema.parse(request), extra));
     });
+  }
+
+  /**
+   * Format a response before sending it back. Subclasses can override this to 
+   * implement protocol version-specific formatting.
+   */
+  protected formatResponse(method: string, result: SendResultT): SendResultT {
+    return result;
   }
 
   /**

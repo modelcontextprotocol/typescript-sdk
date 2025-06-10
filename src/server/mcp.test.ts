@@ -2698,7 +2698,11 @@ describe("prompt()", () => {
     );
 
     expect(result.messages).toHaveLength(1);
-    expect(result.messages[0].content.text).toBe("Updated response");
+    const content = result.messages[0].content;
+    const text = Array.isArray(content) 
+      ? (content[0] as { type: "text"; text: string }).text 
+      : (content as { type: "text"; text: string }).text;
+    expect(text).toBe("Updated response");
 
     // Update happened before transport was connected, so no notifications should be expected
     expect(notifications).toHaveLength(0);
@@ -2794,7 +2798,11 @@ describe("prompt()", () => {
     );
 
     expect(getResult.messages).toHaveLength(1);
-    expect(getResult.messages[0].content.text).toBe("Updated: test, value");
+    const content2 = getResult.messages[0].content;
+    const text2 = Array.isArray(content2) 
+      ? (content2[0] as { type: "text"; text: string }).text 
+      : (content2 as { type: "text"; text: string }).text;
+    expect(text2).toBe("Updated: test, value");
 
     // Update happened before transport was connected, so no notifications should be expected
     expect(notifications).toHaveLength(0);
@@ -3497,6 +3505,10 @@ describe("prompt()", () => {
 
     expect(receivedRequestId).toBeDefined();
     expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
-    expect(result.messages[0].content.text).toContain("Received request ID:");
+    const content3 = result.messages[0].content;
+    const text3 = Array.isArray(content3) 
+      ? (content3[0] as { type: "text"; text: string }).text 
+      : (content3 as { type: "text"; text: string }).text;
+    expect(text3).toContain("Received request ID:");
   });
 });

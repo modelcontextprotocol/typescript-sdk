@@ -730,13 +730,22 @@ export const PromptMessageSchema = z
   .object({
     role: z.enum(["user", "assistant"]),
     content: z.union([
-      TextContentSchema,
-      ImageContentSchema,
-      AudioContentSchema,
-      EmbeddedResourceSchema,
+      z.array(z.union([
+        TextContentSchema,
+        ImageContentSchema,
+        AudioContentSchema,
+        EmbeddedResourceSchema,
+      ])),
+      z.union([
+        TextContentSchema,
+        ImageContentSchema,
+        AudioContentSchema,
+        EmbeddedResourceSchema,
+      ]),
     ]),
   })
   .passthrough();
+
 
 /**
  * The server's response to a prompts/get request from the client.
@@ -748,6 +757,7 @@ export const GetPromptResultSchema = ResultSchema.extend({
   description: z.optional(z.string()),
   messages: z.array(PromptMessageSchema),
 });
+
 
 /**
  * An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This may be issued by servers without any previous subscription from the client.
@@ -846,7 +856,7 @@ export const ToolSchema = z
         properties: z.optional(z.object({}).passthrough()),
         required: z.optional(z.array(z.string())),
       })
-      .passthrough()
+        .passthrough()
     ),
     /**
      * Optional additional tool information.
@@ -1030,9 +1040,13 @@ export const ModelPreferencesSchema = z
 export const SamplingMessageSchema = z
   .object({
     role: z.enum(["user", "assistant"]),
-    content: z.union([TextContentSchema, ImageContentSchema, AudioContentSchema]),
+    content: z.union([
+      z.array(z.union([TextContentSchema, ImageContentSchema, AudioContentSchema])),
+      z.union([TextContentSchema, ImageContentSchema, AudioContentSchema]),
+    ]),
   })
   .passthrough();
+
 
 /**
  * A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
@@ -1080,13 +1094,7 @@ export const CreateMessageResultSchema = ResultSchema.extend({
   stopReason: z.optional(
     z.enum(["endTurn", "stopSequence", "maxTokens"]).or(z.string()),
   ),
-  role: z.enum(["user", "assistant"]),
-  content: z.discriminatedUnion("type", [
-    TextContentSchema,
-    ImageContentSchema,
-    AudioContentSchema
-  ]),
-});
+}).merge(SamplingMessageSchema);
 
 /* Autocomplete */
 /**
@@ -1397,3 +1405,113 @@ export type ClientResult = Infer<typeof ClientResultSchema>;
 export type ServerRequest = Infer<typeof ServerRequestSchema>;
 export type ServerNotification = Infer<typeof ServerNotificationSchema>;
 export type ServerResult = Infer<typeof ServerResultSchema>;
+
+/* Protocol version helpers */
+
+/**
+ * Determines if a protocol version supports content arrays.
+ * Versions 2025-03-26 and later support arrays, earlier versions expect single content blocks.
+ */
+export function supportsContentArrays(protocolVersion: string): boolean {
+  // Simple string comparison works for the current version scheme
+  return protocolVersion >= "2025-03-26";
+}
+
+/**
+ * Content array reducer function type for converting arrays to single content blocks.
+ * Used when serving older clients that expect single content blocks.
+ */
+export type ContentArrayReducer<T> = (content: T[]) => T;
+
+/**
+ * Union type for all possible content blocks in PromptMessage
+ */
+export type PromptContentBlock = TextContent | ImageContent | AudioContent | EmbeddedResource;
+
+/**
+ * Union type for all possible content blocks in SamplingMessage
+ */
+export type SamplingContentBlock = TextContent | ImageContent | AudioContent;
+
+/**
+ * Default reducer that returns the first content block from an array.
+ */
+export const defaultPromptContentReducer: ContentArrayReducer<PromptContentBlock> = (content: PromptContentBlock[]): PromptContentBlock => {
+  return content[0];
+};
+
+/**
+ * Default reducer that returns the first content block from an array.
+ */
+export const defaultSamplingContentReducer: ContentArrayReducer<SamplingContentBlock> = (content: SamplingContentBlock[]): SamplingContentBlock => {
+  return content[0];
+};
+
+/**
+ * Format a PromptMessage for the given protocol version.
+ * For versions < 2025-03-26, converts array content to single content using the reducer.
+ * For versions >= 2025-03-26, returns the message as-is with array content.
+ */
+export function formatPromptMessage(
+  message: PromptMessage,
+  protocolVersion: string,
+  contentReducer?: ContentArrayReducer<PromptContentBlock>
+): PromptMessage {
+  if (supportsContentArrays(protocolVersion)) {
+    // For newer versions, ensure content is array format
+    if (Array.isArray(message.content)) {
+      return message;
+    } else {
+      return {
+        ...message,
+        content: [message.content],
+      };
+    }
+  } else {
+    // For older versions, ensure content is single object format
+    if (Array.isArray(message.content)) {
+      const reducer = contentReducer || defaultPromptContentReducer;
+      return {
+        ...message,
+        content: reducer(message.content),
+      };
+    } else {
+      return message;
+    }
+  }
+}
+
+/**
+ * Format a SamplingMessage for the given protocol version.
+ * VERSION WILL BE CHANGED!!! this is just because I'm lazy and don't want to change the version in all places
+ * For versions < 2025-03-26, converts array content to single content using the reducer.
+ * For versions >= 2025-03-26, returns the message as-is with array content.
+ */
+export function formatSamplingMessage(
+  message: SamplingMessage,
+  protocolVersion: string,
+  contentReducer?: ContentArrayReducer<SamplingContentBlock>
+): SamplingMessage {
+  if (supportsContentArrays(protocolVersion)) {
+    // For newer versions, ensure content is array format
+    if (Array.isArray(message.content)) {
+      return message;
+    } else {
+      return {
+        ...message,
+        content: [message.content],
+      };
+    }
+  } else {
+    // For older versions, ensure content is single object format
+    if (Array.isArray(message.content)) {
+      const reducer = contentReducer || defaultSamplingContentReducer;
+      return {
+        ...message,
+        content: reducer(message.content),
+      };
+    } else {
+      return message;
+    }
+  }
+}

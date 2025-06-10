@@ -42,6 +42,8 @@ import {
   Tool,
   ErrorCode,
   McpError,
+  CreateMessageResult,
+  formatSamplingMessage,
 } from "../types.js";
 import Ajv from "ajv";
 import type { ValidateFunction } from "ajv";
@@ -91,6 +93,7 @@ export class Client<
   private _serverVersion?: Implementation;
   private _capabilities: ClientCapabilities;
   private _instructions?: string;
+  private _negotiatedProtocolVersion?: string;
   private _cachedToolOutputValidators: Map<string, ValidateFunction> = new Map();
   private _ajv: InstanceType<typeof Ajv>;
 
@@ -165,6 +168,7 @@ export class Client<
 
       this._serverCapabilities = result.capabilities;
       this._serverVersion = result.serverInfo;
+      this._negotiatedProtocolVersion = result.protocolVersion;
 
       this._instructions = result.instructions;
 
@@ -198,6 +202,30 @@ export class Client<
   getInstructions(): string | undefined {
     return this._instructions;
   }
+
+  /**
+   * After initialization has completed, this will be populated with the negotiated protocol version.
+   */
+  getNegotiatedProtocolVersion(): string | undefined {
+    return this._negotiatedProtocolVersion;
+  }
+
+  /**
+   * Override formatResponse to automatically format sampling responses based on protocol version
+   */
+  protected override formatResponse(method: string, result: ClientResult | ResultT): ClientResult | ResultT {
+    if (method === "sampling/createMessage") {
+      const protocolVersion = this.getNegotiatedProtocolVersion();
+      if (protocolVersion && result && typeof result === 'object' && 'content' in result) {
+        return {
+          ...result,
+          ...formatSamplingMessage(result as CreateMessageResult, protocolVersion),
+        };
+      }
+    }
+    return result;
+  }
+
 
   protected assertCapabilityForMethod(method: RequestT["method"]): void {
     switch (method as ClientRequest["method"]) {
