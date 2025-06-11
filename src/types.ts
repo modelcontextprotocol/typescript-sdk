@@ -10,21 +10,12 @@ export const SUPPORTED_PROTOCOL_VERSIONS = [
 /* JSON-RPC types */
 export const JSONRPC_VERSION = "2.0";
 
-/**
- * A progress token, used to associate progress notifications with the original request.
- */
 export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
 
-/**
- * An opaque token used to represent a cursor for pagination.
- */
 export const CursorSchema = z.string();
 
 const RequestMetaSchema = z
   .object({
-    /**
-     * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
-     */
     progressToken: z.optional(ProgressTokenSchema),
   })
   .passthrough();
@@ -42,9 +33,6 @@ export const RequestSchema = z.object({
 
 const BaseNotificationParamsSchema = z
   .object({
-    /**
-     * This parameter name is reserved by MCP to allow clients and servers to attach additional metadata to their notifications.
-     */
     _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
@@ -56,21 +44,12 @@ export const NotificationSchema = z.object({
 
 export const ResultSchema = z
   .object({
-    /**
-     * This result property is reserved by the protocol to allow clients and servers to attach additional metadata to their responses.
-     */
     _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
 
-/**
- * A uniquely identifying ID for a request in JSON-RPC.
- */
 export const RequestIdSchema = z.union([z.string(), z.number().int()]);
 
-/**
- * A request that expects a response.
- */
 export const JSONRPCRequestSchema = z
   .object({
     jsonrpc: z.literal(JSONRPC_VERSION),
@@ -82,9 +61,6 @@ export const JSONRPCRequestSchema = z
 export const isJSONRPCRequest = (value: unknown): value is JSONRPCRequest =>
   JSONRPCRequestSchema.safeParse(value).success;
 
-/**
- * A notification which does not expect a response.
- */
 export const JSONRPCNotificationSchema = z
   .object({
     jsonrpc: z.literal(JSONRPC_VERSION),
@@ -97,9 +73,6 @@ export const isJSONRPCNotification = (
 ): value is JSONRPCNotification =>
   JSONRPCNotificationSchema.safeParse(value).success;
 
-/**
- * A successful (non-error) response to a request.
- */
 export const JSONRPCResponseSchema = z
   .object({
     jsonrpc: z.literal(JSONRPC_VERSION),
@@ -127,25 +100,13 @@ export enum ErrorCode {
   InternalError = -32603,
 }
 
-/**
- * A response to a request that indicates an error occurred.
- */
 export const JSONRPCErrorSchema = z
   .object({
     jsonrpc: z.literal(JSONRPC_VERSION),
     id: RequestIdSchema,
     error: z.object({
-      /**
-       * The error type that occurred.
-       */
       code: z.number().int(),
-      /**
-       * A short description of the error. The message SHOULD be limited to a concise single sentence.
-       */
       message: z.string(),
-      /**
-       * Additional information about the error. The value of this member is defined by the sender (e.g. detailed error information, nested errors etc.).
-       */
       data: z.optional(z.unknown()),
     }),
   })
@@ -162,42 +123,18 @@ export const JSONRPCMessageSchema = z.union([
 ]);
 
 /* Empty result */
-/**
- * A response that indicates success but carries no data.
- */
 export const EmptyResultSchema = ResultSchema.strict();
 
 /* Cancellation */
-/**
- * This notification can be sent by either side to indicate that it is cancelling a previously-issued request.
- *
- * The request SHOULD still be in-flight, but due to communication latency, it is always possible that this notification MAY arrive after the request has already finished.
- *
- * This notification indicates that the result will be unused, so any associated processing SHOULD cease.
- *
- * A client MUST NOT attempt to cancel its `initialize` request.
- */
 export const CancelledNotificationSchema = NotificationSchema.extend({
   method: z.literal("notifications/cancelled"),
   params: BaseNotificationParamsSchema.extend({
-    /**
-     * The ID of the request to cancel.
-     *
-     * This MUST correspond to the ID of a request previously issued in the same direction.
-     */
     requestId: RequestIdSchema,
-
-    /**
-     * An optional string describing the reason for the cancellation. This MAY be logged or presented to the user.
-     */
     reason: z.string().optional(),
   }),
 });
 
 /* Initialization */
-/**
- * Describes the name and version of an MCP implementation.
- */
 export const ImplementationSchema = z
   .object({
     name: z.string(),
@@ -205,28 +142,13 @@ export const ImplementationSchema = z
   })
   .passthrough();
 
-/**
- * Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
- */
 export const ClientCapabilitiesSchema = z
   .object({
-    /**
-     * Experimental, non-standard capabilities that the client supports.
-     */
     experimental: z.optional(z.object({}).passthrough()),
-    /**
-     * Present if the client supports sampling from an LLM.
-     */
     sampling: z.optional(z.object({}).passthrough()),
-    /**
-     * Present if the client supports listing roots.
-     */
     roots: z.optional(
       z
         .object({
-          /**
-           * Whether the client supports issuing notifications for changes to the roots list.
-           */
           listChanged: z.optional(z.boolean()),
         })
         .passthrough(),
@@ -234,15 +156,9 @@ export const ClientCapabilitiesSchema = z
   })
   .passthrough();
 
-/**
- * This request is sent from the client to the server when it first connects, asking it to begin initialization.
- */
 export const InitializeRequestSchema = RequestSchema.extend({
   method: z.literal("initialize"),
   params: BaseRequestParamsSchema.extend({
-    /**
-     * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
-     */
     protocolVersion: z.string(),
     capabilities: ClientCapabilitiesSchema,
     clientInfo: ImplementationSchema,
@@ -253,63 +169,29 @@ export const isInitializeRequest = (value: unknown): value is InitializeRequest 
   InitializeRequestSchema.safeParse(value).success;
 
 
-/**
- * Capabilities that a server may support. Known capabilities are defined here, in this schema, but this is not a closed set: any server can define its own, additional capabilities.
- */
 export const ServerCapabilitiesSchema = z
   .object({
-    /**
-     * Experimental, non-standard capabilities that the server supports.
-     */
     experimental: z.optional(z.object({}).passthrough()),
-    /**
-     * Present if the server supports sending log messages to the client.
-     */
     logging: z.optional(z.object({}).passthrough()),
-    /**
-     * Present if the server supports sending completions to the client.
-     */
     completions: z.optional(z.object({}).passthrough()),
-    /**
-     * Present if the server offers any prompt templates.
-     */
     prompts: z.optional(
       z
         .object({
-          /**
-           * Whether this server supports issuing notifications for changes to the prompt list.
-           */
           listChanged: z.optional(z.boolean()),
         })
         .passthrough(),
     ),
-    /**
-     * Present if the server offers any resources to read.
-     */
     resources: z.optional(
       z
         .object({
-          /**
-           * Whether this server supports clients subscribing to resource updates.
-           */
           subscribe: z.optional(z.boolean()),
-
-          /**
-           * Whether this server supports issuing notifications for changes to the resource list.
-           */
           listChanged: z.optional(z.boolean()),
         })
         .passthrough(),
     ),
-    /**
-     * Present if the server offers any tools to call.
-     */
     tools: z.optional(
       z
         .object({
-          /**
-           * Whether this server supports issuing notifications for changes to the tool list.
-           */
           listChanged: z.optional(z.boolean()),
         })
         .passthrough(),
@@ -317,27 +199,13 @@ export const ServerCapabilitiesSchema = z
   })
   .passthrough();
 
-/**
- * After receiving an initialize request from the client, the server sends this response.
- */
 export const InitializeResultSchema = ResultSchema.extend({
-  /**
-   * The version of the Model Context Protocol that the server wants to use. This may not match the version that the client requested. If the client cannot support this version, it MUST disconnect.
-   */
   protocolVersion: z.string(),
   capabilities: ServerCapabilitiesSchema,
   serverInfo: ImplementationSchema,
-  /**
-   * Instructions describing how to use the server and its features.
-   *
-   * This can be used by clients to improve the LLM's understanding of available tools, resources, etc. It can be thought of like a "hint" to the model. For example, this information MAY be added to the system prompt.
-   */
   instructions: z.optional(z.string()),
 });
 
-/**
- * This notification is sent from the client to the server after initialization has finished.
- */
 export const InitializedNotificationSchema = NotificationSchema.extend({
   method: z.literal("notifications/initialized"),
 });
@@ -346,9 +214,6 @@ export const isInitializedNotification = (value: unknown): value is InitializedN
   InitializedNotificationSchema.safeParse(value).success;
 
 /* Ping */
-/**
- * A ping, issued by either the server or the client, to check that the other party is still alive. The receiver must promptly respond, or else may be disconnected.
- */
 export const PingRequestSchema = RequestSchema.extend({
   method: z.literal("ping"),
 });
@@ -356,30 +221,15 @@ export const PingRequestSchema = RequestSchema.extend({
 /* Progress notifications */
 export const ProgressSchema = z
   .object({
-    /**
-     * The progress thus far. This should increase every time progress is made, even if the total is unknown.
-     */
     progress: z.number(),
-    /**
-     * Total number of items to process (or total progress required), if known.
-     */
     total: z.optional(z.number()),
-    /**
-     * An optional message describing the current progress.
-     */
     message: z.optional(z.string()),
   })
   .passthrough();
 
-/**
- * An out-of-band notification used to inform the receiver of a progress update for a long-running request.
- */
 export const ProgressNotificationSchema = NotificationSchema.extend({
   method: z.literal("notifications/progress"),
   params: BaseNotificationParamsSchema.merge(ProgressSchema).extend({
-    /**
-     * The progress token which was given in the initial request, used to associate this notification with the request that is proceeding.
-     */
     progressToken: ProgressTokenSchema,
   }),
 });
@@ -387,335 +237,160 @@ export const ProgressNotificationSchema = NotificationSchema.extend({
 /* Pagination */
 export const PaginatedRequestSchema = RequestSchema.extend({
   params: BaseRequestParamsSchema.extend({
-    /**
-     * An opaque token representing the current pagination position.
-     * If provided, the server should return results starting after this cursor.
-     */
     cursor: z.optional(CursorSchema),
   }).optional(),
 });
 
 export const PaginatedResultSchema = ResultSchema.extend({
-  /**
-   * An opaque token representing the pagination position after the last returned result.
-   * If present, there may be more results available.
-   */
   nextCursor: z.optional(CursorSchema),
 });
 
 /* Resources */
-/**
- * The contents of a specific resource or sub-resource.
- */
 export const ResourceContentsSchema = z
   .object({
-    /**
-     * The URI of this resource.
-     */
     uri: z.string(),
-    /**
-     * The MIME type of this resource, if known.
-     */
     mimeType: z.optional(z.string()),
   })
   .passthrough();
 
 export const TextResourceContentsSchema = ResourceContentsSchema.extend({
-  /**
-   * The text of the item. This must only be set if the item can actually be represented as text (not binary data).
-   */
   text: z.string(),
 });
 
 export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
-  /**
-   * A base64-encoded string representing the binary data of the item.
-   */
   blob: z.string().base64(),
 });
 
-/**
- * A known resource that the server is capable of reading.
- */
 export const ResourceSchema = z
   .object({
-    /**
-     * The URI of this resource.
-     */
     uri: z.string(),
-
-    /**
-     * A human-readable name for this resource.
-     *
-     * This can be used by clients to populate UI elements.
-     */
     name: z.string(),
-
-    /**
-     * A description of what this resource represents.
-     *
-     * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
-     */
     description: z.optional(z.string()),
-
-    /**
-     * The MIME type of this resource, if known.
-     */
     mimeType: z.optional(z.string()),
   })
   .passthrough();
 
-/**
- * A template description for resources available on the server.
- */
 export const ResourceTemplateSchema = z
   .object({
-    /**
-     * A URI template (according to RFC 6570) that can be used to construct resource URIs.
-     */
     uriTemplate: z.string(),
-
-    /**
-     * A human-readable name for the type of resource this template refers to.
-     *
-     * This can be used by clients to populate UI elements.
-     */
     name: z.string(),
-
-    /**
-     * A description of what this template is for.
-     *
-     * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
-     */
     description: z.optional(z.string()),
-
-    /**
-     * The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
-     */
     mimeType: z.optional(z.string()),
   })
   .passthrough();
 
-/**
- * Sent from the client to request a list of resources the server has.
- */
 export const ListResourcesRequestSchema = PaginatedRequestSchema.extend({
   method: z.literal("resources/list"),
 });
 
-/**
- * The server's response to a resources/list request from the client.
- */
 export const ListResourcesResultSchema = PaginatedResultSchema.extend({
   resources: z.array(ResourceSchema),
 });
 
-/**
- * Sent from the client to request a list of resource templates the server has.
- */
 export const ListResourceTemplatesRequestSchema = PaginatedRequestSchema.extend(
   {
     method: z.literal("resources/templates/list"),
   },
 );
 
-/**
- * The server's response to a resources/templates/list request from the client.
- */
 export const ListResourceTemplatesResultSchema = PaginatedResultSchema.extend({
   resourceTemplates: z.array(ResourceTemplateSchema),
 });
 
-/**
- * Sent from the client to the server, to read a specific resource URI.
- */
 export const ReadResourceRequestSchema = RequestSchema.extend({
   method: z.literal("resources/read"),
   params: BaseRequestParamsSchema.extend({
-    /**
-     * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
-     */
     uri: z.string(),
   }),
 });
 
-/**
- * The server's response to a resources/read request from the client.
- */
 export const ReadResourceResultSchema = ResultSchema.extend({
   contents: z.array(
     z.union([TextResourceContentsSchema, BlobResourceContentsSchema]),
   ),
 });
 
-/**
- * An optional notification from the server to the client, informing it that the list of resources it can read from has changed. This may be issued by servers without any previous subscription from the client.
- */
 export const ResourceListChangedNotificationSchema = NotificationSchema.extend({
   method: z.literal("notifications/resources/list_changed"),
 });
 
-/**
- * Sent from the client to request resources/updated notifications from the server whenever a particular resource changes.
- */
 export const SubscribeRequestSchema = RequestSchema.extend({
   method: z.literal("resources/subscribe"),
   params: BaseRequestParamsSchema.extend({
-    /**
-     * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
-     */
     uri: z.string(),
   }),
 });
 
-/**
- * Sent from the client to request cancellation of resources/updated notifications from the server. This should follow a previous resources/subscribe request.
- */
 export const UnsubscribeRequestSchema = RequestSchema.extend({
   method: z.literal("resources/unsubscribe"),
   params: BaseRequestParamsSchema.extend({
-    /**
-     * The URI of the resource to unsubscribe from.
-     */
     uri: z.string(),
   }),
 });
 
-/**
- * A notification from the server to the client, informing it that a resource has changed and may need to be read again. This should only be sent if the client previously sent a resources/subscribe request.
- */
 export const ResourceUpdatedNotificationSchema = NotificationSchema.extend({
   method: z.literal("notifications/resources/updated"),
   params: BaseNotificationParamsSchema.extend({
-    /**
-     * The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.
-     */
     uri: z.string(),
   }),
 });
 
 /* Prompts */
-/**
- * Describes an argument that a prompt can accept.
- */
 export const PromptArgumentSchema = z
   .object({
-    /**
-     * The name of the argument.
-     */
     name: z.string(),
-    /**
-     * A human-readable description of the argument.
-     */
     description: z.optional(z.string()),
-    /**
-     * Whether this argument must be provided.
-     */
     required: z.optional(z.boolean()),
   })
   .passthrough();
 
-/**
- * A prompt or prompt template that the server offers.
- */
 export const PromptSchema = z
   .object({
-    /**
-     * The name of the prompt or prompt template.
-     */
     name: z.string(),
-    /**
-     * An optional description of what this prompt provides
-     */
     description: z.optional(z.string()),
-    /**
-     * A list of arguments to use for templating the prompt.
-     */
     arguments: z.optional(z.array(PromptArgumentSchema)),
   })
   .passthrough();
 
-/**
- * Sent from the client to request a list of prompts and prompt templates the server has.
- */
 export const ListPromptsRequestSchema = PaginatedRequestSchema.extend({
   method: z.literal("prompts/list"),
 });
 
-/**
- * The server's response to a prompts/list request from the client.
- */
 export const ListPromptsResultSchema = PaginatedResultSchema.extend({
   prompts: z.array(PromptSchema),
 });
 
-/**
- * Used by the client to get a prompt provided by the server.
- */
 export const GetPromptRequestSchema = RequestSchema.extend({
   method: z.literal("prompts/get"),
   params: BaseRequestParamsSchema.extend({
-    /**
-     * The name of the prompt or prompt template.
-     */
     name: z.string(),
-    /**
-     * Arguments to use for templating the prompt.
-     */
     arguments: z.optional(z.record(z.string())),
   }),
 });
 
-/**
- * Text provided to or from an LLM.
- */
 export const TextContentSchema = z
   .object({
     type: z.literal("text"),
-    /**
-     * The text content of the message.
-     */
     text: z.string(),
   })
   .passthrough();
 
-/**
- * An image provided to or from an LLM.
- */
 export const ImageContentSchema = z
   .object({
     type: z.literal("image"),
-    /**
-     * The base64-encoded image data.
-     */
     data: z.string().base64(),
-    /**
-     * The MIME type of the image. Different providers may support different image types.
-     */
     mimeType: z.string(),
   })
   .passthrough();
 
-/**
- * An Audio provided to or from an LLM.
- */
 export const AudioContentSchema = z
   .object({
     type: z.literal("audio"),
-    /**
-     * The base64-encoded audio data.
-     */
     data: z.string().base64(),
-    /**
-     * The MIME type of the audio. Different providers may support different audio types.
-     */
     mimeType: z.string(),
   })
   .passthrough();
 
-/**
- * The contents of a resource, embedded into a prompt or tool call result.
- */
 export const EmbeddedResourceSchema = z
   .object({
     type: z.literal("resource"),
@@ -723,9 +398,6 @@ export const EmbeddedResourceSchema = z
   })
   .passthrough();
 
-/**
- * Describes a message returned as part of a prompt.
- */
 export const PromptMessageSchema = z
   .object({
     role: z.enum(["user", "assistant"]),
@@ -738,97 +410,30 @@ export const PromptMessageSchema = z
   })
   .passthrough();
 
-/**
- * The server's response to a prompts/get request from the client.
- */
 export const GetPromptResultSchema = ResultSchema.extend({
-  /**
-   * An optional description for the prompt.
-   */
   description: z.optional(z.string()),
   messages: z.array(PromptMessageSchema),
 });
 
-/**
- * An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This may be issued by servers without any previous subscription from the client.
- */
 export const PromptListChangedNotificationSchema = NotificationSchema.extend({
   method: z.literal("notifications/prompts/list_changed"),
 });
 
 /* Tools */
-/**
- * Additional properties describing a Tool to clients.
- *
- * NOTE: all properties in ToolAnnotations are **hints**.
- * They are not guaranteed to provide a faithful description of
- * tool behavior (including descriptive properties like `title`).
- *
- * Clients should never make tool use decisions based on ToolAnnotations
- * received from untrusted servers.
- */
 export const ToolAnnotationsSchema = z
   .object({
-    /**
-     * A human-readable title for the tool.
-     */
     title: z.optional(z.string()),
-
-    /**
-     * If true, the tool does not modify its environment.
-     *
-     * Default: false
-     */
     readOnlyHint: z.optional(z.boolean()),
-
-    /**
-     * If true, the tool may perform destructive updates to its environment.
-     * If false, the tool performs only additive updates.
-     *
-     * (This property is meaningful only when `readOnlyHint == false`)
-     *
-     * Default: true
-     */
     destructiveHint: z.optional(z.boolean()),
-
-    /**
-     * If true, calling the tool repeatedly with the same arguments
-     * will have no additional effect on the its environment.
-     *
-     * (This property is meaningful only when `readOnlyHint == false`)
-     *
-     * Default: false
-     */
     idempotentHint: z.optional(z.boolean()),
-
-    /**
-     * If true, this tool may interact with an "open world" of external
-     * entities. If false, the tool's domain of interaction is closed.
-     * For example, the world of a web search tool is open, whereas that
-     * of a memory tool is not.
-     *
-     * Default: true
-     */
     openWorldHint: z.optional(z.boolean()),
   })
   .passthrough();
 
-/**
- * Definition for a tool the client can call.
- */
 export const ToolSchema = z
   .object({
-    /**
-     * The name of the tool.
-     */
     name: z.string(),
-    /**
-     * A human-readable description of the tool.
-     */
     description: z.optional(z.string()),
-    /**
-     * A JSON Schema object defining the expected parameters for the tool.
-     */
     inputSchema: z
       .object({
         type: z.literal("object"),
@@ -836,10 +441,6 @@ export const ToolSchema = z
         required: z.optional(z.array(z.string())),
       })
       .passthrough(),
-    /**
-     * An optional JSON Schema object defining the structure of the tool's output returned in 
-     * the structuredContent field of a CallToolResult.
-     */
     outputSchema: z.optional(
       z.object({
         type: z.literal("object"),
@@ -848,37 +449,19 @@ export const ToolSchema = z
       })
       .passthrough()
     ),
-    /**
-     * Optional additional tool information.
-     */
     annotations: z.optional(ToolAnnotationsSchema),
   })
   .passthrough();
 
-/**
- * Sent from the client to request a list of tools the server has.
- */
 export const ListToolsRequestSchema = PaginatedRequestSchema.extend({
   method: z.literal("tools/list"),
 });
 
-/**
- * The server's response to a tools/list request from the client.
- */
 export const ListToolsResultSchema = PaginatedResultSchema.extend({
   tools: z.array(ToolSchema),
 });
 
-/**
- * The server's response to a tool call.
- */
 export const CallToolResultSchema = ResultSchema.extend({
-  /**
-   * A list of content objects that represent the result of the tool call.
-   *
-   * If the Tool does not define an outputSchema, this field MUST be present in the result.
-   * For backwards compatibility, this field is always present, but it may be empty.
-   */
   content: z.array(
     z.union([
       TextContentSchema,
@@ -886,28 +469,7 @@ export const CallToolResultSchema = ResultSchema.extend({
       AudioContentSchema,
       EmbeddedResourceSchema,
     ])).default([]),
-
-  /**
-   * An object containing structured tool output.
-   *
-   * If the Tool defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
-   */
   structuredContent: z.object({}).passthrough().optional(),
-
-  /**
-   * Whether the tool call ended in an error.
-   *
-   * If not set, this is assumed to be false (the call was successful).
-   *
-   * Any errors that originate from the tool SHOULD be reported inside the result
-   * object, with `isError` set to true, _not_ as an MCP protocol-level error
-   * response. Otherwise, the LLM would not be able to see that an error occurred
-   * and self-correct.
-   *
-   * However, any errors in _finding_ the tool, an error indicating that the
-   * server does not support tool calls, or any other exceptional conditions,
-   * should be reported as an MCP error response.
-   */
   isError: z.optional(z.boolean()),
 });
 
@@ -920,9 +482,6 @@ export const CompatibilityCallToolResultSchema = CallToolResultSchema.or(
   }),
 );
 
-/**
- * Used by the client to invoke a tool provided by the server.
- */
 export const CallToolRequestSchema = RequestSchema.extend({
   method: z.literal("tools/call"),
   params: BaseRequestParamsSchema.extend({
@@ -931,17 +490,11 @@ export const CallToolRequestSchema = RequestSchema.extend({
   }),
 });
 
-/**
- * An optional notification from the server to the client, informing it that the list of tools it offers has changed. This may be issued by servers without any previous subscription from the client.
- */
 export const ToolListChangedNotificationSchema = NotificationSchema.extend({
   method: z.literal("notifications/tools/list_changed"),
 });
 
 /* Logging */
-/**
- * The severity of a log message.
- */
 export const LoggingLevelSchema = z.enum([
   "debug",
   "info",
@@ -953,80 +506,38 @@ export const LoggingLevelSchema = z.enum([
   "emergency",
 ]);
 
-/**
- * A request from the client to the server, to enable or adjust logging.
- */
 export const SetLevelRequestSchema = RequestSchema.extend({
   method: z.literal("logging/setLevel"),
   params: BaseRequestParamsSchema.extend({
-    /**
-     * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/logging/message.
-     */
     level: LoggingLevelSchema,
   }),
 });
 
-/**
- * Notification of a log message passed from server to client. If no logging/setLevel request has been sent from the client, the server MAY decide which messages to send automatically.
- */
 export const LoggingMessageNotificationSchema = NotificationSchema.extend({
   method: z.literal("notifications/message"),
   params: BaseNotificationParamsSchema.extend({
-    /**
-     * The severity of this log message.
-     */
     level: LoggingLevelSchema,
-    /**
-     * An optional name of the logger issuing this message.
-     */
     logger: z.optional(z.string()),
-    /**
-     * The data to be logged, such as a string message or an object. Any JSON serializable type is allowed here.
-     */
     data: z.unknown(),
   }),
 });
 
 /* Sampling */
-/**
- * Hints to use for model selection.
- */
 export const ModelHintSchema = z
   .object({
-    /**
-     * A hint for a model name.
-     */
     name: z.string().optional(),
   })
   .passthrough();
 
-/**
- * The server's preferences for model selection, requested of the client during sampling.
- */
 export const ModelPreferencesSchema = z
   .object({
-    /**
-     * Optional hints to use for model selection.
-     */
     hints: z.optional(z.array(ModelHintSchema)),
-    /**
-     * How much to prioritize cost when selecting a model.
-     */
     costPriority: z.optional(z.number().min(0).max(1)),
-    /**
-     * How much to prioritize sampling speed (latency) when selecting a model.
-     */
     speedPriority: z.optional(z.number().min(0).max(1)),
-    /**
-     * How much to prioritize intelligence and capabilities when selecting a model.
-     */
     intelligencePriority: z.optional(z.number().min(0).max(1)),
   })
   .passthrough();
 
-/**
- * Describes a message issued to or received from an LLM API.
- */
 export const SamplingMessageSchema = z
   .object({
     role: z.enum(["user", "assistant"]),
@@ -1034,49 +545,22 @@ export const SamplingMessageSchema = z
   })
   .passthrough();
 
-/**
- * A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
- */
 export const CreateMessageRequestSchema = RequestSchema.extend({
   method: z.literal("sampling/createMessage"),
   params: BaseRequestParamsSchema.extend({
     messages: z.array(SamplingMessageSchema),
-    /**
-     * An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt.
-     */
     systemPrompt: z.optional(z.string()),
-    /**
-     * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt. The client MAY ignore this request.
-     */
     includeContext: z.optional(z.enum(["none", "thisServer", "allServers"])),
     temperature: z.optional(z.number()),
-    /**
-     * The maximum number of tokens to sample, as requested by the server. The client MAY choose to sample fewer tokens than requested.
-     */
     maxTokens: z.number().int(),
     stopSequences: z.optional(z.array(z.string())),
-    /**
-     * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
-     */
     metadata: z.optional(z.object({}).passthrough()),
-    /**
-     * The server's preferences for which model to select.
-     */
     modelPreferences: z.optional(ModelPreferencesSchema),
   }),
 });
 
-/**
- * The client's response to a sampling/create_message request from the server. The client should inform the user before returning the sampled message, to allow them to inspect the response (human in the loop) and decide whether to allow the server to see it.
- */
 export const CreateMessageResultSchema = ResultSchema.extend({
-  /**
-   * The name of the model that generated the message.
-   */
   model: z.string(),
-  /**
-   * The reason why sampling stopped.
-   */
   stopReason: z.optional(
     z.enum(["endTurn", "stopSequence", "maxTokens"]).or(z.string()),
   ),
@@ -1089,113 +573,59 @@ export const CreateMessageResultSchema = ResultSchema.extend({
 });
 
 /* Autocomplete */
-/**
- * A reference to a resource or resource template definition.
- */
 export const ResourceReferenceSchema = z
   .object({
     type: z.literal("ref/resource"),
-    /**
-     * The URI or URI template of the resource.
-     */
     uri: z.string(),
   })
   .passthrough();
 
-/**
- * Identifies a prompt.
- */
 export const PromptReferenceSchema = z
   .object({
     type: z.literal("ref/prompt"),
-    /**
-     * The name of the prompt or prompt template
-     */
     name: z.string(),
   })
   .passthrough();
 
-/**
- * A request from the client to the server, to ask for completion options.
- */
 export const CompleteRequestSchema = RequestSchema.extend({
   method: z.literal("completion/complete"),
   params: BaseRequestParamsSchema.extend({
     ref: z.union([PromptReferenceSchema, ResourceReferenceSchema]),
-    /**
-     * The argument's information
-     */
     argument: z
       .object({
-        /**
-         * The name of the argument
-         */
         name: z.string(),
-        /**
-         * The value of the argument to use for completion matching.
-         */
         value: z.string(),
       })
       .passthrough(),
   }),
 });
 
-/**
- * The server's response to a completion/complete request
- */
 export const CompleteResultSchema = ResultSchema.extend({
   completion: z
     .object({
-      /**
-       * An array of completion values. Must not exceed 100 items.
-       */
       values: z.array(z.string()).max(100),
-      /**
-       * The total number of completion options available. This can exceed the number of values actually sent in the response.
-       */
       total: z.optional(z.number().int()),
-      /**
-       * Indicates whether there are additional completion options beyond those provided in the current response, even if the exact total is unknown.
-       */
       hasMore: z.optional(z.boolean()),
     })
     .passthrough(),
 });
 
 /* Roots */
-/**
- * Represents a root directory or file that the server can operate on.
- */
 export const RootSchema = z
   .object({
-    /**
-     * The URI identifying the root. This *must* start with file:// for now.
-     */
     uri: z.string().startsWith("file://"),
-    /**
-     * An optional name for the root.
-     */
     name: z.optional(z.string()),
   })
   .passthrough();
 
-/**
- * Sent from the server to request a list of root URIs from the client.
- */
 export const ListRootsRequestSchema = RequestSchema.extend({
   method: z.literal("roots/list"),
 });
 
-/**
- * The client's response to a roots/list request from the server.
- */
 export const ListRootsResultSchema = ResultSchema.extend({
   roots: z.array(RootSchema),
 });
 
-/**
- * A notification from the client to the server, informing it that the list of roots has changed.
- */
 export const RootsListChangedNotificationSchema = NotificationSchema.extend({
   method: z.literal("notifications/roots/list_changed"),
 });
@@ -1285,115 +715,1212 @@ type Flatten<T> = T extends Primitive
   : T;
 
 type Infer<Schema extends ZodTypeAny> = Flatten<z.infer<Schema>>;
+type Assert<T, V extends T> = V;
 
 /* JSON-RPC types */
-export type ProgressToken = Infer<typeof ProgressTokenSchema>;
-export type Cursor = Infer<typeof CursorSchema>;
-export type Request = Infer<typeof RequestSchema>;
-export type RequestMeta = Infer<typeof RequestMetaSchema>;
-export type Notification = Infer<typeof NotificationSchema>;
-export type Result = Infer<typeof ResultSchema>;
-export type RequestId = Infer<typeof RequestIdSchema>;
-export type JSONRPCRequest = Infer<typeof JSONRPCRequestSchema>;
-export type JSONRPCNotification = Infer<typeof JSONRPCNotificationSchema>;
-export type JSONRPCResponse = Infer<typeof JSONRPCResponseSchema>;
-export type JSONRPCError = Infer<typeof JSONRPCErrorSchema>;
-export type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
+/**
+ * A progress token, used to associate progress notifications with the original request.
+ */
+export type ProgressToken = string | number;
+type _AssertProgressTokenMatches = Assert<ProgressToken, Infer<typeof ProgressTokenSchema>> & Assert<Infer<typeof ProgressTokenSchema>, ProgressToken>;
+
+/**
+ * An opaque token used to represent a cursor for pagination.
+ */
+export type Cursor = string;
+type _AssertCursorMatches = Assert<Cursor, Infer<typeof CursorSchema>> & Assert<Infer<typeof CursorSchema>, Cursor>;
+
+export interface Request {
+  method: string;
+  params?: {
+    _meta?: {
+      progressToken?: ProgressToken;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+}
+type _AssertRequestMatches = Assert<Request, Infer<typeof RequestSchema>> & Assert<Infer<typeof RequestSchema>, Request>;
+
+export interface RequestMeta {
+  /**
+   * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+   */
+  progressToken?: ProgressToken;
+  [key: string]: unknown;
+}
+type _AssertRequestMetaMatches = Assert<RequestMeta, Infer<typeof RequestMetaSchema>> & Assert<Infer<typeof RequestMetaSchema>, RequestMeta>;
+
+export interface Notification {
+  method: string;
+  params?: {
+    /**
+     * This parameter name is reserved by MCP to allow clients and servers to attach additional metadata to their notifications.
+     */
+    _meta?: { [key: string]: unknown };
+    [key: string]: unknown;
+  };
+}
+type _AssertNotificationMatches = Assert<Notification, Infer<typeof NotificationSchema>> & Assert<Infer<typeof NotificationSchema>, Notification>;
+
+export interface Result {
+  /**
+   * This result property is reserved by the protocol to allow clients and servers to attach additional metadata to their responses.
+   */
+  _meta?: { [key: string]: unknown };
+  [key: string]: unknown;
+}
+type _AssertResultMatches = Assert<Result, Infer<typeof ResultSchema>> & Assert<Infer<typeof ResultSchema>, Result>;
+
+/**
+ * A uniquely identifying ID for a request in JSON-RPC.
+ */
+export type RequestId = string | number;
+type _AssertRequestIdMatches = Assert<RequestId, Infer<typeof RequestIdSchema>> & Assert<Infer<typeof RequestIdSchema>, RequestId>;
+
+/**
+ * A request that expects a response.
+ */
+export interface JSONRPCRequest extends Request {
+  jsonrpc: "2.0";
+  id: RequestId;
+}
+type _AssertJSONRPCRequestMatches = Assert<JSONRPCRequest, Infer<typeof JSONRPCRequestSchema>> & Assert<Infer<typeof JSONRPCRequestSchema>, JSONRPCRequest>;
+
+/**
+ * A notification which does not expect a response.
+ */
+export interface JSONRPCNotification extends Notification {
+  jsonrpc: "2.0";
+}
+type _AssertJSONRPCNotificationMatches = Assert<JSONRPCNotification, Infer<typeof JSONRPCNotificationSchema>> & Assert<Infer<typeof JSONRPCNotificationSchema>, JSONRPCNotification>;
+
+/**
+ * A successful (non-error) response to a request.
+ */
+export interface JSONRPCResponse {
+  jsonrpc: "2.0";
+  id: RequestId;
+  result: Result;
+}
+type _AssertJSONRPCResponseMatches = Assert<JSONRPCResponse, Infer<typeof JSONRPCResponseSchema>> & Assert<Infer<typeof JSONRPCResponseSchema>, JSONRPCResponse>;
+
+/**
+ * A response to a request that indicates an error occurred.
+ */
+export interface JSONRPCError {
+  jsonrpc: "2.0";
+  id: RequestId;
+  error: {
+    /**
+     * The error type that occurred.
+     */
+    code: number;
+    /**
+     * A short description of the error. The message SHOULD be limited to a concise single sentence.
+     */
+    message: string;
+    /**
+     * Additional information about the error. The value of this member is defined by the sender (e.g. detailed error information, nested errors etc.).
+     */
+    data?: unknown;
+  };
+}
+type _AssertJSONRPCErrorMatches = Assert<JSONRPCError, Infer<typeof JSONRPCErrorSchema>> & Assert<Infer<typeof JSONRPCErrorSchema>, JSONRPCError>;
+
+export type JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError;
+type _AssertJSONRPCMessageMatches = Assert<JSONRPCMessage, Infer<typeof JSONRPCMessageSchema>> & Assert<Infer<typeof JSONRPCMessageSchema>, JSONRPCMessage>;
 
 /* Empty result */
-export type EmptyResult = Infer<typeof EmptyResultSchema>;
+/**
+ * A response that indicates success but carries no data.
+ */
+export type EmptyResult = Result
+type _AssertEmptyResultMatches = Assert<EmptyResult, Infer<typeof EmptyResultSchema>> & Assert<Infer<typeof EmptyResultSchema>, EmptyResult>;
 
 /* Cancellation */
-export type CancelledNotification = Infer<typeof CancelledNotificationSchema>;
+/**
+ * This notification can be sent by either side to indicate that it is cancelling a previously-issued request.
+ *
+ * The request SHOULD still be in-flight, but due to communication latency, it is always possible that this notification MAY arrive after the request has already finished.
+ *
+ * This notification indicates that the result will be unused, so any associated processing SHOULD cease.
+ *
+ * A client MUST NOT attempt to cancel its `initialize` request.
+ */
+export interface CancelledNotification extends Notification {
+  method: "notifications/cancelled";
+  params: {
+    _meta?: { [key: string]: unknown };
+    /**
+     * The ID of the request to cancel.
+     *
+     * This MUST correspond to the ID of a request previously issued in the same direction.
+     */
+    requestId: RequestId;
+    /**
+     * An optional string describing the reason for the cancellation. This MAY be logged or presented to the user.
+     */
+    reason?: string;
+    [key: string]: unknown;
+  };
+}
+type _AssertCancelledNotificationMatches = Assert<CancelledNotification, Infer<typeof CancelledNotificationSchema>> & Assert<Infer<typeof CancelledNotificationSchema>, CancelledNotification>;
 
 /* Initialization */
-export type Implementation = Infer<typeof ImplementationSchema>;
-export type ClientCapabilities = Infer<typeof ClientCapabilitiesSchema>;
-export type InitializeRequest = Infer<typeof InitializeRequestSchema>;
-export type ServerCapabilities = Infer<typeof ServerCapabilitiesSchema>;
-export type InitializeResult = Infer<typeof InitializeResultSchema>;
-export type InitializedNotification = Infer<typeof InitializedNotificationSchema>;
+/**
+ * Describes the name and version of an MCP implementation.
+ */
+export interface Implementation {
+  name: string;
+  version: string;
+  [key: string]: unknown;
+}
+type _AssertImplementationMatches = Assert<Implementation, Infer<typeof ImplementationSchema>> & Assert<Infer<typeof ImplementationSchema>, Implementation>;
+
+/**
+ * Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
+ */
+export interface ClientCapabilities {
+  /**
+   * Experimental, non-standard capabilities that the client supports.
+   */
+  experimental?: { [key: string]: unknown };
+  /**
+   * Present if the client supports sampling from an LLM.
+   */
+  sampling?: { [key: string]: unknown };
+  /**
+   * Present if the client supports listing roots.
+   */
+  roots?: {
+    /**
+     * Whether the client supports issuing notifications for changes to the roots list.
+     */
+    listChanged?: boolean;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+type _AssertClientCapabilitiesMatches = Assert<ClientCapabilities, Infer<typeof ClientCapabilitiesSchema>> & Assert<Infer<typeof ClientCapabilitiesSchema>, ClientCapabilities>;
+
+/**
+ * This request is sent from the client to the server when it first connects, asking it to begin initialization.
+ */
+export interface InitializeRequest extends Request {
+  method: "initialize";
+  params: {
+    _meta?: RequestMeta;
+    /**
+     * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
+     */
+    protocolVersion: string;
+    capabilities: ClientCapabilities;
+    clientInfo: Implementation;
+    [key: string]: unknown;
+  };
+}
+type _AssertInitializeRequestMatches = Assert<InitializeRequest, Infer<typeof InitializeRequestSchema>> & Assert<Infer<typeof InitializeRequestSchema>, InitializeRequest>;
+
+/**
+ * Capabilities that a server may support. Known capabilities are defined here, in this schema, but this is not a closed set: any server can define its own, additional capabilities.
+ */
+export interface ServerCapabilities {
+  /**
+   * Experimental, non-standard capabilities that the server supports.
+   */
+  experimental?: { [key: string]: unknown };
+  /**
+   * Present if the server supports sending log messages to the client.
+   */
+  logging?: { [key: string]: unknown };
+  /**
+   * Present if the server supports sending completions to the client.
+   */
+  completions?: { [key: string]: unknown };
+  /**
+   * Present if the server offers any prompt templates.
+   */
+  prompts?: {
+    /**
+     * Whether this server supports issuing notifications for changes to the prompt list.
+     */
+    listChanged?: boolean;
+    [key: string]: unknown;
+  };
+  /**
+   * Present if the server offers any resources to read.
+   */
+  resources?: {
+    /**
+     * Whether this server supports clients subscribing to resource updates.
+     */
+    subscribe?: boolean;
+    /**
+     * Whether this server supports issuing notifications for changes to the resource list.
+     */
+    listChanged?: boolean;
+    [key: string]: unknown;
+  };
+  /**
+   * Present if the server offers any tools to call.
+   */
+  tools?: {
+    /**
+     * Whether this server supports issuing notifications for changes to the tool list.
+     */
+    listChanged?: boolean;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+type _AssertServerCapabilitiesMatches = Assert<ServerCapabilities, Infer<typeof ServerCapabilitiesSchema>> & Assert<Infer<typeof ServerCapabilitiesSchema>, ServerCapabilities>;
+
+/**
+ * After receiving an initialize request from the client, the server sends this response.
+ */
+export interface InitializeResult extends Result {
+  /**
+   * The version of the Model Context Protocol that the server wants to use. This may not match the version that the client requested. If the client cannot support this version, it MUST disconnect.
+   */
+  protocolVersion: string;
+  capabilities: ServerCapabilities;
+  serverInfo: Implementation;
+  /**
+   * Instructions describing how to use the server and its features.
+   *
+   * This can be used by clients to improve the LLM's understanding of available tools, resources, etc. It can be thought of like a "hint" to the model. For example, this information MAY be added to the system prompt.
+   */
+  instructions?: string;
+}
+type _AssertInitializeResultMatches = Assert<InitializeResult, Infer<typeof InitializeResultSchema>> & Assert<Infer<typeof InitializeResultSchema>, InitializeResult>;
+
+/**
+ * This notification is sent from the client to the server after initialization has finished.
+ */
+export interface InitializedNotification extends Notification {
+  method: "notifications/initialized";
+}
+type _AssertInitializedNotificationMatches = Assert<InitializedNotification, Infer<typeof InitializedNotificationSchema>> & Assert<Infer<typeof InitializedNotificationSchema>, InitializedNotification>;
 
 /* Ping */
-export type PingRequest = Infer<typeof PingRequestSchema>;
+/**
+ * A ping, issued by either the server or the client, to check that the other party is still alive. The receiver must promptly respond, or else may be disconnected.
+ */
+export interface PingRequest extends Request {
+  method: "ping";
+}
+type _AssertPingRequestMatches = Assert<PingRequest, Infer<typeof PingRequestSchema>> & Assert<Infer<typeof PingRequestSchema>, PingRequest>;
 
 /* Progress notifications */
-export type Progress = Infer<typeof ProgressSchema>;
-export type ProgressNotification = Infer<typeof ProgressNotificationSchema>;
+export interface Progress {
+  /**
+   * The progress thus far. This should increase every time progress is made, even if the total is unknown.
+   */
+  progress: number;
+  /**
+   * Total number of items to process (or total progress required), if known.
+   */
+  total?: number;
+  /**
+   * An optional message describing the current progress.
+   */
+  message?: string;
+  [key: string]: unknown;
+}
+type _AssertProgressMatches = Assert<Progress, Infer<typeof ProgressSchema>> & Assert<Infer<typeof ProgressSchema>, Progress>;
+
+/**
+ * An out-of-band notification used to inform the receiver of a progress update for a long-running request.
+ */
+export interface ProgressNotification extends Notification {
+  method: "notifications/progress";
+  params: Progress & {
+    _meta?: { [key: string]: unknown };
+    /**
+     * The progress token which was given in the initial request, used to associate this notification with the request that is proceeding.
+     */
+    progressToken: ProgressToken;
+    [key: string]: unknown;
+  };
+}
+type _AssertProgressNotificationMatches = Assert<ProgressNotification, Infer<typeof ProgressNotificationSchema>> & Assert<Infer<typeof ProgressNotificationSchema>, ProgressNotification>;
 
 /* Pagination */
-export type PaginatedRequest = Infer<typeof PaginatedRequestSchema>;
-export type PaginatedResult = Infer<typeof PaginatedResultSchema>;
+export interface PaginatedRequest extends Request {
+  params?: {
+    _meta?: RequestMeta;
+    /**
+     * An opaque token representing the current pagination position.
+     * If provided, the server should return results starting after this cursor.
+     */
+    cursor?: Cursor;
+    [key: string]: unknown;
+  };
+}
+type _AssertPaginatedRequestMatches = Assert<PaginatedRequest, Infer<typeof PaginatedRequestSchema>> & Assert<Infer<typeof PaginatedRequestSchema>, PaginatedRequest>;
+
+export interface PaginatedResult extends Result {
+  /**
+   * An opaque token representing the pagination position after the last returned result.
+   * If present, there may be more results available.
+   */
+  nextCursor?: Cursor;
+}
+type _AssertPaginatedResultMatches = Assert<PaginatedResult, Infer<typeof PaginatedResultSchema>> & Assert<Infer<typeof PaginatedResultSchema>, PaginatedResult>;
 
 /* Resources */
-export type ResourceContents = Infer<typeof ResourceContentsSchema>;
-export type TextResourceContents = Infer<typeof TextResourceContentsSchema>;
-export type BlobResourceContents = Infer<typeof BlobResourceContentsSchema>;
-export type Resource = Infer<typeof ResourceSchema>;
-export type ResourceTemplate = Infer<typeof ResourceTemplateSchema>;
-export type ListResourcesRequest = Infer<typeof ListResourcesRequestSchema>;
-export type ListResourcesResult = Infer<typeof ListResourcesResultSchema>;
-export type ListResourceTemplatesRequest = Infer<typeof ListResourceTemplatesRequestSchema>;
-export type ListResourceTemplatesResult = Infer<typeof ListResourceTemplatesResultSchema>;
-export type ReadResourceRequest = Infer<typeof ReadResourceRequestSchema>;
-export type ReadResourceResult = Infer<typeof ReadResourceResultSchema>;
-export type ResourceListChangedNotification = Infer<typeof ResourceListChangedNotificationSchema>;
-export type SubscribeRequest = Infer<typeof SubscribeRequestSchema>;
-export type UnsubscribeRequest = Infer<typeof UnsubscribeRequestSchema>;
-export type ResourceUpdatedNotification = Infer<typeof ResourceUpdatedNotificationSchema>;
+/**
+ * The contents of a specific resource or sub-resource.
+ */
+export interface ResourceContents {
+  /**
+   * The URI of this resource.
+   */
+  uri: string;
+  /**
+   * The MIME type of this resource, if known.
+   */
+  mimeType?: string;
+  [key: string]: unknown;
+}
+type _AssertResourceContentsMatches = Assert<ResourceContents, Infer<typeof ResourceContentsSchema>> & Assert<Infer<typeof ResourceContentsSchema>, ResourceContents>;
+
+export interface TextResourceContents extends ResourceContents {
+  /**
+   * The text of the item. This must only be set if the item can actually be represented as text (not binary data).
+   */
+  text: string;
+}
+type _AssertTextResourceContentsMatches = Assert<TextResourceContents, Infer<typeof TextResourceContentsSchema>> & Assert<Infer<typeof TextResourceContentsSchema>, TextResourceContents>;
+
+export interface BlobResourceContents extends ResourceContents {
+  /**
+   * A base64-encoded string representing the binary data of the item.
+   */
+  blob: string;
+}
+type _AssertBlobResourceContentsMatches = Assert<BlobResourceContents, Infer<typeof BlobResourceContentsSchema>> & Assert<Infer<typeof BlobResourceContentsSchema>, BlobResourceContents>;
+
+/**
+ * A known resource that the server is capable of reading.
+ */
+export interface Resource {
+  /**
+   * The URI of this resource.
+   */
+  uri: string;
+  /**
+   * A human-readable name for this resource.
+   *
+   * This can be used by clients to populate UI elements.
+   */
+  name: string;
+  /**
+   * A description of what this resource represents.
+   *
+   * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
+   */
+  description?: string;
+  /**
+   * The MIME type of this resource, if known.
+   */
+  mimeType?: string;
+  [key: string]: unknown;
+}
+type _AssertResourceMatches = Assert<Resource, Infer<typeof ResourceSchema>> & Assert<Infer<typeof ResourceSchema>, Resource>;
+
+/**
+ * A template description for resources available on the server.
+ */
+export interface ResourceTemplate {
+  /**
+   * A URI template (according to RFC 6570) that can be used to construct resource URIs.
+   */
+  uriTemplate: string;
+  /**
+   * A human-readable name for the type of resource this template refers to.
+   *
+   * This can be used by clients to populate UI elements.
+   */
+  name: string;
+  /**
+   * A description of what this template is for.
+   *
+   * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
+   */
+  description?: string;
+  /**
+   * The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
+   */
+  mimeType?: string;
+  [key: string]: unknown;
+}
+type _AssertResourceTemplateMatches = Assert<ResourceTemplate, Infer<typeof ResourceTemplateSchema>> & Assert<Infer<typeof ResourceTemplateSchema>, ResourceTemplate>;
+
+/**
+ * Sent from the client to request a list of resources the server has.
+ */
+export interface ListResourcesRequest extends PaginatedRequest {
+  method: "resources/list";
+}
+type _AssertListResourcesRequestMatches = Assert<ListResourcesRequest, Infer<typeof ListResourcesRequestSchema>> & Assert<Infer<typeof ListResourcesRequestSchema>, ListResourcesRequest>;
+
+/**
+ * The server's response to a resources/list request from the client.
+ */
+export interface ListResourcesResult extends PaginatedResult {
+  resources: Resource[];
+}
+type _AssertListResourcesResultMatches = Assert<ListResourcesResult, Infer<typeof ListResourcesResultSchema>> & Assert<Infer<typeof ListResourcesResultSchema>, ListResourcesResult>;
+
+/**
+ * Sent from the client to request a list of resource templates the server has.
+ */
+export interface ListResourceTemplatesRequest extends PaginatedRequest {
+  method: "resources/templates/list";
+}
+type _AssertListResourceTemplatesRequestMatches = Assert<ListResourceTemplatesRequest, Infer<typeof ListResourceTemplatesRequestSchema>> & Assert<Infer<typeof ListResourceTemplatesRequestSchema>, ListResourceTemplatesRequest>;
+
+/**
+ * The server's response to a resources/templates/list request from the client.
+ */
+export interface ListResourceTemplatesResult extends PaginatedResult {
+  resourceTemplates: ResourceTemplate[];
+}
+type _AssertListResourceTemplatesResultMatches = Assert<ListResourceTemplatesResult, Infer<typeof ListResourceTemplatesResultSchema>> & Assert<Infer<typeof ListResourceTemplatesResultSchema>, ListResourceTemplatesResult>;
+
+/**
+ * Sent from the client to the server, to read a specific resource URI.
+ */
+export interface ReadResourceRequest extends Request {
+  method: "resources/read";
+  params: {
+    _meta?: RequestMeta;
+    /**
+     * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
+     */
+    uri: string;
+    [key: string]: unknown;
+  };
+}
+type _AssertReadResourceRequestMatches = Assert<ReadResourceRequest, Infer<typeof ReadResourceRequestSchema>> & Assert<Infer<typeof ReadResourceRequestSchema>, ReadResourceRequest>;
+
+/**
+ * The server's response to a resources/read request from the client.
+ */
+export interface ReadResourceResult extends Result {
+  contents: (TextResourceContents | BlobResourceContents)[];
+}
+type _AssertReadResourceResultMatches = Assert<ReadResourceResult, Infer<typeof ReadResourceResultSchema>> & Assert<Infer<typeof ReadResourceResultSchema>, ReadResourceResult>;
+
+/**
+ * An optional notification from the server to the client, informing it that the list of resources it can read from has changed. This may be issued by servers without any previous subscription from the client.
+ */
+export interface ResourceListChangedNotification extends Notification {
+  method: "notifications/resources/list_changed";
+}
+type _AssertResourceListChangedNotificationMatches = Assert<ResourceListChangedNotification, Infer<typeof ResourceListChangedNotificationSchema>> & Assert<Infer<typeof ResourceListChangedNotificationSchema>, ResourceListChangedNotification>;
+
+/**
+ * Sent from the client to request resources/updated notifications from the server whenever a particular resource changes.
+ */
+export interface SubscribeRequest extends Request {
+  method: "resources/subscribe";
+  params: {
+    _meta?: RequestMeta;
+    /**
+     * The URI of the resource to subscribe to. The URI can use any protocol; it is up to the server how to interpret it.
+     */
+    uri: string;
+    [key: string]: unknown;
+  };
+}
+type _AssertSubscribeRequestMatches = Assert<SubscribeRequest, Infer<typeof SubscribeRequestSchema>> & Assert<Infer<typeof SubscribeRequestSchema>, SubscribeRequest>;
+
+/**
+ * Sent from the client to request cancellation of resources/updated notifications from the server. This should follow a previous resources/subscribe request.
+ */
+export interface UnsubscribeRequest extends Request {
+  method: "resources/unsubscribe";
+  params: {
+    _meta?: RequestMeta;
+    /**
+     * The URI of the resource to unsubscribe from.
+     */
+    uri: string;
+    [key: string]: unknown;
+  };
+}
+type _AssertUnsubscribeRequestMatches = Assert<UnsubscribeRequest, Infer<typeof UnsubscribeRequestSchema>> & Assert<Infer<typeof UnsubscribeRequestSchema>, UnsubscribeRequest>;
+
+/**
+ * A notification from the server to the client, informing it that a resource has changed and may need to be read again. This should only be sent if the client previously sent a resources/subscribe request.
+ */
+export interface ResourceUpdatedNotification extends Notification {
+  method: "notifications/resources/updated";
+  params: {
+    _meta?: { [key: string]: unknown };
+    /**
+     * The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.
+     */
+    uri: string;
+    [key: string]: unknown;
+  };
+}
+type _AssertResourceUpdatedNotificationMatches = Assert<ResourceUpdatedNotification, Infer<typeof ResourceUpdatedNotificationSchema>> & Assert<Infer<typeof ResourceUpdatedNotificationSchema>, ResourceUpdatedNotification>;
 
 /* Prompts */
-export type PromptArgument = Infer<typeof PromptArgumentSchema>;
-export type Prompt = Infer<typeof PromptSchema>;
-export type ListPromptsRequest = Infer<typeof ListPromptsRequestSchema>;
-export type ListPromptsResult = Infer<typeof ListPromptsResultSchema>;
-export type GetPromptRequest = Infer<typeof GetPromptRequestSchema>;
-export type TextContent = Infer<typeof TextContentSchema>;
-export type ImageContent = Infer<typeof ImageContentSchema>;
-export type AudioContent = Infer<typeof AudioContentSchema>;
-export type EmbeddedResource = Infer<typeof EmbeddedResourceSchema>;
-export type PromptMessage = Infer<typeof PromptMessageSchema>;
-export type GetPromptResult = Infer<typeof GetPromptResultSchema>;
-export type PromptListChangedNotification = Infer<typeof PromptListChangedNotificationSchema>;
+/**
+ * Describes an argument that a prompt can accept.
+ */
+export interface PromptArgument {
+  /**
+   * The name of the argument.
+   */
+  name: string;
+  /**
+   * A human-readable description of the argument.
+   */
+  description?: string;
+  /**
+   * Whether this argument must be provided.
+   */
+  required?: boolean;
+  [key: string]: unknown;
+}
+type _AssertPromptArgumentMatches = Assert<PromptArgument, Infer<typeof PromptArgumentSchema>> & Assert<Infer<typeof PromptArgumentSchema>, PromptArgument>;
+
+/**
+ * A prompt or prompt template that the server offers.
+ */
+export interface Prompt {
+  /**
+   * The name of the prompt or prompt template.
+   */
+  name: string;
+  /**
+   * An optional description of what this prompt provides
+   */
+  description?: string;
+  /**
+   * A list of arguments to use for templating the prompt.
+   */
+  arguments?: PromptArgument[];
+  [key: string]: unknown;
+}
+type _AssertPromptMatches = Assert<Prompt, Infer<typeof PromptSchema>> & Assert<Infer<typeof PromptSchema>, Prompt>;
+
+/**
+ * Sent from the client to request a list of prompts and prompt templates the server has.
+ */
+export interface ListPromptsRequest extends PaginatedRequest {
+  method: "prompts/list";
+}
+type _AssertListPromptsRequestMatches = Assert<ListPromptsRequest, Infer<typeof ListPromptsRequestSchema>> & Assert<Infer<typeof ListPromptsRequestSchema>, ListPromptsRequest>;
+
+/**
+ * The server's response to a prompts/list request from the client.
+ */
+export interface ListPromptsResult extends PaginatedResult {
+  prompts: Prompt[];
+}
+type _AssertListPromptsResultMatches = Assert<ListPromptsResult, Infer<typeof ListPromptsResultSchema>> & Assert<Infer<typeof ListPromptsResultSchema>, ListPromptsResult>;
+
+/**
+ * Used by the client to get a prompt provided by the server.
+ */
+export interface GetPromptRequest extends Request {
+  method: "prompts/get";
+  params: {
+    _meta?: RequestMeta;
+    /**
+     * The name of the prompt or prompt template.
+     */
+    name: string;
+    /**
+     * Arguments to use for templating the prompt.
+     */
+    arguments?: Record<string, string>;
+    [key: string]: unknown;
+  };
+}
+type _AssertGetPromptRequestMatches = Assert<GetPromptRequest, Infer<typeof GetPromptRequestSchema>> & Assert<Infer<typeof GetPromptRequestSchema>, GetPromptRequest>;
+
+/**
+ * Text provided to or from an LLM.
+ */
+export interface TextContent {
+  type: "text";
+  /**
+   * The text content of the message.
+   */
+  text: string;
+  [key: string]: unknown;
+}
+type _AssertTextContentMatches = Assert<TextContent, Infer<typeof TextContentSchema>> & Assert<Infer<typeof TextContentSchema>, TextContent>;
+
+/**
+ * An image provided to or from an LLM.
+ */
+export interface ImageContent {
+  type: "image";
+  /**
+   * The base64-encoded image data.
+   */
+  data: string;
+  /**
+   * The MIME type of the image. Different providers may support different image types.
+   */
+  mimeType: string;
+  [key: string]: unknown;
+}
+type _AssertImageContentMatches = Assert<ImageContent, Infer<typeof ImageContentSchema>> & Assert<Infer<typeof ImageContentSchema>, ImageContent>;
+
+/**
+ * An Audio provided to or from an LLM.
+ */
+export interface AudioContent {
+  type: "audio";
+  /**
+   * The base64-encoded audio data.
+   */
+  data: string;
+  /**
+   * The MIME type of the audio. Different providers may support different audio types.
+   */
+  mimeType: string;
+  [key: string]: unknown;
+}
+type _AssertAudioContentMatches = Assert<AudioContent, Infer<typeof AudioContentSchema>> & Assert<Infer<typeof AudioContentSchema>, AudioContent>;
+
+/**
+ * The contents of a resource, embedded into a prompt or tool call result.
+ */
+export interface EmbeddedResource {
+  type: "resource";
+  resource: TextResourceContents | BlobResourceContents;
+  [key: string]: unknown;
+}
+type _AssertEmbeddedResourceMatches = Assert<EmbeddedResource, Infer<typeof EmbeddedResourceSchema>> & Assert<Infer<typeof EmbeddedResourceSchema>, EmbeddedResource>;
+
+/**
+ * Describes a message returned as part of a prompt.
+ */
+export interface PromptMessage {
+  role: "user" | "assistant";
+  content: TextContent | ImageContent | AudioContent | EmbeddedResource;
+  [key: string]: unknown;
+}
+type _AssertPromptMessageMatches = Assert<PromptMessage, Infer<typeof PromptMessageSchema>> & Assert<Infer<typeof PromptMessageSchema>, PromptMessage>;
+
+/**
+ * The server's response to a prompts/get request from the client.
+ */
+export interface GetPromptResult extends Result {
+  /**
+   * An optional description for the prompt.
+   */
+  description?: string;
+  messages: PromptMessage[];
+}
+type _AssertGetPromptResultMatches = Assert<GetPromptResult, Infer<typeof GetPromptResultSchema>> & Assert<Infer<typeof GetPromptResultSchema>, GetPromptResult>;
+
+/**
+ * An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This may be issued by servers without any previous subscription from the client.
+ */
+export interface PromptListChangedNotification extends Notification {
+  method: "notifications/prompts/list_changed";
+}
+type _AssertPromptListChangedNotificationMatches = Assert<PromptListChangedNotification, Infer<typeof PromptListChangedNotificationSchema>> & Assert<Infer<typeof PromptListChangedNotificationSchema>, PromptListChangedNotification>;
 
 /* Tools */
-export type ToolAnnotations = Infer<typeof ToolAnnotationsSchema>;
-export type Tool = Infer<typeof ToolSchema>;
-export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
-export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
-export type CallToolResult = Infer<typeof CallToolResultSchema>;
-export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
-export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
-export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
+/**
+ * Additional properties describing a Tool to clients.
+ *
+ * NOTE: all properties in ToolAnnotations are **hints**.
+ * They are not guaranteed to provide a faithful description of
+ * tool behavior (including descriptive properties like `title`).
+ *
+ * Clients should never make tool use decisions based on ToolAnnotations
+ * received from untrusted servers.
+ */
+export interface ToolAnnotations {
+  /**
+   * A human-readable title for the tool.
+   */
+  title?: string;
+  /**
+   * If true, the tool does not modify its environment.
+   *
+   * Default: false
+   */
+  readOnlyHint?: boolean;
+  /**
+   * If true, the tool may perform destructive updates to its environment.
+   * If false, the tool performs only additive updates.
+   *
+   * (This property is meaningful only when `readOnlyHint == false`)
+   *
+   * Default: true
+   */
+  destructiveHint?: boolean;
+  /**
+   * If true, calling the tool repeatedly with the same arguments
+   * will have no additional effect on the its environment.
+   *
+   * (This property is meaningful only when `readOnlyHint == false`)
+   *
+   * Default: false
+   */
+  idempotentHint?: boolean;
+  /**
+   * If true, this tool may interact with an "open world" of external
+   * entities. If false, the tool's domain of interaction is closed.
+   * For example, the world of a web search tool is open, whereas that
+   * of a memory tool is not.
+   *
+   * Default: true
+   */
+  openWorldHint?: boolean;
+  [key: string]: unknown;
+}
+type _AssertToolAnnotationsMatches = Assert<ToolAnnotations, Infer<typeof ToolAnnotationsSchema>> & Assert<Infer<typeof ToolAnnotationsSchema>, ToolAnnotations>;
+
+/**
+ * Definition for a tool the client can call.
+ */
+export interface Tool {
+  /**
+   * The name of the tool.
+   */
+  name: string;
+  /**
+   * A human-readable description of the tool.
+   */
+  description?: string;
+  /**
+   * A JSON Schema object defining the expected parameters for the tool.
+   */
+  inputSchema: {
+    type: "object";
+    properties?: { [key: string]: unknown };
+    required?: string[];
+    [key: string]: unknown;
+  };
+  /**
+   * An optional JSON Schema object defining the structure of the tool's output returned in 
+   * the structuredContent field of a CallToolResult.
+   */
+  outputSchema?: {
+    type: "object";
+    properties?: { [key: string]: unknown };
+    required?: string[];
+    [key: string]: unknown;
+  };
+  /**
+   * Optional additional tool information.
+   */
+  annotations?: ToolAnnotations;
+  [key: string]: unknown;
+}
+type _AssertToolMatches = Assert<Tool, Infer<typeof ToolSchema>> & Assert<Infer<typeof ToolSchema>, Tool>;
+
+/**
+ * Sent from the client to request a list of tools the server has.
+ */
+export interface ListToolsRequest extends PaginatedRequest {
+  method: "tools/list";
+}
+type _AssertListToolsRequestMatches = Assert<ListToolsRequest, Infer<typeof ListToolsRequestSchema>> & Assert<Infer<typeof ListToolsRequestSchema>, ListToolsRequest>;
+
+/**
+ * The server's response to a tools/list request from the client.
+ */
+export interface ListToolsResult extends PaginatedResult {
+  tools: Tool[];
+}
+type _AssertListToolsResultMatches = Assert<ListToolsResult, Infer<typeof ListToolsResultSchema>> & Assert<Infer<typeof ListToolsResultSchema>, ListToolsResult>;
+
+/**
+ * The server's response to a tool call.
+ */
+export interface CallToolResult extends Result {
+  /**
+   * A list of content objects that represent the result of the tool call.
+   *
+   * If the Tool does not define an outputSchema, this field MUST be present in the result.
+   * For backwards compatibility, this field is always present, but it may be empty.
+   */
+  content: (TextContent | ImageContent | AudioContent | EmbeddedResource)[];
+  /**
+   * An object containing structured tool output.
+   *
+   * If the Tool defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
+   */
+  structuredContent?: { [key: string]: unknown };
+  /**
+   * Whether the tool call ended in an error.
+   *
+   * If not set, this is assumed to be false (the call was successful).
+   *
+   * Any errors that originate from the tool SHOULD be reported inside the result
+   * object, with `isError` set to true, _not_ as an MCP protocol-level error
+   * response. Otherwise, the LLM would not be able to see that an error occurred
+   * and self-correct.
+   *
+   * However, any errors in _finding_ the tool, an error indicating that the
+   * server does not support tool calls, or any other exceptional conditions,
+   * should be reported as an MCP error response.
+   */
+  isError?: boolean;
+}
+type _AssertCallToolResultMatches = Assert<CallToolResult, Infer<typeof CallToolResultSchema>> & Assert<Infer<typeof CallToolResultSchema>, CallToolResult>;
+
+export type CompatibilityCallToolResult = CallToolResult | (Result & { toolResult?: unknown });
+type _AssertCompatibilityCallToolResultMatches = Assert<CompatibilityCallToolResult, Infer<typeof CompatibilityCallToolResultSchema>> & Assert<Infer<typeof CompatibilityCallToolResultSchema>, CompatibilityCallToolResult>;
+
+/**
+ * Used by the client to invoke a tool provided by the server.
+ */
+export interface CallToolRequest extends Request {
+  method: "tools/call";
+  params: {
+    _meta?: RequestMeta;
+    name: string;
+    arguments?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+}
+type _AssertCallToolRequestMatches = Assert<CallToolRequest, Infer<typeof CallToolRequestSchema>> & Assert<Infer<typeof CallToolRequestSchema>, CallToolRequest>;
+
+/**
+ * An optional notification from the server to the client, informing it that the list of tools it offers has changed. This may be issued by servers without any previous subscription from the client.
+ */
+export interface ToolListChangedNotification extends Notification {
+  method: "notifications/tools/list_changed";
+}
+type _AssertToolListChangedNotificationMatches = Assert<ToolListChangedNotification, Infer<typeof ToolListChangedNotificationSchema>> & Assert<Infer<typeof ToolListChangedNotificationSchema>, ToolListChangedNotification>;
 
 /* Logging */
-export type LoggingLevel = Infer<typeof LoggingLevelSchema>;
-export type SetLevelRequest = Infer<typeof SetLevelRequestSchema>;
-export type LoggingMessageNotification = Infer<typeof LoggingMessageNotificationSchema>;
+/**
+ * The severity of a log message.
+ */
+export type LoggingLevel = "debug" | "info" | "notice" | "warning" | "error" | "critical" | "alert" | "emergency";
+type _AssertLoggingLevelMatches = Assert<LoggingLevel, Infer<typeof LoggingLevelSchema>> & Assert<Infer<typeof LoggingLevelSchema>, LoggingLevel>;
+
+/**
+ * A request from the client to the server, to enable or adjust logging.
+ */
+export interface SetLevelRequest extends Request {
+  method: "logging/setLevel";
+  params: {
+    _meta?: RequestMeta;
+    /**
+     * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/logging/message.
+     */
+    level: LoggingLevel;
+    [key: string]: unknown;
+  };
+}
+type _AssertSetLevelRequestMatches = Assert<SetLevelRequest, Infer<typeof SetLevelRequestSchema>> & Assert<Infer<typeof SetLevelRequestSchema>, SetLevelRequest>;
+
+/**
+ * Notification of a log message passed from server to client. If no logging/setLevel request has been sent from the client, the server MAY decide which messages to send automatically.
+ */
+export interface LoggingMessageNotification extends Notification {
+  method: "notifications/message";
+  params: {
+    _meta?: { [key: string]: unknown };
+    /**
+     * The severity of this log message.
+     */
+    level: LoggingLevel;
+    /**
+     * An optional name of the logger issuing this message.
+     */
+    logger?: string;
+    /**
+     * The data to be logged, such as a string message or an object. Any JSON serializable type is allowed here.
+     */
+    data?: unknown;
+    [key: string]: unknown;
+  };
+}
+type _AssertLoggingMessageNotificationMatches = Assert<LoggingMessageNotification, Infer<typeof LoggingMessageNotificationSchema>> & Assert<Infer<typeof LoggingMessageNotificationSchema>, LoggingMessageNotification>;
 
 /* Sampling */
-export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
-export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
-export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
+/**
+ * Hints to use for model selection.
+ */
+export interface ModelHint {
+  /**
+   * A hint for a model name.
+   */
+  name?: string;
+  [key: string]: unknown;
+}
+type _AssertModelHintMatches = Assert<ModelHint, Infer<typeof ModelHintSchema>> & Assert<Infer<typeof ModelHintSchema>, ModelHint>;
+
+/**
+ * The server's preferences for model selection, requested of the client during sampling.
+ */
+export interface ModelPreferences {
+  /**
+   * Optional hints to use for model selection.
+   */
+  hints?: ModelHint[];
+  /**
+   * How much to prioritize cost when selecting a model.
+   */
+  costPriority?: number;
+  /**
+   * How much to prioritize sampling speed (latency) when selecting a model.
+   */
+  speedPriority?: number;
+  /**
+   * How much to prioritize intelligence and capabilities when selecting a model.
+   */
+  intelligencePriority?: number;
+  [key: string]: unknown;
+}
+type _AssertModelPreferencesMatches = Assert<ModelPreferences, Infer<typeof ModelPreferencesSchema>> & Assert<Infer<typeof ModelPreferencesSchema>, ModelPreferences>;
+
+/**
+ * Describes a message issued to or received from an LLM API.
+ */
+export interface SamplingMessage {
+  role: "user" | "assistant";
+  content: TextContent | ImageContent | AudioContent;
+  [key: string]: unknown;
+}
+type _AssertSamplingMessageMatches = Assert<SamplingMessage, Infer<typeof SamplingMessageSchema>> & Assert<Infer<typeof SamplingMessageSchema>, SamplingMessage>;
+
+/**
+ * A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
+ */
+export interface CreateMessageRequest extends Request {
+  method: "sampling/createMessage";
+  params: {
+    _meta?: RequestMeta;
+    messages: SamplingMessage[];
+    /**
+     * An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt.
+     */
+    systemPrompt?: string;
+    /**
+     * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt. The client MAY ignore this request.
+     */
+    includeContext?: "none" | "thisServer" | "allServers";
+    temperature?: number;
+    /**
+     * The maximum number of tokens to sample, as requested by the server. The client MAY choose to sample fewer tokens than requested.
+     */
+    maxTokens: number;
+    stopSequences?: string[];
+    /**
+     * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
+     */
+    metadata?: { [key: string]: unknown };
+    /**
+     * The server's preferences for which model to select.
+     */
+    modelPreferences?: ModelPreferences;
+    [key: string]: unknown;
+  };
+}
+type _AssertCreateMessageRequestMatches = Assert<CreateMessageRequest, Infer<typeof CreateMessageRequestSchema>> & Assert<Infer<typeof CreateMessageRequestSchema>, CreateMessageRequest>;
+
+/**
+ * The client's response to a sampling/create_message request from the server. The client should inform the user before returning the sampled message, to allow them to inspect the response (human in the loop) and decide whether to allow the server to see it.
+ */
+export interface CreateMessageResult extends Result {
+  /**
+   * The name of the model that generated the message.
+   */
+  model: string;
+  /**
+   * The reason why sampling stopped.
+   */
+  stopReason?: "endTurn" | "stopSequence" | "maxTokens" | string;
+  role: "user" | "assistant";
+  content: TextContent | ImageContent | AudioContent;
+}
+type _AssertCreateMessageResultMatches = Assert<CreateMessageResult, Infer<typeof CreateMessageResultSchema>> & Assert<Infer<typeof CreateMessageResultSchema>, CreateMessageResult>;
 
 /* Autocomplete */
-export type ResourceReference = Infer<typeof ResourceReferenceSchema>;
-export type PromptReference = Infer<typeof PromptReferenceSchema>;
-export type CompleteRequest = Infer<typeof CompleteRequestSchema>;
-export type CompleteResult = Infer<typeof CompleteResultSchema>;
+/**
+ * A reference to a resource or resource template definition.
+ */
+export interface ResourceReference {
+  type: "ref/resource";
+  /**
+   * The URI or URI template of the resource.
+   */
+  uri: string;
+  [key: string]: unknown;
+}
+type _AssertResourceReferenceMatches = Assert<ResourceReference, Infer<typeof ResourceReferenceSchema>> & Assert<Infer<typeof ResourceReferenceSchema>, ResourceReference>;
+
+/**
+ * Identifies a prompt.
+ */
+export interface PromptReference {
+  type: "ref/prompt";
+  /**
+   * The name of the prompt or prompt template
+   */
+  name: string;
+  [key: string]: unknown;
+}
+type _AssertPromptReferenceMatches = Assert<PromptReference, Infer<typeof PromptReferenceSchema>> & Assert<Infer<typeof PromptReferenceSchema>, PromptReference>;
+
+/**
+ * A request from the client to the server, to ask for completion options.
+ */
+export interface CompleteRequest extends Request {
+  method: "completion/complete";
+  params: {
+    _meta?: RequestMeta;
+    ref: PromptReference | ResourceReference;
+    /**
+     * The argument's information
+     */
+    argument: {
+      /**
+       * The name of the argument
+       */
+      name: string;
+      /**
+       * The value of the argument to use for completion matching.
+       */
+      value: string;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+}
+type _AssertCompleteRequestMatches = Assert<CompleteRequest, Infer<typeof CompleteRequestSchema>> & Assert<Infer<typeof CompleteRequestSchema>, CompleteRequest>;
+
+/**
+ * The server's response to a completion/complete request
+ */
+export interface CompleteResult extends Result {
+  completion: {
+    /**
+     * An array of completion values. Must not exceed 100 items.
+     */
+    values: string[];
+    /**
+     * The total number of completion options available. This can exceed the number of values actually sent in the response.
+     */
+    total?: number;
+    /**
+     * Indicates whether there are additional completion options beyond those provided in the current response, even if the exact total is unknown.
+     */
+    hasMore?: boolean;
+    [key: string]: unknown;
+  };
+}
+type _AssertCompleteResultMatches = Assert<CompleteResult, Infer<typeof CompleteResultSchema>> & Assert<Infer<typeof CompleteResultSchema>, CompleteResult>;
 
 /* Roots */
-export type Root = Infer<typeof RootSchema>;
-export type ListRootsRequest = Infer<typeof ListRootsRequestSchema>;
-export type ListRootsResult = Infer<typeof ListRootsResultSchema>;
-export type RootsListChangedNotification = Infer<typeof RootsListChangedNotificationSchema>;
+/**
+ * Represents a root directory or file that the server can operate on.
+ */
+export interface Root {
+  /**
+   * The URI identifying the root. This *must* start with file:// for now.
+   */
+  uri: string;
+  /**
+   * An optional name for the root.
+   */
+  name?: string;
+  [key: string]: unknown;
+}
+type _AssertRootMatches = Assert<Root, Infer<typeof RootSchema>> & Assert<Infer<typeof RootSchema>, Root>;
+
+/**
+ * Sent from the server to request a list of root URIs from the client.
+ */
+export interface ListRootsRequest extends Request {
+  method: "roots/list";
+}
+type _AssertListRootsRequestMatches = Assert<ListRootsRequest, Infer<typeof ListRootsRequestSchema>> & Assert<Infer<typeof ListRootsRequestSchema>, ListRootsRequest>;
+
+/**
+ * The client's response to a roots/list request from the server.
+ */
+export interface ListRootsResult extends Result {
+  roots: Root[];
+}
+type _AssertListRootsResultMatches = Assert<ListRootsResult, Infer<typeof ListRootsResultSchema>> & Assert<Infer<typeof ListRootsResultSchema>, ListRootsResult>;
+
+/**
+ * A notification from the client to the server, informing it that the list of roots has changed.
+ */
+export interface RootsListChangedNotification extends Notification {
+  method: "notifications/roots/list_changed";
+}
+type _AssertRootsListChangedNotificationMatches = Assert<RootsListChangedNotification, Infer<typeof RootsListChangedNotificationSchema>> & Assert<Infer<typeof RootsListChangedNotificationSchema>, RootsListChangedNotification>;
 
 /* Client messages */
-export type ClientRequest = Infer<typeof ClientRequestSchema>;
-export type ClientNotification = Infer<typeof ClientNotificationSchema>;
-export type ClientResult = Infer<typeof ClientResultSchema>;
+export type ClientRequest = 
+  | PingRequest
+  | InitializeRequest
+  | CompleteRequest
+  | SetLevelRequest
+  | GetPromptRequest
+  | ListPromptsRequest
+  | ListResourcesRequest
+  | ListResourceTemplatesRequest
+  | ReadResourceRequest
+  | SubscribeRequest
+  | UnsubscribeRequest
+  | CallToolRequest
+  | ListToolsRequest;
+type _AssertClientRequestMatches = Assert<ClientRequest, Infer<typeof ClientRequestSchema>> & Assert<Infer<typeof ClientRequestSchema>, ClientRequest>;
+
+export type ClientNotification = 
+  | CancelledNotification
+  | ProgressNotification
+  | InitializedNotification
+  | RootsListChangedNotification;
+type _AssertClientNotificationMatches = Assert<ClientNotification, Infer<typeof ClientNotificationSchema>> & Assert<Infer<typeof ClientNotificationSchema>, ClientNotification>;
+
+export type ClientResult = 
+  | EmptyResult
+  | CreateMessageResult
+  | ListRootsResult;
+type _AssertClientResultMatches = Assert<ClientResult, Infer<typeof ClientResultSchema>> & Assert<Infer<typeof ClientResultSchema>, ClientResult>;
 
 /* Server messages */
-export type ServerRequest = Infer<typeof ServerRequestSchema>;
-export type ServerNotification = Infer<typeof ServerNotificationSchema>;
-export type ServerResult = Infer<typeof ServerResultSchema>;
+export type ServerRequest = 
+  | PingRequest
+  | CreateMessageRequest
+  | ListRootsRequest;
+type _AssertServerRequestMatches = Assert<ServerRequest, Infer<typeof ServerRequestSchema>> & Assert<Infer<typeof ServerRequestSchema>, ServerRequest>;
+
+export type ServerNotification = 
+  | CancelledNotification
+  | ProgressNotification
+  | LoggingMessageNotification
+  | ResourceUpdatedNotification
+  | ResourceListChangedNotification
+  | ToolListChangedNotification
+  | PromptListChangedNotification;
+type _AssertServerNotificationMatches = Assert<ServerNotification, Infer<typeof ServerNotificationSchema>> & Assert<Infer<typeof ServerNotificationSchema>, ServerNotification>;
+
+export type ServerResult = 
+  | EmptyResult
+  | InitializeResult
+  | CompleteResult
+  | GetPromptResult
+  | ListPromptsResult
+  | ListResourcesResult
+  | ListResourceTemplatesResult
+  | ReadResourceResult
+  | CallToolResult
+  | ListToolsResult;
+type _AssertServerResultMatches = Assert<ServerResult, Infer<typeof ServerResultSchema>> & Assert<Infer<typeof ServerResultSchema>, ServerResult>;
