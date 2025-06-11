@@ -98,6 +98,7 @@ export async function auth(
     authorizationCode?: string;
     scope?: string;
     resourceMetadataUrl?: URL }): Promise<AuthResult> {
+     
 
   let authorizationServerUrl = serverUrl;
   try {
@@ -111,10 +112,14 @@ export async function auth(
     console.warn("Could not load OAuth Protected Resource metadata, falling back to /.well-known/oauth-authorization-server", error)
   }
 
+  console.log('authorizationServerUrl', authorizationServerUrl);
   const metadata = await discoverOAuthMetadata(authorizationServerUrl);
+
 
   // Handle client registration if needed
   let clientInformation = await Promise.resolve(provider.clientInformation());
+  console.log("provider", provider);
+  console.log("client information", clientInformation);
   if (!clientInformation) {
     if (authorizationCode !== undefined) {
       throw new Error("Existing OAuth client information is required when exchanging an authorization code");
@@ -287,6 +292,7 @@ export async function discoverOAuthMetadata(
   }
 
   if (response.status === 404) {
+    console.log('WIX SSO JSON 404!', url);
     return undefined;
   }
 
@@ -296,7 +302,8 @@ export async function discoverOAuthMetadata(
     );
   }
 
-  return OAuthMetadataSchema.parse(await response.json());
+  const json = await response.json()
+  return OAuthMetadataSchema.parse(json);
 }
 
 /**
@@ -515,6 +522,8 @@ export async function registerClient(
   } else {
     registrationUrl = new URL("/register", authorizationServerUrl);
   }
+  console.log('registrationUrl', registrationUrl);
+  console.log('registration body', JSON.stringify(clientMetadata));
 
   const response = await fetch(registrationUrl, {
     method: "POST",

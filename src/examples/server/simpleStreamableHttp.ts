@@ -179,11 +179,30 @@ if (useOAuth) {
   const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}`);
   const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
-  const oauthMetadata: OAuthMetadata = setupAuthServer(authServerUrl);
-
+  //const oauthMetadata: OAuthMetadata = setupAuthServer(authServerUrl);
+     const oauthMetadata = {
+     issuer: 'https://sso.wewix.net/auth/realms/WIX-APP',
+     authorization_endpoint: '',
+     token_endpoint: '',
+     registration_endpoint: '',
+     scopes_supported: [],
+     response_types_supported: [],
+     response_modes_supported: [],
+     grant_types_supported: [],
+     token_endpoint_auth_methods_supported: [],
+     token_endpoint_auth_signing_alg_values_supported: [],
+     service_documentation: '',
+     revocation_endpoint: '',
+     revocation_endpoint_auth_methods_supported: [],
+     revocation_endpoint_auth_signing_alg_values_supported: [],
+     introspection_endpoint: '',
+     introspection_endpoint_auth_methods_supported: [],
+     introspection_endpoint_auth_signing_alg_values_supported: [],
+     code_challenge_methods_supported: [],
+   };
   const tokenVerifier = {
     verifyAccessToken: async (token: string) => {
-      const endpoint = oauthMetadata.introspection_endpoint;
+      const endpoint = 'test'
 
       if (!endpoint) {
         throw new Error('No token verification endpoint available in metadata');
@@ -219,13 +238,13 @@ if (useOAuth) {
   app.use(mcpAuthMetadataRouter({
     oauthMetadata,
     resourceServerUrl: mcpServerUrl,
-    scopesSupported: ['mcp:tools'],
+    scopesSupported: [],
     resourceName: 'MCP Demo Server',
   }));
 
   authMiddleware = requireBearerAuth({
     verifier: tokenVerifier,
-    requiredScopes: ['mcp:tools'],
+    requiredScopes: [],
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
   });
 }

@@ -202,10 +202,38 @@ export function mcpAuthMetadataRouter(options: AuthMetadataOptions) {
     resource_documentation: options.serviceDocumentationUrl?.href,
   };
 
-  router.use("/.well-known/oauth-protected-resource", metadataHandler(protectedResourceMetadata));
+  router.use("/.well-known/oauth-protected-resource", 
+    (req, res, next) => {
+      console.log(`*** OAuth Protected Resource metadata endpoint called: ${req.method} ${req.originalUrl} from ${req.ip}`);
+      
+      // Capture the original json method
+      const originalJson = res.json;
+      res.json = function(body) {
+        console.log(`*** OAuth Protected Resource metadata response (${res.statusCode}):`, JSON.stringify(body, null, 2));
+        return originalJson.call(this, body);
+      };
+      
+      next();
+    },
+    metadataHandler(protectedResourceMetadata)
+  );
 
   // Always add this for backwards compatibility
-  router.use("/.well-known/oauth-authorization-server", metadataHandler(options.oauthMetadata));
+  router.use("/.well-known/oauth-authorization-server", 
+    (req, res, next) => {
+      console.log(`*** OAuth Authorization Server metadata endpoint called: ${req.method} ${req.originalUrl} from ${req.ip}`);
+      
+      // Capture the original json method
+      const originalJson = res.json;
+      res.json = function(body) {
+        console.log(`*** OAuth Authorization Server metadata response (${res.statusCode}):`, JSON.stringify(body, null, 2));
+        return originalJson.call(this, body);
+      };
+      
+      next();
+    },
+    metadataHandler(options.oauthMetadata)
+  );
 
   return router;
 }
