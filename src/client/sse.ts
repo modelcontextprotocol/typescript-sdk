@@ -1,4 +1,33 @@
-import { EventSource, type ErrorEvent, type EventSourceInit } from "eventsource";
+import { EventSource as EventSourceOld, type ErrorEvent, type EventSourceInit } from "eventsource";
+
+// Dynamically import the appropriate EventSource implementation
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let EventSource: any = globalThis.EventSource;
+
+// Determine Node.js version if running in Node environment
+const nodeMajorVersion = typeof process !== 'undefined' && 
+                         process.versions && 
+                         parseInt(process.versions.node, 10);
+
+// Handle EventSource implementation based on environment
+if (nodeMajorVersion && nodeMajorVersion < 18) {
+  // Import eventsource-old for older Node.js versions
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+  const oldEventSource = require("eventsource-old" as any);
+  EventSource = oldEventSource;
+} else if (!globalThis.EventSource) {
+  // Use eventsource-old for Node.js 18+ or non-Node environments without native EventSource
+  EventSource = EventSourceOld;
+}
+
+// Polyfill fetch if not available in the environment
+if (!globalThis.fetch) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+  const crossFetch = require("cross-fetch" as any);
+  globalThis.fetch = crossFetch.fetch;
+  globalThis.Headers = crossFetch.Headers;
+}
+
 import { Transport } from "../shared/transport.js";
 import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
@@ -115,7 +144,7 @@ export class SSEClientTransport implements Transport {
       this._eventSource = new EventSource(
         this._url.href,
         this._eventSourceInit ?? {
-          fetch: (url, init) => this._commonHeaders().then((headers) => fetch(url, {
+          fetch: (url: string, init: RequestInit) => this._commonHeaders().then((headers) => fetch(url, {
             ...init,
             headers: {
               ...headers,
@@ -126,22 +155,22 @@ export class SSEClientTransport implements Transport {
       );
       this._abortController = new AbortController();
 
-      this._eventSource.onerror = (event) => {
-        if (event.code === 401 && this._authProvider) {
+      this._eventSource!.onerror = (event) => {
+        if ((event as ErrorEvent).code === 401 && this._authProvider) {
           this._authThenStart().then(resolve, reject);
           return;
         }
 
-        const error = new SseError(event.code, event.message, event);
+        const error = new SseError((event as ErrorEvent).code, (event as ErrorEvent).message, event as ErrorEvent);
         reject(error);
         this.onerror?.(error);
       };
 
-      this._eventSource.onopen = () => {
+      this._eventSource!.onopen = () => {
         // The connection is open, but we need to wait for the endpoint to be received.
       };
 
-      this._eventSource.addEventListener("endpoint", (event: Event) => {
+      this._eventSource!.addEventListener("endpoint", (event: Event) => {
         const messageEvent = event as MessageEvent;
 
         try {
@@ -162,7 +191,7 @@ export class SSEClientTransport implements Transport {
         resolve();
       });
 
-      this._eventSource.onmessage = (event: Event) => {
+      this._eventSource!.onmessage = (event: Event) => {
         const messageEvent = event as MessageEvent;
         let message: JSONRPCMessage;
         try {
