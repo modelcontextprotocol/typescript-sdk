@@ -725,11 +725,42 @@ app.use(mcpAuthRouter({
 }))
 ```
 
+#### Stateless Proxy Configuration
+
+For stateless proxy setups where you don't have local client information stored, you can return `undefined` from `getClient` and set the `skipLocalClientValidation` flag:
+
+```typescript
+const statelessProxyProvider = new ProxyOAuthServerProvider({
+    endpoints: {
+        authorizationUrl: "https://auth.external.com/oauth2/v1/authorize",
+        tokenUrl: "https://auth.external.com/oauth2/v1/token",
+    },
+    verifyAccessToken: async (token) => {
+        // Your token verification logic
+        return {
+            token,
+            clientId: "123",
+            scopes: ["openid", "email", "profile"],
+        }
+    },
+    getClient: async (client_id) => {
+        // Return undefined for stateless operation
+        return undefined;
+    },
+    // Skip local client validation since validation is done upstream
+    skipLocalClientValidation: true,
+    // Skip local PKCE validation since validation is done upstream
+    skipLocalPkceValidation: true
+})
+````
+
+With this configuration, client validation and PKCE validation are delegated entirely to the upstream OAuth server, allowing for a fully stateless proxy implementation.
+
 This setup allows you to:
 
 - Forward OAuth requests to an external provider
 - Add custom token validation logic
-- Manage client registrations
+- Manage client registrations (or operate statelessly)
 - Provide custom documentation URLs
 - Maintain control over the OAuth flow while delegating to an external provider
 
