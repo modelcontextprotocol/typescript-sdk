@@ -9,6 +9,13 @@ export type ClientAuthenticationMiddlewareOptions = {
    * A store used to read information about registered OAuth clients.
    */
   clientsStore: OAuthRegisteredClientsStore;
+  
+  /**
+   * If true, allows creating clients from request data when they don't exist in the store.
+   * This is useful for proxy providers where client validation is done upstream.
+   * Defaults to false for security.
+   */
+  allowFallbackClient?: boolean;
 }
 
 const ClientAuthenticatedRequestSchema = z.object({
@@ -25,7 +32,7 @@ declare module "express-serve-static-core" {
   }
 }
 
-export function authenticateClient({ clientsStore }: ClientAuthenticationMiddlewareOptions): RequestHandler {
+export function authenticateClient({ clientsStore, allowFallbackClient = false }: ClientAuthenticationMiddlewareOptions): RequestHandler {
   return async (req, res, next) => {
     try {
       const result = ClientAuthenticatedRequestSchema.safeParse(req.body);
@@ -34,9 +41,20 @@ export function authenticateClient({ clientsStore }: ClientAuthenticationMiddlew
       }
 
       const { client_id, client_secret } = result.data;
-      const client = (await clientsStore.getClient(client_id)) ?? (result.data as OAuthClientInformationFull);
+      let client = await clientsStore.getClient(client_id);
+      
       if (!client) {
-        throw new InvalidClientError("Invalid client_id");
+        if (allowFallbackClient) {
+          // Create a minimal client from request data for proxy scenarios
+          client = {
+            client_id,
+            client_secret,
+            redirect_uris: [],
+            scope: ""
+          } as OAuthClientInformationFull;
+        } else {
+          throw new InvalidClientError("Invalid client_id");
+        }
       }
 
       // If client has a secret, validate it

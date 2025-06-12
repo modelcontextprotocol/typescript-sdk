@@ -77,7 +77,11 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
       // If getClient returns undefined, we create a new client with the details from the request
       // This skips the client validation, which is useful for proxy providers in which the validation is done by the upstream server
       if (!client) {
-        client = { client_id, redirect_uris: [redirect_uri], scope: "" } as OAuthClientInformationFull;
+        if (provider.skipLocalClientValidation) {
+          client = { client_id, redirect_uris: [redirect_uri], scope: "" } as OAuthClientInformationFull;
+        } else {
+          throw new InvalidRequestError("Invalid client_id");
+        }
       }
 
       if (redirect_uri !== undefined) {

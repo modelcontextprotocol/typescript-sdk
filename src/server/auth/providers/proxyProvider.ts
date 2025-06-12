@@ -34,6 +34,18 @@ export type ProxyOptions = {
   */
   getClient: (clientId: string) => Promise<OAuthClientInformationFull | undefined>;
 
+  /**
+   * If true, skips local PKCE validation (useful for proxy providers where validation is done upstream).
+   * Defaults to true for proxy providers.
+   */
+  skipLocalPkceValidation?: boolean;
+
+  /**
+   * If true, allows creating clients from request data when they don't exist in the store.
+   * This is useful for proxy providers where client validation is done upstream.
+   * Defaults to true for proxy providers.
+   */
+  skipLocalClientValidation?: boolean;
 };
 
 /**
@@ -44,7 +56,8 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
   protected readonly _verifyAccessToken: (token: string) => Promise<AuthInfo>;
   protected readonly _getClient: (clientId: string) => Promise<OAuthClientInformationFull | undefined>;
   
-  skipLocalPkceValidation = true;
+  skipLocalPkceValidation: boolean;
+  skipLocalClientValidation: boolean;
 
   revokeToken?: (
     client: OAuthClientInformationFull,
@@ -55,6 +68,11 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
     this._endpoints = options.endpoints;
     this._verifyAccessToken = options.verifyAccessToken;
     this._getClient = options.getClient;
+    
+    // Default to true for proxy providers since validation is typically done upstream
+    this.skipLocalPkceValidation = options.skipLocalPkceValidation ?? true;
+    this.skipLocalClientValidation = options.skipLocalClientValidation ?? true;
+
     if (options.endpoints?.revocationUrl) {
       this.revokeToken = async (
         client: OAuthClientInformationFull,

@@ -62,7 +62,10 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
   }
 
   // Authenticate and extract client details
-  router.use(authenticateClient({ clientsStore: provider.clientsStore }));
+  router.use(authenticateClient({ 
+    clientsStore: provider.clientsStore,
+    allowFallbackClient: provider.skipLocalClientValidation ?? false
+  }));
 
   router.post("/", async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');

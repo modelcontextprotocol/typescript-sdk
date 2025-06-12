@@ -20,6 +20,19 @@ export interface OAuthServerProvider {
   get clientsStore(): OAuthRegisteredClientsStore;
 
   /**
+   * If true, skips local PKCE validation (useful for proxy providers where validation is done upstream).
+   * Defaults to false.
+   */
+  skipLocalPkceValidation?: boolean;
+
+  /**
+   * If true, allows creating clients from request data when they don't exist in the store.
+   * This is useful for proxy providers where client validation is done upstream.
+   * Defaults to false for security.
+   */
+  skipLocalClientValidation?: boolean;
+
+  /**
    * Begins the authorization flow, which can either be implemented by this server itself or via redirection to a separate authorization server.
    *
    * This server must eventually issue a redirect with an authorization response or an error response to the given redirect URI. Per OAuth 2.1:
@@ -59,15 +72,6 @@ export interface OAuthServerProvider {
    * If the given token is invalid or already revoked, this method should do nothing.
    */
   revokeToken?(client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest): Promise<void>;
-
-  /**
-   * Whether to skip local PKCE validation.
-   *
-   * If true, the server will not perform PKCE validation locally and will pass the code_verifier to the upstream server.
-   *
-   * NOTE: This should only be true if the upstream server is performing the actual PKCE validation.
-   */
-  skipLocalPkceValidation?: boolean;
 }
 
 
