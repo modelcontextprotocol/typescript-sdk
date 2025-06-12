@@ -34,7 +34,7 @@ export function authenticateClient({ clientsStore }: ClientAuthenticationMiddlew
       }
 
       const { client_id, client_secret } = result.data;
-      const client = await clientsStore.getClient(client_id);
+      const client = (await clientsStore.getClient(client_id)) ?? (result.data as OAuthClientInformationFull);
       if (!client) {
         throw new InvalidClientError("Invalid client_id");
       }
