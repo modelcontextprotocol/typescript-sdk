@@ -32,7 +32,7 @@ export type ProxyOptions = {
   /**
   * Function to fetch client information from the upstream server
   */
-  getClient: (clientId: string) => Promise<OAuthClientInformationFull | undefined>;
+  getClient?: (clientId: string) => Promise<OAuthClientInformationFull | undefined>;
 
   /**
    * If true, skips local PKCE validation (useful for proxy providers where validation is done upstream).
@@ -67,7 +67,8 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
   constructor(options: ProxyOptions) {
     this._endpoints = options.endpoints;
     this._verifyAccessToken = options.verifyAccessToken;
-    this._getClient = options.getClient;
+    this._getClient = !options.skipLocalClientValidation
+      ? options.getClient! : (async () => undefined);
     
     // Default to true for proxy providers since validation is typically done upstream
     this.skipLocalPkceValidation = options.skipLocalPkceValidation ?? true;
