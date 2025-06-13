@@ -251,7 +251,11 @@ app.post('/mcp', async (req, res) => {
       onsessioninitialized: (sessionId) => {
         // Store the transport by session ID
         transports[sessionId] = transport;
-      }
+      },
+      // DNS rebinding protection is disabled by default for backwards compatibility. If you are running this server
+      // locally, make sure to set:
+      // enableDnsRebindingProtection: true,
+      // allowedHosts: ['127.0.0.1'],
     });
 
     // Clean up transport when closed
@@ -385,6 +389,22 @@ This stateless approach is useful for:
 - Simple API wrappers
 - RESTful scenarios where each request is independent
 - Horizontally scaled deployments without shared session state
+
+#### DNS Rebinding Protection
+
+The Streamable HTTP transport includes DNS rebinding protection to prevent security vulnerabilities. By default, this protection is **disabled** for backwards compatibility.
+
+**Important**: If you are running this server locally, enable DNS rebinding protection:
+
+```typescript
+const transport = new StreamableHTTPServerTransport({
+  sessionIdGenerator: () => randomUUID(),
+  enableDnsRebindingProtection: true,
+
+  allowedHosts: ['127.0.0.1', ...],
+  allowedOrigins: ['https://yourdomain.com', 'https://www.yourdomain.com']
+});
+```
 
 ### Testing and Debugging
 
