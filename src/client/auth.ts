@@ -71,6 +71,13 @@ export interface OAuthClientProvider {
    * the authorization result.
    */
   codeVerifier(): string | Promise<string>;
+
+  /**
+   * Use OpenID Provider configuration information for authorization
+   * server metadata.
+   * https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfig
+   */
+  useOidcProviderConfiguration?(): boolean | Promise<boolean>;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -111,7 +118,9 @@ export async function auth(
     console.warn("Could not load OAuth Protected Resource metadata, falling back to /.well-known/oauth-authorization-server", error)
   }
 
-  const metadata = await discoverOAuthMetadata(authorizationServerUrl);
+  const metadata = await discoverOAuthMetadata(authorizationServerUrl, {
+    useOidcConfig: await provider.useOidcProviderConfiguration?.() 
+  });
 
   // Handle client registration if needed
   let clientInformation = await Promise.resolve(provider.clientInformation());
@@ -267,9 +276,15 @@ export async function discoverOAuthProtectedResourceMetadata(
  */
 export async function discoverOAuthMetadata(
   authorizationServerUrl: string | URL,
-  opts?: { protocolVersion?: string },
+  opts?: { 
+    protocolVersion?: string 
+    useOidcConfig?: boolean 
+  },
 ): Promise<OAuthMetadata | undefined> {
-  const url = new URL("/.well-known/oauth-authorization-server", authorizationServerUrl);
+  const metadataPath = opts?.useOidcConfig ? 
+    "openid-configuration" : 
+    "oauth-authorization-server";
+  const url = new URL(`/.well-known/${metadataPath}`, authorizationServerUrl);
   let response: Response;
   try {
     response = await fetch(url, {
