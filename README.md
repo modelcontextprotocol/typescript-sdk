@@ -133,6 +133,26 @@ server.resource(
     }]
   })
 );
+
+// Structured resource registration with config object
+server.registerResource(
+  "documentation",
+  {
+    uri: "docs://api/reference",
+    description: "API Reference Documentation",
+    metadata: {
+      mimeType: "text/markdown",
+      tags: ["reference", "api"]
+    }
+  },
+  async (uri) => ({
+    contents: [{
+      uri: uri.href,
+      text: "# API Reference\n\nThis is the API reference documentation.",
+      mimeType: "text/markdown"
+    }]
+  })
+);
 ```
 
 ### Tools
@@ -166,6 +186,32 @@ server.tool(
       content: [{ type: "text", text: data }]
     };
   }
+);
+
+// Structured tool registration with config object
+server.registerTool(
+  "structured-tool",
+  {
+    description: "A tool registered with the structured approach",
+    inputSchema: {
+      query: z.string().min(3),
+      limit: z.number().optional()
+    },
+    outputSchema: {
+      results: z.array(z.string()),
+      count: z.number()
+    },
+    annotations: {
+      readOnlyHint: true,
+      title: "Search Tool"
+    }
+  },
+  async ({ query, limit = 10 }) => ({
+    structuredContent: {
+      results: [`Result for: ${query}`],
+      count: 1
+    }
+  })
 );
 ```
 
