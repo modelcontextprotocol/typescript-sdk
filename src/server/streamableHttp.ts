@@ -524,6 +524,45 @@ export class StreamableHTTPServerTransport implements Transport {
     return true;
   }
 
+  /**
+     * Flushes all active HTTP response streams to force immediate sending of buffered data.
+     * This is useful for progress notifications and other real-time updates that need
+     * to be sent immediately rather than being buffered by the HTTP layer.
+     */
+  flush() {
+    // Flush all active response streams
+    this._streamMapping.forEach((response) => {
+        try {
+            // Force the response to be sent by accessing the underlying socket
+            const socket = response.socket;
+            if (socket && typeof socket.flush === 'function') {
+                // Some socket implementations have a flush method
+                socket.flush();
+            } else if (socket && !socket.destroyed) {
+                // Force the socket to send any buffered data
+                // This is the most reliable way to force HTTP data to be sent
+                socket.uncork();
+                socket.cork();
+                socket.uncork();
+            }
+            
+            // Alternative approach: Write an empty chunk to force transmission
+            // This works because writing data often triggers the HTTP layer to flush
+            if (response.chunkedEncoding && response.writable && !response.destroyed) {
+                // For chunked encoding, we can write an empty chunk
+                // This forces the HTTP layer to send any buffered data
+                response.write('');
+            }
+        } catch (error) {
+            // Ignore errors from closed connections or invalid states
+            if (error instanceof Error) {
+              console.warn('Warning: Failed to flush response stream:', error.message);
+            } else {
+              console.warn('Warning: Failed to flush response stream:', String(error));
+            }
+        }
+    });
+  }
 
   async close(): Promise<void> {
     // Close all SSE connections
