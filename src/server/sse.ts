@@ -17,7 +17,6 @@ const MAXIMUM_MESSAGE_SIZE = "4mb";
 export class SSEServerTransport implements Transport {
   private _sseResponse?: ServerResponse;
   private _sessionId: string;
-
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
