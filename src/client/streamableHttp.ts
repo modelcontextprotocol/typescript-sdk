@@ -124,6 +124,7 @@ export class StreamableHTTPClientTransport implements Transport {
   private _authProvider?: OAuthClientProvider;
   private _sessionId?: string;
   private _reconnectionOptions: StreamableHTTPReconnectionOptions;
+  private _protocolVersion?: string;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -162,7 +163,7 @@ export class StreamableHTTPClientTransport implements Transport {
   }
 
   private async _commonHeaders(): Promise<Headers> {
-    const headers: HeadersInit = {};
+    const headers: HeadersInit & Record<string, string> = {};
     if (this._authProvider) {
       const tokens = await this._authProvider.tokens();
       if (tokens) {
@@ -172,6 +173,9 @@ export class StreamableHTTPClientTransport implements Transport {
 
     if (this._sessionId) {
       headers["mcp-session-id"] = this._sessionId;
+    }
+    if (this._protocolVersion) {
+      headers["mcp-protocol-version"] = this._protocolVersion;
     }
 
     return new Headers(
@@ -515,5 +519,12 @@ export class StreamableHTTPClientTransport implements Transport {
       this.onerror?.(error as Error);
       throw error;
     }
+  }
+
+  setProtocolVersion(version: string): void {
+    this._protocolVersion = version;
+  }
+  get protocolVersion(): string | undefined {
+    return this._protocolVersion;
   }
 }

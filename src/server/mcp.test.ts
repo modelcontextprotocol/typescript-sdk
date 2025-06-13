@@ -3457,4 +3457,144 @@ describe("prompt()", () => {
     expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
     expect(result.messages[0].content.text).toContain("Received request ID:");
   });
+
+  /***
+   * Test: Resource Template Metadata Priority
+   */
+  test("should prioritize individual resource metadata over template metadata", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.resource(
+      "test",
+      new ResourceTemplate("test://resource/{id}", {
+        list: async () => ({
+          resources: [
+            {
+              name: "Resource 1",
+              uri: "test://resource/1",
+              description: "Individual resource description",
+              mimeType: "text/plain",
+            },
+            {
+              name: "Resource 2",
+              uri: "test://resource/2",
+              // This resource has no description or mimeType
+            },
+          ],
+        }),
+      }),
+      {
+        description: "Template description",
+        mimeType: "application/json",
+      },
+      async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            text: "Test content",
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    );
+
+    expect(result.resources).toHaveLength(2);
+    
+    // Resource 1 should have its own metadata
+    expect(result.resources[0].name).toBe("Resource 1");
+    expect(result.resources[0].description).toBe("Individual resource description");
+    expect(result.resources[0].mimeType).toBe("text/plain");
+    
+    // Resource 2 should inherit template metadata
+    expect(result.resources[1].name).toBe("Resource 2");
+    expect(result.resources[1].description).toBe("Template description");
+    expect(result.resources[1].mimeType).toBe("application/json");
+  });
+
+  /***
+   * Test: Resource Template Metadata Overrides All Fields
+   */
+  test("should allow resource to override all template metadata fields", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.resource(
+      "test",
+      new ResourceTemplate("test://resource/{id}", {
+        list: async () => ({
+          resources: [
+            {
+              name: "Overridden Name",
+              uri: "test://resource/1",
+              description: "Overridden description",
+              mimeType: "text/markdown",
+              // Add any other metadata fields if they exist
+            },
+          ],
+        }),
+      }),
+      {
+        name: "Template Name",
+        description: "Template description",
+        mimeType: "application/json",
+      },
+      async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            text: "Test content",
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    );
+
+    expect(result.resources).toHaveLength(1);
+    
+    // All fields should be from the individual resource, not the template
+    expect(result.resources[0].name).toBe("Overridden Name");
+    expect(result.resources[0].description).toBe("Overridden description");
+    expect(result.resources[0].mimeType).toBe("text/markdown");
+  });
 });

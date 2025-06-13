@@ -76,4 +76,9 @@ export interface Transport {
    * The session ID generated for this connection.
    */
   sessionId?: string;
+
+  /**
+   * Sets the protocol version used for the connection (called when the initialize response is received).
+   */
+  setProtocolVersion?: (version: string) => void;
 }

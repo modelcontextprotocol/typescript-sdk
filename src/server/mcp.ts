@@ -373,8 +373,9 @@ export class McpServer {
           const result = await template.resourceTemplate.listCallback(extra);
           for (const resource of result.resources) {
             templateResources.push({
-              ...resource,
               ...template.metadata,
+              // the defined resource metadata should override the template metadata if present
+              ...resource,
             });
           }
         }
