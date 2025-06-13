@@ -1092,7 +1092,7 @@ export const CreateMessageResultSchema = ResultSchema.extend({
 /**
  * A reference to a resource or resource template definition.
  */
-export const ResourceReferenceSchema = z
+export const ResourceTemplateReferenceSchema = z
   .object({
     type: z.literal("ref/resource"),
     /**
@@ -1101,6 +1101,11 @@ export const ResourceReferenceSchema = z
     uri: z.string(),
   })
   .passthrough();
+
+/**
+ * @deprecated Use ResourceTemplateReferenceSchema instead
+ */
+export const ResourceReferenceSchema = ResourceTemplateReferenceSchema;
 
 /**
  * Identifies a prompt.
@@ -1121,7 +1126,7 @@ export const PromptReferenceSchema = z
 export const CompleteRequestSchema = RequestSchema.extend({
   method: z.literal("completion/complete"),
   params: BaseRequestParamsSchema.extend({
-    ref: z.union([PromptReferenceSchema, ResourceReferenceSchema]),
+    ref: z.union([PromptReferenceSchema, ResourceTemplateReferenceSchema]),
     /**
      * The argument's information
      */
@@ -1377,7 +1382,11 @@ export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
 export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
 
 /* Autocomplete */
-export type ResourceReference = Infer<typeof ResourceReferenceSchema>;
+export type ResourceTemplateReference = Infer<typeof ResourceTemplateReferenceSchema>;
+/**
+ * @deprecated Use ResourceTemplateReference instead
+ */
+export type ResourceReference = ResourceTemplateReference;
 export type PromptReference = Infer<typeof PromptReferenceSchema>;
 export type CompleteRequest = Infer<typeof CompleteRequestSchema>;
 export type CompleteResult = Infer<typeof CompleteResultSchema>;
