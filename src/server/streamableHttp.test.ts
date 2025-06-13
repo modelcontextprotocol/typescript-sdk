@@ -208,6 +208,7 @@ function expectErrorResponse(data: unknown, expectedCode: number, expectedMessag
 
 describe("StreamableHTTPServerTransport", () => {
   let server: Server;
+  let mcpServer: McpServer;
   let transport: StreamableHTTPServerTransport;
   let baseUrl: URL;
   let sessionId: string;
@@ -216,6 +217,7 @@ describe("StreamableHTTPServerTransport", () => {
     const result = await createTestServer();
     server = result.server;
     transport = result.transport;
+    mcpServer = result.mcpServer;
     baseUrl = result.baseUrl;
   });
 
@@ -344,6 +346,69 @@ describe("StreamableHTTPServerTransport", () => {
         ],
       },
       id: "call-1",
+    });
+  });
+
+  /***
+   * Test: Tool With Request Info
+   */
+  it("should pass request info to tool callback", async () => {
+    sessionId = await initializeServer();
+
+    mcpServer.tool(
+      "test-request-info",
+      "A simple test tool with request info",
+      { name: z.string().describe("Name to greet") },
+      async ({ name }, { requestInfo }): Promise<CallToolResult> => {
+        return { content: [{ type: "text", text: `Hello, ${name}!` }, { type: "text", text: `${JSON.stringify(requestInfo)}` }] };
+      }
+    );
+   
+    const toolCallMessage: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: {
+        name: "test-request-info",
+        arguments: {
+          name: "Test User",
+        },
+      },
+      id: "call-1",
+    };
+
+    const response = await sendPostRequest(baseUrl, toolCallMessage, sessionId);
+    expect(response.status).toBe(200);
+
+    const text = await readSSEEvent(response);
+    const eventLines = text.split("\n");
+    const dataLine = eventLines.find(line => line.startsWith("data:"));
+    expect(dataLine).toBeDefined();
+
+    const eventData = JSON.parse(dataLine!.substring(5));
+
+    expect(eventData).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        content: [
+          { type: "text", text: "Hello, Test User!" },
+          { type: "text", text: expect.any(String) }
+        ],
+      },
+      id: "call-1",
+    });
+
+    const requestInfo = JSON.parse(eventData.result.content[1].text);
+    expect(requestInfo).toMatchObject({
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        connection: 'keep-alive',
+        'mcp-session-id': sessionId,
+        'accept-language': '*',
+        'user-agent': expect.any(String),
+        'accept-encoding': expect.any(String),
+        'content-length': expect.any(String),
+      },
     });
   });
 

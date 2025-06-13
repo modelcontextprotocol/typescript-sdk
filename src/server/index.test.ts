@@ -19,6 +19,14 @@ import {
 import { Transport } from "../shared/transport.js";
 import { InMemoryTransport } from "../inMemory.js";
 import { Client } from "../client/index.js";
+import { RequestInfo } from "./types/types.js";
+
+const mockRequestInfo: RequestInfo = {
+  headers: {
+    'content-type': 'application/json',
+    'traceparent': '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
+  },
+};
 
 test("should accept latest protocol version", async () => {
   let sendPromiseResolve: (value: unknown) => void;
@@ -77,7 +85,7 @@ test("should accept latest protocol version", async () => {
         version: "1.0",
       },
     },
-  });
+  }, { requestInfo: mockRequestInfo });
 
   await expect(sendPromise).resolves.toBeUndefined();
 });
@@ -138,7 +146,7 @@ test("should accept supported older protocol version", async () => {
         version: "1.0",
       },
     },
-  });
+  }, { requestInfo: mockRequestInfo });
 
   await expect(sendPromise).resolves.toBeUndefined();
 });
@@ -198,7 +206,7 @@ test("should handle unsupported protocol version", async () => {
         version: "1.0",
       },
     },
-  });
+  }, { requestInfo: mockRequestInfo });
 
   await expect(sendPromise).resolves.toBeUndefined();
 });

@@ -5,6 +5,7 @@ import getRawBody from "raw-body";
 import contentType from "content-type";
 import { randomUUID } from "node:crypto";
 import { AuthInfo } from "./auth/types.js";
+import { MessageExtraInfo, RequestInfo } from "./types/types.js";
 
 const MAXIMUM_MESSAGE_SIZE = "4mb";
 
@@ -113,7 +114,7 @@ export class StreamableHTTPServerTransport implements Transport {
   sessionId?: string;
   onclose?: () => void;
   onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
+  onmessage?: (message: JSONRPCMessage, extra: MessageExtraInfo) => void;
 
   constructor(options: StreamableHTTPServerTransportOptions) {
     this.sessionIdGenerator = options.sessionIdGenerator;
@@ -321,6 +322,7 @@ export class StreamableHTTPServerTransport implements Transport {
       }
 
       const authInfo: AuthInfo | undefined = req.auth;
+      const requestInfo: RequestInfo = { headers: req.headers };
 
       let rawMessage;
       if (parsedBody !== undefined) {
@@ -404,7 +406,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
         // handle each message
         for (const message of messages) {
-          this.onmessage?.(message, { authInfo });
+          this.onmessage?.(message, { authInfo, requestInfo });
         }
       } else if (hasRequests) {
         // The default behavior is to use SSE streaming
@@ -439,7 +441,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
         // handle each message
         for (const message of messages) {
-          this.onmessage?.(message, { authInfo });
+          this.onmessage?.(message, { authInfo, requestInfo });
         }
         // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
         // This will be handled by the send() method when responses are ready
