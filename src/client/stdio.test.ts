@@ -59,3 +59,12 @@ test("should read messages", async () => {
 
   await client.close();
 });
+
+test("should return child process pid", async () => {
+  const client = new StdioClientTransport(serverParameters);
+
+  await client.start();
+  expect(client.pid).not.toBeNull();
+  await client.close();
+  expect(client.pid).toBeNull();
+});
