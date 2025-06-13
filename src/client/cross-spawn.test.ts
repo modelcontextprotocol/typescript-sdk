@@ -1,4 +1,4 @@
-import { StdioClientTransport } from "./stdio.js";
+import { getDefaultEnvironment, StdioClientTransport } from "./stdio.js";
 import spawn from "cross-spawn";
 import { JSONRPCMessage } from "../types.js";
 import { ChildProcess } from "node:child_process";
@@ -72,7 +72,10 @@ describe("StdioClientTransport using cross-spawn", () => {
       "test-command",
       [],
       expect.objectContaining({
-        env: customEnv
+        env: {
+          ...customEnv,
+          ...getDefaultEnvironment()
+        }
       })
     );
   });
