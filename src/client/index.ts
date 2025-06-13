@@ -7,31 +7,41 @@ import {
 import { Transport } from "../shared/transport.js";
 import {
   CallToolRequest,
+  CallToolResult,
   CallToolResultSchema,
   ClientCapabilities,
   ClientNotification,
   ClientRequest,
   ClientResult,
+  CompatibilityCallToolResult,
   CompatibilityCallToolResultSchema,
   CompleteRequest,
+  CompleteResult,
   CompleteResultSchema,
+  EmptyResult,
   EmptyResultSchema,
   GetPromptRequest,
+  GetPromptResult,
   GetPromptResultSchema,
   Implementation,
   InitializeResultSchema,
   LATEST_PROTOCOL_VERSION,
   ListPromptsRequest,
+  ListPromptsResult,
   ListPromptsResultSchema,
   ListResourcesRequest,
+  ListResourcesResult,
   ListResourcesResultSchema,
   ListResourceTemplatesRequest,
+  ListResourceTemplatesResult,
   ListResourceTemplatesResultSchema,
   ListToolsRequest,
+  ListToolsResult,
   ListToolsResultSchema,
   LoggingLevel,
   Notification,
   ReadResourceRequest,
+  ReadResourceResult,
   ReadResourceResultSchema,
   Request,
   Result,
@@ -321,11 +331,11 @@ export class Client<
     }
   }
 
-  async ping(options?: RequestOptions) {
+  async ping(options?: RequestOptions): Promise<EmptyResult> {
     return this.request({ method: "ping" }, EmptyResultSchema, options);
   }
 
-  async complete(params: CompleteRequest["params"], options?: RequestOptions) {
+  async complete(params: CompleteRequest["params"], options?: RequestOptions): Promise<CompleteResult> {
     return this.request(
       { method: "completion/complete", params },
       CompleteResultSchema,
@@ -333,7 +343,7 @@ export class Client<
     );
   }
 
-  async setLoggingLevel(level: LoggingLevel, options?: RequestOptions) {
+  async setLoggingLevel(level: LoggingLevel, options?: RequestOptions): Promise<EmptyResult> {
     return this.request(
       { method: "logging/setLevel", params: { level } },
       EmptyResultSchema,
@@ -344,7 +354,7 @@ export class Client<
   async getPrompt(
     params: GetPromptRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<GetPromptResult> {
     return this.request(
       { method: "prompts/get", params },
       GetPromptResultSchema,
@@ -355,7 +365,7 @@ export class Client<
   async listPrompts(
     params?: ListPromptsRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<ListPromptsResult> {
     return this.request(
       { method: "prompts/list", params },
       ListPromptsResultSchema,
@@ -366,7 +376,7 @@ export class Client<
   async listResources(
     params?: ListResourcesRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<ListResourcesResult> {
     return this.request(
       { method: "resources/list", params },
       ListResourcesResultSchema,
@@ -377,7 +387,7 @@ export class Client<
   async listResourceTemplates(
     params?: ListResourceTemplatesRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<ListResourceTemplatesResult> {
     return this.request(
       { method: "resources/templates/list", params },
       ListResourceTemplatesResultSchema,
@@ -388,7 +398,7 @@ export class Client<
   async readResource(
     params: ReadResourceRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<ReadResourceResult> {
     return this.request(
       { method: "resources/read", params },
       ReadResourceResultSchema,
@@ -399,7 +409,7 @@ export class Client<
   async subscribeResource(
     params: SubscribeRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<EmptyResult> {
     return this.request(
       { method: "resources/subscribe", params },
       EmptyResultSchema,
@@ -410,7 +420,7 @@ export class Client<
   async unsubscribeResource(
     params: UnsubscribeRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<EmptyResult> {
     return this.request(
       { method: "resources/unsubscribe", params },
       EmptyResultSchema,
@@ -424,7 +434,7 @@ export class Client<
       | typeof CallToolResultSchema
       | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
     options?: RequestOptions,
-  ) {
+  ): Promise<CallToolResult | CompatibilityCallToolResult> {
     const result = await this.request(
       { method: "tools/call", params },
       resultSchema,
@@ -492,7 +502,7 @@ export class Client<
   async listTools(
     params?: ListToolsRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<ListToolsResult> {
     const result = await this.request(
       { method: "tools/list", params },
       ListToolsResultSchema,
@@ -505,7 +515,7 @@ export class Client<
     return result;
   }
 
-  async sendRootsListChanged() {
+  async sendRootsListChanged(): Promise<void> {
     return this.notification({ method: "notifications/roots/list_changed" });
   }
 }
