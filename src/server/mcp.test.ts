@@ -913,18 +913,10 @@ describe("tool()", () => {
       name: "test server",
       version: "1.0",
     });
-
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.tool(
       "test",
@@ -1056,17 +1048,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     // Register a tool with outputSchema
     mcpServer.registerTool(
@@ -1169,17 +1154,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     // Register a tool with outputSchema that returns only content without structuredContent
     mcpServer.registerTool(
@@ -1233,17 +1211,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     // Register a tool with outputSchema that returns invalid data
     mcpServer.registerTool(
@@ -1308,17 +1279,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     let receivedSessionId: string | undefined;
     mcpServer.tool("test-tool", async (extra) => {
@@ -1364,17 +1328,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     let receivedRequestId: string | number | undefined;
     mcpServer.tool("request-id-test", async (extra) => {
@@ -1423,17 +1380,10 @@ describe("tool()", () => {
       { capabilities: { logging: {} } },
     );
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     let receivedLogMessage: string | undefined;
     const loggingMessage = "hello here is log message 1";
@@ -1480,17 +1430,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.tool(
       "test",
@@ -1546,17 +1489,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.tool("error-test", async () => {
       throw new Error("Tool execution failed");
@@ -1598,17 +1534,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.tool("test-tool", async () => ({
       content: [
@@ -2393,6 +2322,48 @@ describe("resource()", () => {
   });
 
   /***
+   * Test: Registering a resource template with a complete callback should update server capabilities to advertise support for completion
+   */
+  test("should advertise support for completion when a resource template with a complete callback is defined", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.resource(
+      "test",
+      new ResourceTemplate("test://resource/{category}", {
+        list: undefined,
+        complete: {
+          category: () => ["books", "movies", "music"],
+        },
+      }),
+      async () => ({
+        contents: [
+          {
+            uri: "test://resource/test",
+            text: "Test content",
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    expect(client.getServerCapabilities()).toMatchObject({ completions: {} })
+  })
+
+  /***
    * Test: Resource Template Parameter Completion
    */
   test("should support completion of resource template parameters", async () => {
@@ -2401,17 +2372,10 @@ describe("resource()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          resources: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.resource(
       "test",
@@ -2469,17 +2433,10 @@ describe("resource()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          resources: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.resource(
       "test",
@@ -2540,17 +2497,10 @@ describe("resource()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          resources: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     let receivedRequestId: string | number | undefined;
     mcpServer.resource("request-id-test", "test://resource", async (_uri, extra) => {
@@ -3052,17 +3002,10 @@ describe("prompt()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          prompts: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.prompt(
       "test",
@@ -3258,17 +3201,10 @@ describe("prompt()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          prompts: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.prompt("test-prompt", async () => ({
       messages: [
@@ -3303,6 +3239,49 @@ describe("prompt()", () => {
     ).rejects.toThrow(/Prompt nonexistent-prompt not found/);
   });
 
+
+  /***
+   * Test: Registering a prompt with a completable argument should update server capabilities to advertise support for completion
+   */
+  test("should advertise support for completion when a prompt with a completable argument is defined", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.prompt(
+      "test-prompt",
+      {
+        name: completable(z.string(), () => ["Alice", "Bob", "Charlie"]),
+      },
+      async ({ name }) => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: `Hello ${name}`,
+            },
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    expect(client.getServerCapabilities()).toMatchObject({ completions: {} })
+  })
+
   /***
    * Test: Prompt Argument Completion
    */
@@ -3312,17 +3291,10 @@ describe("prompt()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          prompts: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.prompt(
       "test-prompt",
@@ -3380,17 +3352,10 @@ describe("prompt()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          prompts: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.prompt(
       "test-prompt",
@@ -3450,17 +3415,10 @@ describe("prompt()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          prompts: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     let receivedRequestId: string | number | undefined;
     mcpServer.prompt("request-id-test", async (extra) => {
@@ -3498,5 +3456,145 @@ describe("prompt()", () => {
     expect(receivedRequestId).toBeDefined();
     expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
     expect(result.messages[0].content.text).toContain("Received request ID:");
+  });
+
+  /***
+   * Test: Resource Template Metadata Priority
+   */
+  test("should prioritize individual resource metadata over template metadata", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.resource(
+      "test",
+      new ResourceTemplate("test://resource/{id}", {
+        list: async () => ({
+          resources: [
+            {
+              name: "Resource 1",
+              uri: "test://resource/1",
+              description: "Individual resource description",
+              mimeType: "text/plain",
+            },
+            {
+              name: "Resource 2",
+              uri: "test://resource/2",
+              // This resource has no description or mimeType
+            },
+          ],
+        }),
+      }),
+      {
+        description: "Template description",
+        mimeType: "application/json",
+      },
+      async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            text: "Test content",
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    );
+
+    expect(result.resources).toHaveLength(2);
+    
+    // Resource 1 should have its own metadata
+    expect(result.resources[0].name).toBe("Resource 1");
+    expect(result.resources[0].description).toBe("Individual resource description");
+    expect(result.resources[0].mimeType).toBe("text/plain");
+    
+    // Resource 2 should inherit template metadata
+    expect(result.resources[1].name).toBe("Resource 2");
+    expect(result.resources[1].description).toBe("Template description");
+    expect(result.resources[1].mimeType).toBe("application/json");
+  });
+
+  /***
+   * Test: Resource Template Metadata Overrides All Fields
+   */
+  test("should allow resource to override all template metadata fields", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.resource(
+      "test",
+      new ResourceTemplate("test://resource/{id}", {
+        list: async () => ({
+          resources: [
+            {
+              name: "Overridden Name",
+              uri: "test://resource/1",
+              description: "Overridden description",
+              mimeType: "text/markdown",
+              // Add any other metadata fields if they exist
+            },
+          ],
+        }),
+      }),
+      {
+        name: "Template Name",
+        description: "Template description",
+        mimeType: "application/json",
+      },
+      async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            text: "Test content",
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    );
+
+    expect(result.resources).toHaveLength(1);
+    
+    // All fields should be from the individual resource, not the template
+    expect(result.resources[0].name).toBe("Overridden Name");
+    expect(result.resources[0].description).toBe("Overridden description");
+    expect(result.resources[0].mimeType).toBe("text/markdown");
   });
 });
