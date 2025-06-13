@@ -72,7 +72,24 @@ export interface OAuthClientProvider {
    */
   codeVerifier(): string | Promise<string>;
   
-  authToTokenEndpoint?(url: URL, headers: Headers, params: URLSearchParams): void | Promise<void>;
+  /**
+   * Adds custom client authentication to OAuth token requests.
+   * 
+   * This optional method allows implementations to customize how client credentials
+   * are included in token exchange and refresh requests. When provided, this method
+   * is called instead of the default authentication logic, giving full control over
+   * the authentication mechanism.
+   * 
+   * Common use cases include:
+   * - Supporting authentication methods beyond the standard OAuth 2.0 methods
+   * - Adding custom headers for proprietary authentication schemes
+   * - Implementing client assertion-based authentication (e.g., JWT bearer tokens)
+   * 
+   * @param url - The token endpoint URL being called
+   * @param headers - The request headers (can be modified to add authentication)
+   * @param params - The request body parameters (can be modified to add credentials)
+   */
+  addClientAuthentication?(url: URL, headers: Headers, params: URLSearchParams): void | Promise<void>;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -538,8 +555,8 @@ export async function exchangeAuthorization(
     redirect_uri: String(redirectUri),
   });
 
-  if (provider?.authToTokenEndpoint) {
-    provider.authToTokenEndpoint(tokenUrl, headers, params);
+  if (provider?.addClientAuthentication) {
+    provider.addClientAuthentication(tokenUrl, headers, params);
   } else {
     // Determine and apply client authentication method
     const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
@@ -617,8 +634,8 @@ export async function refreshAuthorization(
     refresh_token: refreshToken,
   });
 
-  if (provider?.authToTokenEndpoint) {
-    provider.authToTokenEndpoint(tokenUrl, headers, params);
+  if (provider?.addClientAuthentication) {
+    provider.addClientAuthentication(tokenUrl, headers, params);
   } else {
     // Determine and apply client authentication method
     const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
