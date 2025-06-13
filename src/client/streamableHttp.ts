@@ -178,9 +178,12 @@ export class StreamableHTTPClientTransport implements Transport {
       headers["mcp-protocol-version"] = this._protocolVersion;
     }
 
-    return new Headers(
-      { ...headers, ...this._requestInit?.headers }
-    );
+    const extraHeaders = this._normalizeHeaders(this._requestInit?.headers);
+
+    return new Headers({
+      ...headers,
+      ...extraHeaders,
+    });
   }
 
 
@@ -244,6 +247,20 @@ export class StreamableHTTPClientTransport implements Transport {
     // Cap at maximum delay
     return Math.min(initialDelay * Math.pow(growFactor, attempt), maxDelay);
 
+  }
+
+    private _normalizeHeaders(headers: HeadersInit | undefined): Record<string, string> {
+    if (!headers) return {};
+    
+    if (headers instanceof Headers) {
+      return Object.fromEntries(headers.entries());
+    }
+    
+    if (Array.isArray(headers)) {
+      return Object.fromEntries(headers);
+    }
+    
+    return { ...headers as Record<string, string> };
   }
 
   /**
