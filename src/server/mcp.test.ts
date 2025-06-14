@@ -14,6 +14,7 @@ import {
   LoggingMessageNotificationSchema,
   Notification,
   TextContent,
+  ElicitRequestSchema,
 } from "../types.js";
 import { ResourceTemplate } from "./mcp.js";
 import { completable } from "./completable.js";
@@ -3596,5 +3597,224 @@ describe("prompt()", () => {
     expect(result.resources[0].name).toBe("Overridden Name");
     expect(result.resources[0].description).toBe("Overridden description");
     expect(result.resources[0].mimeType).toBe("text/markdown");
+  });
+});
+
+describe("elicitInput()", () => {
+
+  const checkAvailability = jest.fn().mockResolvedValue(false);
+  const findAlternatives = jest.fn().mockResolvedValue([]);
+  const makeBooking = jest.fn().mockResolvedValue("BOOKING-123");
+
+  let mcpServer: McpServer;
+  let client: Client;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    // Create server with restaurant booking tool
+    mcpServer = new McpServer({
+      name: "restaurant-booking-server",
+      version: "1.0.0",
+    });
+
+    // Register the restaurant booking tool from README example
+    mcpServer.tool(
+      "book-restaurant",
+      {
+        restaurant: z.string(),
+        date: z.string(),
+        partySize: z.number()
+      },
+      async ({ restaurant, date, partySize }) => {
+        // Check availability
+        const available = await checkAvailability(restaurant, date, partySize);
+
+        if (!available) {
+          // Ask user if they want to try alternative dates
+          const result = await mcpServer.server.elicitInput({
+            message: `No tables available at ${restaurant} on ${date}. Would you like to check alternative dates?`,
+            requestedSchema: {
+              type: "object",
+              properties: {
+                checkAlternatives: {
+                  type: "boolean",
+                  title: "Check alternative dates",
+                  description: "Would you like me to check other dates?"
+                },
+                flexibleDates: {
+                  type: "string",
+                  title: "Date flexibility",
+                  description: "How flexible are your dates?",
+                  enum: ["next_day", "same_week", "next_week"],
+                  enumNames: ["Next day", "Same week", "Next week"]
+                }
+              },
+              required: ["checkAlternatives"]
+            }
+          });
+
+          if (result.action === "accept" && result.content?.checkAlternatives) {
+            const alternatives = await findAlternatives(
+              restaurant,
+              date,
+              partySize,
+              result.content.flexibleDates as string
+            );
+            return {
+              content: [{
+                type: "text",
+                text: `Found these alternatives: ${alternatives.join(", ")}`
+              }]
+            };
+          }
+
+          return {
+            content: [{
+              type: "text",
+              text: "No booking made. Original date not available."
+            }]
+          };
+        }
+
+        await makeBooking(restaurant, date, partySize);
+        return {
+          content: [{
+            type: "text",
+            text: `Booked table for ${partySize} at ${restaurant} on ${date}`
+          }]
+        };
+      }
+    );
+
+    // Create client with elicitation capability
+    client = new Client(
+      {
+        name: "test-client",
+        version: "1.0.0",
+      },
+      {
+        capabilities: {
+          elicitation: {},
+        },
+      }
+    );
+  });
+
+  test("should successfully elicit additional information", async () => {
+    // Mock availability check to return false
+    checkAvailability.mockResolvedValue(false);
+    findAlternatives.mockResolvedValue(["2024-12-26", "2024-12-27", "2024-12-28"]);
+
+    // Set up client to accept alternative date checking
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      expect(request.params.message).toContain("No tables available at ABC Restaurant on 2024-12-25");
+      return {
+        action: "accept",
+        content: {
+          checkAlternatives: true,
+          flexibleDates: "same_week"
+        }
+      };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Call the tool
+    const result = await client.callTool({
+      name: "book-restaurant",
+      arguments: {
+        restaurant: "ABC Restaurant",
+        date: "2024-12-25",
+        partySize: 2
+      }
+    });
+
+    expect(checkAvailability).toHaveBeenCalledWith("ABC Restaurant", "2024-12-25", 2);
+    expect(findAlternatives).toHaveBeenCalledWith("ABC Restaurant", "2024-12-25", 2, "same_week");
+    expect(result.content).toEqual([{
+      type: "text",
+      text: "Found these alternatives: 2024-12-26, 2024-12-27, 2024-12-28"
+    }]);
+  });
+
+  test("should handle user declining to elicitation request", async () => {
+    // Mock availability check to return false
+    checkAvailability.mockResolvedValue(false);
+
+    // Set up client to decline alternative date checking
+    client.setRequestHandler(ElicitRequestSchema, async () => {
+      return {
+        action: "accept",
+        content: {
+          checkAlternatives: false
+        }
+      };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Call the tool
+    const result = await client.callTool({
+      name: "book-restaurant",
+      arguments: {
+        restaurant: "ABC Restaurant",
+        date: "2024-12-25",
+        partySize: 2
+      }
+    });
+
+    expect(checkAvailability).toHaveBeenCalledWith("ABC Restaurant", "2024-12-25", 2);
+    expect(findAlternatives).not.toHaveBeenCalled();
+    expect(result.content).toEqual([{
+      type: "text",
+      text: "No booking made. Original date not available."
+    }]);
+  });
+
+  test("should handle user cancelling the elicitation", async () => {
+    // Mock availability check to return false
+    checkAvailability.mockResolvedValue(false);
+
+    // Set up client to cancel the elicitation
+    client.setRequestHandler(ElicitRequestSchema, async () => {
+      return {
+        action: "cancel"
+      };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Call the tool
+    const result = await client.callTool({
+      name: "book-restaurant",
+      arguments: {
+        restaurant: "ABC Restaurant",
+        date: "2024-12-25",
+        partySize: 2
+      }
+    });
+
+    expect(checkAvailability).toHaveBeenCalledWith("ABC Restaurant", "2024-12-25", 2);
+    expect(findAlternatives).not.toHaveBeenCalled();
+    expect(result.content).toEqual([{
+      type: "text",
+      text: "No booking made. Original date not available."
+    }]);
   });
 });
