@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 
 /**
