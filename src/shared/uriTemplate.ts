@@ -40,6 +40,41 @@ export class UriTemplate {
     return this.parts.flatMap((part) => typeof part === 'string' ? [] : part.names);
   }
 
+  /**
+   * Returns variable names used in path-like expansions.
+   * These include simple expansion, reserved expansion, fragment expansion,
+   * label expansion, and path segment expansion.
+   */
+  get pathVariableNames(): string[] {
+    return this.parts
+      .filter((part) => typeof part !== "string")
+      .filter((part) => {
+        // Path-like expansions: simple, reserved, fragment, label, path segments
+        return (
+          part.operator === "" ||
+          part.operator === "+" ||
+          part.operator === "#" ||
+          part.operator === "." ||
+          part.operator === "/"
+        );
+      })
+      .flatMap((part) => part.names);
+  }
+  
+  /**
+   * Returns variable names used in query-like expansions.
+   * These include form-style query and query continuation expansions.
+   */
+  get queryVariableNames(): string[] {
+    return this.parts
+      .filter((part) => typeof part !== "string")
+      .filter((part) => {
+        // Query-like expansions: form-style query and continuation
+        return part.operator === "?" || part.operator === "&";
+      })
+      .flatMap((part) => part.names);
+  }
+
   constructor(template: string) {
     UriTemplate.validateLength(template, MAX_TEMPLATE_LENGTH, "Template");
     this.template = template;
