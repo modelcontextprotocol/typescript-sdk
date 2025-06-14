@@ -225,7 +225,7 @@ if (useOAuth) {
 
   authMiddleware = requireBearerAuth({
     verifier: tokenVerifier,
-    requiredScopes: ['mcp:tools'],
+    requiredScopes: [],
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
   });
 }
