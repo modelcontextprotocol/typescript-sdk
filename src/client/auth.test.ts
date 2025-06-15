@@ -713,99 +713,252 @@ describe("OAuth Authorization", () => {
   });
 
   describe("auth function", () => {
-    const mockProvider: OAuthClientProvider = {
-      get redirectUrl() { return "http://localhost:3000/callback"; },
-      get clientMetadata() {
-        return {
-          redirect_uris: ["http://localhost:3000/callback"],
-          client_name: "Test Client",
-        };
-      },
-      clientInformation: jest.fn(),
-      tokens: jest.fn(),
-      saveTokens: jest.fn(),
-      redirectToAuthorization: jest.fn(),
-      saveCodeVerifier: jest.fn(),
-      codeVerifier: jest.fn(),
-    };
+    describe("well-known discovery", () => {
+      const mockProvider: OAuthClientProvider = {
+        get redirectUrl() { return "http://localhost:3000/callback"; },
+        get clientMetadata() {
+          return {
+            redirect_uris: ["http://localhost:3000/callback"],
+            client_name: "Test Client",
+          };
+        },
+        clientInformation: jest.fn(),
+        tokens: jest.fn(),
+        saveTokens: jest.fn(),
+        redirectToAuthorization: jest.fn(),
+        saveCodeVerifier: jest.fn(),
+        codeVerifier: jest.fn(),
+      };
 
-    beforeEach(() => {
-      jest.clearAllMocks();
+      beforeEach(() => {
+        jest.clearAllMocks();
+      });
+
+      it("falls back to /.well-known/oauth-authorization-server when no protected-resource-metadata", async () => {
+        // Setup: First call to protected resource metadata fails (404)
+        // Second call to auth server metadata succeeds
+        let callCount = 0;
+        mockFetch.mockImplementation((url) => {
+          callCount++;
+
+          const urlString = url.toString();
+
+          if (callCount === 1 && urlString.includes("/.well-known/oauth-protected-resource")) {
+            // First call - protected resource metadata fails with 404
+            return Promise.resolve({
+              ok: false,
+              status: 404,
+            });
+          } else if (callCount === 2 && urlString.includes("/.well-known/oauth-authorization-server")) {
+            // Second call - auth server metadata succeeds
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                issuer: "https://auth.example.com",
+                authorization_endpoint: "https://auth.example.com/authorize",
+                token_endpoint: "https://auth.example.com/token",
+                registration_endpoint: "https://auth.example.com/register",
+                response_types_supported: ["code"],
+                code_challenge_methods_supported: ["S256"],
+              }),
+            });
+          } else if (callCount === 3 && urlString.includes("/register")) {
+            // Third call - client registration succeeds
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                client_id: "test-client-id",
+                client_secret: "test-client-secret",
+                client_id_issued_at: 1612137600,
+                client_secret_expires_at: 1612224000,
+                redirect_uris: ["http://localhost:3000/callback"],
+                client_name: "Test Client",
+              }),
+            });
+          }
+
+          return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+        });
+
+        // Mock provider methods
+        (mockProvider.clientInformation as jest.Mock).mockResolvedValue(undefined);
+        (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+        mockProvider.saveClientInformation = jest.fn();
+
+        // Call the auth function
+        const result = await auth(mockProvider, {
+          serverUrl: "https://resource.example.com",
+        });
+
+        // Verify the result
+        expect(result).toBe("REDIRECT");
+
+        // Verify the sequence of calls
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+
+        // First call should be to protected resource metadata
+        expect(mockFetch.mock.calls[0][0].toString()).toBe(
+          "https://resource.example.com/.well-known/oauth-protected-resource"
+        );
+
+        // Second call should be to oauth metadata
+        expect(mockFetch.mock.calls[1][0].toString()).toBe(
+          "https://resource.example.com/.well-known/oauth-authorization-server"
+        );
+      });
     });
 
-    it("falls back to /.well-known/oauth-authorization-server when no protected-resource-metadata", async () => {
-      // Setup: First call to protected resource metadata fails (404)
-      // Second call to auth server metadata succeeds
-      let callCount = 0;
-      mockFetch.mockImplementation((url) => {
-        callCount++;
+    describe("delegateAuthorization", () => {
+      const validMetadata = {
+        issuer: "https://auth.example.com",
+        authorization_endpoint: "https://auth.example.com/authorize",
+        token_endpoint: "https://auth.example.com/token",
+        registration_endpoint: "https://auth.example.com/register",
+        response_types_supported: ["code"],
+        code_challenge_methods_supported: ["S256"],
+      };
 
-        const urlString = url.toString();
+      const validClientInfo = {
+        client_id: "client123",
+        client_secret: "secret123",
+        redirect_uris: ["http://localhost:3000/callback"],
+        client_name: "Test Client",
+      };
 
-        if (callCount === 1 && urlString.includes("/.well-known/oauth-protected-resource")) {
-          // First call - protected resource metadata fails with 404
-          return Promise.resolve({
-            ok: false,
-            status: 404,
-          });
-        } else if (callCount === 2 && urlString.includes("/.well-known/oauth-authorization-server")) {
-          // Second call - auth server metadata succeeds
-          return Promise.resolve({
-            ok: true,
-            status: 200,
-            json: async () => ({
-              issuer: "https://auth.example.com",
-              authorization_endpoint: "https://auth.example.com/authorize",
-              token_endpoint: "https://auth.example.com/token",
-              registration_endpoint: "https://auth.example.com/register",
-              response_types_supported: ["code"],
-              code_challenge_methods_supported: ["S256"],
-            }),
-          });
-        } else if (callCount === 3 && urlString.includes("/register")) {
-          // Third call - client registration succeeds
-          return Promise.resolve({
-            ok: true,
-            status: 200,
-            json: async () => ({
-              client_id: "test-client-id",
-              client_secret: "test-client-secret",
-              client_id_issued_at: 1612137600,
-              client_secret_expires_at: 1612224000,
-              redirect_uris: ["http://localhost:3000/callback"],
-              client_name: "Test Client",
-            }),
-          });
-        }
+      const validTokens = {
+        access_token: "access123",
+        token_type: "Bearer",
+        expires_in: 3600,
+        refresh_token: "refresh123",
+      };
 
-        return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+      // Setup shared mock function for all tests
+      beforeEach(() => {
+        // Reset mockFetch implementation
+        mockFetch.mockReset();
+
+        // Set up the mockFetch to respond to all necessary API calls
+        mockFetch.mockImplementation((url) => {
+          const urlString = url.toString();
+
+          if (urlString.includes("/.well-known/oauth-protected-resource")) {
+            return Promise.resolve({
+              ok: false,
+              status: 404
+            });
+          } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => validMetadata
+            });
+          } else if (urlString.includes("/token")) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => validTokens
+            });
+          }
+
+          return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+        });
       });
 
-      // Mock provider methods
-      (mockProvider.clientInformation as jest.Mock).mockResolvedValue(undefined);
-      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
-      mockProvider.saveClientInformation = jest.fn();
+      it("should use delegateAuthorization when implemented and return AUTHORIZED", async () => {
+        const mockProvider: OAuthClientProvider = {
+          redirectUrl: "http://localhost:3000/callback",
+          clientMetadata: {
+            redirect_uris: ["http://localhost:3000/callback"],
+            client_name: "Test Client"
+          },
+          clientInformation: () => validClientInfo,
+          tokens: () => validTokens,
+          saveTokens: jest.fn(),
+          redirectToAuthorization: jest.fn(),
+          saveCodeVerifier: jest.fn(),
+          codeVerifier: () => "test_verifier",
+          delegateAuthorization: jest.fn().mockResolvedValue("AUTHORIZED")
+        };
 
-      // Call the auth function
-      const result = await auth(mockProvider, {
-        serverUrl: "https://resource.example.com",
+        const result = await auth(mockProvider, { serverUrl: "https://auth.example.com" });
+
+        expect(result).toBe("AUTHORIZED");
+        expect(mockProvider.delegateAuthorization).toHaveBeenCalledWith(
+          "https://auth.example.com",
+          expect.objectContaining(validMetadata)
+        );
+        expect(mockProvider.redirectToAuthorization).not.toHaveBeenCalled();
       });
 
-      // Verify the result
-      expect(result).toBe("REDIRECT");
+      it("should fall back to standard flow when delegateAuthorization returns undefined", async () => {
+        const mockProvider: OAuthClientProvider = {
+          redirectUrl: "http://localhost:3000/callback",
+          clientMetadata: {
+            redirect_uris: ["http://localhost:3000/callback"],
+            client_name: "Test Client"
+          },
+          clientInformation: () => validClientInfo,
+          tokens: () => validTokens,
+          saveTokens: jest.fn(),
+          redirectToAuthorization: jest.fn(),
+          saveCodeVerifier: jest.fn(),
+          codeVerifier: () => "test_verifier",
+          delegateAuthorization: jest.fn().mockResolvedValue(undefined)
+        };
 
-      // Verify the sequence of calls
-      expect(mockFetch).toHaveBeenCalledTimes(3);
+        const result = await auth(mockProvider, { serverUrl: "https://auth.example.com" });
 
-      // First call should be to protected resource metadata
-      expect(mockFetch.mock.calls[0][0].toString()).toBe(
-        "https://resource.example.com/.well-known/oauth-protected-resource"
-      );
+        expect(result).toBe("AUTHORIZED");
+        expect(mockProvider.delegateAuthorization).toHaveBeenCalled();
+        expect(mockProvider.saveTokens).toHaveBeenCalled();
+      });
 
-      // Second call should be to oauth metadata
-      expect(mockFetch.mock.calls[1][0].toString()).toBe(
-        "https://resource.example.com/.well-known/oauth-authorization-server"
-      );
+      it("should not call delegateAuthorization when processing authorizationCode", async () => {
+        const mockProvider: OAuthClientProvider = {
+          redirectUrl: "http://localhost:3000/callback",
+          clientMetadata: {
+            redirect_uris: ["http://localhost:3000/callback"],
+            client_name: "Test Client"
+          },
+          clientInformation: () => validClientInfo,
+          tokens: jest.fn(),
+          saveTokens: jest.fn(),
+          redirectToAuthorization: jest.fn(),
+          saveCodeVerifier: jest.fn(),
+          codeVerifier: () => "test_verifier",
+          delegateAuthorization: jest.fn()
+        };
+
+        await auth(mockProvider, {
+          serverUrl: "https://auth.example.com",
+          authorizationCode: "code123"
+        });
+
+        expect(mockProvider.delegateAuthorization).not.toHaveBeenCalled();
+        expect(mockProvider.saveTokens).toHaveBeenCalled();
+      });
+
+      it("should propagate errors from delegateAuthorization", async () => {
+        const mockProvider: OAuthClientProvider = {
+          redirectUrl: "http://localhost:3000/callback",
+          clientMetadata: {
+            redirect_uris: ["http://localhost:3000/callback"],
+            client_name: "Test Client"
+          },
+          clientInformation: () => validClientInfo,
+          tokens: jest.fn(),
+          saveTokens: jest.fn(),
+          redirectToAuthorization: jest.fn(),
+          saveCodeVerifier: jest.fn(),
+          codeVerifier: () => "test_verifier",
+          delegateAuthorization: jest.fn().mockRejectedValue(new Error("Delegation failed"))
+        };
+
+        await expect(auth(mockProvider, { serverUrl: "https://auth.example.com" }))
+          .rejects.toThrow("Delegation failed");
+      });
     });
   });
 });
