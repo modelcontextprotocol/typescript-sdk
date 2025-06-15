@@ -21,7 +21,7 @@ import {
   CompleteRequest,
   CompleteResult,
   PromptReference,
-  ResourceReference,
+  ResourceTemplateReference,
   Resource,
   ListResourcesResult,
   ListResourceTemplatesRequestSchema,
@@ -297,7 +297,7 @@ export class McpServer {
 
   private async handleResourceCompletion(
     request: CompleteRequest,
-    ref: ResourceReference,
+    ref: ResourceTemplateReference,
   ): Promise<CompleteResult> {
     const template = Object.values(this._registeredResourceTemplates).find(
       (t) => t.resourceTemplate.uriTemplate.toString() === ref.uri,
