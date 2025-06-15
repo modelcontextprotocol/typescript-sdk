@@ -44,8 +44,8 @@ export const RequestSchema = z.object({
 const BaseNotificationParamsSchema = z
   .object({
     /**
-     * This parameter name is reserved by MCP to allow clients and servers to attach additional metadata to their notifications.
-     */
+     * Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    */
     _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
@@ -58,8 +58,8 @@ export const NotificationSchema = z.object({
 export const ResultSchema = z
   .object({
     /**
-     * This result property is reserved by the protocol to allow clients and servers to attach additional metadata to their responses.
-     */
+     * Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    */
     _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
@@ -463,6 +463,11 @@ export const ResourceSchema = z
      * The MIME type of this resource, if known.
      */
     mimeType: z.optional(z.string()),
+
+    /**
+     * Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    */
+    _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
 
@@ -494,6 +499,11 @@ export const ResourceTemplateSchema = z
      * The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
      */
     mimeType: z.optional(z.string()),
+
+    /**
+     * Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    */
+    _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
 
@@ -677,6 +687,11 @@ export const TextContentSchema = z
      * The text content of the message.
      */
     text: z.string(),
+
+    /**
+     * Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    */
+    _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
 
@@ -694,6 +709,11 @@ export const ImageContentSchema = z
      * The MIME type of the image. Different providers may support different image types.
      */
     mimeType: z.string(),
+
+    /**
+     * Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    */
+    _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
 
@@ -711,6 +731,11 @@ export const AudioContentSchema = z
      * The MIME type of the audio. Different providers may support different audio types.
      */
     mimeType: z.string(),
+
+    /**
+     * Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    */
+    _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
 
@@ -847,12 +872,17 @@ export const ToolSchema = z
         properties: z.optional(z.object({}).passthrough()),
         required: z.optional(z.array(z.string())),
       })
-      .passthrough()
+        .passthrough()
     ),
     /**
      * Optional additional tool information.
      */
     annotations: z.optional(ToolAnnotationsSchema),
+
+    /**
+     * Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    */
+    _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
 
@@ -1182,6 +1212,11 @@ export const RootSchema = z
      * An optional name for the root.
      */
     name: z.optional(z.string()),
+
+    /**
+     * Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    */
+    _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
 
