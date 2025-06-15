@@ -1023,6 +1023,7 @@ export type RegisteredTool = {
 
 const EMPTY_OBJECT_JSON_SCHEMA = {
   type: "object" as const,
+  properties: {},
 };
 
 // Helper to check if an object is a Zod schema (ZodRawShape)
