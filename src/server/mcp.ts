@@ -122,6 +122,10 @@ export class McpServer {
               annotations: tool.annotations,
             };
 
+            if (tool.title !== undefined) {
+              toolDefinition.title = tool.title;
+            }
+
             if (tool.outputSchema) {
               toolDefinition.outputSchema = zodToJsonSchema(
                 tool.outputSchema, 
@@ -467,13 +471,19 @@ export class McpServer {
           ([, prompt]) => prompt.enabled,
         ).map(
           ([name, prompt]): Prompt => {
-            return {
+            const promptDefinition: Prompt = {
               name,
               description: prompt.description,
               arguments: prompt.argsSchema
                 ? promptArgumentsFromSchema(prompt.argsSchema)
                 : undefined,
             };
+
+            if (prompt.title !== undefined) {
+              promptDefinition.title = prompt.title;
+            }
+
+            return promptDefinition;
           },
         ),
       }),
@@ -634,6 +644,83 @@ export class McpServer {
     }
   }
 
+  /**
+   * Registers a resource with a config object and callback.
+   * For static resources, use a URI string. For dynamic resources, use a ResourceTemplate.
+   */
+  registerResource(
+    name: string,
+    uriOrTemplate: string | ResourceTemplate,
+    config: ResourceMetadata & {
+      title?: string;
+      description?: string;
+      mimeType?: string;
+    },
+    readCallback: ReadResourceCallback | ReadResourceTemplateCallback
+  ): RegisteredResource | RegisteredResourceTemplate {
+    if (typeof uriOrTemplate === "string") {
+      if (this._registeredResources[uriOrTemplate]) {
+        throw new Error(`Resource ${uriOrTemplate} is already registered`);
+      }
+
+      const registeredResource: RegisteredResource = {
+        name,
+        metadata: config,
+        readCallback: readCallback as ReadResourceCallback,
+        enabled: true,
+        disable: () => registeredResource.update({ enabled: false }),
+        enable: () => registeredResource.update({ enabled: true }),
+        remove: () => registeredResource.update({ uri: null }),
+        update: (updates) => {
+          if (typeof updates.uri !== "undefined" && updates.uri !== uriOrTemplate) {
+            delete this._registeredResources[uriOrTemplate]
+            if (updates.uri) this._registeredResources[updates.uri] = registeredResource
+          }
+          if (typeof updates.name !== "undefined") registeredResource.name = updates.name
+          if (typeof updates.metadata !== "undefined") registeredResource.metadata = updates.metadata
+          if (typeof updates.callback !== "undefined") registeredResource.readCallback = updates.callback
+          if (typeof updates.enabled !== "undefined") registeredResource.enabled = updates.enabled
+          this.sendResourceListChanged()
+        },
+      };
+      this._registeredResources[uriOrTemplate] = registeredResource;
+
+      this.setResourceRequestHandlers();
+      this.sendResourceListChanged();
+      return registeredResource;
+    } else {
+      if (this._registeredResourceTemplates[name]) {
+        throw new Error(`Resource template ${name} is already registered`);
+      }
+
+      const registeredResourceTemplate: RegisteredResourceTemplate = {
+        resourceTemplate: uriOrTemplate,
+        metadata: config,
+        readCallback: readCallback as ReadResourceTemplateCallback,
+        enabled: true,
+        disable: () => registeredResourceTemplate.update({ enabled: false }),
+        enable: () => registeredResourceTemplate.update({ enabled: true }),
+        remove: () => registeredResourceTemplate.update({ name: null }),
+        update: (updates) => {
+          if (typeof updates.name !== "undefined" && updates.name !== name) {
+            delete this._registeredResourceTemplates[name]
+            if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate
+          }
+          if (typeof updates.template !== "undefined") registeredResourceTemplate.resourceTemplate = updates.template
+          if (typeof updates.metadata !== "undefined") registeredResourceTemplate.metadata = updates.metadata
+          if (typeof updates.callback !== "undefined") registeredResourceTemplate.readCallback = updates.callback
+          if (typeof updates.enabled !== "undefined") registeredResourceTemplate.enabled = updates.enabled
+          this.sendResourceListChanged()
+        },
+      };
+      this._registeredResourceTemplates[name] = registeredResourceTemplate;
+
+      this.setResourceRequestHandlers();
+      this.sendResourceListChanged();
+      return registeredResourceTemplate;
+    }
+  }
+
   private _createRegisteredTool(
     name: string,
     description: string | undefined,
@@ -659,6 +746,7 @@ export class McpServer {
           delete this._registeredTools[name]
           if (updates.name) this._registeredTools[updates.name] = registeredTool
         }
+        if (typeof updates.title !== "undefined") registeredTool.title = updates.title
         if (typeof updates.description !== "undefined") registeredTool.description = updates.description
         if (typeof updates.paramsSchema !== "undefined") registeredTool.inputSchema = z.object(updates.paramsSchema)
         if (typeof updates.callback !== "undefined") registeredTool.callback = updates.callback
@@ -789,6 +877,7 @@ export class McpServer {
   registerTool<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape>(
     name: string,
     config: {
+      title?: string;
       description?: string;
       inputSchema?: InputArgs;
       outputSchema?: OutputArgs;
@@ -800,16 +889,23 @@ export class McpServer {
       throw new Error(`Tool ${name} is already registered`);
     }
 
-    const { description, inputSchema, outputSchema, annotations } = config;
+    const { title, description, inputSchema, outputSchema, annotations } = config;
 
-    return this._createRegisteredTool(
+    const registeredTool = this._createRegisteredTool(
       name,
       description,
       inputSchema,
       outputSchema,
       annotations,
       cb as ToolCallback<ZodRawShape | undefined>
-    )
+    );
+
+    // Set title if provided
+    if (title !== undefined) {
+      registeredTool.title = title;
+    }
+
+    return registeredTool;
   }
 
   /**
@@ -870,6 +966,7 @@ export class McpServer {
           delete this._registeredPrompts[name]
           if (updates.name) this._registeredPrompts[updates.name] = registeredPrompt
         }
+        if (typeof updates.title !== "undefined") registeredPrompt.title = updates.title
         if (typeof updates.description !== "undefined") registeredPrompt.description = updates.description
         if (typeof updates.argsSchema !== "undefined") registeredPrompt.argsSchema = z.object(updates.argsSchema)
         if (typeof updates.callback !== "undefined") registeredPrompt.callback = updates.callback
@@ -883,6 +980,54 @@ export class McpServer {
     this.sendPromptListChanged()
 
     return registeredPrompt
+  }
+
+  /**
+   * Registers a prompt with a config object and callback.
+   */
+  registerPrompt<Args extends PromptArgsRawShape>(
+    name: string,
+    config: {
+      title?: string;
+      description?: string;
+      arguments?: Args;
+    },
+    cb: PromptCallback<Args>
+  ): RegisteredPrompt {
+    if (this._registeredPrompts[name]) {
+      throw new Error(`Prompt ${name} is already registered`);
+    }
+
+    const { title, description, arguments: argsSchema } = config;
+
+    const registeredPrompt: RegisteredPrompt = {
+      title,
+      description,
+      argsSchema: argsSchema === undefined ? undefined : z.object(argsSchema),
+      callback: cb as PromptCallback<PromptArgsRawShape | undefined>,
+      enabled: true,
+      disable: () => registeredPrompt.update({ enabled: false }),
+      enable: () => registeredPrompt.update({ enabled: true }),
+      remove: () => registeredPrompt.update({ name: null }),
+      update: (updates) => {
+        if (typeof updates.name !== "undefined" && updates.name !== name) {
+          delete this._registeredPrompts[name]
+          if (updates.name) this._registeredPrompts[updates.name] = registeredPrompt
+        }
+        if (typeof updates.title !== "undefined") registeredPrompt.title = updates.title
+        if (typeof updates.description !== "undefined") registeredPrompt.description = updates.description
+        if (typeof updates.argsSchema !== "undefined") registeredPrompt.argsSchema = z.object(updates.argsSchema)
+        if (typeof updates.callback !== "undefined") registeredPrompt.callback = updates.callback
+        if (typeof updates.enabled !== "undefined") registeredPrompt.enabled = updates.enabled
+        this.sendPromptListChanged()
+      },
+    };
+    this._registeredPrompts[name] = registeredPrompt;
+
+    this.setPromptRequestHandlers();
+    this.sendPromptListChanged()
+
+    return registeredPrompt;
   }
 
   /**
@@ -1000,6 +1145,7 @@ export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
   : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
 
 export type RegisteredTool = {
+  title?: string;
   description?: string;
   inputSchema?: AnyZodObject;
   outputSchema?: AnyZodObject;
@@ -1011,6 +1157,7 @@ export type RegisteredTool = {
   update<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape>(
     updates: { 
       name?: string | null, 
+      title?: string,
       description?: string, 
       paramsSchema?: InputArgs, 
       outputSchema?: OutputArgs, 
@@ -1110,13 +1257,14 @@ export type PromptCallback<
   : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
 
 export type RegisteredPrompt = {
+  title?: string;
   description?: string;
   argsSchema?: ZodObject<PromptArgsRawShape>;
   callback: PromptCallback<undefined | PromptArgsRawShape>;
   enabled: boolean;
   enable(): void;
   disable(): void;
-  update<Args extends PromptArgsRawShape>(updates: { name?: string | null, description?: string, argsSchema?: Args, callback?: PromptCallback<Args>, enabled?: boolean }): void
+  update<Args extends PromptArgsRawShape>(updates: { name?: string | null, title?: string, description?: string, argsSchema?: Args, callback?: PromptCallback<Args>, enabled?: boolean }): void
   remove(): void
 };
 

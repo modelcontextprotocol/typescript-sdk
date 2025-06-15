@@ -18,14 +18,18 @@ const getServer = () => {
   const server = new McpServer({
     name: 'simple-streamable-http-server',
     version: '1.0.0',
+    title: 'Simple Streamable HTTP Server',  // Display name for UI
   }, { capabilities: { logging: {} } });
 
   // Register a simple tool that returns a greeting
-  server.tool(
+  server.registerTool(
     'greet',
-    'A simple greeting tool',
     {
-      name: z.string().describe('Name to greet'),
+      title: 'Greeting Tool',  // Display name for UI
+      description: 'A simple greeting tool',
+      inputSchema: {
+        name: z.string().describe('Name to greet'),
+      },
     },
     async ({ name }): Promise<CallToolResult> => {
       return {
@@ -84,12 +88,15 @@ const getServer = () => {
     }
   );
 
-  // Register a simple prompt
-  server.prompt(
+  // Register a simple prompt with title
+  server.registerPrompt(
     'greeting-template',
-    'A simple greeting prompt template',
     {
-      name: z.string().describe('Name to include in greeting'),
+      title: 'Greeting Template',  // Display name for UI
+      description: 'A simple greeting prompt template',
+      arguments: {
+        name: z.string().describe('Name to include in greeting'),
+      },
     },
     async ({ name }): Promise<GetPromptResult> => {
       return {
@@ -148,10 +155,14 @@ const getServer = () => {
   );
 
   // Create a simple resource at a fixed URI
-  server.resource(
+  server.registerResource(
     'greeting-resource',
     'https://example.com/greetings/default',
-    { mimeType: 'text/plain' },
+    { 
+      title: 'Default Greeting',  // Display name for UI
+      description: 'A simple greeting resource',
+      mimeType: 'text/plain' 
+    },
     async (): Promise<ReadResourceResult> => {
       return {
         contents: [

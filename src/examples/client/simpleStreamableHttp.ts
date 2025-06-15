@@ -15,6 +15,7 @@ import {
   LoggingMessageNotificationSchema,
   ResourceListChangedNotificationSchema,
 } from '../../types.js';
+import { getDisplayName } from '../../shared/metadataUtils.js';
 
 // Create readline interface for user input
 const readline = createInterface({
@@ -317,7 +318,7 @@ async function listTools(): Promise<void> {
       console.log('  No tools available');
     } else {
       for (const tool of toolsResult.tools) {
-        console.log(`  - ${tool.name}: ${tool.description}`);
+        console.log(`  - ${getDisplayName(tool)}: ${tool.description}`);
       }
     }
   } catch (error) {
@@ -429,7 +430,7 @@ async function listPrompts(): Promise<void> {
       console.log('  No prompts available');
     } else {
       for (const prompt of promptsResult.prompts) {
-        console.log(`  - ${prompt.name}: ${prompt.description}`);
+        console.log(`  - ${getDisplayName(prompt)}: ${prompt.description}`);
       }
     }
   } catch (error) {
@@ -480,7 +481,7 @@ async function listResources(): Promise<void> {
       console.log('  No resources available');
     } else {
       for (const resource of resourcesResult.resources) {
-        console.log(`  - ${resource.name}: ${resource.uri}`);
+        console.log(`  - ${getDisplayName(resource)}: ${resource.uri}`);
       }
     }
   } catch (error) {
