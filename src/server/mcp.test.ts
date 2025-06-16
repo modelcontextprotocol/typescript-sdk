@@ -19,7 +19,15 @@ import {
 import { ResourceTemplate } from "./mcp.js";
 import { completable } from "./completable.js";
 import { UriTemplate } from "../shared/uriTemplate.js";
+import { RequestInfo } from "./types/types.js";
 import { getDisplayName } from "../shared/metadataUtils.js";
+
+const mockRequestInfo: RequestInfo = {
+  headers: {
+    'content-type': 'application/json',
+    'accept': 'application/json',
+  },
+};
 
 describe("McpServer", () => {
   /***
@@ -214,7 +222,8 @@ describe("ResourceTemplate", () => {
       signal: abortController.signal,
       requestId: 'not-implemented',
       sendRequest: () => { throw new Error("Not implemented") },
-      sendNotification: () => { throw new Error("Not implemented") }
+      sendNotification: () => { throw new Error("Not implemented") }, 
+      requestInfo: mockRequestInfo
     });
     expect(result?.resources).toHaveLength(1);
     expect(list).toHaveBeenCalled();
