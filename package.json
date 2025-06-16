@@ -46,6 +46,7 @@
     "client": "tsx src/cli.ts client"
   },
   "dependencies": {
+    "@inquirer/prompts": "^7.5.3",
     "ajv": "^6.12.6",
     "content-type": "^1.0.5",
     "cors": "^2.8.5",

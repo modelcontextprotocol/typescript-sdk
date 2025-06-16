@@ -17,6 +17,7 @@ import {
   ElicitRequestSchema,
 } from '../../types.js';
 import Ajv from "ajv";
+import { input, select, confirm, number } from '@inquirer/prompts';
 
 // Create readline interface for user input
 const readline = createInterface({
@@ -33,6 +34,13 @@ let transport: StreamableHTTPClientTransport | null = null;
 let serverUrl = 'http://localhost:3000/mcp';
 let notificationsToolLastEventId: string | undefined = undefined;
 let sessionId: string | undefined = undefined;
+
+// Helper function to resume readline after inquirer prompts
+function resumeReadline(): void {
+  readline.resume();
+  // Restart command loop
+  commandLoop();
+}
 
 async function main(): Promise<void> {
   console.log('MCP Interactive Client');
@@ -213,66 +221,69 @@ async function connect(url?: string): Promise<void> {
 
     // Set up elicitation request handler with proper validation
     client.setRequestHandler(ElicitRequestSchema, async (request) => {
-      console.log('\n🔔 Elicitation Request Received:');
-      console.log(`Message: ${request.params.message}`);
-      console.log('Requested Schema:');
-      console.log(JSON.stringify(request.params.requestedSchema, null, 2));
+      readline.pause();
 
-      const schema = request.params.requestedSchema;
-      const properties = schema.properties;
-      const required = schema.required || [];
+      try {
+        console.log('\n🔔 Elicitation Request Received:');
+        console.log(`Message: ${request.params.message}`);
+        console.log('Requested Schema:');
+        console.log(JSON.stringify(request.params.requestedSchema, null, 2));
 
-      // Set up AJV validator for the requested schema
-      const ajv = new Ajv();
-      const validate = ajv.compile(schema);
+        const schema = request.params.requestedSchema;
+        const properties = schema.properties;
+        const required = schema.required || [];
 
-      let attempts = 0;
-      const maxAttempts = 3;
+        // Set up AJV validator for the requested schema
+        const ajv = new Ajv();
+        const validate = ajv.compile(schema);
 
-      while (attempts < maxAttempts) {
+        let attempts = 0;
+        const maxAttempts = 3;
+
+        while (attempts < maxAttempts) {
         attempts++;
         console.log(`\nPlease provide the following information (attempt ${attempts}/${maxAttempts}):`);
 
         const content: Record<string, unknown> = {};
-        let inputCancelled = false;
 
-        // Collect input for each field
-        for (const [fieldName, fieldSchema] of Object.entries(properties)) {
-          const field = fieldSchema as {
-            type?: string;
-            title?: string;
-            description?: string;
-            default?: unknown;
-            enum?: string[];
-            minimum?: number;
-            maximum?: number;
-            minLength?: number;
-            maxLength?: number;
-            format?: string;
-          };
+        try {
+          // Collect input for each field
+          for (const [fieldName, fieldSchema] of Object.entries(properties)) {
+            const field = fieldSchema as {
+              type?: string;
+              title?: string;
+              description?: string;
+              default?: unknown;
+              enum?: string[];
+              minimum?: number;
+              maximum?: number;
+              minLength?: number;
+              maxLength?: number;
+              format?: string;
+            };
 
-          const isRequired = required.includes(fieldName);
-          let prompt = `${field.title || fieldName}`;
+            const isRequired = required.includes(fieldName);
+            let prompt = `${field.title || fieldName}`;
 
-          // Add helpful information to the prompt
-          if (field.description) {
-            prompt += ` (${field.description})`;
-          }
-          if (field.enum) {
-            prompt += ` [options: ${field.enum.join(', ')}]`;
-          }
-          if (field.type === 'number' || field.type === 'integer') {
-            if (field.minimum !== undefined && field.maximum !== undefined) {
-              prompt += ` [${field.minimum}-${field.maximum}]`;
-            } else if (field.minimum !== undefined) {
-              prompt += ` [min: ${field.minimum}]`;
-            } else if (field.maximum !== undefined) {
-              prompt += ` [max: ${field.maximum}]`;
+            // Add helpful information to the prompt
+            if (field.description) {
+              prompt += ` (${field.description})`;
             }
-          }
-          if (field.type === 'string' && field.format) {
-            prompt += ` [format: ${field.format}]`;
-          }
+            if (field.enum) {
+              prompt += ` [options: ${field.enum.join(', ')}]`;
+            }
+            if (field.type === 'number' || field.type === 'integer') {
+              if (field.minimum !== undefined && field.maximum !== undefined) {
+                prompt += ` [${field.minimum}-${field.maximum}]`;
+              } else if (field.minimum !== undefined) {
+                prompt += ` [min: ${field.minimum}]`;
+              } else if (field.maximum !== undefined) {
+                prompt += ` [max: ${field.maximum}]`;
+              }
+            }
+            if (field.type === 'string' && field.format) {
+              prompt += ` [format: ${field.format}]`;
+            }
           if (isRequired) {
             prompt += ' *required*';
           }
@@ -280,71 +291,140 @@ async function connect(url?: string): Promise<void> {
             prompt += ` [default: ${field.default}]`;
           }
 
-          prompt += ': ';
+          prompt += ':';
 
-          const answer = await new Promise<string>((resolve) => {
-            readline.question(prompt, (input) => {
-              resolve(input.trim());
+            // Handle different field types with appropriate prompts
+            if (field.enum) {
+              // Use select for enum fields
+              const choices: Array<{ value: string | null; name: string }> = field.enum.map(value => ({ value, name: value }));
+              if (!isRequired) {
+                choices.push({ value: null, name: '(skip)' });
+              }
+              
+              const selectedValue = await select({
+                message: prompt,
+                choices,
+                default: field.default,
+              });
+
+              if (selectedValue !== null) {
+                content[fieldName] = selectedValue;
+              }
+            } else if (field.type === 'boolean') {
+              // Use confirm for boolean fields
+              const defaultValue = field.default === true;
+              const confirmValue = await confirm({
+                message: prompt,
+                default: defaultValue,
+              });
+              content[fieldName] = confirmValue;
+            } else if (field.type === 'number' || field.type === 'integer') {
+              // Use number input for numeric fields
+              const numValue = await number({
+                message: prompt,
+                default: field.default as number | undefined,
+                min: field.minimum,
+                max: field.maximum,
+                required: isRequired,
+                validate: (value) => {
+                  if (!isRequired && (value === undefined || value === null || value.toString() === '')) {
+                    return true;
+                  }
+                  if (field.type === 'integer' && !Number.isInteger(value)) {
+                    return 'Must be an integer';
+                  }
+                  return true;
+                },
+              });
+
+              if (numValue !== undefined && numValue !== null && numValue.toString() !== '') {
+                content[fieldName] = field.type === 'integer' ? Math.floor(numValue) : numValue;
+              }
+            } else {
+              // Use text input for string and other fields
+              const textValue = await input({
+                message: prompt,
+                default: field.default as string | undefined,
+                required: isRequired,
+                validate: (value) => {
+                  if (!isRequired && !value) {
+                    return true;
+                  }
+                  if (isRequired && !value) {
+                    return `${fieldName} is required`;
+                  }
+                  if (field.minLength && value.length < field.minLength) {
+                    return `Must be at least ${field.minLength} characters`;
+                  }
+                  if (field.maxLength && value.length > field.maxLength) {
+                    return `Must be at most ${field.maxLength} characters`;
+                  }
+                  return true;
+                },
+              });
+
+              if (textValue || isRequired) {
+                content[fieldName] = textValue;
+              }
+            }
+          }
+
+          // Validate the complete object against the schema
+          const isValid = validate(content);
+
+          if (!isValid) {
+            console.log('❌ Validation errors:');
+            validate.errors?.forEach(error => {
+              console.log(`  - ${error.dataPath || 'root'}: ${error.message}`);
             });
+
+            if (attempts < maxAttempts) {
+              console.log('Please correct the errors and try again...');
+              continue;
+            } else {
+              console.log('Maximum attempts reached. Declining request.');
+              return { action: 'decline' };
+            }
+          }
+
+          // Show the collected data and ask for confirmation
+          console.log('\n✅ Collected data:');
+          console.log(JSON.stringify(content, null, 2));
+
+          const submitChoice = await select({
+            message: 'Submit this information?',
+            choices: [
+              { value: 'yes', name: 'Yes, submit' },
+              { value: 'no', name: 'No, re-enter' },
+              { value: 'cancel', name: 'Cancel' },
+            ],
           });
 
-          // Check for cancellation
-          if (answer.toLowerCase() === 'cancel' || answer.toLowerCase() === 'c') {
-            inputCancelled = true;
-            break;
-          }
-
-          // Parse and validate the input
-          try {
-            if (answer === '' && field.default !== undefined) {
-              content[fieldName] = field.default;
-            } else if (answer === '' && !isRequired) {
-              // Skip optional empty fields
+          if (submitChoice === 'yes') {
+            return {
+              action: 'accept',
+              content,
+            };
+          } else if (submitChoice === 'cancel') {
+            return { action: 'cancel' };
+          } else if (submitChoice === 'no') {
+            if (attempts < maxAttempts) {
+              console.log('Please re-enter the information...');
               continue;
-            } else if (answer === '') {
-              throw new Error(`${fieldName} is required`);
             } else {
-              // Parse the value based on type
-              let parsedValue: unknown;
-
-              if (field.type === 'boolean') {
-                parsedValue = answer.toLowerCase() === 'true' || answer.toLowerCase() === 'yes' || answer === '1';
-              } else if (field.type === 'number') {
-                parsedValue = parseFloat(answer);
-                if (isNaN(parsedValue as number)) {
-                  throw new Error(`${fieldName} must be a valid number`);
-                }
-              } else if (field.type === 'integer') {
-                parsedValue = parseInt(answer, 10);
-                if (isNaN(parsedValue as number)) {
-                  throw new Error(`${fieldName} must be a valid integer`);
-                }
-              } else if (field.enum) {
-                if (!field.enum.includes(answer)) {
-                  throw new Error(`${fieldName} must be one of: ${field.enum.join(', ')}`);
-                }
-                parsedValue = answer;
-              } else {
-                parsedValue = answer;
-              }
-
-              content[fieldName] = parsedValue;
+              return { action: 'decline' };
             }
-          } catch (error) {
-            console.log(`❌ Error: ${error}`);
-            // Continue to next attempt
-            break;
           }
-        }
-
-        if (inputCancelled) {
-          return { action: 'cancel' };
-        }
-
-        // If we didn't complete all fields due to an error, try again
-        if (Object.keys(content).length !== Object.keys(properties).filter(name =>
-          required.includes(name) || content[name] !== undefined
-        ).length) {
+        } catch (error) {
+          // Handle user cancellation (Ctrl+C in prompts)
+          if (error && typeof error === 'object' && 'message' in error) {
+            const errorMessage = String(error.message);
+            if (errorMessage === 'User force closed the prompt' || errorMessage.includes('cancelled')) {
+              console.log('\nInput cancelled by user.');
+              return { action: 'cancel' };
+            }
+          }
+          console.log(`❌ Error: ${error}`);
           if (attempts < maxAttempts) {
             console.log('Please try again...');
             continue;
@@ -353,55 +433,13 @@ async function connect(url?: string): Promise<void> {
             return { action: 'decline' };
           }
         }
-
-        // Validate the complete object against the schema
-        const isValid = validate(content);
-
-        if (!isValid) {
-          console.log('❌ Validation errors:');
-          validate.errors?.forEach(error => {
-            console.log(`  - ${error.dataPath || 'root'}: ${error.message}`);
-          });
-
-          if (attempts < maxAttempts) {
-            console.log('Please correct the errors and try again...');
-            continue;
-          } else {
-            console.log('Maximum attempts reached. Declining request.');
-            return { action: 'decline' };
-          }
-        }
-
-        // Show the collected data and ask for confirmation
-        console.log('\n✅ Collected data:');
-        console.log(JSON.stringify(content, null, 2));
-
-        const confirmAnswer = await new Promise<string>((resolve) => {
-          readline.question('\nSubmit this information? (yes/no/cancel): ', (input) => {
-            resolve(input.trim().toLowerCase());
-          });
-        });
-
-
-        if (confirmAnswer === 'yes' || confirmAnswer === 'y') {
-          return {
-            action: 'accept',
-            content,
-          };
-        } else if (confirmAnswer === 'cancel' || confirmAnswer === 'c') {
-          return { action: 'cancel' };
-        } else if (confirmAnswer === 'no' || confirmAnswer === 'n') {
-          if (attempts < maxAttempts) {
-            console.log('Please re-enter the information...');
-            continue;
-          } else {
-            return { action: 'decline' };
-          }
-        }
       }
 
-      console.log('Maximum attempts reached. Declining request.');
-      return { action: 'decline' };
+        console.log('Maximum attempts reached. Declining request.');
+        return { action: 'decline' };
+      } finally {
+        setTimeout(() => resumeReadline(), 0);
+      }
     });
 
     transport = new StreamableHTTPClientTransport(
