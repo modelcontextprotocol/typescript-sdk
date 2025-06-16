@@ -71,6 +71,8 @@ export interface OAuthClientProvider {
    * the authorization result.
    */
   codeVerifier(): string | Promise<string>;
+  
+  authToTokenEndpoint?(url: URL, headers: Headers, params: URLSearchParams): void | Promise<void>;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -142,7 +144,7 @@ export async function auth(
       authorizationCode,
       codeVerifier,
       redirectUri: provider.redirectUrl,
-    });
+    }, provider);
 
     await provider.saveTokens(tokens);
     return "AUTHORIZED";
@@ -158,7 +160,7 @@ export async function auth(
         metadata,
         clientInformation,
         refreshToken: tokens.refresh_token,
-      });
+      }, provider);
 
       await provider.saveTokens(newTokens);
       return "AUTHORIZED";
@@ -386,6 +388,7 @@ export async function exchangeAuthorization(
     codeVerifier: string;
     redirectUri: string | URL;
   },
+  provider?: OAuthClientProvider
 ): Promise<OAuthTokens> {
   const grantType = "authorization_code";
 
@@ -406,6 +409,9 @@ export async function exchangeAuthorization(
   }
 
   // Exchange code for tokens
+  const headers = new Headers({
+    "Content-Type": "application/x-www-form-urlencoded",
+  });
   const params = new URLSearchParams({
     grant_type: grantType,
     client_id: clientInformation.client_id,
@@ -414,15 +420,15 @@ export async function exchangeAuthorization(
     redirect_uri: String(redirectUri),
   });
 
-  if (clientInformation.client_secret) {
+  if (provider?.authToTokenEndpoint) {
+    provider.authToTokenEndpoint(tokenUrl, headers, params);
+  } else if (clientInformation.client_secret) {
     params.set("client_secret", clientInformation.client_secret);
   }
 
   const response = await fetch(tokenUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
+    headers: headers,
     body: params,
   });
 
@@ -447,6 +453,7 @@ export async function refreshAuthorization(
     clientInformation: OAuthClientInformation;
     refreshToken: string;
   },
+  provider?: OAuthClientProvider,
 ): Promise<OAuthTokens> {
   const grantType = "refresh_token";
 
@@ -467,21 +474,24 @@ export async function refreshAuthorization(
   }
 
   // Exchange refresh token
+  const headers = new Headers({
+    "Content-Type": "application/x-www-form-urlencoded",
+  });
   const params = new URLSearchParams({
     grant_type: grantType,
     client_id: clientInformation.client_id,
     refresh_token: refreshToken,
   });
 
-  if (clientInformation.client_secret) {
+  if (provider?.authToTokenEndpoint) {
+    provider.authToTokenEndpoint(tokenUrl, headers, params);
+  } else if (clientInformation.client_secret) {
     params.set("client_secret", clientInformation.client_secret);
   }
 
   const response = await fetch(tokenUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
+    headers: headers,
     body: params,
   });
   if (!response.ok) {
