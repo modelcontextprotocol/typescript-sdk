@@ -91,11 +91,13 @@ export class UnauthorizedError extends Error {
 export async function auth(
   provider: OAuthClientProvider,
   { serverUrl,
+    protocolVersion,
     authorizationCode,
     scope,
     resourceMetadataUrl,
   }: {
     serverUrl: string | URL;
+    protocolVersion?: string;
     authorizationCode?: string;
     scope?: string;
     resourceMetadataUrl?: URL }): Promise<AuthResult> {
@@ -103,9 +105,15 @@ export async function auth(
   const resource = resourceUrlFromServerUrl(typeof serverUrl === "string" ? new URL(serverUrl) : serverUrl);
 
   let authorizationServerUrl = serverUrl;
+  let resource: URL | undefined;
   try {
     const resourceMetadata = await discoverOAuthProtectedResourceMetadata(
-      resourceMetadataUrl || serverUrl);
+      serverUrl,
+      {
+        protocolVersion,
+        resourceMetadataUrl,
+      }
+    );
 
     if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
       authorizationServerUrl = resourceMetadata.authorization_servers[0];
