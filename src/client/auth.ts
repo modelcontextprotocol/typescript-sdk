@@ -110,6 +110,9 @@ export async function auth(
     if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
       authorizationServerUrl = resourceMetadata.authorization_servers[0];
     }
+    if (!resourceMetadata.resource || resourceMetadata.resource !== resource.href) {
+      throw new Error(`Resource returned by RFC9728 PRM (${resourceMetadata.resource}) doesn't match the expected resource ${resource.href}`);
+    }
   } catch (error) {
     console.warn("Could not load OAuth Protected Resource metadata, falling back to /.well-known/oauth-authorization-server", error)
   }
