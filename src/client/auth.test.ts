@@ -176,6 +176,134 @@ describe("OAuth Authorization", () => {
       await expect(discoverOAuthProtectedResourceMetadata("https://resource.example.com"))
         .rejects.toThrow();
     });
+
+    // Protocol Version Propagation Tests
+    it("includes MCP-Protocol-Version header when protocolVersion specified", async () => {
+      const customProtocolVersion = "2024-11-05";
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validMetadata,
+      });
+
+      const metadata = await discoverOAuthProtectedResourceMetadata("https://resource.example.com", {
+        protocolVersion: customProtocolVersion,
+      });
+      
+      expect(metadata).toEqual(validMetadata);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      
+      // Verify exact protocol version header is used
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url.toString()).toBe("https://resource.example.com/.well-known/oauth-protected-resource");
+      expect(options.headers).toEqual({
+        "MCP-Protocol-Version": customProtocolVersion
+      });
+    });
+
+    it("uses default protocol version when protocolVersion not provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validMetadata,
+      });
+
+      const metadata = await discoverOAuthProtectedResourceMetadata("https://resource.example.com");
+      
+      expect(metadata).toEqual(validMetadata);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      
+      // Verify default protocol version header is used
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url.toString()).toBe("https://resource.example.com/.well-known/oauth-protected-resource");
+      expect(options.headers).toHaveProperty("MCP-Protocol-Version");
+      expect(options.headers["MCP-Protocol-Version"]).toBe("2025-03-26"); // current LATEST_PROTOCOL_VERSION
+    });
+
+    // Custom Resource Metadata URL Tests
+    it("uses custom resourceMetadataUrl when provided", async () => {
+      const customMetadataUrl = "https://metadata.different.com/custom-endpoint";
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validMetadata,
+      });
+
+      const metadata = await discoverOAuthProtectedResourceMetadata("https://resource.example.com", {
+        resourceMetadataUrl: customMetadataUrl,
+      });
+      
+      expect(metadata).toEqual(validMetadata);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      
+      // Verify custom URL is used, not default well-known
+      const [url] = mockFetch.mock.calls[0];
+      expect(url.toString()).toBe(customMetadataUrl);
+    });
+
+    it("uses custom resourceMetadataUrl with protocol version headers", async () => {
+      const customMetadataUrl = "https://metadata.different.com/custom-endpoint";
+      const customProtocolVersion = "2024-11-05";
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validMetadata,
+      });
+
+      const metadata = await discoverOAuthProtectedResourceMetadata("https://resource.example.com", {
+        resourceMetadataUrl: customMetadataUrl,
+        protocolVersion: customProtocolVersion,
+      });
+      
+      expect(metadata).toEqual(validMetadata);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      
+      // Verify both custom URL and protocol version are correctly applied
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url.toString()).toBe(customMetadataUrl);
+      expect(options.headers).toEqual({
+        "MCP-Protocol-Version": customProtocolVersion
+      });
+    });
+
+    it("handles CORS fallback with custom protocol version", async () => {
+      const customProtocolVersion = "2024-11-05";
+      let callCount = 0;
+
+      // Mock implementation that changes behavior based on call count
+      mockFetch.mockImplementation((_url, options) => {
+        callCount++;
+
+        if (callCount === 1) {
+          // First call with MCP header - fail with TypeError (simulating CORS error)
+          return Promise.reject(new TypeError("Network error"));
+        } else {
+          // Second call without header - succeed
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => validMetadata
+          });
+        }
+      });
+
+      // Should succeed with the second call
+      const metadata = await discoverOAuthProtectedResourceMetadata("https://resource.example.com", {
+        protocolVersion: customProtocolVersion,
+      });
+      expect(metadata).toEqual(validMetadata);
+
+      // Verify both calls were made
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      // Verify first call had custom protocol version header
+      expect(mockFetch.mock.calls[0][1]?.headers).toEqual({
+        "MCP-Protocol-Version": customProtocolVersion
+      });
+
+      // Verify second call had no headers (CORS fallback)
+      expect(mockFetch.mock.calls[1][1]).toBeUndefined();
+    });
   });
 
   describe("discoverOAuthMetadata", () => {
@@ -298,6 +426,89 @@ describe("OAuth Authorization", () => {
       await expect(
         discoverOAuthMetadata("https://auth.example.com")
       ).rejects.toThrow();
+    });
+
+    // Protocol Version Propagation Tests for OAuth Metadata Discovery
+    it("includes MCP-Protocol-Version header when protocolVersion specified", async () => {
+      const customProtocolVersion = "2024-11-05";
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validMetadata,
+      });
+
+      const metadata = await discoverOAuthMetadata("https://auth.example.com", {
+        protocolVersion: customProtocolVersion,
+      });
+      
+      expect(metadata).toEqual(validMetadata);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      
+      // Verify exact protocol version header is used
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+      expect(options.headers).toEqual({
+        "MCP-Protocol-Version": customProtocolVersion
+      });
+    });
+
+    it("uses default protocol version when protocolVersion not provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validMetadata,
+      });
+
+      const metadata = await discoverOAuthMetadata("https://auth.example.com");
+      
+      expect(metadata).toEqual(validMetadata);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      
+      // Verify default protocol version header is used (consistent with existing tests)
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+      expect(options.headers).toEqual({
+        "MCP-Protocol-Version": "2025-03-26"  // current LATEST_PROTOCOL_VERSION
+      });
+    });
+
+    it("handles CORS fallback with custom protocol version for OAuth metadata", async () => {
+      const customProtocolVersion = "2024-11-05";
+      let callCount = 0;
+
+      // Mock implementation that changes behavior based on call count
+      mockFetch.mockImplementation((_url, options) => {
+        callCount++;
+
+        if (callCount === 1) {
+          // First call with MCP header - fail with TypeError (simulating CORS error)
+          return Promise.reject(new TypeError("Network error"));
+        } else {
+          // Second call without header - succeed
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => validMetadata
+          });
+        }
+      });
+
+      // Should succeed with the second call
+      const metadata = await discoverOAuthMetadata("https://auth.example.com", {
+        protocolVersion: customProtocolVersion,
+      });
+      expect(metadata).toEqual(validMetadata);
+
+      // Verify both calls were made
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      // Verify first call had custom protocol version header
+      expect(mockFetch.mock.calls[0][1]?.headers).toEqual({
+        "MCP-Protocol-Version": customProtocolVersion
+      });
+
+      // Verify second call had no headers (CORS fallback)
+      expect(mockFetch.mock.calls[1][1]).toBeUndefined();
     });
   });
 
@@ -1310,6 +1521,1007 @@ describe("OAuth Authorization", () => {
       const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
       const authUrl: URL = redirectCall[0];
       expect(authUrl.searchParams.get("resource")).toBe("https://api.example.com/mcp-server?param=value&another=test");
+    });
+
+    // Protocol Version Propagation Tests for main auth function
+    it("propagates protocolVersion through entire auth flow", async () => {
+      const customProtocolVersion = "2024-11-05";
+      
+      // Track all fetch calls to verify protocol version is passed correctly
+      const fetchCalls: Array<{ url: string, headers: any }> = [];
+      
+      mockFetch.mockImplementation((url, options) => {
+        fetchCalls.push({
+          url: url.toString(),
+          headers: options?.headers || {}
+        });
+
+        const urlString = url.toString();
+        
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          // Protected resource metadata succeeds with matching resource
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://api.example.com/mcp-server",
+              authorization_servers: ["https://custom-auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          // Auth server metadata
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://custom-auth.example.com",
+              authorization_endpoint: "https://custom-auth.example.com/authorize",
+              token_endpoint: "https://custom-auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+        
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with protocolVersion
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        protocolVersion: customProtocolVersion,
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Verify protocol version was included in all metadata discovery calls
+      const protectedResourceCall = fetchCalls.find(call => 
+        call.url.includes("/.well-known/oauth-protected-resource")
+      );
+      expect(protectedResourceCall).toBeDefined();
+      expect(protectedResourceCall?.headers).toEqual({
+        "MCP-Protocol-Version": customProtocolVersion
+      });
+
+      // Auth server metadata discovery should NOT inherit the protocol version automatically
+      // since it's called with the authorizationServerUrl, not the original serverUrl
+      const authServerCall = fetchCalls.find(call => 
+        call.url.includes("/.well-known/oauth-authorization-server")
+      );
+      expect(authServerCall).toBeDefined();
+      // This should use default protocol version since auth metadata discovery 
+      // doesn't currently accept protocolVersion parameter
+      expect(authServerCall?.headers).toEqual({
+        "MCP-Protocol-Version": "2025-03-26"  // default version
+      });
+    });
+
+    it("propagates protocolVersion correctly when protected resource metadata fails", async () => {
+      const customProtocolVersion = "2024-11-05";
+      
+      // Track all fetch calls
+      const fetchCalls: Array<{ url: string, headers: any }> = [];
+      
+      mockFetch.mockImplementation((url, options) => {
+        fetchCalls.push({
+          url: url.toString(),
+          headers: options?.headers || {}
+        });
+
+        const urlString = url.toString();
+        
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          // Protected resource metadata fails
+          return Promise.resolve({
+            ok: false,
+            status: 404,
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          // Auth server metadata fallback succeeds
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+        
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with protocolVersion
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        protocolVersion: customProtocolVersion,
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Verify protocol version was used in protected resource call
+      const protectedResourceCall = fetchCalls.find(call => 
+        call.url.includes("/.well-known/oauth-protected-resource")
+      );
+      expect(protectedResourceCall).toBeDefined();
+      expect(protectedResourceCall?.headers).toEqual({
+        "MCP-Protocol-Version": customProtocolVersion
+      });
+    });
+
+    // Custom Resource Metadata URL Tests for main auth function
+    it("respects custom resourceMetadataUrl throughout auth flow", async () => {
+      const customMetadataUrl = "https://metadata.different.com/custom-oauth-protected-resource";
+      
+      // Track all fetch calls
+      const fetchCalls: Array<{ url: string, headers: any }> = [];
+      
+      mockFetch.mockImplementation((url, options) => {
+        fetchCalls.push({
+          url: url.toString(),
+          headers: options?.headers || {}
+        });
+
+        const urlString = url.toString();
+        
+        if (urlString === customMetadataUrl) {
+          // Custom metadata URL returns alternative auth server
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://api.example.com/mcp-server",
+              authorization_servers: ["https://alternative-auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          // Auth server metadata for the alternative server
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://alternative-auth.example.com",
+              authorization_endpoint: "https://alternative-auth.example.com/authorize",
+              token_endpoint: "https://alternative-auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+        
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with custom resourceMetadataUrl
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        resourceMetadataUrl: new URL(customMetadataUrl),
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Verify custom metadata URL was used, not default well-known
+      const customUrlCall = fetchCalls.find(call => call.url === customMetadataUrl);
+      expect(customUrlCall).toBeDefined();
+
+      // Verify NO call was made to the default protected resource metadata URL
+      const defaultProtectedResourceCall = fetchCalls.find(call => 
+        call.url.includes("/.well-known/oauth-protected-resource") && 
+        call.url !== customMetadataUrl
+      );
+      expect(defaultProtectedResourceCall).toBeUndefined();
+
+      // Verify the alternative auth server was used
+      const altAuthServerCall = fetchCalls.find(call => 
+        call.url.includes("alternative-auth.example.com")
+      );
+      expect(altAuthServerCall).toBeDefined();
+    });
+
+    it("handles custom resourceMetadataUrl with protocol version correctly", async () => {
+      const customMetadataUrl = "https://metadata.different.com/custom-oauth-protected-resource";
+      const customProtocolVersion = "2024-11-05";
+      
+      // Track all fetch calls
+      const fetchCalls: Array<{ url: string, headers: any }> = [];
+      
+      mockFetch.mockImplementation((url, options) => {
+        fetchCalls.push({
+          url: url.toString(),
+          headers: options?.headers || {}
+        });
+
+        const urlString = url.toString();
+        
+        if (urlString === customMetadataUrl) {
+          // Custom metadata URL succeeds
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://api.example.com/mcp-server",
+              authorization_servers: ["https://auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          // Auth server metadata
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+        
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with both custom resourceMetadataUrl and protocolVersion
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        resourceMetadataUrl: new URL(customMetadataUrl),
+        protocolVersion: customProtocolVersion,
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Verify both custom URL and protocol version were used correctly together
+      const customUrlCall = fetchCalls.find(call => call.url === customMetadataUrl);
+      expect(customUrlCall).toBeDefined();
+      expect(customUrlCall?.headers).toEqual({
+        "MCP-Protocol-Version": customProtocolVersion
+      });
+    });
+
+    // Resource Validation Tests with new parameters
+    it("validates resource matching even with protocol version headers", async () => {
+      const customProtocolVersion = "2024-11-05";
+      
+      // Mock console.warn to verify fallback behavior
+      const originalWarn = console.warn;
+      const mockWarn = jest.fn();
+      console.warn = mockWarn;
+
+      mockFetch.mockImplementation((url, options) => {
+        const urlString = url.toString();
+        
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          // Protected resource metadata returns MISMATCHED resource
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://WRONG.example.com/different-server",  // This doesn't match expected
+              authorization_servers: ["https://auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          // Fallback to auth server metadata succeeds
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+        
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with protocolVersion - should fall back due to resource mismatch
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        protocolVersion: customProtocolVersion,
+      });
+
+      // Should succeed via fallback (not throw)
+      expect(result).toBe("REDIRECT");
+
+      // Verify the request was made with protocol version header
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url.toString()).toContain("/.well-known/oauth-protected-resource");
+      expect(options.headers).toEqual({
+        "MCP-Protocol-Version": customProtocolVersion
+      });
+
+      // Verify warning was logged about resource mismatch
+      expect(mockWarn).toHaveBeenCalledWith(
+        expect.stringContaining("Could not load OAuth Protected Resource metadata"),
+        expect.any(Error)
+      );
+
+      // Restore console.warn
+      console.warn = originalWarn;
+    });
+
+    it("validates resource when using custom metadata URL", async () => {
+      const customMetadataUrl = "https://metadata.different.com/custom-endpoint";
+      
+      mockFetch.mockImplementation((url) => {
+        const urlString = url.toString();
+        
+        if (urlString === customMetadataUrl) {
+          // Custom URL returns correct resource
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://api.example.com/mcp-server",  // This matches expected
+              authorization_servers: ["https://auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+        
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Should succeed with correct resource
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        resourceMetadataUrl: new URL(customMetadataUrl),
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Now test with INCORRECT resource - should also fall back to auth server metadata
+      // (not throw, since the error is caught and fallback is used)
+      mockFetch.mockImplementation((url) => {
+        const urlString = url.toString();
+        
+        if (urlString === customMetadataUrl) {
+          // Custom URL returns mismatched resource
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://WRONG.example.com/different-server",
+              authorization_servers: ["https://auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          // Fallback to auth server metadata succeeds
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+        
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock console.warn to verify fallback behavior
+      const originalWarn = console.warn;
+      const mockWarn = jest.fn();
+      console.warn = mockWarn;
+
+      const result2 = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        resourceMetadataUrl: new URL(customMetadataUrl),
+      });
+
+      // Should succeed via fallback (not throw)
+      expect(result2).toBe("REDIRECT");
+
+      // Verify warning was logged about resource mismatch
+      expect(mockWarn).toHaveBeenCalledWith(
+        expect.stringContaining("Could not load OAuth Protected Resource metadata"),
+        expect.any(Error)
+      );
+
+      // Restore console.warn
+      console.warn = originalWarn;
+    });
+
+    // Error Scenario Tests
+    it("handles custom metadata URL 404 gracefully with fallback", async () => {
+      const customMetadataUrl = "https://metadata.different.com/not-found";
+      
+      mockFetch.mockImplementation((url) => {
+        const urlString = url.toString();
+        
+        if (urlString === customMetadataUrl) {
+          // Custom URL returns 404
+          return Promise.resolve({
+            ok: false,
+            status: 404,
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          // Fallback to auth server metadata succeeds
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+        
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Should complete successfully via fallback
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        resourceMetadataUrl: new URL(customMetadataUrl),
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Verify fallback to auth server metadata was used
+      const authServerCall = mockFetch.mock.calls.find(call => 
+        call[0].toString().includes("/.well-known/oauth-authorization-server")
+      );
+      expect(authServerCall).toBeDefined();
+    });
+
+    it("handles all new parameters together correctly", async () => {
+      const customMetadataUrl = "https://metadata.different.com/comprehensive";
+      const customProtocolVersion = "2024-11-05";
+      
+      // Track all fetch calls
+      const fetchCalls: Array<{ url: string, headers: any }> = [];
+      
+      mockFetch.mockImplementation((url, options) => {
+        fetchCalls.push({
+          url: url.toString(),
+          headers: options?.headers || {}
+        });
+
+        const urlString = url.toString();
+        
+        if (urlString === customMetadataUrl) {
+          // Custom URL succeeds with complex scenario
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://api.example.com/mcp-server",
+              authorization_servers: ["https://complex-auth.example.com"],
+              scopes_supported: ["read", "write", "admin"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://complex-auth.example.com",
+              authorization_endpoint: "https://complex-auth.example.com/authorize",
+              token_endpoint: "https://complex-auth.example.com/token",
+              registration_endpoint: "https://complex-auth.example.com/register",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        } else if (urlString.includes("/register")) {
+          // Dynamic client registration
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              client_id: "dynamic-client-id",
+              client_secret: "dynamic-client-secret",
+              client_id_issued_at: 1612137600,
+              client_secret_expires_at: 1612224000,
+              redirect_uris: ["http://localhost:3000/callback"],
+              client_name: "Test Client",
+            }),
+          });
+        }
+        
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods for full flow with dynamic registration
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue(undefined); // Trigger dynamic registration
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      mockProvider.saveClientInformation = jest.fn();
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with ALL new parameters
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        resourceMetadataUrl: new URL(customMetadataUrl),
+        protocolVersion: customProtocolVersion,
+        scope: "read write admin",
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Verify complex parameter interaction
+      const customUrlCall = fetchCalls.find(call => call.url === customMetadataUrl);
+      expect(customUrlCall).toBeDefined();
+      expect(customUrlCall?.headers).toEqual({
+        "MCP-Protocol-Version": customProtocolVersion
+      });
+
+      // Verify flow completed with alternative auth server
+      const complexAuthCall = fetchCalls.find(call => 
+        call.url.includes("complex-auth.example.com")
+      );
+      expect(complexAuthCall).toBeDefined();
+
+      // Verify final authorization includes scope and resource
+      const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+      const authUrl: URL = redirectCall[0];
+      expect(authUrl.searchParams.get("resource")).toBe("https://api.example.com/mcp-server");
+      expect(authUrl.searchParams.get("scope")).toBe("read write admin");
+    });
+
+    // Edge Case Tests - Protocol Version Validation
+    it("handles edge case protocol versions correctly", async () => {
+      const edgeCaseVersions = [
+        "1999-01-01",  // Very old date
+        "2099-12-31",  // Future date
+        "2024-11-05-draft", // With suffix
+        ""  // Empty string
+      ];
+
+      for (const version of edgeCaseVersions) {
+        mockFetch.mockImplementation((url, options) => {
+          const urlString = url.toString();
+          if (urlString.includes("/.well-known/oauth-protected-resource")) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                resource: "https://api.example.com/mcp-server",
+                authorization_servers: ["https://auth.example.com"],
+              }),
+            });
+          } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                issuer: "https://auth.example.com",
+                authorization_endpoint: "https://auth.example.com/authorize",
+                token_endpoint: "https://auth.example.com/token",
+                response_types_supported: ["code"],
+                code_challenge_methods_supported: ["S256"],
+              }),
+            });
+          }
+          return Promise.resolve({ ok: false, status: 404 });
+        });
+
+        // Mock provider methods
+        (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+          client_id: "test-client",
+          client_secret: "test-secret",
+        });
+        (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+        (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+        (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+        // Should handle edge case versions without crashing
+        const result = await auth(mockProvider, {
+          serverUrl: "https://api.example.com/mcp-server",
+          protocolVersion: version,
+        });
+
+        expect(result).toBe("REDIRECT");
+
+        // Verify the edge case version was passed through correctly
+        const [url, options] = mockFetch.mock.calls[mockFetch.mock.calls.length - 2]; // -2 because last is auth server metadata
+        expect(url.toString()).toContain("/.well-known/oauth-protected-resource");
+        expect(options.headers).toEqual({
+          "MCP-Protocol-Version": version
+        });
+
+        // Reset mocks for next iteration
+        mockFetch.mockReset();
+      }
+    });
+
+    // Edge Case Tests - Custom Resource Metadata URL Validation
+    it("handles various custom URL formats correctly", async () => {
+      const customUrls = [
+        "https://metadata.example.com:8443/custom/path",  // With port
+        "https://metadata.example.com/path/with/query?param=value", // With query params
+        "https://metadata.example.com/path#fragment", // With fragment (should work since we use it as-is)
+        "http://localhost:3000/metadata", // Localhost with http
+      ];
+
+      for (const customUrl of customUrls) {
+        mockFetch.mockImplementation((url, options) => {
+          const urlString = url.toString();
+          if (urlString === customUrl) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                resource: "https://api.example.com/mcp-server",
+                authorization_servers: ["https://auth.example.com"],
+              }),
+            });
+          } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                issuer: "https://auth.example.com",
+                authorization_endpoint: "https://auth.example.com/authorize",
+                token_endpoint: "https://auth.example.com/token",
+                response_types_supported: ["code"],
+                code_challenge_methods_supported: ["S256"],
+              }),
+            });
+          }
+          return Promise.resolve({ ok: false, status: 404 });
+        });
+
+        // Mock provider methods
+        (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+          client_id: "test-client",
+          client_secret: "test-secret",
+        });
+        (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+        (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+        (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+        // Should handle various URL formats without crashing
+        const result = await auth(mockProvider, {
+          serverUrl: "https://api.example.com/mcp-server",
+          resourceMetadataUrl: new URL(customUrl),
+        });
+
+        expect(result).toBe("REDIRECT");
+
+        // Verify the exact custom URL was used
+        const customUrlCall = mockFetch.mock.calls.find(call => call[0].toString() === customUrl);
+        expect(customUrlCall).toBeDefined();
+
+        // Reset mocks for next iteration
+        mockFetch.mockReset();
+      }
+    });
+
+    // Comprehensive Token Exchange Test with Protocol Version
+    it("propagates protocolVersion to protected resource metadata in token exchange flow", async () => {
+      const customProtocolVersion = "2024-11-05";
+      
+      // Track all fetch calls
+      const fetchCalls: Array<{ url: string, headers: any }> = [];
+      
+      mockFetch.mockImplementation((url, options) => {
+        fetchCalls.push({
+          url: url.toString(),
+          headers: options?.headers || {}
+        });
+
+        const urlString = url.toString();
+        
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          // Protected resource metadata succeeds
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://api.example.com/mcp-server",
+              authorization_servers: ["https://auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          // Auth server metadata
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        } else if (urlString.includes("/token")) {
+          // Token exchange endpoint
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              access_token: "new-access-token",
+              token_type: "Bearer",
+              expires_in: 3600,
+              refresh_token: "new-refresh-token",
+            }),
+          });
+        }
+        
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods for token exchange flow
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.codeVerifier as jest.Mock).mockResolvedValue("test-verifier");
+      (mockProvider.saveTokens as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with authorizationCode to trigger token exchange
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        authorizationCode: "auth-code-123",
+        protocolVersion: customProtocolVersion,
+      });
+
+      expect(result).toBe("AUTHORIZED");
+
+      // Verify protocol version was used in protected resource metadata call
+      const protectedResourceCall = fetchCalls.find(call => 
+        call.url.includes("/.well-known/oauth-protected-resource")
+      );
+      expect(protectedResourceCall).toBeDefined();
+      expect(protectedResourceCall?.headers).toEqual({
+        "MCP-Protocol-Version": customProtocolVersion
+      });
+
+      // Verify token exchange was called with correct resource parameter
+      const tokenCall = fetchCalls.find(call => call.url.includes("/token"));
+      expect(tokenCall).toBeDefined();
+      // We would check body here but that requires accessing the mock call details
+    });
+
+    // Token Refresh Test with Protocol Version
+    it("propagates protocolVersion to protected resource metadata in token refresh flow", async () => {
+      const customProtocolVersion = "2024-11-05";
+      
+      // Track all fetch calls
+      const fetchCalls: Array<{ url: string, headers: any }> = [];
+      
+      mockFetch.mockImplementation((url, options) => {
+        fetchCalls.push({
+          url: url.toString(),
+          headers: options?.headers || {}
+        });
+
+        const urlString = url.toString();
+        
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          // Protected resource metadata succeeds
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://api.example.com/mcp-server",
+              authorization_servers: ["https://auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          // Auth server metadata
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        } else if (urlString.includes("/token")) {
+          // Token refresh endpoint
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              access_token: "refreshed-access-token",
+              token_type: "Bearer",
+              expires_in: 3600,
+            }),
+          });
+        }
+        
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods for token refresh flow
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue({
+        access_token: "old-access-token",
+        refresh_token: "old-refresh-token",
+      });
+      (mockProvider.saveTokens as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with existing refresh token to trigger refresh flow
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        protocolVersion: customProtocolVersion,
+      });
+
+      expect(result).toBe("AUTHORIZED");
+
+      // Verify protocol version was used in protected resource metadata call
+      const protectedResourceCall = fetchCalls.find(call => 
+        call.url.includes("/.well-known/oauth-protected-resource")
+      );
+      expect(protectedResourceCall).toBeDefined();
+      expect(protectedResourceCall?.headers).toEqual({
+        "MCP-Protocol-Version": customProtocolVersion
+      });
+
+      // Verify token refresh was called
+      const tokenCall = fetchCalls.find(call => call.url.includes("/token"));
+      expect(tokenCall).toBeDefined();
+    });
+
+    // CORS Fallback with Combined Parameters
+    it("handles CORS fallback with both custom URL and protocol version", async () => {
+      const customMetadataUrl = "https://metadata.different.com/cors-test";
+      const customProtocolVersion = "2024-11-05";
+      let callCount = 0;
+
+      mockFetch.mockImplementation((_url, options) => {
+        callCount++;
+        const urlString = _url.toString();
+
+        if (callCount === 1 && urlString === customMetadataUrl) {
+          // First call with both custom URL and protocol version - fail with CORS error
+          return Promise.reject(new TypeError("CORS error"));
+        } else if (callCount === 2 && urlString === customMetadataUrl) {
+          // Second call without headers - succeed
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://api.example.com/mcp-server",
+              authorization_servers: ["https://auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+        
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Should succeed via CORS fallback
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        resourceMetadataUrl: new URL(customMetadataUrl),
+        protocolVersion: customProtocolVersion,
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Verify both calls were made to the same custom URL
+      expect(mockFetch).toHaveBeenCalledTimes(3); // 2 for protected resource metadata (CORS retry) + 1 for auth server metadata
+
+      // Verify first call had protocol version header, second didn't (CORS fallback)
+      const firstCall = mockFetch.mock.calls[0];
+      expect(firstCall[0].toString()).toBe(customMetadataUrl);
+      expect(firstCall[1]?.headers).toEqual({
+        "MCP-Protocol-Version": customProtocolVersion
+      });
+
+      const secondCall = mockFetch.mock.calls[1];
+      expect(secondCall[0].toString()).toBe(customMetadataUrl);
+      expect(secondCall[1]).toBeUndefined(); // No options = no headers
     });
   });
 });

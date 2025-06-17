@@ -105,7 +105,6 @@ export async function auth(
   const resource = resourceUrlFromServerUrl(typeof serverUrl === "string" ? new URL(serverUrl) : serverUrl);
 
   let authorizationServerUrl = serverUrl;
-  let resource: URL | undefined;
   try {
     const resourceMetadata = await discoverOAuthProtectedResourceMetadata(
       serverUrl,
