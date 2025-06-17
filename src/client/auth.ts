@@ -169,6 +169,12 @@ export async function auth(
 
   const state = provider.state ? await provider.state() : undefined;
 
+  if (scope === undefined) {
+    if (metadata?.scopes_supported) {
+      scope = metadata.scopes_supported.join(" ");
+    }
+  }
+
   // Start new authorization flow
   const { authorizationUrl, codeVerifier } = await startAuthorization(authorizationServerUrl, {
     metadata,
