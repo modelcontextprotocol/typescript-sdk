@@ -22,7 +22,8 @@
     "./*": {
       "import": "./dist/esm/*",
       "require": "./dist/cjs/*"
-    }
+    },
+    "./types": "./dist/cjs/types.js"
   },
   "typesVersions": {
     "*": {
