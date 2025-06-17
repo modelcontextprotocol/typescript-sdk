@@ -1,6 +1,6 @@
 import { z, ZodTypeAny } from "zod";
 
-export const LATEST_PROTOCOL_VERSION = "2025-06-17";
+export const LATEST_PROTOCOL_VERSION = "2025-06-18";
 export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = "2025-03-26";
 export const SUPPORTED_PROTOCOL_VERSIONS = [
   LATEST_PROTOCOL_VERSION,

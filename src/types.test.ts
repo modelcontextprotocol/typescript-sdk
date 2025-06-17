@@ -12,7 +12,7 @@ describe("Types", () => {
 
     test("should have correct latest protocol version", () => {
         expect(LATEST_PROTOCOL_VERSION).toBeDefined();
-        expect(LATEST_PROTOCOL_VERSION).toBe("2025-06-17");
+        expect(LATEST_PROTOCOL_VERSION).toBe("2025-06-18");
     });
     test("should have correct supported protocol versions", () => {
         expect(SUPPORTED_PROTOCOL_VERSIONS).toBeDefined();
