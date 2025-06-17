@@ -11,6 +11,7 @@
   - [Resources](#resources)
   - [Tools](#tools)
   - [Prompts](#prompts)
+  - [Completions](#completions)
 - [Running Your Server](#running-your-server)
   - [stdio](#stdio)
   - [Streamable HTTP](#streamable-http)
@@ -55,22 +56,30 @@ import { z } from "zod";
 
 // Create an MCP server
 const server = new McpServer({
-  name: "Demo",
+  name: "demo-server",
   version: "1.0.0"
 });
 
 // Add an addition tool
-server.tool("add",
-  { a: z.number(), b: z.number() },
+server.registerTool("add",
+  {
+    title: "Addition Tool",
+    description: "Add two numbers",
+    inputSchema: { a: z.number(), b: z.number() }
+  },
   async ({ a, b }) => ({
     content: [{ type: "text", text: String(a + b) }]
   })
 );
 
 // Add a dynamic greeting resource
-server.resource(
+server.registerResource(
   "greeting",
   new ResourceTemplate("greeting://{name}", { list: undefined }),
+  { 
+    title: "Greeting Resource",      // Display name for UI
+    description: "Dynamic greeting generator"
+  },
   async (uri, { name }) => ({
     contents: [{
       uri: uri.href,
@@ -101,7 +110,7 @@ The McpServer is your core interface to the MCP protocol. It handles connection 
 
 ```typescript
 const server = new McpServer({
-  name: "My App",
+  name: "my-app",
   version: "1.0.0"
 });
 ```
@@ -112,9 +121,14 @@ Resources are how you expose data to LLMs. They're similar to GET endpoints in a
 
 ```typescript
 // Static resource
-server.resource(
+server.registerResource(
   "config",
   "config://app",
+  {
+    title: "Application Config",
+    description: "Application configuration data",
+    mimeType: "text/plain"
+  },
   async (uri) => ({
     contents: [{
       uri: uri.href,
@@ -124,13 +138,44 @@ server.resource(
 );
 
 // Dynamic resource with parameters
-server.resource(
+server.registerResource(
   "user-profile",
   new ResourceTemplate("users://{userId}/profile", { list: undefined }),
+  {
+    title: "User Profile",
+    description: "User profile information"
+  },
   async (uri, { userId }) => ({
     contents: [{
       uri: uri.href,
       text: `Profile data for user ${userId}`
+    }]
+  })
+);
+
+// Resource with context-aware completion
+server.registerResource(
+  "repository",
+  new ResourceTemplate("github://repos/{owner}/{repo}", {
+    list: undefined,
+    complete: {
+      // Provide intelligent completions based on previously resolved parameters
+      repo: (value, context) => {
+        if (context?.arguments?.["owner"] === "org1") {
+          return ["project1", "project2", "project3"].filter(r => r.startsWith(value));
+        }
+        return ["default-repo"].filter(r => r.startsWith(value));
+      }
+    }
+  }),
+  {
+    title: "GitHub Repository",
+    description: "Repository information"
+  },
+  async (uri, { owner, repo }) => ({
+    contents: [{
+      uri: uri.href,
+      text: `Repository: ${owner}/${repo}`
     }]
   })
 );
@@ -142,11 +187,15 @@ Tools let LLMs take actions through your server. Unlike resources, tools are exp
 
 ```typescript
 // Simple tool with parameters
-server.tool(
+server.registerTool(
   "calculate-bmi",
   {
-    weightKg: z.number(),
-    heightM: z.number()
+    title: "BMI Calculator",
+    description: "Calculate Body Mass Index",
+    inputSchema: {
+      weightKg: z.number(),
+      heightM: z.number()
+    }
   },
   async ({ weightKg, heightM }) => ({
     content: [{
@@ -157,9 +206,13 @@ server.tool(
 );
 
 // Async tool with external API call
-server.tool(
+server.registerTool(
   "fetch-weather",
-  { city: z.string() },
+  {
+    title: "Weather Fetcher",
+    description: "Get weather data for a city",
+    inputSchema: { city: z.string() }
+  },
   async ({ city }) => {
     const response = await fetch(`https://api.weather.com/${city}`);
     const data = await response.text();
@@ -168,16 +221,56 @@ server.tool(
     };
   }
 );
+
+// Tool that returns ResourceLinks
+server.registerTool(
+  "list-files",
+  {
+    title: "List Files",
+    description: "List project files",
+    inputSchema: { pattern: z.string() }
+  },
+  async ({ pattern }) => ({
+    content: [
+      { type: "text", text: `Found files matching "${pattern}":` },
+      // ResourceLinks let tools return references without file content
+      {
+        type: "resource_link",
+        uri: "file:///project/README.md",
+        name: "README.md",
+        mimeType: "text/markdown",
+        description: 'A README file'
+      },
+      {
+        type: "resource_link",
+        uri: "file:///project/src/index.ts",
+        name: "index.ts",
+        mimeType: "text/typescript",
+        description: 'An index file'
+      }
+    ]
+  })
+);
 ```
+
+#### ResourceLinks
+
+Tools can return `ResourceLink` objects to reference resources without embedding their full content. This is essential for performance when dealing with large files or many resources - clients can then selectively read only the resources they need using the provided URIs.
 
 ### Prompts
 
 Prompts are reusable templates that help LLMs interact with your server effectively:
 
 ```typescript
-server.prompt(
+import { completable } from "@modelcontextprotocol/sdk/server/completable.js";
+
+server.registerPrompt(
   "review-code",
-  { code: z.string() },
+  {
+    title: "Code Review",
+    description: "Review code for best practices and potential issues",
+    argsSchema: { code: z.string() }
+  },
   ({ code }) => ({
     messages: [{
       role: "user",
@@ -188,6 +281,106 @@ server.prompt(
     }]
   })
 );
+
+// Prompt with context-aware completion
+server.registerPrompt(
+  "team-greeting",
+  {
+    title: "Team Greeting",
+    description: "Generate a greeting for team members",
+    argsSchema: {
+      department: completable(z.string(), (value) => {
+        // Department suggestions
+        return ["engineering", "sales", "marketing", "support"].filter(d => d.startsWith(value));
+      }),
+      name: completable(z.string(), (value, context) => {
+        // Name suggestions based on selected department
+        const department = context?.arguments?.["department"];
+        if (department === "engineering") {
+          return ["Alice", "Bob", "Charlie"].filter(n => n.startsWith(value));
+        } else if (department === "sales") {
+          return ["David", "Eve", "Frank"].filter(n => n.startsWith(value));
+        } else if (department === "marketing") {
+          return ["Grace", "Henry", "Iris"].filter(n => n.startsWith(value));
+        }
+        return ["Guest"].filter(n => n.startsWith(value));
+      })
+    }
+  },
+  ({ department, name }) => ({
+    messages: [{
+      role: "assistant",
+      content: {
+        type: "text",
+        text: `Hello ${name}, welcome to the ${department} team!`
+      }
+    }]
+  })
+);
+```
+
+### Completions
+
+MCP supports argument completions to help users fill in prompt arguments and resource template parameters. See the examples above for [resource completions](#resources) and [prompt completions](#prompts).
+
+#### Client Usage
+
+```typescript
+// Request completions for any argument
+const result = await client.complete({
+  ref: {
+    type: "ref/prompt",  // or "ref/resource"
+    name: "example"      // or uri: "template://..."
+  },
+  argument: {
+    name: "argumentName",
+    value: "partial"     // What the user has typed so far
+  },
+  context: {             // Optional: Include previously resolved arguments
+    arguments: {
+      previousArg: "value"
+    }
+  }
+});
+
+```
+
+### Display Names and Metadata
+
+All resources, tools, and prompts support an optional `title` field for better UI presentation. The `title` is used as a display name, while `name` remains the unique identifier.
+
+**Note:** The `register*` methods (`registerTool`, `registerPrompt`, `registerResource`) are the recommended approach for new code. The older methods (`tool`, `prompt`, `resource`) remain available for backwards compatibility.
+
+#### Title Precedence for Tools
+
+For tools specifically, there are two ways to specify a title:
+- `title` field in the tool configuration
+- `annotations.title` field (when using the older `tool()` method with annotations)
+
+The precedence order is: `title` → `annotations.title` → `name`
+
+```typescript
+// Using registerTool (recommended)
+server.registerTool("my_tool", {
+  title: "My Tool",              // This title takes precedence
+  annotations: {
+    title: "Annotation Title"    // This is ignored if title is set
+  }
+}, handler);
+
+// Using tool with annotations (older API)
+server.tool("my_tool", "description", {
+  title: "Annotation Title"      // This is used as title
+}, handler);
+```
+
+When building clients, use the provided utility to get the appropriate display name:
+
+```typescript
+import { getDisplayName } from "@modelcontextprotocol/sdk/shared/metadataUtils.js";
+
+// Automatically handles the precedence: title → annotations.title → name
+const displayName = getDisplayName(tool);
 ```
 
 ## Running Your Server
@@ -451,13 +644,17 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import { z } from "zod";
 
 const server = new McpServer({
-  name: "Echo",
+  name: "echo-server",
   version: "1.0.0"
 });
 
-server.resource(
+server.registerResource(
   "echo",
   new ResourceTemplate("echo://{message}", { list: undefined }),
+  {
+    title: "Echo Resource",
+    description: "Echoes back messages as resources"
+  },
   async (uri, { message }) => ({
     contents: [{
       uri: uri.href,
@@ -466,17 +663,25 @@ server.resource(
   })
 );
 
-server.tool(
+server.registerTool(
   "echo",
-  { message: z.string() },
+  {
+    title: "Echo Tool",
+    description: "Echoes back the provided message",
+    inputSchema: { message: z.string() }
+  },
   async ({ message }) => ({
     content: [{ type: "text", text: `Tool echo: ${message}` }]
   })
 );
 
-server.prompt(
+server.registerPrompt(
   "echo",
-  { message: z.string() },
+  {
+    title: "Echo Prompt",
+    description: "Creates a prompt to process a message",
+    argsSchema: { message: z.string() }
+  },
   ({ message }) => ({
     messages: [{
       role: "user",
@@ -500,7 +705,7 @@ import { promisify } from "util";
 import { z } from "zod";
 
 const server = new McpServer({
-  name: "SQLite Explorer",
+  name: "sqlite-explorer",
   version: "1.0.0"
 });
 
@@ -513,9 +718,14 @@ const getDb = () => {
   };
 };
 
-server.resource(
+server.registerResource(
   "schema",
   "schema://main",
+  {
+    title: "Database Schema",
+    description: "SQLite database schema",
+    mimeType: "text/plain"
+  },
   async (uri) => {
     const db = getDb();
     try {
@@ -534,9 +744,13 @@ server.resource(
   }
 );
 
-server.tool(
+server.registerTool(
   "query",
-  { sql: z.string() },
+  {
+    title: "SQL Query",
+    description: "Execute SQL queries on the database",
+    inputSchema: { sql: z.string() }
+  },
   async ({ sql }) => {
     const db = getDb();
     try {
@@ -685,6 +899,109 @@ const transport = new StdioServerTransport();
 await server.connect(transport);
 ```
 
+### Eliciting User Input
+
+MCP servers can request additional information from users through the elicitation feature. This is useful for interactive workflows where the server needs user input or confirmation:
+
+```typescript
+// Server-side: Restaurant booking tool that asks for alternatives
+server.tool(
+  "book-restaurant",
+  { 
+    restaurant: z.string(),
+    date: z.string(),
+    partySize: z.number()
+  },
+  async ({ restaurant, date, partySize }) => {
+    // Check availability
+    const available = await checkAvailability(restaurant, date, partySize);
+    
+    if (!available) {
+      // Ask user if they want to try alternative dates
+      const result = await server.server.elicitInput({
+        message: `No tables available at ${restaurant} on ${date}. Would you like to check alternative dates?`,
+        requestedSchema: {
+          type: "object",
+          properties: {
+            checkAlternatives: {
+              type: "boolean",
+              title: "Check alternative dates",
+              description: "Would you like me to check other dates?"
+            },
+            flexibleDates: {
+              type: "string",
+              title: "Date flexibility",
+              description: "How flexible are your dates?",
+              enum: ["next_day", "same_week", "next_week"],
+              enumNames: ["Next day", "Same week", "Next week"]
+            }
+          },
+          required: ["checkAlternatives"]
+        }
+      });
+
+      if (result.action === "accept" && result.content?.checkAlternatives) {
+        const alternatives = await findAlternatives(
+          restaurant, 
+          date, 
+          partySize, 
+          result.content.flexibleDates as string
+        );
+        return {
+          content: [{
+            type: "text",
+            text: `Found these alternatives: ${alternatives.join(", ")}`
+          }]
+        };
+      }
+      
+      return {
+        content: [{
+          type: "text",
+          text: "No booking made. Original date not available."
+        }]
+      };
+    }
+    
+    // Book the table
+    await makeBooking(restaurant, date, partySize);
+    return {
+      content: [{
+        type: "text",
+        text: `Booked table for ${partySize} at ${restaurant} on ${date}`
+      }]
+    };
+  }
+);
+```
+
+Client-side: Handle elicitation requests
+
+```typescript
+// This is a placeholder - implement based on your UI framework
+async function getInputFromUser(message: string, schema: any): Promise<{
+  action: "accept" | "decline" | "cancel";
+  data?: Record<string, any>;
+}> {
+  // This should be implemented depending on the app
+  throw new Error("getInputFromUser must be implemented for your platform");
+}
+
+client.setRequestHandler(ElicitRequestSchema, async (request) => {
+  const userResponse = await getInputFromUser(
+    request.params.message, 
+    request.params.requestedSchema
+  );
+  
+  return {
+    action: userResponse.action,
+    content: userResponse.action === "accept" ? userResponse.data : undefined
+  };
+});
+```
+
+**Note**: Elicitation requires client support. Clients must declare the `elicitation` capability during initialization.
+
 ### Writing MCP Clients
 
 The SDK provides a high-level client interface:
@@ -733,6 +1050,7 @@ const result = await client.callTool({
     arg1: "value"
   }
 });
+
 ```
 
 ### Proxy Authorization Requests Upstream

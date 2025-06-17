@@ -14,10 +14,12 @@ import {
   LoggingMessageNotificationSchema,
   Notification,
   TextContent,
+  ElicitRequestSchema,
 } from "../types.js";
 import { ResourceTemplate } from "./mcp.js";
 import { completable } from "./completable.js";
 import { UriTemplate } from "../shared/uriTemplate.js";
+import { getDisplayName } from "../shared/metadataUtils.js";
 
 describe("McpServer", () => {
   /***
@@ -913,18 +915,10 @@ describe("tool()", () => {
       name: "test server",
       version: "1.0",
     });
-
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.tool(
       "test",
@@ -1056,17 +1050,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     // Register a tool with outputSchema
     mcpServer.registerTool(
@@ -1169,17 +1156,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     // Register a tool with outputSchema that returns only content without structuredContent
     mcpServer.registerTool(
@@ -1233,17 +1213,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     // Register a tool with outputSchema that returns invalid data
     mcpServer.registerTool(
@@ -1308,17 +1281,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     let receivedSessionId: string | undefined;
     mcpServer.tool("test-tool", async (extra) => {
@@ -1364,17 +1330,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     let receivedRequestId: string | number | undefined;
     mcpServer.tool("request-id-test", async (extra) => {
@@ -1423,17 +1382,10 @@ describe("tool()", () => {
       { capabilities: { logging: {} } },
     );
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     let receivedLogMessage: string | undefined;
     const loggingMessage = "hello here is log message 1";
@@ -1480,17 +1432,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.tool(
       "test",
@@ -1546,17 +1491,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.tool("error-test", async () => {
       throw new Error("Tool execution failed");
@@ -1598,17 +1536,10 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.tool("test-tool", async () => ({
       content: [
@@ -2393,6 +2324,48 @@ describe("resource()", () => {
   });
 
   /***
+   * Test: Registering a resource template with a complete callback should update server capabilities to advertise support for completion
+   */
+  test("should advertise support for completion when a resource template with a complete callback is defined", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.resource(
+      "test",
+      new ResourceTemplate("test://resource/{category}", {
+        list: undefined,
+        complete: {
+          category: () => ["books", "movies", "music"],
+        },
+      }),
+      async () => ({
+        contents: [
+          {
+            uri: "test://resource/test",
+            text: "Test content",
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    expect(client.getServerCapabilities()).toMatchObject({ completions: {} })
+  })
+
+  /***
    * Test: Resource Template Parameter Completion
    */
   test("should support completion of resource template parameters", async () => {
@@ -2401,17 +2374,10 @@ describe("resource()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          resources: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.resource(
       "test",
@@ -2469,17 +2435,10 @@ describe("resource()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          resources: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.resource(
       "test",
@@ -2540,17 +2499,10 @@ describe("resource()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          resources: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     let receivedRequestId: string | number | undefined;
     mcpServer.resource("request-id-test", "test://resource", async (_uri, extra) => {
@@ -3052,17 +3004,10 @@ describe("prompt()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          prompts: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.prompt(
       "test",
@@ -3258,17 +3203,10 @@ describe("prompt()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          prompts: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.prompt("test-prompt", async () => ({
       messages: [
@@ -3303,6 +3241,49 @@ describe("prompt()", () => {
     ).rejects.toThrow(/Prompt nonexistent-prompt not found/);
   });
 
+
+  /***
+   * Test: Registering a prompt with a completable argument should update server capabilities to advertise support for completion
+   */
+  test("should advertise support for completion when a prompt with a completable argument is defined", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.prompt(
+      "test-prompt",
+      {
+        name: completable(z.string(), () => ["Alice", "Bob", "Charlie"]),
+      },
+      async ({ name }) => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: `Hello ${name}`,
+            },
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    expect(client.getServerCapabilities()).toMatchObject({ completions: {} })
+  })
+
   /***
    * Test: Prompt Argument Completion
    */
@@ -3312,17 +3293,10 @@ describe("prompt()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          prompts: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.prompt(
       "test-prompt",
@@ -3380,17 +3354,10 @@ describe("prompt()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          prompts: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     mcpServer.prompt(
       "test-prompt",
@@ -3450,17 +3417,10 @@ describe("prompt()", () => {
       version: "1.0",
     });
 
-    const client = new Client(
-      {
-        name: "test client",
-        version: "1.0",
-      },
-      {
-        capabilities: {
-          prompts: {},
-        },
-      },
-    );
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
     let receivedRequestId: string | number | undefined;
     mcpServer.prompt("request-id-test", async (extra) => {
@@ -3498,5 +3458,773 @@ describe("prompt()", () => {
     expect(receivedRequestId).toBeDefined();
     expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
     expect(result.messages[0].content.text).toContain("Received request ID:");
+  });
+
+  /***
+   * Test: Resource Template Metadata Priority
+   */
+  test("should prioritize individual resource metadata over template metadata", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.resource(
+      "test",
+      new ResourceTemplate("test://resource/{id}", {
+        list: async () => ({
+          resources: [
+            {
+              name: "Resource 1",
+              uri: "test://resource/1",
+              description: "Individual resource description",
+              mimeType: "text/plain",
+            },
+            {
+              name: "Resource 2",
+              uri: "test://resource/2",
+              // This resource has no description or mimeType
+            },
+          ],
+        }),
+      }),
+      {
+        description: "Template description",
+        mimeType: "application/json",
+      },
+      async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            text: "Test content",
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    );
+
+    expect(result.resources).toHaveLength(2);
+
+    // Resource 1 should have its own metadata
+    expect(result.resources[0].name).toBe("Resource 1");
+    expect(result.resources[0].description).toBe("Individual resource description");
+    expect(result.resources[0].mimeType).toBe("text/plain");
+
+    // Resource 2 should inherit template metadata
+    expect(result.resources[1].name).toBe("Resource 2");
+    expect(result.resources[1].description).toBe("Template description");
+    expect(result.resources[1].mimeType).toBe("application/json");
+  });
+
+  /***
+   * Test: Resource Template Metadata Overrides All Fields
+   */
+  test("should allow resource to override all template metadata fields", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.resource(
+      "test",
+      new ResourceTemplate("test://resource/{id}", {
+        list: async () => ({
+          resources: [
+            {
+              name: "Overridden Name",
+              uri: "test://resource/1",
+              description: "Overridden description",
+              mimeType: "text/markdown",
+              // Add any other metadata fields if they exist
+            },
+          ],
+        }),
+      }),
+      {
+        name: "Template Name",
+        description: "Template description",
+        mimeType: "application/json",
+      },
+      async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            text: "Test content",
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    );
+
+    expect(result.resources).toHaveLength(1);
+
+    // All fields should be from the individual resource, not the template
+    expect(result.resources[0].name).toBe("Overridden Name");
+    expect(result.resources[0].description).toBe("Overridden description");
+    expect(result.resources[0].mimeType).toBe("text/markdown");
+  });
+});
+
+describe("Tool title precedence", () => {
+  test("should follow correct title precedence: title → annotations.title → name", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    // Tool 1: Only name
+    mcpServer.tool(
+      "tool_name_only",
+      async () => ({
+        content: [{ type: "text", text: "Response" }],
+      })
+    );
+
+    // Tool 2: Name and annotations.title
+    mcpServer.tool(
+      "tool_with_annotations_title",
+      "Tool with annotations title",
+      {
+        title: "Annotations Title"
+      },
+      async () => ({
+        content: [{ type: "text", text: "Response" }],
+      })
+    );
+
+    // Tool 3: Name and title (using registerTool)
+    mcpServer.registerTool(
+      "tool_with_title",
+      {
+        title: "Regular Title",
+        description: "Tool with regular title"
+      },
+      async () => ({
+        content: [{ type: "text", text: "Response" }],
+      })
+    );
+
+    // Tool 4: All three - title should win
+    mcpServer.registerTool(
+      "tool_with_all_titles",
+      {
+        title: "Regular Title Wins",
+        description: "Tool with all titles",
+        annotations: {
+          title: "Annotations Title Should Not Show"
+        }
+      },
+      async () => ({
+        content: [{ type: "text", text: "Response" }],
+      })
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+
+
+    expect(result.tools).toHaveLength(4);
+
+    // Tool 1: Only name - should display name
+    const tool1 = result.tools.find(t => t.name === "tool_name_only");
+    expect(tool1).toBeDefined();
+    expect(getDisplayName(tool1!)).toBe("tool_name_only");
+
+    // Tool 2: Name and annotations.title - should display annotations.title
+    const tool2 = result.tools.find(t => t.name === "tool_with_annotations_title");
+    expect(tool2).toBeDefined();
+    expect(tool2!.annotations?.title).toBe("Annotations Title");
+    expect(getDisplayName(tool2!)).toBe("Annotations Title");
+
+    // Tool 3: Name and title - should display title
+    const tool3 = result.tools.find(t => t.name === "tool_with_title");
+    expect(tool3).toBeDefined();
+    expect(tool3!.title).toBe("Regular Title");
+    expect(getDisplayName(tool3!)).toBe("Regular Title");
+
+    // Tool 4: All three - title should take precedence
+    const tool4 = result.tools.find(t => t.name === "tool_with_all_titles");
+    expect(tool4).toBeDefined();
+    expect(tool4!.title).toBe("Regular Title Wins");
+    expect(tool4!.annotations?.title).toBe("Annotations Title Should Not Show");
+    expect(getDisplayName(tool4!)).toBe("Regular Title Wins");
+  });
+
+  test("getDisplayName unit tests for title precedence", () => {
+
+    // Test 1: Only name
+    expect(getDisplayName({ name: "tool_name" })).toBe("tool_name");
+
+    // Test 2: Name and title - title wins
+    expect(getDisplayName({
+      name: "tool_name",
+      title: "Tool Title"
+    })).toBe("Tool Title");
+
+    // Test 3: Name and annotations.title - annotations.title wins
+    expect(getDisplayName({
+      name: "tool_name",
+      annotations: { title: "Annotations Title" }
+    })).toBe("Annotations Title");
+
+    // Test 4: All three - title wins (correct precedence)
+    expect(getDisplayName({
+      name: "tool_name",
+      title: "Regular Title",
+      annotations: { title: "Annotations Title" }
+    })).toBe("Regular Title");
+
+    // Test 5: Empty title should not be used
+    expect(getDisplayName({
+      name: "tool_name",
+      title: "",
+      annotations: { title: "Annotations Title" }
+    })).toBe("Annotations Title");
+
+    // Test 6: Undefined vs null handling
+    expect(getDisplayName({
+      name: "tool_name",
+      title: undefined,
+      annotations: { title: "Annotations Title" }
+    })).toBe("Annotations Title");
+  });
+
+  test("should support resource template completion with resolved context", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.registerResource(
+      "test",
+      new ResourceTemplate("github://repos/{owner}/{repo}", {
+        list: undefined,
+        complete: {
+          repo: (value, context) => {
+            if (context?.arguments?.["owner"] === "org1") {
+              return ["project1", "project2", "project3"].filter(r => r.startsWith(value));
+            } else if (context?.arguments?.["owner"] === "org2") {
+              return ["repo1", "repo2", "repo3"].filter(r => r.startsWith(value));
+            }
+            return [];
+          },
+        },
+      }),
+      {
+        title: "GitHub Repository",
+        description: "Repository information"
+      },
+      async () => ({
+        contents: [
+          {
+            uri: "github://repos/test/test",
+            text: "Test content",
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Test with microsoft owner
+    const result1 = await client.request(
+      {
+        method: "completion/complete",
+        params: {
+          ref: {
+            type: "ref/resource",
+            uri: "github://repos/{owner}/{repo}",
+          },
+          argument: {
+            name: "repo",
+            value: "p",
+          },
+          context: {
+            arguments: {
+              owner: "org1",
+            },
+          },
+        },
+      },
+      CompleteResultSchema,
+    );
+
+    expect(result1.completion.values).toEqual(["project1", "project2", "project3"]);
+    expect(result1.completion.total).toBe(3);
+
+    // Test with facebook owner
+    const result2 = await client.request(
+      {
+        method: "completion/complete",
+        params: {
+          ref: {
+            type: "ref/resource",
+            uri: "github://repos/{owner}/{repo}",
+          },
+          argument: {
+            name: "repo",
+            value: "r",
+          },
+          context: {
+            arguments: {
+              owner: "org2",
+            },
+          },
+        },
+      },
+      CompleteResultSchema,
+    );
+
+    expect(result2.completion.values).toEqual(["repo1", "repo2", "repo3"]);
+    expect(result2.completion.total).toBe(3);
+
+    // Test with no resolved context
+    const result3 = await client.request(
+      {
+        method: "completion/complete",
+        params: {
+          ref: {
+            type: "ref/resource",
+            uri: "github://repos/{owner}/{repo}",
+          },
+          argument: {
+            name: "repo",
+            value: "t",
+          },
+        },
+      },
+      CompleteResultSchema,
+    );
+
+    expect(result3.completion.values).toEqual([]);
+    expect(result3.completion.total).toBe(0);
+  });
+
+  test("should support prompt argument completion with resolved context", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.registerPrompt(
+      "test-prompt",
+      {
+        title: "Team Greeting",
+        description: "Generate a greeting for team members",
+        argsSchema: {
+          department: completable(z.string(), (value) => {
+            return ["engineering", "sales", "marketing", "support"].filter(d => d.startsWith(value));
+          }),
+          name: completable(z.string(), (value, context) => {
+            const department = context?.arguments?.["department"];
+            if (department === "engineering") {
+              return ["Alice", "Bob", "Charlie"].filter(n => n.startsWith(value));
+            } else if (department === "sales") {
+              return ["David", "Eve", "Frank"].filter(n => n.startsWith(value));
+            } else if (department === "marketing") {
+              return ["Grace", "Henry", "Iris"].filter(n => n.startsWith(value));
+            }
+            return ["Guest"].filter(n => n.startsWith(value));
+          }),
+        }
+      },
+      async ({ department, name }) => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: `Hello ${name}, welcome to the ${department} team!`,
+            },
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Test with engineering department
+    const result1 = await client.request(
+      {
+        method: "completion/complete",
+        params: {
+          ref: {
+            type: "ref/prompt",
+            name: "test-prompt",
+          },
+          argument: {
+            name: "name",
+            value: "A",
+          },
+          context: {
+            arguments: {
+              department: "engineering",
+            },
+          },
+        },
+      },
+      CompleteResultSchema,
+    );
+
+    expect(result1.completion.values).toEqual(["Alice"]);
+
+    // Test with sales department
+    const result2 = await client.request(
+      {
+        method: "completion/complete",
+        params: {
+          ref: {
+            type: "ref/prompt",
+            name: "test-prompt",
+          },
+          argument: {
+            name: "name",
+            value: "D",
+          },
+          context: {
+            arguments: {
+              department: "sales",
+            },
+          },
+        },
+      },
+      CompleteResultSchema,
+    );
+
+    expect(result2.completion.values).toEqual(["David"]);
+
+    // Test with marketing department
+    const result3 = await client.request(
+      {
+        method: "completion/complete",
+        params: {
+          ref: {
+            type: "ref/prompt",
+            name: "test-prompt",
+          },
+          argument: {
+            name: "name",
+            value: "G",
+          },
+          context: {
+            arguments: {
+              department: "marketing",
+            },
+          },
+        },
+      },
+      CompleteResultSchema,
+    );
+
+    expect(result3.completion.values).toEqual(["Grace"]);
+
+    // Test with no resolved context
+    const result4 = await client.request(
+      {
+        method: "completion/complete",
+        params: {
+          ref: {
+            type: "ref/prompt",
+            name: "test-prompt",
+          },
+          argument: {
+            name: "name",
+            value: "G",
+          },
+        },
+      },
+      CompleteResultSchema,
+    );
+
+    expect(result4.completion.values).toEqual(["Guest"]);
+  });
+});
+
+describe("elicitInput()", () => {
+
+  const checkAvailability = jest.fn().mockResolvedValue(false);
+  const findAlternatives = jest.fn().mockResolvedValue([]);
+  const makeBooking = jest.fn().mockResolvedValue("BOOKING-123");
+
+  let mcpServer: McpServer;
+  let client: Client;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    // Create server with restaurant booking tool
+    mcpServer = new McpServer({
+      name: "restaurant-booking-server",
+      version: "1.0.0",
+    });
+
+    // Register the restaurant booking tool from README example
+    mcpServer.tool(
+      "book-restaurant",
+      {
+        restaurant: z.string(),
+        date: z.string(),
+        partySize: z.number()
+      },
+      async ({ restaurant, date, partySize }) => {
+        // Check availability
+        const available = await checkAvailability(restaurant, date, partySize);
+
+        if (!available) {
+          // Ask user if they want to try alternative dates
+          const result = await mcpServer.server.elicitInput({
+            message: `No tables available at ${restaurant} on ${date}. Would you like to check alternative dates?`,
+            requestedSchema: {
+              type: "object",
+              properties: {
+                checkAlternatives: {
+                  type: "boolean",
+                  title: "Check alternative dates",
+                  description: "Would you like me to check other dates?"
+                },
+                flexibleDates: {
+                  type: "string",
+                  title: "Date flexibility",
+                  description: "How flexible are your dates?",
+                  enum: ["next_day", "same_week", "next_week"],
+                  enumNames: ["Next day", "Same week", "Next week"]
+                }
+              },
+              required: ["checkAlternatives"]
+            }
+          });
+
+          if (result.action === "accept" && result.content?.checkAlternatives) {
+            const alternatives = await findAlternatives(
+              restaurant,
+              date,
+              partySize,
+              result.content.flexibleDates as string
+            );
+            return {
+              content: [{
+                type: "text",
+                text: `Found these alternatives: ${alternatives.join(", ")}`
+              }]
+            };
+          }
+
+          return {
+            content: [{
+              type: "text",
+              text: "No booking made. Original date not available."
+            }]
+          };
+        }
+
+        await makeBooking(restaurant, date, partySize);
+        return {
+          content: [{
+            type: "text",
+            text: `Booked table for ${partySize} at ${restaurant} on ${date}`
+          }]
+        };
+      }
+    );
+
+    // Create client with elicitation capability
+    client = new Client(
+      {
+        name: "test-client",
+        version: "1.0.0",
+      },
+      {
+        capabilities: {
+          elicitation: {},
+        },
+      }
+    );
+  });
+
+  test("should successfully elicit additional information", async () => {
+    // Mock availability check to return false
+    checkAvailability.mockResolvedValue(false);
+    findAlternatives.mockResolvedValue(["2024-12-26", "2024-12-27", "2024-12-28"]);
+
+    // Set up client to accept alternative date checking
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      expect(request.params.message).toContain("No tables available at ABC Restaurant on 2024-12-25");
+      return {
+        action: "accept",
+        content: {
+          checkAlternatives: true,
+          flexibleDates: "same_week"
+        }
+      };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Call the tool
+    const result = await client.callTool({
+      name: "book-restaurant",
+      arguments: {
+        restaurant: "ABC Restaurant",
+        date: "2024-12-25",
+        partySize: 2
+      }
+    });
+
+    expect(checkAvailability).toHaveBeenCalledWith("ABC Restaurant", "2024-12-25", 2);
+    expect(findAlternatives).toHaveBeenCalledWith("ABC Restaurant", "2024-12-25", 2, "same_week");
+    expect(result.content).toEqual([{
+      type: "text",
+      text: "Found these alternatives: 2024-12-26, 2024-12-27, 2024-12-28"
+    }]);
+  });
+
+  test("should handle user declining to elicitation request", async () => {
+    // Mock availability check to return false
+    checkAvailability.mockResolvedValue(false);
+
+    // Set up client to decline alternative date checking
+    client.setRequestHandler(ElicitRequestSchema, async () => {
+      return {
+        action: "accept",
+        content: {
+          checkAlternatives: false
+        }
+      };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Call the tool
+    const result = await client.callTool({
+      name: "book-restaurant",
+      arguments: {
+        restaurant: "ABC Restaurant",
+        date: "2024-12-25",
+        partySize: 2
+      }
+    });
+
+    expect(checkAvailability).toHaveBeenCalledWith("ABC Restaurant", "2024-12-25", 2);
+    expect(findAlternatives).not.toHaveBeenCalled();
+    expect(result.content).toEqual([{
+      type: "text",
+      text: "No booking made. Original date not available."
+    }]);
+  });
+
+  test("should handle user cancelling the elicitation", async () => {
+    // Mock availability check to return false
+    checkAvailability.mockResolvedValue(false);
+
+    // Set up client to cancel the elicitation
+    client.setRequestHandler(ElicitRequestSchema, async () => {
+      return {
+        action: "cancel"
+      };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Call the tool
+    const result = await client.callTool({
+      name: "book-restaurant",
+      arguments: {
+        restaurant: "ABC Restaurant",
+        date: "2024-12-25",
+        partySize: 2
+      }
+    });
+
+    expect(checkAvailability).toHaveBeenCalledWith("ABC Restaurant", "2024-12-25", 2);
+    expect(findAlternatives).not.toHaveBeenCalled();
+    expect(result.content).toEqual([{
+      type: "text",
+      text: "No booking made. Original date not available."
+    }]);
   });
 });

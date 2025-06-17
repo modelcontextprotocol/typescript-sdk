@@ -14,6 +14,7 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
   CreateMessageRequestSchema,
+  ElicitRequestSchema,
   ListRootsRequestSchema,
   ErrorCode,
 } from "../types.js";
@@ -595,6 +596,43 @@ test("should only allow setRequestHandler for declared capabilities", () => {
   expect(() => {
     client.setRequestHandler(ListRootsRequestSchema, () => ({}));
   }).toThrow("Client does not support roots capability");
+});
+
+test("should allow setRequestHandler for declared elicitation capability", () => {
+  const client = new Client(
+    {
+      name: "test-client",
+      version: "1.0.0",
+    },
+    {
+      capabilities: {
+        elicitation: {},
+      },
+    },
+  );
+
+  // This should work because elicitation is a declared capability
+  expect(() => {
+    client.setRequestHandler(ElicitRequestSchema, () => ({
+      action: "accept",
+      content: {
+        username: "test-user",
+        confirmed: true,
+      },
+    }));
+  }).not.toThrow();
+
+  // This should throw because sampling is not a declared capability
+  expect(() => {
+    client.setRequestHandler(CreateMessageRequestSchema, () => ({
+      model: "test-model",
+      role: "assistant",
+      content: {
+        type: "text",
+        text: "Test response",
+      },
+    }));
+  }).toThrow("Client does not support sampling capability");
 });
 
 /***
