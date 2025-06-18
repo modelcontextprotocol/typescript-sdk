@@ -1,7 +1,7 @@
 import pkceChallenge from "pkce-challenge";
 import { LATEST_PROTOCOL_VERSION } from "../types.js";
-import type { OAuthClientMetadata, OAuthClientInformation, OAuthTokens, OAuthMetadata, OAuthClientInformationFull, OAuthProtectedResourceMetadata } from "../shared/auth.js";
-import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthProtectedResourceMetadataSchema, OAuthTokensSchema } from "../shared/auth.js";
+import type { OAuthClientMetadata, OAuthClientInformation, OAuthTokens, OAuthMetadata, OAuthClientInformationFull, OAuthProtectedResourceMetadata, OIDCMetadata } from "../shared/auth.js";
+import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthProtectedResourceMetadataSchema, OAuthTokensSchema, OIDCMetadataSchema } from "../shared/auth.js";
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
@@ -111,7 +111,7 @@ export async function auth(
     console.warn("Could not load OAuth Protected Resource metadata, falling back to /.well-known/oauth-authorization-server", error)
   }
 
-  const metadata = await discoverOAuthMetadata(authorizationServerUrl);
+  const metadata = await discoverAuthMetadata(authorizationServerUrl);
 
   // Handle client registration if needed
   let clientInformation = await Promise.resolve(provider.clientInformation());
@@ -230,7 +230,7 @@ export async function discoverOAuthProtectedResourceMetadata(
   } else {
     url = new URL("/.well-known/oauth-protected-resource", serverUrl);
   }
-  
+
   const response = await fetchWithCorsFallback(url, opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION);
 
   if (response.status === 404) {
@@ -264,41 +264,73 @@ export async function discoverOAuthMetadata(
   authorizationServerUrl: string | URL,
   opts?: { protocolVersion?: string },
 ): Promise<OAuthMetadata | undefined> {
+  const url = new URL("/.well-known/oauth-authorization-server", authorizationServerUrl);
+  const response = await fetchWithCorsFallback(url, opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION);
 
-  /**
-   * To support both OIDC and plain OAuth2 servers, this checks for their
-   * respective discovery endpoints.
-   */
-  const potentialAuthServerMetadataUrls = [
-    new URL("/.well-known/oauth-authorization-server", authorizationServerUrl),
-    new URL("/.well-known/openid-configuration", authorizationServerUrl),
-  ];
-
-  for (const url of potentialAuthServerMetadataUrls) {
-    const response = await fetchWithCorsFallback(url, opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION);
-
-    if (response.status === 404) {
-      // Try the next URL
-      continue;
-    }
-
-    if (!response.ok) {
-      throw new Error(
-        `HTTP ${response.status} trying to load well-known OAuth metadata from ${url.toString()}`,
-      );
-    }
-
-    /**
-     * The `OAuthMetadataSchema` is compatible with both OIDC and OAuth2
-     * discovery responses. Because OIDC's metadata is a superset, `zod` will
-     * correctly parse the fields defined in our schema and simply ignore any
-     * additional OIDC-specific fields.
-     */
-    return OAuthMetadataSchema.parse(await response.json());
+  if (response.status === 404) {
+    return undefined;
   }
 
-  // If all URLs returned 404, discovery is not supported by the server.
-  return undefined;
+  if (!response.ok) {
+    throw new Error(
+      `HTTP ${response.status} trying to load well-known OAuth metadata from ${url.toString()}`,
+    );
+  }
+
+  return OAuthMetadataSchema.parse(await response.json());
+}
+
+/**
+ * Fetch OpenID Connect metadata from an authorization server.
+ *
+ * If the server returns a 404, this function will return `undefined`.
+ * Any other errors will be thrown as exceptions.
+ */
+export async function discoverOIDCMetadata(
+  authorizationServerUrl: string | URL,
+  opts?: { protocolVersion?: string },
+): Promise<OIDCMetadata | undefined> {
+  const url = new URL("/.well-known/openid-configuration", authorizationServerUrl);
+  const response = await fetchWithCorsFallback(url, opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION);
+
+  if (response.status === 404) {
+    return undefined;
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `HTTP ${response.status} trying to load well-known OIDC metadata from ${url.toString()}`,
+    );
+  }
+
+  return OIDCMetadataSchema.parse(await response.json());
+}
+
+/**
+ * Discover OAuth or OpenID Connect metadata from an authorization server.
+ *
+ * This function first attempts OAuth discovery, then falls back to OIDC discovery
+ * if OAuth is not available.
+ *
+ * Per the MCP specification, clients **MUST** support both OAuth 2.0
+ * Authorization Server Metadata ([RFC8414](https://datatracker.ietf.org/doc/html/rfc8414))
+ * and [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0-final.html).
+ *
+ * If both return 404, this function will return `undefined`.
+ * Any other errors will be thrown as exceptions.
+ */
+export async function discoverAuthMetadata(
+  authorizationServerUrl: string | URL,
+  opts?: { protocolVersion?: string },
+): Promise<OAuthMetadata | OIDCMetadata | undefined> {
+  // Try OAuth first
+  const oauthMetadata = await discoverOAuthMetadata(authorizationServerUrl, opts);
+  if (oauthMetadata) {
+    return oauthMetadata;
+  }
+
+  // Fall back to OIDC
+  return await discoverOIDCMetadata(authorizationServerUrl, opts);
 }
 
 /**

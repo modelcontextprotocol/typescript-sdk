@@ -57,6 +57,62 @@ export const OAuthMetadataSchema = z
   .passthrough();
 
 /**
+ * OpenID Connect Discovery 1.0 Metadata
+ */
+export const OIDCMetadataSchema = z
+  .object({
+    // Required fields
+    issuer: z.string(),
+    authorization_endpoint: z.string(),
+    jwks_uri: z.string(),
+    response_types_supported: z.array(z.string()),
+    subject_types_supported: z.array(z.string()),
+    id_token_signing_alg_values_supported: z.array(z.string()),
+
+    // Technically optional, but in MCP we require a token endpoint
+    // since we do not allow the implicit flow since we adopt
+    // OAuth 2.1, see https://www.ietf.org/archive/id/draft-ietf-oauth-v2-1-13.html#name-removal-of-the-oauth-20-imp
+    token_endpoint: z.string(),
+
+    // Recommended fields
+    userinfo_endpoint: z.string().optional(),
+    registration_endpoint: z.string().optional(),
+    scopes_supported: z.array(z.string()).optional(),
+    claims_supported: z.array(z.string()).optional(),
+
+    // Optional fields
+    response_modes_supported: z.array(z.string()).optional(),
+    grant_types_supported: z.array(z.string()).optional(),
+    acr_values_supported: z.array(z.string()).optional(),
+    id_token_encryption_alg_values_supported: z.array(z.string()).optional(),
+    id_token_encryption_enc_values_supported: z.array(z.string()).optional(),
+    userinfo_signing_alg_values_supported: z.array(z.string()).optional(),
+    userinfo_encryption_alg_values_supported: z.array(z.string()).optional(),
+    userinfo_encryption_enc_values_supported: z.array(z.string()).optional(),
+    request_object_signing_alg_values_supported: z.array(z.string()).optional(),
+    request_object_encryption_alg_values_supported: z.array(z.string()).optional(),
+    request_object_encryption_enc_values_supported: z.array(z.string()).optional(),
+    token_endpoint_auth_methods_supported: z.array(z.string()).optional(),
+    token_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
+    display_values_supported: z.array(z.string()).optional(),
+    claim_types_supported: z.array(z.string()).optional(),
+    claims_locales_supported: z.array(z.string()).optional(),
+    ui_locales_supported: z.array(z.string()).optional(),
+    claims_parameter_supported: z.boolean().optional(),
+    request_parameter_supported: z.boolean().optional(),
+    request_uri_parameter_supported: z.boolean().optional(),
+    require_request_uri_registration: z.boolean().optional(),
+    op_policy_uri: z.string().optional(),
+    op_tos_uri: z.string().optional(),
+    service_documentation: z.string().optional(),
+
+    // Session Management extension fields
+    check_session_iframe: z.string().optional(),
+    end_session_endpoint: z.string().optional(),
+  })
+  .passthrough();
+
+/**
  * OAuth 2.1 token response
  */
 export const OAuthTokensSchema = z
@@ -133,6 +189,7 @@ export const OAuthTokenRevocationRequestSchema = z.object({
 
 
 export type OAuthMetadata = z.infer<typeof OAuthMetadataSchema>;
+export type OIDCMetadata = z.infer<typeof OIDCMetadataSchema>;
 export type OAuthTokens = z.infer<typeof OAuthTokensSchema>;
 export type OAuthErrorResponse = z.infer<typeof OAuthErrorResponseSchema>;
 export type OAuthClientMetadata = z.infer<typeof OAuthClientMetadataSchema>;
