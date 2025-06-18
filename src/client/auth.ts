@@ -230,22 +230,8 @@ export async function discoverOAuthProtectedResourceMetadata(
   } else {
     url = new URL("/.well-known/oauth-protected-resource", serverUrl);
   }
-
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      headers: {
-        "MCP-Protocol-Version": opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION
-      }
-    });
-  } catch (error) {
-    // CORS errors come back as TypeError
-    if (error instanceof TypeError) {
-      response = await fetch(url);
-    } else {
-      throw error;
-    }
-  }
+  
+  const response = await fetchWithCorsFallback(url, opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION);
 
   if (response.status === 404) {
     throw new Error(`Resource server does not implement OAuth 2.0 Protected Resource Metadata.`);
@@ -260,43 +246,59 @@ export async function discoverOAuthProtectedResourceMetadata(
 }
 
 /**
- * Looks up RFC 8414 OAuth 2.0 Authorization Server Metadata.
+ * Looks up authorization server metadata from an MCP-compliant server.
  *
- * If the server returns a 404 for the well-known endpoint, this function will
+ * Per the MCP specification, clients **MUST** support both OAuth 2.0
+ * Authorization Server Metadata ([RFC8414](https://datatracker.ietf.org/doc/html/rfc8414))
+ * and [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0-final.html).
+ * This function implements this requirement by checking the well-known
+ * discovery endpoints for both standards.
+ *
+ * The function can parse responses from both types of endpoints because OIDC
+ * discovery metadata is a superset of the metadata defined in RFC 8414.
+ *
+ * If the server returns a 404 for all known endpoints, this function will
  * return `undefined`. Any other errors will be thrown as exceptions.
  */
 export async function discoverOAuthMetadata(
   authorizationServerUrl: string | URL,
   opts?: { protocolVersion?: string },
 ): Promise<OAuthMetadata | undefined> {
-  const url = new URL("/.well-known/oauth-authorization-server", authorizationServerUrl);
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      headers: {
-        "MCP-Protocol-Version": opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION
-      }
-    });
-  } catch (error) {
-    // CORS errors come back as TypeError
-    if (error instanceof TypeError) {
-      response = await fetch(url);
-    } else {
-      throw error;
+
+  /**
+   * To support both OIDC and plain OAuth2 servers, this checks for their
+   * respective discovery endpoints.
+   */
+  const potentialAuthServerMetadataUrls = [
+    new URL("/.well-known/oauth-authorization-server", authorizationServerUrl),
+    new URL("/.well-known/openid-configuration", authorizationServerUrl),
+  ];
+
+  for (const url of potentialAuthServerMetadataUrls) {
+    const response = await fetchWithCorsFallback(url, opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION);
+
+    if (response.status === 404) {
+      // Try the next URL
+      continue;
     }
+
+    if (!response.ok) {
+      throw new Error(
+        `HTTP ${response.status} trying to load well-known OAuth metadata from ${url.toString()}`,
+      );
+    }
+
+    /**
+     * The `OAuthMetadataSchema` is compatible with both OIDC and OAuth2
+     * discovery responses. Because OIDC's metadata is a superset, `zod` will
+     * correctly parse the fields defined in our schema and simply ignore any
+     * additional OIDC-specific fields.
+     */
+    return OAuthMetadataSchema.parse(await response.json());
   }
 
-  if (response.status === 404) {
-    return undefined;
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      `HTTP ${response.status} trying to load well-known OAuth metadata`,
-    );
-  }
-
-  return OAuthMetadataSchema.parse(await response.json());
+  // If all URLs returned 404, discovery is not supported by the server.
+  return undefined;
 }
 
 /**
@@ -529,4 +531,24 @@ export async function registerClient(
   }
 
   return OAuthClientInformationFullSchema.parse(await response.json());
+}
+
+/**
+ * A fetch wrapper that attempts to set the MCP-Protocol-Version header, but
+ * falls back to a header-less request if a cors error occurs.
+ */
+const fetchWithCorsFallback = async (url: URL, protocolVersion: string) => {
+  try {
+    return await fetch(url, {
+      headers: {
+        "MCP-Protocol-Version": protocolVersion
+      }
+    })
+  } catch (error) {
+    if (error instanceof TypeError) {
+      // CORS errors come back as TypeError, try again without protocol version header
+      return await fetch(url);
+    }
+    throw error;
+  }
 }
