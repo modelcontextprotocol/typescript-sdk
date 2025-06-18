@@ -35,17 +35,8 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
     params: AuthorizationParams,
     client: OAuthClientInformationFull}>();
   private tokens = new Map<string, AuthInfo>();
-  private validateResource?: (resource?: URL) => boolean;
 
-  constructor({mcpServerUrl}: {mcpServerUrl?: URL} = {}) {
-    if (mcpServerUrl) {
-      const expectedResource = resourceUrlFromServerUrl(mcpServerUrl);
-      this.validateResource = (resource?: URL) => {
-        if (!resource) return false;
-        return resource.toString() === expectedResource.toString();
-      };
-    }
-  }
+  constructor(private validateResource?: (resource?: URL) => boolean) {}
 
   async authorize(
     client: OAuthClientInformationFull,
@@ -153,13 +144,20 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
 }
 
 
-export const setupAuthServer = (authServerUrl: URL, mcpServerUrl: URL): OAuthMetadata => {
+export const setupAuthServer = ({authServerUrl, mcpServerUrl, strictResource}: {authServerUrl: URL, mcpServerUrl: URL, strictResource: boolean}): OAuthMetadata => {
   // Create separate auth server app
   // NOTE: This is a separate app on a separate port to illustrate
   // how to separate an OAuth Authorization Server from a Resource
   // server in the SDK. The SDK is not intended to be provide a standalone
   // authorization server.
-  const provider = new DemoInMemoryAuthProvider({mcpServerUrl});
+
+  const validateResource = strictResource ? resource => {
+    if (!resource) return false;
+    const expectedResource = resourceUrlFromServerUrl(mcpServerUrl);
+    return resource.toString() === expectedResource.toString();
+  } : undefined;
+
+  const provider = new DemoInMemoryAuthProvider(validateResource);
   const authApp = express();
   authApp.use(express.json());
   // For introspection requests
