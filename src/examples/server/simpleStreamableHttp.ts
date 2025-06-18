@@ -10,6 +10,8 @@ import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from 'src/shared/auth.js';
 
+import cors from "cors";
+
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
 
@@ -418,11 +420,17 @@ const getServer = () => {
   return server;
 };
 
-const MCP_PORT = 3000;
-const AUTH_PORT = 3001;
+const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 3000;
+const AUTH_PORT = process.env.MCP_AUTH_PORT ? parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
 
 const app = express();
 app.use(express.json());
+
+// Allow CORS all domains, expose the Mcp-Session-Id header
+app.use(cors({
+  origin: '*', // Allow all origins
+  exposedHeaders: ["Mcp-Session-Id"]
+}));
 
 // Set up OAuth if enabled
 let authMiddleware = null;
