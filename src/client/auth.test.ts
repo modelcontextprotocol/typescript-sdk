@@ -359,7 +359,7 @@ describe("OAuth Authorization", () => {
       code_challenge_methods_supported: ["S256"],
     };
 
-    it("returns metadata when discovery succeeds", async () => {
+    it("returns metadata when oauth-authorization-server discovery succeeds", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -375,6 +375,28 @@ describe("OAuth Authorization", () => {
       expect(options.headers).toEqual({
         "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
       });
+    });
+
+    it("returns metadata when oidc discovery succeeds", async () => {
+      mockFetch.mockImplementation((url) => {
+        if (url.toString().includes('openid-configuration')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => validMetadata,
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+        });
+      });
+
+      const metadata = await discoverOAuthMetadata("https://auth.example.com");
+      expect(metadata).toEqual(validMetadata);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch.mock.calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+      expect(mockFetch.mock.calls[1][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration");
     });
 
     it("returns metadata when discovery succeeds with path", async () => {
@@ -395,14 +417,14 @@ describe("OAuth Authorization", () => {
       });
     });
 
-    it("falls back to root discovery when path-aware discovery returns 404", async () => {
-      // First call (path-aware) returns 404
+    it("tries discovery endpoints in new spec order for URLs with path", async () => {
+      // First call (OAuth with path insertion) returns 404
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 404,
       });
 
-      // Second call (root fallback) succeeds
+      // Second call (OIDC with path insertion) succeeds
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -415,29 +437,35 @@ describe("OAuth Authorization", () => {
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(2);
 
-      // First call should be path-aware
+      // First call should be OAuth with path insertion
       const [firstUrl, firstOptions] = calls[0];
       expect(firstUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/path/name");
       expect(firstOptions.headers).toEqual({
         "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
       });
 
-      // Second call should be root fallback
+      // Second call should be OIDC with path insertion
       const [secondUrl, secondOptions] = calls[1];
-      expect(secondUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+      expect(secondUrl.toString()).toBe("https://auth.example.com/.well-known/openid-configuration/path/name");
       expect(secondOptions.headers).toEqual({
         "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
       });
     });
 
-    it("returns undefined when both path-aware and root discovery return 404", async () => {
-      // First call (path-aware) returns 404
+    it("returns undefined when all discovery endpoints return 404", async () => {
+      // First call (OAuth with path insertion) returns 404
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 404,
       });
 
-      // Second call (root fallback) also returns 404
+      // Second call (OIDC with path insertion) returns 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // Third call (OIDC with path appending) returns 404
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 404,
@@ -447,7 +475,33 @@ describe("OAuth Authorization", () => {
       expect(metadata).toBeUndefined();
 
       const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(2);
+      expect(calls.length).toBe(3);
+    });
+
+    it("tries all endpoints in correct order for URLs with path", async () => {
+      // All calls return 404 to test the order
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
+
+      const metadata = await discoverOAuthMetadata("https://auth.example.com/tenant1");
+      expect(metadata).toBeUndefined();
+
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(3);
+
+      // First call should be OAuth 2.0 Authorization Server Metadata with path insertion
+      const [firstUrl] = calls[0];
+      expect(firstUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
+
+      // Second call should be OpenID Connect Discovery 1.0 with path insertion
+      const [secondUrl] = calls[1];
+      expect(secondUrl.toString()).toBe("https://auth.example.com/.well-known/openid-configuration/tenant1");
+
+      // Third call should be OpenID Connect Discovery 1.0 path appending
+      const [thirdUrl] = calls[2];
+      expect(thirdUrl.toString()).toBe("https://auth.example.com/tenant1/.well-known/openid-configuration");
     });
 
     it("does not fallback when the original URL is already at root path", async () => {
@@ -457,11 +511,17 @@ describe("OAuth Authorization", () => {
         status: 404,
       });
 
+      // Second call (OIDC discovery) also returns 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
       const metadata = await discoverOAuthMetadata("https://auth.example.com/");
       expect(metadata).toBeUndefined();
 
       const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(1); // Should not attempt fallback
+      expect(calls.length).toBe(2); // Should not attempt fallback but will try OIDC
 
       const [url] = calls[0];
       expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
@@ -474,27 +534,42 @@ describe("OAuth Authorization", () => {
         status: 404,
       });
 
-      const metadata = await discoverOAuthMetadata("https://auth.example.com");
-      expect(metadata).toBeUndefined();
-
-      const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(1); // Should not attempt fallback
-
-      const [url] = calls[0];
-      expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
-    });
-
-    it("falls back when path-aware discovery encounters CORS error", async () => {
-      // First call (path-aware) fails with TypeError (CORS)
-      mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError("CORS error")));
-
-      // Retry path-aware without headers (simulating CORS retry)
+      // Second call (OIDC discovery) also returns 404
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 404,
       });
 
-      // Second call (root fallback) succeeds
+      const metadata = await discoverOAuthMetadata("https://auth.example.com");
+      expect(metadata).toBeUndefined();
+
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(2); // Should not attempt fallback but will try OIDC
+
+      const [url] = calls[0];
+      expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+    });
+
+    it("tries all endpoints when discovery encounters CORS error", async () => {
+      // First call (OAuth with path insertion) fails with TypeError (CORS)
+      mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError("CORS error")));
+
+      // Retry OAuth with path insertion without headers (simulating CORS retry)
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // Second call (OIDC with path insertion) fails with TypeError (CORS)
+      mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError("CORS error")));
+
+      // Retry OIDC with path insertion without headers (simulating CORS retry)
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // Third call (OIDC with path appending) succeeds
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -505,11 +580,11 @@ describe("OAuth Authorization", () => {
       expect(metadata).toEqual(validMetadata);
 
       const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(3);
+      expect(calls.length).toBe(5);
 
-      // Final call should be root fallback
-      const [lastUrl, lastOptions] = calls[2];
-      expect(lastUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+      // Final call should be OIDC with path appending
+      const [lastUrl, lastOptions] = calls[4];
+      expect(lastUrl.toString()).toBe("https://auth.example.com/deep/path/.well-known/openid-configuration");
       expect(lastOptions.headers).toEqual({
         "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
       });
@@ -587,13 +662,14 @@ describe("OAuth Authorization", () => {
     });
 
     it("returns undefined when discovery endpoint returns 404", async () => {
-      mockFetch.mockResolvedValueOnce({
+      mockFetch.mockResolvedValue({
         ok: false,
         status: 404,
       });
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com");
       expect(metadata).toBeUndefined();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
     it("throws on non-404 errors", async () => {

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test:*)",
+      "Bash(npm run lint)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:openid.net)"
+    ],
+    "deny": []
+  }
+}
