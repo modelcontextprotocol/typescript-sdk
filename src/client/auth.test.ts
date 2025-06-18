@@ -1,6 +1,8 @@
 import { LATEST_PROTOCOL_VERSION } from '../types.js';
 import {
   discoverOAuthMetadata,
+  discoverOIDCMetadata,
+  discoverAuthMetadata,
   startAuthorization,
   exchangeAuthorization,
   refreshAuthorization,
@@ -207,26 +209,17 @@ describe("OAuth Authorization", () => {
       });
     });
 
-    it("returns metadata when oidc discovery succeeds", async () => {
-      mockFetch.mockImplementation((url) => {
-        if (url.toString().includes('openid-configuration')) {
-          return Promise.resolve({
-            ok: true,
-            status: 200,
-            json: async () => validMetadata,
-          });
-        }
-        return Promise.resolve({
-          ok: false,
-          status: 404,
-        });
+    it("returns metadata when oauth discovery succeeds", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => validMetadata,
       });
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com");
       expect(metadata).toEqual(validMetadata);
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(mockFetch.mock.calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
-      expect(mockFetch.mock.calls[1][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration");
     });
 
     it("returns metadata when first fetch fails but second without MCP header succeeds", async () => {
@@ -295,7 +288,7 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com");
       expect(metadata).toBeUndefined();
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
     it("throws on non-404 errors", async () => {
@@ -322,6 +315,135 @@ describe("OAuth Authorization", () => {
       await expect(
         discoverOAuthMetadata("https://auth.example.com")
       ).rejects.toThrow();
+    });
+  });
+
+  describe("discoverOIDCMetadata", () => {
+    const validOIDCMetadata = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      response_types_supported: ["code"],
+      code_challenge_methods_supported: ["S256"],
+      jwks_uri: "https://auth.example.com/.well-known/jwks.json",
+      subject_types_supported: ["public"],
+      id_token_signing_alg_values_supported: ["RS256"],
+    };
+
+    beforeEach(() => {
+      mockFetch.mockClear();
+    });
+
+    it("returns metadata when oidc discovery succeeds", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => validOIDCMetadata,
+      });
+
+      const metadata = await discoverOIDCMetadata("https://auth.example.com");
+      expect(metadata).toEqual(validOIDCMetadata);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration");
+    });
+
+    it("returns undefined when discovery endpoint returns 404", async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
+
+      const metadata = await discoverOIDCMetadata("https://auth.example.com");
+      expect(metadata).toBeUndefined();
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("throws on non-404 errors", async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 500,
+      });
+
+      await expect(
+        discoverOIDCMetadata("https://auth.example.com")
+      ).rejects.toThrow("HTTP 500");
+    });
+  });
+
+  describe("discoverAuthMetadata", () => {
+    const validOAuthMetadata = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      response_types_supported: ["code"],
+      code_challenge_methods_supported: ["S256"],
+    };
+
+    const validOIDCMetadata = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize", 
+      token_endpoint: "https://auth.example.com/token",
+      response_types_supported: ["code"],
+      code_challenge_methods_supported: ["S256"],
+      jwks_uri: "https://auth.example.com/.well-known/jwks.json",
+      subject_types_supported: ["public"],
+      id_token_signing_alg_values_supported: ["RS256"],
+    };
+
+    beforeEach(() => {
+      mockFetch.mockClear();
+    });
+
+    it("returns OAuth metadata when OAuth discovery succeeds", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => validOAuthMetadata,
+      });
+
+      const metadata = await discoverAuthMetadata("https://auth.example.com");
+      expect(metadata).toEqual(validOAuthMetadata);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+    });
+
+    it("falls back to OIDC when OAuth returns 404", async () => {
+      mockFetch.mockImplementation((url) => {
+        if (url.toString().includes('oauth-authorization-server')) {
+          return Promise.resolve({
+            ok: false,
+            status: 404,
+          });
+        }
+        if (url.toString().includes('openid-configuration')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => validOIDCMetadata,
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+        });
+      });
+
+      const metadata = await discoverAuthMetadata("https://auth.example.com");
+      expect(metadata).toEqual(validOIDCMetadata);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch.mock.calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+      expect(mockFetch.mock.calls[1][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration");
+    });
+
+    it("returns undefined when both OAuth and OIDC return 404", async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
+
+      const metadata = await discoverAuthMetadata("https://auth.example.com");
+      expect(metadata).toBeUndefined();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
   });
 
