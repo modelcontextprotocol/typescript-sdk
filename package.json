@@ -40,6 +40,7 @@
     "build:esm:w": "npm run build:esm -- -w",
     "build:cjs": "mkdir -p dist/cjs && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json && tsc -p tsconfig.cjs.json",
     "build:cjs:w": "npm run build:cjs -- -w",
+    "examples:simple-server": "tsx src/examples/server/simpleStreamableHttp.ts --oauth",
     "prepack": "npm run build:esm && npm run build:cjs",
     "lint": "eslint src/",
     "test": "jest",
