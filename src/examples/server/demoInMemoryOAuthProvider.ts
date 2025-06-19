@@ -151,7 +151,7 @@ export const setupAuthServer = ({authServerUrl, mcpServerUrl, strictResource}: {
   // server in the SDK. The SDK is not intended to be provide a standalone
   // authorization server.
 
-  const validateResource = strictResource ? resource => {
+  const validateResource = strictResource ? (resource?: URL) => {
     if (!resource) return false;
     const expectedResource = resourceUrlFromServerUrl(mcpServerUrl);
     return resource.toString() === expectedResource.toString();
