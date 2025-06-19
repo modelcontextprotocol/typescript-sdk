@@ -51,6 +51,13 @@ export type ClientOptions = ProtocolOptions & {
    * Capabilities to advertise as being supported by this client.
    */
   capabilities?: ClientCapabilities;
+  
+  /**
+   * Optional identifiers that will be included with all tool calls made by this client.
+   * These identifiers can be used for distributed tracing, multi-tenancy, or other
+   * cross-cutting concerns.
+   */
+  identifiers?: Record<string, string>;
 };
 
 /**
@@ -93,6 +100,7 @@ export class Client<
   private _instructions?: string;
   private _cachedToolOutputValidators: Map<string, ValidateFunction> = new Map();
   private _ajv: InstanceType<typeof Ajv>;
+  private _clientIdentifiers: Record<string, string>;
 
   /**
    * Initializes this client with the given name and version information.
@@ -103,6 +111,7 @@ export class Client<
   ) {
     super(options);
     this._capabilities = options?.capabilities ?? {};
+    this._clientIdentifiers = options?.identifiers ?? {};
     this._ajv = new Ajv();
   }
 
@@ -433,8 +442,18 @@ export class Client<
       | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
     options?: RequestOptions,
   ) {
+    // Merge client identifiers with any request-specific identifiers
+    // Request identifiers take precedence over client identifiers when keys conflict
+    const mergedParams = {
+      ...params,
+      identifiers: {
+        ...this._clientIdentifiers,
+        ...(params.identifiers || {}),
+      },
+    };
+
     const result = await this.request(
-      { method: "tools/call", params },
+      { method: "tools/call", params: mergedParams },
       resultSchema,
       options,
     );

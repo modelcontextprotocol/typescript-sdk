@@ -46,6 +46,7 @@ import { Completable, CompletableDef } from "./completable.js";
 import { UriTemplate, Variables } from "../shared/uriTemplate.js";
 import { RequestHandlerExtra } from "../shared/protocol.js";
 import { Transport } from "../shared/transport.js";
+import { EnhancedRequestHandlerExtra } from "./identifierTypes.js";
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -64,9 +65,30 @@ export class McpServer {
   } = {};
   private _registeredTools: { [name: string]: RegisteredTool } = {};
   private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+  
+  /**
+   * Configuration for identifier forwarding
+   */
+  private _identifierConfig: {
+    enabled: boolean;
+    headerPrefix: string;
+    allowedKeys: string[] | null;
+    maxIdentifiers: number;
+    maxValueLength: number;
+  };
 
   constructor(serverInfo: Implementation, options?: ServerOptions) {
     this.server = new Server(serverInfo, options);
+    
+    // Set up identifier forwarding configuration with defaults
+    const idForwarding = options?.identifierForwarding;
+    this._identifierConfig = {
+      enabled: idForwarding?.enabled ?? false,
+      headerPrefix: idForwarding?.headerPrefix ?? 'X-MCP-',
+      allowedKeys: idForwarding?.allowedKeys ?? null,
+      maxIdentifiers: idForwarding?.maxIdentifiers ?? 20,
+      maxValueLength: idForwarding?.maxValueLength ?? 256
+    };
   }
 
   /**
@@ -83,6 +105,55 @@ export class McpServer {
    */
   async close(): Promise<void> {
     await this.server.close();
+  }
+
+  /**
+   * Forwards the provided identifiers as HTTP headers in the given request options.
+   * This method applies all configured validation and filtering rules.
+   * 
+   * @param identifiers Record of string identifiers to forward as headers
+   * @param requestOptions Request options object with headers property that will be modified
+   * @returns The modified request options with added headers
+   */
+  forwardIdentifiersAsHeaders(
+    identifiers: Record<string, string> | undefined,
+    requestOptions: { headers?: Record<string, string> }
+  ): typeof requestOptions {
+    // Skip if identifier forwarding is not enabled or no identifiers provided
+    if (!this._identifierConfig.enabled || !identifiers) {
+      return requestOptions;
+    }
+
+    const headers = requestOptions.headers || {};
+    let identifierCount = 0;
+
+    // Process each identifier according to configuration rules
+    Object.entries(identifiers).forEach(([key, value]) => {
+      // Check limits
+      if (identifierCount >= this._identifierConfig.maxIdentifiers) return;
+      if (value.length > this._identifierConfig.maxValueLength) return;
+
+      // Check whitelist if enabled
+      if (this._identifierConfig.allowedKeys && 
+          !this._identifierConfig.allowedKeys.includes(key)) {
+        return;
+      }
+
+      // Format header name: convert from kebab-case to Header-Case with prefix
+      const headerName = `${this._identifierConfig.headerPrefix}${(
+        key.split(/[-_]/).map(part => 
+          part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+        ).join('-')
+      )}`;
+
+      // Add the header
+      headers[headerName] = value;
+      identifierCount++;
+    });
+
+    // Update request options with modified headers
+    requestOptions.headers = headers;
+    return requestOptions;
   }
 
   private _toolHandlersInitialized = false;
@@ -155,6 +226,20 @@ export class McpServer {
           );
         }
 
+        // Extract identifiers from the request for use in tools that need them
+        const identifiers = request.params.identifiers;
+        
+        // Add identifiers to the extra object so tool implementations can access them
+        // This makes them available to all tool implementations without changing interfaces
+        const extraWithIdentifiers = {
+          ...extra,
+          identifiers,
+          // Helper function for tool implementations to use when making HTTP requests
+          applyIdentifiersToRequestOptions: (requestOptions: { headers?: Record<string, string> }) => {
+            return this.forwardIdentifiersAsHeaders(identifiers, requestOptions);
+          }
+        };
+
         let result: CallToolResult;
 
         if (tool.inputSchema) {
@@ -171,7 +256,7 @@ export class McpServer {
           const args = parseResult.data;
           const cb = tool.callback as ToolCallback<ZodRawShape>;
           try {
-            result = await Promise.resolve(cb(args, extra));
+            result = await Promise.resolve(cb(args, extraWithIdentifiers));
           } catch (error) {
             result = {
               content: [
@@ -186,7 +271,7 @@ export class McpServer {
         } else {
           const cb = tool.callback as ToolCallback<undefined>;
           try {
-            result = await Promise.resolve(cb(extra));
+            result = await Promise.resolve(cb(extraWithIdentifiers));
           } catch (error) {
             result = {
               content: [
@@ -1140,9 +1225,9 @@ export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
   Args extends ZodRawShape
   ? (
     args: z.objectOutputType<Args, ZodTypeAny>,
-    extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+    extra: EnhancedRequestHandlerExtra,
   ) => CallToolResult | Promise<CallToolResult>
-  : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
+  : (extra: EnhancedRequestHandlerExtra) => CallToolResult | Promise<CallToolResult>;
 
 export type RegisteredTool = {
   title?: string;

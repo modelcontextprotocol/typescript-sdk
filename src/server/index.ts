@@ -35,6 +35,39 @@ import {
 } from "../types.js";
 import Ajv from "ajv";
 
+/**
+ * Configuration for identifier forwarding behavior in MCP servers.
+ */
+export interface IdentifierForwardingConfig {
+  /**
+   * Whether identifier forwarding is enabled. Default is false for security reasons.
+   */
+  enabled: boolean;
+
+  /**
+   * Prefix to add to HTTP header names. Default is 'X-MCP-'.
+   */
+  headerPrefix?: string;
+
+  /**
+   * Optional whitelist of identifier keys that are allowed to be forwarded as headers.
+   * If not provided, all keys are allowed (subject to other limits).
+   */
+  allowedKeys?: string[];
+
+  /**
+   * Maximum number of identifiers that can be forwarded in a single request.
+   * Default is 20.
+   */
+  maxIdentifiers?: number;
+
+  /**
+   * Maximum allowed length of an identifier value in characters.
+   * Default is 256.
+   */
+  maxValueLength?: number;
+}
+
 export type ServerOptions = ProtocolOptions & {
   /**
    * Capabilities to advertise as being supported by this server.
@@ -45,6 +78,11 @@ export type ServerOptions = ProtocolOptions & {
    * Optional instructions describing how to use the server and its features.
    */
   instructions?: string;
+
+  /**
+   * Configuration for identifier forwarding behavior.
+   */
+  identifierForwarding?: IdentifierForwardingConfig;
 };
 
 /**

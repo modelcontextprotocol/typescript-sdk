@@ -983,6 +983,13 @@ export const CallToolRequestSchema = RequestSchema.extend({
   params: BaseRequestParamsSchema.extend({
     name: z.string(),
     arguments: z.optional(z.record(z.unknown())),
+    /**
+     * Optional identifiers to forward as HTTP headers to downstream APIs.
+     * These identifiers can be used for distributed tracing, multi-tenancy,
+     * or other cross-cutting concerns. If set, they are merged with any
+     * client-level identifiers (with per-request identifiers taking precedence).
+     */
+    identifiers: z.optional(z.record(z.string())),
   }),
 });
 
