@@ -45,6 +45,7 @@ import {
 } from "../types.js";
 import Ajv from "ajv";
 import type { ValidateFunction } from "ajv";
+import { logger } from "./logging.js";
 
 export type ClientOptions = ProtocolOptions & {
   /**
@@ -487,7 +488,7 @@ export class Client<
           const validator = this._ajv.compile(tool.outputSchema);
           this._cachedToolOutputValidators.set(tool.name, validator);
         } catch (error) {
-          console.warn(`Failed to compile output schema for tool ${tool.name}: ${error}`);
+          logger.warn(`Failed to compile output schema for tool ${tool.name}: ${error}`);
         }
       }
     }

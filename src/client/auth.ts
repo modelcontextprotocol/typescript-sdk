@@ -3,6 +3,7 @@ import { LATEST_PROTOCOL_VERSION } from "../types.js";
 import type { OAuthClientMetadata, OAuthClientInformation, OAuthTokens, OAuthMetadata, OAuthClientInformationFull, OAuthProtectedResourceMetadata } from "../shared/auth.js";
 import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthProtectedResourceMetadataSchema, OAuthTokensSchema } from "../shared/auth.js";
 import { resourceUrlFromServerUrl } from "../shared/auth-utils.js";
+import { logger } from "./logging.js";
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
@@ -117,7 +118,7 @@ export async function auth(
       authorizationServerUrl = resourceMetadata.authorization_servers[0];
     }
   } catch (error) {
-    console.warn("Could not load OAuth Protected Resource metadata, falling back to /.well-known/oauth-authorization-server", error)
+    logger.warn("Could not load OAuth Protected Resource metadata, falling back to /.well-known/oauth-authorization-server", error)
   }
 
   const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
@@ -176,7 +177,7 @@ export async function auth(
       await provider.saveTokens(newTokens);
       return "AUTHORIZED";
     } catch (error) {
-      console.error("Could not refresh OAuth tokens:", error);
+      logger.error("Could not refresh OAuth tokens:", error);
     }
   }
 
@@ -222,7 +223,7 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
 
   const [type, scheme] = authenticateHeader.split(' ');
   if (type.toLowerCase() !== 'bearer' || !scheme) {
-    console.log("Invalid WWW-Authenticate header format, expected 'Bearer'");
+    logger.log("Invalid WWW-Authenticate header format, expected 'Bearer'");
     return undefined;
   }
   const regex = /resource_metadata="([^"]*)"/;
@@ -235,7 +236,7 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
   try {
     return new URL(match[1]);
   } catch {
-    console.log("Invalid resource metadata url: ", match[1]);
+    logger.log("Invalid resource metadata url: ", match[1]);
     return undefined;
   }
 }

@@ -15,5 +15,12 @@ export default tseslint.config(
                 { "argsIgnorePattern": "^_" }
             ]
         }
+    },
+    {
+        files: ["src/client/**/*.ts"],
+        ignores: ["src/client/logging.ts"],
+        rules: {
+            "no-console": "error"
+        }
     }
 );
