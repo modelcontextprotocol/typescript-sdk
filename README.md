@@ -930,7 +930,7 @@ Client-side: Handle elicitation requests
 ```typescript
 // This is a placeholder - implement based on your UI framework
 async function getInputFromUser(message: string, schema: any): Promise<{
-  action: "accept" | "decline" | "cancel";
+  action: "accept" | "reject" | "cancel";
   data?: Record<string, any>;
 }> {
   // This should be implemented depending on the app

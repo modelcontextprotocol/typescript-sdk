@@ -2,6 +2,7 @@ import pkceChallenge from "pkce-challenge";
 import { LATEST_PROTOCOL_VERSION } from "../types.js";
 import type { OAuthClientMetadata, OAuthClientInformation, OAuthTokens, OAuthMetadata, OAuthClientInformationFull, OAuthProtectedResourceMetadata } from "../shared/auth.js";
 import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthProtectedResourceMetadataSchema, OAuthTokensSchema } from "../shared/auth.js";
+import { resourceUrlFromServerUrl } from "../shared/auth-utils.js";
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
@@ -71,6 +72,15 @@ export interface OAuthClientProvider {
    * the authorization result.
    */
   codeVerifier(): string | Promise<string>;
+
+  /**
+   * If defined, overrides the selection and validation of the
+   * RFC 8707 Resource Indicator. If left undefined, default
+   * validation behavior will be used.
+   *
+   * Implementations must verify the returned resource matches the MCP server.
+   */
+  validateResourceURL?(serverUrl: string | URL, resource?: string): Promise<URL | undefined>;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -99,17 +109,18 @@ export async function auth(
     scope?: string;
     resourceMetadataUrl?: URL }): Promise<AuthResult> {
 
+  let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
   let authorizationServerUrl = serverUrl;
   try {
-    const resourceMetadata = await discoverOAuthProtectedResourceMetadata(
-      resourceMetadataUrl || serverUrl);
-
+    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, {resourceMetadataUrl});
     if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
       authorizationServerUrl = resourceMetadata.authorization_servers[0];
     }
   } catch (error) {
     console.warn("Could not load OAuth Protected Resource metadata, falling back to /.well-known/oauth-authorization-server", error)
   }
+
+  const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
 
   const metadata = await discoverOAuthMetadata(authorizationServerUrl);
 
@@ -142,6 +153,7 @@ export async function auth(
       authorizationCode,
       codeVerifier,
       redirectUri: provider.redirectUrl,
+      resource,
     });
 
     await provider.saveTokens(tokens);
@@ -158,6 +170,7 @@ export async function auth(
         metadata,
         clientInformation,
         refreshToken: tokens.refresh_token,
+        resource,
       });
 
       await provider.saveTokens(newTokens);
@@ -182,11 +195,25 @@ export async function auth(
     state,
     redirectUrl: provider.redirectUrl,
     scope: scope || provider.clientMetadata.scope,
+    resource,
   });
 
   await provider.saveCodeVerifier(codeVerifier);
   await provider.redirectToAuthorization(authorizationUrl);
   return "REDIRECT";
+}
+
+async function selectResourceURL(serverUrl: string| URL, provider: OAuthClientProvider, resourceMetadata?: OAuthProtectedResourceMetadata): Promise<URL | undefined> {
+  if (provider.validateResourceURL) {
+    return await provider.validateResourceURL(serverUrl, resourceMetadata?.resource);
+  }
+
+  const resource = resourceUrlFromServerUrl(typeof serverUrl === "string" ? new URL(serverUrl) : serverUrl);
+  if (resourceMetadata && resourceMetadata.resource !== resource.href) {
+    throw new Error(`Protected resource ${resourceMetadata.resource} does not match expected ${resource}`);
+  }
+
+  return resource;
 }
 
 /**
@@ -316,12 +343,14 @@ export async function startAuthorization(
     redirectUrl,
     scope,
     state,
+    resource,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
     redirectUrl: string | URL;
     scope?: string;
     state?: string;
+    resource?: URL;
   },
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
   const responseType = "code";
@@ -371,6 +400,10 @@ export async function startAuthorization(
     authorizationUrl.searchParams.set("scope", scope);
   }
 
+  if (resource) {
+    authorizationUrl.searchParams.set("resource", resource.href);
+  }
+
   return { authorizationUrl, codeVerifier };
 }
 
@@ -385,12 +418,14 @@ export async function exchangeAuthorization(
     authorizationCode,
     codeVerifier,
     redirectUri,
+    resource,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
     authorizationCode: string;
     codeVerifier: string;
     redirectUri: string | URL;
+    resource?: URL;
   },
 ): Promise<OAuthTokens> {
   const grantType = "authorization_code";
@@ -424,6 +459,10 @@ export async function exchangeAuthorization(
     params.set("client_secret", clientInformation.client_secret);
   }
 
+  if (resource) {
+    params.set("resource", resource.href);
+  }
+
   const response = await fetch(tokenUrl, {
     method: "POST",
     headers: {
@@ -448,10 +487,12 @@ export async function refreshAuthorization(
     metadata,
     clientInformation,
     refreshToken,
+    resource,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
     refreshToken: string;
+    resource?: URL;
   },
 ): Promise<OAuthTokens> {
   const grantType = "refresh_token";
@@ -481,6 +522,10 @@ export async function refreshAuthorization(
 
   if (clientInformation.client_secret) {
     params.set("client_secret", clientInformation.client_secret);
+  }
+
+  if (resource) {
+    params.set("resource", resource.href);
   }
 
   const response = await fetch(tokenUrl, {

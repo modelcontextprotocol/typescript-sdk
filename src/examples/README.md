@@ -76,6 +76,9 @@ npx tsx src/examples/server/simpleStreamableHttp.ts
 
 # To add a demo of authentication to this example, use:
 npx tsx src/examples/server/simpleStreamableHttp.ts --oauth
+
+# To mitigate impersonation risks, enable strict Resource Identifier verification:
+npx tsx src/examples/server/simpleStreamableHttp.ts --oauth --oauth-strict
 ```
 
 ##### JSON Response Mode Server

@@ -264,12 +264,14 @@ describe('Token Handler', () => {
     });
 
     it('returns tokens for valid code exchange', async () => {
+      const mockExchangeCode = jest.spyOn(mockProvider, 'exchangeAuthorizationCode');
       const response = await supertest(app)
         .post('/token')
         .type('form')
         .send({
           client_id: 'valid-client',
           client_secret: 'valid-secret',
+          resource: 'https://api.example.com/resource',
           grant_type: 'authorization_code',
           code: 'valid_code',
           code_verifier: 'valid_verifier'
@@ -280,6 +282,13 @@ describe('Token Handler', () => {
       expect(response.body.token_type).toBe('bearer');
       expect(response.body.expires_in).toBe(3600);
       expect(response.body.refresh_token).toBe('mock_refresh_token');
+      expect(mockExchangeCode).toHaveBeenCalledWith(
+        validClient,
+        'valid_code',
+        undefined, // code_verifier is undefined after PKCE validation
+        undefined, // redirect_uri
+        new URL('https://api.example.com/resource') // resource parameter
+      );
     });
 
     it('passes through code verifier when using proxy provider', async () => {
@@ -440,12 +449,14 @@ describe('Token Handler', () => {
     });
 
     it('returns new tokens for valid refresh token', async () => {
+      const mockExchangeRefresh = jest.spyOn(mockProvider, 'exchangeRefreshToken');
       const response = await supertest(app)
         .post('/token')
         .type('form')
         .send({
           client_id: 'valid-client',
           client_secret: 'valid-secret',
+          resource: 'https://api.example.com/resource',
           grant_type: 'refresh_token',
           refresh_token: 'valid_refresh_token'
         });
@@ -455,6 +466,12 @@ describe('Token Handler', () => {
       expect(response.body.token_type).toBe('bearer');
       expect(response.body.expires_in).toBe(3600);
       expect(response.body.refresh_token).toBe('new_mock_refresh_token');
+      expect(mockExchangeRefresh).toHaveBeenCalledWith(
+        validClient,
+        'valid_refresh_token',
+        undefined, // scopes
+        new URL('https://api.example.com/resource') // resource parameter
+      );
     });
 
     it('respects requested scopes on refresh', async () => {

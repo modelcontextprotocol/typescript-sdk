@@ -363,7 +363,7 @@ async function connect(url?: string): Promise<void> {
             continue;
           } else {
             console.log('Maximum attempts reached. Declining request.');
-            return { action: 'decline' };
+            return { action: 'reject' };
           }
         }
 
@@ -381,7 +381,7 @@ async function connect(url?: string): Promise<void> {
             continue;
           } else {
             console.log('Maximum attempts reached. Declining request.');
-            return { action: 'decline' };
+            return { action: 'reject' };
           }
         }
 
@@ -408,13 +408,13 @@ async function connect(url?: string): Promise<void> {
             console.log('Please re-enter the information...');
             continue;
           } else {
-            return { action: 'decline' };
+            return { action: 'reject' };
           }
         }
       }
 
       console.log('Maximum attempts reached. Declining request.');
-      return { action: 'decline' };
+      return { action: 'reject' };
     });
 
     transport = new StreamableHTTPClientTransport(

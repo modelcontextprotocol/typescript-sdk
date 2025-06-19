@@ -12,6 +12,7 @@ import { OAuthMetadata } from 'src/shared/auth.js';
 
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
+const strictOAuth = process.argv.includes('--oauth-strict');
 
 // Create an MCP server with implementation details
 const getServer = () => {
@@ -204,12 +205,12 @@ const getServer = () => {
               },
             ],
           };
-        } else if (result.action === 'decline') {
+        } else if (result.action === 'reject') {
           return {
             content: [
               {
                 type: 'text',
-                text: `No information was collected. User declined to provide ${infoType} information.`,
+                text: `No information was collected. User rejected ${infoType} information request.`,
               },
             ],
           };
@@ -428,10 +429,10 @@ app.use(express.json());
 let authMiddleware = null;
 if (useOAuth) {
   // Create auth middleware for MCP endpoints
-  const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}`);
+  const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}/mcp`);
   const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
-  const oauthMetadata: OAuthMetadata = setupAuthServer(authServerUrl);
+  const oauthMetadata: OAuthMetadata = setupAuthServer(authServerUrl, mcpServerUrl);
 
   const tokenVerifier = {
     verifyAccessToken: async (token: string) => {
@@ -457,6 +458,15 @@ if (useOAuth) {
       }
 
       const data = await response.json();
+
+      if (strictOAuth) {
+        if (!data.aud) {
+          throw new Error(`Resource Indicator (RFC8707) missing`);
+        }
+        if (data.aud !== mcpServerUrl.href) {
+          throw new Error(`Expected resource indicator ${mcpServerUrl}, got: ${data.aud}`);
+        }
+      }
 
       // Convert the response to AuthInfo format
       return {

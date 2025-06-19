@@ -505,7 +505,7 @@ test("should reject elicitation response with invalid data", async () => {
   ).rejects.toThrow(/does not match requested schema/);
 });
 
-test("should allow elicitation decline and cancel without validation", async () => {
+test("should allow elicitation reject and cancel without validation", async () => {
   const server = new Server(
     {
       name: "test server",
@@ -524,7 +524,7 @@ test("should allow elicitation decline and cancel without validation", async () 
 
   const client = new Client(
     {
-      name: "test client", 
+      name: "test client",
       version: "1.0",
     },
     {
@@ -538,7 +538,7 @@ test("should allow elicitation decline and cancel without validation", async () 
   client.setRequestHandler(ElicitRequestSchema, (request) => {
     requestCount++;
     if (requestCount === 1) {
-      return { action: "decline" };
+      return { action: "reject" };
     } else {
       return { action: "cancel" };
     }
@@ -559,14 +559,14 @@ test("should allow elicitation decline and cancel without validation", async () 
     required: ["name"],
   };
 
-  // Test decline - should not validate
+  // Test reject - should not validate
   await expect(
     server.elicitInput({
       message: "Please provide your name",
       requestedSchema: schema,
     }),
   ).resolves.toEqual({
-    action: "decline",
+    action: "reject",
   });
 
   // Test cancel - should not validate  

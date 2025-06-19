@@ -4157,7 +4157,7 @@ describe("elicitInput()", () => {
     // Mock availability check to return false
     checkAvailability.mockResolvedValue(false);
 
-    // Set up client to decline alternative date checking
+    // Set up client to reject alternative date checking
     client.setRequestHandler(ElicitRequestSchema, async () => {
       return {
         action: "accept",

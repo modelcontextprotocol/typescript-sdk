@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { AuthorizationParams, OAuthServerProvider } from '../../server/auth/provider.js';
 import { OAuthRegisteredClientsStore } from '../../server/auth/clients.js';
-import { OAuthClientInformationFull, OAuthMetadata, OAuthTokens } from 'src/shared/auth.js';
+import { OAuthClientInformationFull, OAuthMetadata, OAuthTokens } from '../../shared/auth.js';
 import express, { Request, Response } from "express";
-import { AuthInfo } from 'src/server/auth/types.js';
-import { createOAuthMetadata, mcpAuthRouter } from 'src/server/auth/router.js';
+import { AuthInfo } from '../../server/auth/types.js';
+import { createOAuthMetadata, mcpAuthRouter } from '../../server/auth/router.js';
+import { resourceUrlFromServerUrl } from '../../shared/auth-utils.js';
 
 
 export class DemoInMemoryClientsStore implements OAuthRegisteredClientsStore {
@@ -34,6 +35,17 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
     params: AuthorizationParams,
     client: OAuthClientInformationFull}>();
   private tokens = new Map<string, AuthInfo>();
+  private validateResource?: (resource?: URL) => boolean;
+
+  constructor({mcpServerUrl}: {mcpServerUrl?: URL} = {}) {
+    if (mcpServerUrl) {
+      const expectedResource = resourceUrlFromServerUrl(mcpServerUrl);
+      this.validateResource = (resource?: URL) => {
+        if (!resource) return false;
+        return resource.toString() === expectedResource.toString();
+      };
+    }
+  }
 
   async authorize(
     client: OAuthClientInformationFull,
@@ -89,6 +101,10 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
       throw new Error(`Authorization code was not issued to this client, ${codeData.client.client_id} != ${client.client_id}`);
     }
 
+    if (this.validateResource && !this.validateResource(codeData.params.resource)) {
+      throw new Error(`Invalid resource: ${codeData.params.resource}`);
+    }
+
     this.codes.delete(authorizationCode);
     const token = randomUUID();
 
@@ -97,7 +113,8 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
       clientId: client.client_id,
       scopes: codeData.params.scopes || [],
       expiresAt: Date.now() + 3600000, // 1 hour
-      type: 'access'
+      resource: codeData.params.resource,
+      type: 'access',
     };
 
     this.tokens.set(token, tokenData);
@@ -113,7 +130,8 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
   async exchangeRefreshToken(
     _client: OAuthClientInformationFull,
     _refreshToken: string,
-    _scopes?: string[]
+    _scopes?: string[],
+    _resource?: URL
   ): Promise<OAuthTokens> {
     throw new Error('Not implemented for example demo');
   }
@@ -129,18 +147,19 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
       clientId: tokenData.clientId,
       scopes: tokenData.scopes,
       expiresAt: Math.floor(tokenData.expiresAt / 1000),
+      resource: tokenData.resource,
     };
   }
 }
 
 
-export const setupAuthServer = (authServerUrl: URL): OAuthMetadata => {
+export const setupAuthServer = (authServerUrl: URL, mcpServerUrl: URL): OAuthMetadata => {
   // Create separate auth server app
   // NOTE: This is a separate app on a separate port to illustrate
   // how to separate an OAuth Authorization Server from a Resource
   // server in the SDK. The SDK is not intended to be provide a standalone
   // authorization server.
-  const provider = new DemoInMemoryAuthProvider();
+  const provider = new DemoInMemoryAuthProvider({mcpServerUrl});
   const authApp = express();
   authApp.use(express.json());
   // For introspection requests
@@ -168,7 +187,8 @@ export const setupAuthServer = (authServerUrl: URL): OAuthMetadata => {
         active: true,
         client_id: tokenInfo.clientId,
         scope: tokenInfo.scopes.join(' '),
-        exp: tokenInfo.expiresAt
+        exp: tokenInfo.expiresAt,
+        aud: tokenInfo.resource,
       });
       return
     } catch (error) {
