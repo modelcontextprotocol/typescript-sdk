@@ -615,6 +615,18 @@ export class McpServer {
    */
   registerResource(
     name: string,
+    uriOrTemplate: string,
+    config: ResourceMetadata,
+    readCallback: ReadResourceCallback
+  ): RegisteredResource;
+  registerResource(
+    name: string,
+    uriOrTemplate: ResourceTemplate,
+    config: ResourceMetadata,
+    readCallback: ReadResourceTemplateCallback
+  ): RegisteredResourceTemplate;
+  registerResource(
+    name: string,
     uriOrTemplate: string | ResourceTemplate,
     config: ResourceMetadata,
     readCallback: ReadResourceCallback | ReadResourceTemplateCallback
