@@ -54,20 +54,23 @@ async function runTest() {
     console.log("\n=== TEST 1: Client-Level Identifiers Only ===");
 
     // Create client with client-level identifiers
-    const clientWithIds = new Client({
-      name: "test-client-1",
-      version: "1.0.0",
-      identifiers: {
-        "trace-id": "client-trace-123",
-        "tenant-id": "client-tenant-456"
-      }
-    });
-
-    console.log("\nCLIENT: Created with identifiers:");
-    console.log({
+    const clientIdentifiers = {
       "trace-id": "client-trace-123",
       "tenant-id": "client-tenant-456"
-    });
+    };
+    
+    const clientWithIds = new Client(
+      {
+        name: "test-client-1",
+        version: "1.0.0"
+      },
+      {
+        identifiers: clientIdentifiers
+      }
+    );
+    
+    console.log("\nCLIENT: Created with identifiers:");
+    console.log(clientIdentifiers);
 
 
 
@@ -97,11 +100,13 @@ async function runTest() {
     console.log("\n\n=== TEST 2: Request-Level Identifiers Only ===");
 
     // Create client WITHOUT any client-level identifiers
-    const clientWithoutIds = new Client({
-      name: "test-client-2",
-      version: "1.0.0"
-      // No identifiers specified at client level
-    });
+    const clientWithoutIds = new Client(
+      {
+        name: "test-client-2",
+        version: "1.0.0"
+      }
+      // Second parameter (options) intentionally omitted - no client-level identifiers
+    );
 
     console.log("\nCLIENT: Created WITHOUT any client-level identifiers");
 
