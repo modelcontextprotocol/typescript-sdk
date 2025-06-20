@@ -10,15 +10,36 @@ This example demonstrates the client-level request identifiers feature in the MC
 ## Key Files
 
 - `server.ts`: A simple MCP server with identifier forwarding enabled
-- `test-client.ts`: Client that demonstrates both client-level and request-level identifiers
+- `test-client.ts`: Comprehensive test suite demonstrating all identifier scenarios
 
 ## Getting Started
 
-Run the example with:
+Run the comprehensive test suite with:
 
 ```bash
 npx tsx src/examples/identifiers/test-client.ts
 ```
+
+## Test Coverage
+
+The test suite validates:
+
+✅ **Core Functionality**
+- Client-level identifiers only
+- Request-level identifiers only  
+- Identifier merging (client + request)
+- Conflict resolution (request overrides client)
+
+✅ **Edge Cases**
+- Empty identifier objects
+- Long values and special characters
+- Backward compatibility (no identifiers)
+- Various identifier naming patterns
+
+✅ **Header Validation**
+- Proper `X-MCP-` prefix formatting
+- Kebab-case to Pascal-Case transformation
+- End-to-end HTTP header forwarding
 
 ## How It Works
 
@@ -108,15 +129,35 @@ mcpServer.registerTool("my_tool", {
 });
 ```
 
+## Example Output
+
+When running the test suite, you'll see identifiers being forwarded as HTTP headers:
+
+```
+TOOL: Will send HTTP headers:
+{
+  "Content-Type": "application/json",
+  "X-MCP-Trace-Id": "client-trace-123",
+  "X-MCP-Tenant-Id": "client-tenant-456"
+}
+
+API SERVER: Request received
+MCP Headers: {
+  "x-mcp-trace-id": "client-trace-123",
+  "x-mcp-tenant-id": "client-tenant-456"
+}
+```
+
 ## Use Cases
 
-- Distributed tracing
-- Multi-tenancy
-- User context propagation
-- Request correlation
+- **Distributed tracing**: Pass trace IDs through MCP to downstream services
+- **Multi-tenancy**: Forward tenant and user context for data isolation
+- **Audit logging**: Maintain compliance trails across service boundaries
+- **Request correlation**: Track requests across multiple MCP servers
 
 ## Security Considerations
 
 - Identifier forwarding is disabled by default for security
 - Consider enabling the `allowedKeys` filter to restrict which identifiers can be forwarded
 - Use the `maxIdentifiers` and `maxValueLength` options to prevent abuse
+- Identifiers are for tracking/correlation, not authentication (use proper auth mechanisms for secrets)
