@@ -161,3 +161,13 @@ MCP Headers: {
 - Consider enabling the `allowedKeys` filter to restrict which identifiers can be forwarded
 - Use the `maxIdentifiers` and `maxValueLength` options to prevent abuse
 - Identifiers are for tracking/correlation, not authentication (use proper auth mechanisms for secrets)
+
+### Security Best Practices
+
+- **Never use identifiers for authentication** - Use proper auth mechanisms
+- **Avoid PII in identifier values** - Use opaque IDs instead
+- **Validate identifier content** on both client and server sides
+- **Monitor identifier usage** for potential abuse patterns
+- **Regularly audit allowed keys** in production environments
+- **Sanitize values** to prevent header injection attacks
+- **Limit identifier size** to prevent DOS attacks via oversized headers

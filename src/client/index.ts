@@ -444,12 +444,15 @@ export class Client<
   ) {
     // Merge client identifiers with any request-specific identifiers
     // Request identifiers take precedence over client identifiers when keys conflict
+    const mergedIdentifiers = {
+      ...this._clientIdentifiers,
+      ...(params.identifiers || {}),
+    };
+    
+    // Only include identifiers field if there are actual identifiers to send
     const mergedParams = {
       ...params,
-      identifiers: {
-        ...this._clientIdentifiers,
-        ...(params.identifiers || {}),
-      },
+      ...(Object.keys(mergedIdentifiers).length > 0 && { identifiers: mergedIdentifiers }),
     };
 
     const result = await this.request(

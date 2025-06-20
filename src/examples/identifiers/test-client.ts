@@ -85,8 +85,20 @@ async function runComprehensiveTests() {
     console.log("\n=== TEST 7: Edge Cases (Security Limits) ===");
     await testEdgeCases();
 
-    // TEST 8: Server with identifier forwarding disabled
-    console.log("\n=== TEST 8: Identifier Forwarding Disabled (Default) ===");
+    // TEST 8: Security validation (unsafe keys and values)
+    console.log("\n=== TEST 8: Security Validation (Unsafe Content) ===");
+    await testSecurityValidation();
+
+    // TEST 9: Identifier limits and truncation
+    console.log("\n=== TEST 9: Identifier Limits and Truncation ===");
+    await testIdentifierLimits();
+
+    // TEST 10: Header format validation
+    console.log("\n=== TEST 10: Header Format Validation ===");
+    await testHeaderFormatValidation();
+
+    // TEST 11: Server with identifier forwarding disabled
+    console.log("\n=== TEST 11: Identifier Forwarding Disabled (Default) ===");
     await testForwardingDisabled();
 
     // Validate all results
@@ -113,7 +125,7 @@ async function testClientLevelOnly() {
   );
 
   console.log("CLIENT: Created with client-level identifiers only");
-  
+
   await client.connect(transport);
   const result = await client.callTool({
     name: "call_api",
@@ -121,7 +133,7 @@ async function testClientLevelOnly() {
   });
 
   console.log("✅ Client-level identifiers forwarded successfully");
-  
+
   await client.close();
   await transport.close();
 }
@@ -131,7 +143,7 @@ async function testRequestLevelOnly() {
   const client = new Client({ name: "test-client-2", version: "1.0.0" });
 
   console.log("CLIENT: Created WITHOUT client-level identifiers");
-  
+
   await client.connect(transport);
   const result = await client.callTool({
     name: "call_api",
@@ -143,7 +155,7 @@ async function testRequestLevelOnly() {
   });
 
   console.log("✅ Request-level identifiers forwarded successfully");
-  
+
   await client.close();
   await transport.close();
 }
@@ -161,7 +173,7 @@ async function testIdentifierMerging() {
   );
 
   console.log("CLIENT: Testing identifier merging (client + request)");
-  
+
   await client.connect(transport);
   const result = await client.callTool({
     name: "call_api",
@@ -173,7 +185,7 @@ async function testIdentifierMerging() {
   });
 
   console.log("✅ Identifier merging working correctly");
-  
+
   await client.close();
   await transport.close();
 }
@@ -191,7 +203,7 @@ async function testConflictResolution() {
   );
 
   console.log("CLIENT: Testing conflict resolution (request should override client)");
-  
+
   await client.connect(transport);
   const result = await client.callTool({
     name: "call_api",
@@ -203,7 +215,7 @@ async function testConflictResolution() {
   });
 
   console.log("✅ Conflict resolution working (request overrides client)");
-  
+
   await client.close();
   await transport.close();
 }
@@ -216,7 +228,7 @@ async function testEmptyIdentifiers() {
   );
 
   console.log("CLIENT: Testing empty identifier objects");
-  
+
   await client.connect(transport);
   const result = await client.callTool({
     name: "call_api",
@@ -225,7 +237,7 @@ async function testEmptyIdentifiers() {
   });
 
   console.log("✅ Empty identifiers handled correctly");
-  
+
   await client.close();
   await transport.close();
 }
@@ -235,7 +247,7 @@ async function testBackwardCompatibility() {
   const client = new Client({ name: "test-client-6", version: "1.0.0" });
 
   console.log("CLIENT: Testing backward compatibility (no identifiers at all)");
-  
+
   await client.connect(transport);
   const result = await client.callTool({
     name: "call_api",
@@ -244,7 +256,7 @@ async function testBackwardCompatibility() {
   });
 
   console.log("✅ Backward compatibility maintained");
-  
+
   await client.close();
   await transport.close();
 }
@@ -254,16 +266,16 @@ async function testEdgeCases() {
   const client = new Client({ name: "test-client-7", version: "1.0.0" });
 
   console.log("CLIENT: Testing edge cases (long values, special characters)");
-  
+
   await client.connect(transport);
-  
+
   // Test with various edge case values
   const result = await client.callTool({
     name: "call_api",
     arguments: {},
     identifiers: {
       "long-key": "a".repeat(100), // Long value
-      "special-chars": "user@domain.com",
+      "special-chars": "user@domain.com", // Special chars in value (should be rejected)
       "numeric": "12345",
       "with-dashes": "trace-id-with-dashes",
       "with_underscores": "trace_id_with_underscores"
@@ -271,7 +283,103 @@ async function testEdgeCases() {
   });
 
   console.log("✅ Edge cases handled appropriately");
-  
+
+  await client.close();
+  await transport.close();
+}
+
+async function testSecurityValidation() {
+  const transport = await createTransport();
+  const client = new Client({ name: "test-client-security", version: "1.0.0" });
+
+  console.log("CLIENT: Testing security validation (should reject unsafe values)");
+
+  await client.connect(transport);
+
+  // Test with potentially unsafe values that should be filtered out
+  const result = await client.callTool({
+    name: "call_api",
+    arguments: {},
+    identifiers: {
+      "valid-key": "safe-value",
+      "key with spaces": "should-be-rejected", // Invalid key (spaces)
+      "key@with#symbols": "should-be-rejected", // Invalid key (special chars)
+      "control-char": "value\x00with\x1Fcontrol", // Invalid value (control chars)
+      "good-key": "normal-value",
+      "tab\tkey": "should-be-rejected", // Invalid key (tab)
+      "valid-key-2": "value\x7F", // Invalid value (DEL character)
+      "unicode-test": "测试value", // Valid unicode in value
+      "empty-value": "", // Valid empty value
+      "hyphen-key": "valid-hyphen-value",
+      "underscore_key": "valid_underscore_value"
+    }
+  });
+
+  console.log("✅ Security validation working correctly");
+
+  await client.close();
+  await transport.close();
+}
+
+async function testIdentifierLimits() {
+  const transport = await createTransport();
+  const client = new Client({ name: "test-client-limits", version: "1.0.0" });
+
+  console.log("CLIENT: Testing identifier count limits and value length limits");
+
+  await client.connect(transport);
+
+  // Create identifiers that exceed the default limits
+  const manyIdentifiers: Record<string, string> = {};
+
+  // Create 23 identifiers (should be truncated to 20 by default)
+  for (let i = 1; i <= 23; i++) {
+    manyIdentifiers[`id-${i.toString().padStart(2, '0')}`] = `value-${i}`;
+  }
+
+  // Add some with oversized values (should be rejected by validation even if within count limit)
+  manyIdentifiers["oversized-value"] = "x".repeat(300); // Should be rejected (over 256 chars)
+  manyIdentifiers["normal-value"] = "normal"; // Should be included if within first 20 after sorting
+  manyIdentifiers["another-normal"] = "another"; // Should be included if within first 20 after sorting
+
+  const result = await client.callTool({
+    name: "call_api",
+    arguments: {},
+    identifiers: manyIdentifiers
+  });
+
+  console.log("✅ Identifier limits enforced correctly");
+
+  await client.close();
+  await transport.close();
+}
+
+async function testHeaderFormatValidation() {
+  const transport = await createTransport();
+  const client = new Client({ name: "test-client-headers", version: "1.0.0" });
+
+  console.log("CLIENT: Testing header format validation and casing");
+
+  await client.connect(transport);
+
+  // Test various naming patterns to ensure proper header formatting
+  const result = await client.callTool({
+    name: "call_api",
+    arguments: {},
+    identifiers: {
+      "simple": "value1",
+      "kebab-case": "value2",
+      "snake_case": "value3",
+      "mixed-case_test": "value4",
+      "UPPERCASE": "value5",
+      "lowercase": "value6",
+      "single": "value7",
+      "multi-word-identifier": "value8"
+    }
+  });
+
+  console.log("✅ Header format validation working correctly");
+
   await client.close();
   await transport.close();
 }
@@ -288,16 +396,16 @@ function validateTestResults() {
   console.log(`\n📊 TEST RESULTS SUMMARY:`);
   console.log(`Total API requests received: ${requestCount}`);
   console.log(`Header sets captured: ${receivedHeaders.length}`);
-  
+
   // Validate specific test expectations
   let testsPassed = 0;
   let totalTests = 0;
 
   // Test 1: Client-level identifiers only
   totalTests++;
-  if (receivedHeaders[0] && 
-      receivedHeaders[0]['x-mcp-trace-id'] === 'client-trace-123' &&
-      receivedHeaders[0]['x-mcp-tenant-id'] === 'client-tenant-456') {
+  if (receivedHeaders[0] &&
+    receivedHeaders[0]['x-mcp-trace-id'] === 'client-trace-123' &&
+    receivedHeaders[0]['x-mcp-tenant-id'] === 'client-tenant-456') {
     console.log("✅ Test 1 PASSED: Client-level identifiers forwarded");
     testsPassed++;
   } else {
@@ -306,9 +414,9 @@ function validateTestResults() {
 
   // Test 2: Request-level identifiers only
   totalTests++;
-  if (receivedHeaders[1] && 
-      receivedHeaders[1]['x-mcp-request-id'] === 'req-789' &&
-      receivedHeaders[1]['x-mcp-user-id'] === 'user-abc') {
+  if (receivedHeaders[1] &&
+    receivedHeaders[1]['x-mcp-request-id'] === 'req-789' &&
+    receivedHeaders[1]['x-mcp-user-id'] === 'user-abc') {
     console.log("✅ Test 2 PASSED: Request-level identifiers forwarded");
     testsPassed++;
   } else {
@@ -317,9 +425,9 @@ function validateTestResults() {
 
   // Test 3: Identifier merging
   totalTests++;
-  if (receivedHeaders[2] && 
-      receivedHeaders[2]['x-mcp-trace-id'] === 'client-trace-merge' &&
-      receivedHeaders[2]['x-mcp-request-id'] === 'req-merge-123') {
+  if (receivedHeaders[2] &&
+    receivedHeaders[2]['x-mcp-trace-id'] === 'client-trace-merge' &&
+    receivedHeaders[2]['x-mcp-request-id'] === 'req-merge-123') {
     console.log("✅ Test 3 PASSED: Identifier merging works");
     testsPassed++;
   } else {
@@ -328,28 +436,116 @@ function validateTestResults() {
 
   // Test 4: Conflict resolution
   totalTests++;
-  if (receivedHeaders[3] && 
-      receivedHeaders[3]['x-mcp-trace-id'] === 'request-trace-override') {
+  if (receivedHeaders[3] &&
+    receivedHeaders[3]['x-mcp-trace-id'] === 'request-trace-override') {
     console.log("✅ Test 4 PASSED: Request overrides client identifiers");
     testsPassed++;
   } else {
     console.log("❌ Test 4 FAILED: Conflict resolution not working");
   }
 
-  // Additional validations
+  // Test 5: Empty identifiers (should have no MCP headers)
   totalTests++;
-  const hasProperHeaderFormat = receivedHeaders.some(headers => 
-    Object.keys(headers).every(key => key.startsWith('x-mcp-'))
-  );
-  if (hasProperHeaderFormat) {
-    console.log("✅ Test 5 PASSED: Headers have proper X-MCP- prefix");
+  if (receivedHeaders[4] && Object.keys(receivedHeaders[4]).length === 0) {
+    console.log("✅ Test 5 PASSED: Empty identifiers handled correctly");
     testsPassed++;
   } else {
-    console.log("❌ Test 5 FAILED: Headers don't have proper prefix");
+    console.log("❌ Test 5 FAILED: Empty identifiers not handled correctly");
+  }
+
+  // Test 6: Backward compatibility (should have no MCP headers)
+  totalTests++;
+  if (receivedHeaders[5] && Object.keys(receivedHeaders[5]).length === 0) {
+    console.log("✅ Test 6 PASSED: Backward compatibility maintained");
+    testsPassed++;
+  } else {
+    console.log("❌ Test 6 FAILED: Backward compatibility not maintained");
+  }
+
+  // Test 7: Edge cases - should reject some values but keep valid ones
+  totalTests++;
+  const edgeCaseHeaders = receivedHeaders[6] || {};
+  const hasValidEdgeCases = edgeCaseHeaders['x-mcp-numeric'] === '12345' &&
+    edgeCaseHeaders['x-mcp-with-dashes'] === 'trace-id-with-dashes';
+
+  // Note: special-chars contains "@" which should be allowed per our current rules
+  // This is ok as user@domain.com doesn't contain control chars or non-ASCII chars
+
+  if (hasValidEdgeCases) {
+    console.log("✅ Test 7 PASSED: Edge cases handled appropriately");
+    testsPassed++;
+  } else {
+    console.log("❌ Test 7 FAILED: Edge cases not handled correctly");
+    console.log("Debug - Edge case headers:", edgeCaseHeaders);
+  }
+
+  // Test 8: Security validation - should only have safe identifiers
+  totalTests++;
+  const securityHeaders = receivedHeaders[7] || {};
+  const hasSafeIdentifiers = securityHeaders['x-mcp-valid-key'] === 'safe-value' &&
+    securityHeaders['x-mcp-good-key'] === 'normal-value';
+  const rejectedUnsafeKeys = !securityHeaders['x-mcp-key-with-spaces'] &&
+    !securityHeaders['x-mcp-control-char'];
+
+  if (hasSafeIdentifiers && rejectedUnsafeKeys) {
+    console.log("✅ Test 8 PASSED: Security validation working");
+    testsPassed++;
+  } else {
+    console.log("❌ Test 8 FAILED: Security validation not working");
+  }
+
+  // Test 9: Identifier limits - should be truncated to max 20 and reject oversized values
+  totalTests++;
+  const limitHeaders = receivedHeaders[8] || {};
+  const headerCount = Object.keys(limitHeaders).length;
+
+  // Should have exactly 20 headers (truncated from 26 total)
+  // Should NOT have oversized-value (rejected by validation)
+  // Should have some normal identifiers
+  const hasCorrectCount = headerCount <= 20;
+  const rejectedOversized = !limitHeaders['x-mcp-oversized-value'];
+  const hasNormalValues = limitHeaders['x-mcp-normal-value'] === 'normal' ||
+    limitHeaders['x-mcp-another-normal'] === 'another' ||
+    limitHeaders['x-mcp-id-01'] === 'value-1';
+
+  if (hasCorrectCount && rejectedOversized && hasNormalValues) {
+    console.log("✅ Test 9 PASSED: Identifier limits enforced");
+    testsPassed++;
+  } else {
+    console.log("❌ Test 9 FAILED: Identifier limits not enforced correctly");
+    console.log(`Debug - Header count: ${headerCount} (should be ≤20)`);
+    console.log("Debug - Rejected oversized:", rejectedOversized);
+    console.log("Debug - Has normal values:", hasNormalValues);
+  }
+
+  // Test 10: Header format validation
+  totalTests++;
+  const formatHeaders = receivedHeaders[9] || {};
+  const hasProperFormatting = formatHeaders['x-mcp-kebab-case'] === 'value2' &&
+    formatHeaders['x-mcp-snake-case'] === 'value3' &&
+    formatHeaders['x-mcp-multi-word-identifier'] === 'value8';
+
+  if (hasProperFormatting) {
+    console.log("✅ Test 10 PASSED: Header format validation working");
+    testsPassed++;
+  } else {
+    console.log("❌ Test 10 FAILED: Header format validation not working");
+  }
+
+  // General header format validation
+  totalTests++;
+  const hasProperHeaderFormat = receivedHeaders.some(headers =>
+    Object.keys(headers).every(key => key.startsWith('x-mcp-'))
+  );
+  if (hasProperHeaderFormat || receivedHeaders.every(h => Object.keys(h).length === 0)) {
+    console.log("✅ Test 11 PASSED: Headers have proper X-MCP- prefix");
+    testsPassed++;
+  } else {
+    console.log("❌ Test 11 FAILED: Headers don't have proper prefix");
   }
 
   console.log(`\n🎯 FINAL SCORE: ${testsPassed}/${totalTests} tests passed`);
-  
+
   if (testsPassed === totalTests) {
     console.log("🎉 ALL TESTS PASSED! Identifier forwarding is working correctly.");
   } else {
@@ -361,6 +557,14 @@ function validateTestResults() {
   receivedHeaders.forEach((headers, index) => {
     console.log(`Request #${index + 1}:`, headers);
   });
+
+  // Additional security analysis
+  console.log("\n🔒 SECURITY ANALYSIS:");
+  console.log("- Testing rejection of unsafe key characters");
+  console.log("- Testing rejection of control characters in values");
+  console.log("- Testing identifier count limits");
+  console.log("- Testing value length limits");
+  console.log("- Testing header format consistency");
 }
 
 // Run the comprehensive test suite

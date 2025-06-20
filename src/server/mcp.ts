@@ -107,14 +107,18 @@ export class McpServer {
     await this.server.close();
   }
 
-  /**
-   * Forwards the provided identifiers as HTTP headers in the given request options.
-   * This method applies all configured validation and filtering rules.
-   * 
-   * @param identifiers Record of string identifiers to forward as headers
-   * @param requestOptions Request options object with headers property that will be modified
-   * @returns The modified request options with added headers
-   */
+/**
+ * Forwards the provided identifiers as HTTP headers in the given request options.
+ * This method applies all configured validation and filtering rules including:
+ * - Key format validation (alphanumeric, hyphens, underscores only)
+ * - Value sanitization (no control characters)
+ * - Length limits and count limits
+ * - Whitelist filtering if configured
+ * 
+ * @param identifiers Record of string identifiers to forward as headers
+ * @param requestOptions Request options object with headers property that will be modified
+ * @returns The modified request options with added headers
+ */
   forwardIdentifiersAsHeaders(
     identifiers: Record<string, string> | undefined,
     requestOptions: { headers?: Record<string, string> }
@@ -129,11 +133,18 @@ export class McpServer {
 
     // Process each identifier according to configuration rules
     Object.entries(identifiers).forEach(([key, value]) => {
-      // Check limits
+      // Early exit for count limit (cheapest check)
       if (identifierCount >= this._identifierConfig.maxIdentifiers) return;
-      if (value.length > this._identifierConfig.maxValueLength) return;
+      
+      // Validate key format first (fast regex check)
+      if (!/^[a-zA-Z0-9_-]+$/.test(key)) return;
+      
+      // Then validate value length and content
+      // Only allow printable ASCII to ensure header safety across all HTTP implementations
+      if (value.length > this._identifierConfig.maxValueLength || 
+          !/^[\x20-\x7E]*$/.test(value)) return;
 
-      // Check whitelist if enabled
+      // Check whitelist last (potentially more expensive lookup)
       if (this._identifierConfig.allowedKeys && 
           !this._identifierConfig.allowedKeys.includes(key)) {
         return;
@@ -227,7 +238,50 @@ export class McpServer {
         }
 
         // Extract identifiers from the request for use in tools that need them
-        const identifiers = request.params.identifiers;
+        let identifiers = request.params.identifiers;
+        
+        // Server-side validation of identifiers
+        if (identifiers) {
+          // Limit total number of identifiers for security
+          const maxAllowedIdentifiers = this._identifierConfig.maxIdentifiers;
+          const identifierKeys = Object.keys(identifiers);
+          
+          if (identifierKeys.length > maxAllowedIdentifiers) {
+            // Sort keys for deterministic behavior across JS engines
+            const sortedKeys = identifierKeys.sort();
+            const truncatedIdentifiers: Record<string, string> = {};
+            
+            sortedKeys.slice(0, maxAllowedIdentifiers).forEach(key => {
+              truncatedIdentifiers[key] = identifiers![key];
+            });
+            
+            identifiers = truncatedIdentifiers;
+          }
+          
+          // Apply security validation after truncation
+          if (identifiers) {
+            const validatedIdentifiers: Record<string, string> = {};
+            
+            Object.entries(identifiers).forEach(([key, value]) => {
+              // Validate key format (only allow alphanumeric, dash, underscore)
+              if (!/^[a-zA-Z0-9_-]+$/.test(key)) return;
+              
+              // Validate value content and length (only allow printable ASCII)
+              if (value.length > this._identifierConfig.maxValueLength || 
+                  !/^[\x20-\x7E]*$/.test(value)) return;
+              
+              // Check whitelist if enabled
+              if (this._identifierConfig.allowedKeys && 
+                  !this._identifierConfig.allowedKeys.includes(key)) {
+                return;
+              }
+              
+              validatedIdentifiers[key] = value;
+            });
+            
+            identifiers = validatedIdentifiers;
+          }
+        }
         
         // Add identifiers to the extra object so tool implementations can access them
         // This makes them available to all tool implementations without changing interfaces
