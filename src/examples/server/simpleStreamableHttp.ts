@@ -9,6 +9,7 @@ import { CallToolResult, GetPromptResult, isInitializeRequest, PrimitiveSchemaDe
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from 'src/shared/auth.js';
+import { checkResourceAllowed } from 'src/shared/auth-utils.js';
 
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
@@ -463,7 +464,7 @@ if (useOAuth) {
         if (!data.aud) {
           throw new Error(`Resource Indicator (RFC8707) missing`);
         }
-        if (data.aud !== mcpServerUrl.href) {
+        if (!checkResourceAllowed({ requestedResource: data.aud, configuredResource: mcpServerUrl })) {
           throw new Error(`Expected resource indicator ${mcpServerUrl}, got: ${data.aud}`);
         }
       }

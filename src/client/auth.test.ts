@@ -1041,9 +1041,70 @@ describe("OAuth Authorization", () => {
 
       // Verify custom validation method was called
       expect(mockValidateResourceURL).toHaveBeenCalledWith(
-        "https://api.example.com/mcp-server",
+        new URL("https://api.example.com/mcp-server"),
         "https://different-resource.example.com/mcp-server"
       );
+    });
+
+    it("uses prefix of server URL from PRM resource as resource parameter", async () => {
+      // Mock successful metadata discovery with resource URL that is a prefix of requested URL
+      mockFetch.mockImplementation((url) => {
+        const urlString = url.toString();
+
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              // Resource is a prefix of the requested server URL
+              resource: "https://api.example.com/",
+              authorization_servers: ["https://auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with a URL that has the resource as prefix
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server/endpoint",
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Verify the authorization URL includes the resource parameter from PRM
+      expect(mockProvider.redirectToAuthorization).toHaveBeenCalledWith(
+        expect.objectContaining({
+          searchParams: expect.any(URLSearchParams),
+        })
+      );
+
+      const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+      const authUrl: URL = redirectCall[0];
+      // Should use the PRM's resource value, not the full requested URL
+      expect(authUrl.searchParams.get("resource")).toBe("https://api.example.com/");
     });
   });
 });

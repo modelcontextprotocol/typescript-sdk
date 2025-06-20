@@ -2,7 +2,7 @@ import pkceChallenge from "pkce-challenge";
 import { LATEST_PROTOCOL_VERSION } from "../types.js";
 import type { OAuthClientMetadata, OAuthClientInformation, OAuthTokens, OAuthMetadata, OAuthClientInformationFull, OAuthProtectedResourceMetadata } from "../shared/auth.js";
 import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthProtectedResourceMetadataSchema, OAuthTokensSchema } from "../shared/auth.js";
-import { resourceUrlFromServerUrl } from "../shared/auth-utils.js";
+import { checkResourceAllowed, resourceUrlFromServerUrl } from "../shared/auth-utils.js";
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
@@ -116,8 +116,8 @@ export async function auth(
     if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
       authorizationServerUrl = resourceMetadata.authorization_servers[0];
     }
-  } catch (error) {
-    console.warn("Could not load OAuth Protected Resource metadata, falling back to /.well-known/oauth-authorization-server", error)
+  } catch {
+    // Ignore errors and fall back to /.well-known/oauth-authorization-server
   }
 
   const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
@@ -175,8 +175,8 @@ export async function auth(
 
       await provider.saveTokens(newTokens);
       return "AUTHORIZED";
-    } catch (error) {
-      console.error("Could not refresh OAuth tokens:", error);
+    } catch {
+      // Could not refresh OAuth tokens
     }
   }
 
@@ -197,14 +197,17 @@ export async function auth(
   return "REDIRECT";
 }
 
-async function selectResourceURL(serverUrl: string| URL, provider: OAuthClientProvider, resourceMetadata?: OAuthProtectedResourceMetadata): Promise<URL | undefined> {
+export async function selectResourceURL(serverUrl: string| URL, provider: OAuthClientProvider, resourceMetadata?: OAuthProtectedResourceMetadata): Promise<URL | undefined> {
+  let resource = resourceUrlFromServerUrl(serverUrl);
   if (provider.validateResourceURL) {
-    return await provider.validateResourceURL(serverUrl, resourceMetadata?.resource);
-  }
-
-  const resource = resourceUrlFromServerUrl(typeof serverUrl === "string" ? new URL(serverUrl) : serverUrl);
-  if (resourceMetadata && resourceMetadata.resource !== resource.href) {
-    throw new Error(`Protected resource ${resourceMetadata.resource} does not match expected ${resource}`);
+    return await provider.validateResourceURL(resource, resourceMetadata?.resource);
+  } else if (resourceMetadata) {
+    if (checkResourceAllowed({ requestedResource: resource, configuredResource: resourceMetadata.resource })) {
+      // If the resource mentioned in metadata is valid, prefer it since it is what the server is telling us to request.
+      resource = new URL(resourceMetadata.resource);
+    } else {
+      throw new Error(`Protected resource ${resourceMetadata.resource} does not match expected ${resource} (or origin)`);
+    }
   }
 
   return resource;
@@ -222,7 +225,6 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
 
   const [type, scheme] = authenticateHeader.split(' ');
   if (type.toLowerCase() !== 'bearer' || !scheme) {
-    console.log("Invalid WWW-Authenticate header format, expected 'Bearer'");
     return undefined;
   }
   const regex = /resource_metadata="([^"]*)"/;
@@ -235,7 +237,6 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
   try {
     return new URL(match[1]);
   } catch {
-    console.log("Invalid resource metadata url: ", match[1]);
     return undefined;
   }
 }

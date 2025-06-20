@@ -80,7 +80,6 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
       const client = req.client;
       if (!client) {
         // This should never happen
-        console.error("Missing client information after authentication");
         throw new ServerError("Internal Server Error");
       }
 
@@ -143,7 +142,6 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
         const status = error instanceof ServerError ? 500 : 400;
         res.status(status).json(error.toResponseObject());
       } else {
-        console.error("Unexpected error exchanging token:", error);
         const serverError = new ServerError("Internal Server Error");
         res.status(500).json(serverError.toResponseObject());
       }

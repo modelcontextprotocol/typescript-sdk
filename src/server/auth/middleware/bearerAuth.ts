@@ -88,7 +88,6 @@ export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetad
       } else if (error instanceof OAuthError) {
         res.status(400).json(error.toResponseObject());
       } else {
-        console.error("Unexpected error authenticating bearer token:", error);
         const serverError = new ServerError("Internal Server Error");
         res.status(500).json(serverError.toResponseObject());
       }

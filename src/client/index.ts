@@ -508,8 +508,8 @@ export class Client<
         try {
           const validator = this._ajv.compile(tool.outputSchema);
           this._cachedToolOutputValidators.set(tool.name, validator);
-        } catch (error) {
-          console.warn(`Failed to compile output schema for tool ${tool.name}: ${error}`);
+        } catch {
+          // Ignore schema compilation errors
         }
       }
     }

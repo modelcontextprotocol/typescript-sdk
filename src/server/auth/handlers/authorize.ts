@@ -99,7 +99,6 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
         const status = error instanceof ServerError ? 500 : 400;
         res.status(status).json(error.toResponseObject());
       } else {
-        console.error("Unexpected error looking up client:", error);
         const serverError = new ServerError("Internal Server Error");
         res.status(500).json(serverError.toResponseObject());
       }
@@ -146,7 +145,6 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
       if (error instanceof OAuthError) {
         res.redirect(302, createErrorRedirect(redirect_uri, error, state));
       } else {
-        console.error("Unexpected error during authorization:", error);
         const serverError = new ServerError("Internal Server Error");
         res.redirect(302, createErrorRedirect(redirect_uri, serverError, state));
       }
