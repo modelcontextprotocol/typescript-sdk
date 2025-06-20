@@ -61,6 +61,24 @@ export interface StreamableHTTPServerTransportOptions {
    * If provided, resumability will be enabled, allowing clients to reconnect and resume messages
    */
   eventStore?: EventStore;
+
+  /**
+   * List of allowed host header values for DNS rebinding protection.
+   * If not specified, host validation is disabled.
+   */
+  allowedHosts?: string[];
+  
+  /**
+   * List of allowed origin header values for DNS rebinding protection.
+   * If not specified, origin validation is disabled.
+   */
+  allowedOrigins?: string[];
+  
+  /**
+   * Enable DNS rebinding protection (requires allowedHosts and/or allowedOrigins to be configured).
+   * Default is false for backwards compatibility.
+   */
+  enableDnsRebindingProtection?: boolean;
 }
 
 /**
@@ -109,6 +127,9 @@ export class StreamableHTTPServerTransport implements Transport {
   private _standaloneSseStreamId: string = '_GET_stream';
   private _eventStore?: EventStore;
   private _onsessioninitialized?: (sessionId: string) => void;
+  private _allowedHosts?: string[];
+  private _allowedOrigins?: string[];
+  private _enableDnsRebindingProtection: boolean;
 
   sessionId?: string;
   onclose?: () => void;
@@ -120,6 +141,9 @@ export class StreamableHTTPServerTransport implements Transport {
     this._enableJsonResponse = options.enableJsonResponse ?? false;
     this._eventStore = options.eventStore;
     this._onsessioninitialized = options.onsessioninitialized;
+    this._allowedHosts = options.allowedHosts;
+    this._allowedOrigins = options.allowedOrigins;
+    this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
   }
 
   /**
@@ -134,9 +158,53 @@ export class StreamableHTTPServerTransport implements Transport {
   }
 
   /**
+   * Validates request headers for DNS rebinding protection.
+   * @returns Error message if validation fails, undefined if validation passes.
+   */
+  private validateRequestHeaders(req: IncomingMessage): string | undefined {
+    // Skip validation if protection is not enabled
+    if (!this._enableDnsRebindingProtection) {
+      return undefined;
+    }
+
+    // Validate Host header if allowedHosts is configured
+    if (this._allowedHosts && this._allowedHosts.length > 0) {
+      const hostHeader = req.headers.host;
+      if (!hostHeader || !this._allowedHosts.includes(hostHeader)) {
+        return `Invalid Host header: ${hostHeader}`;
+      }
+    }
+
+    // Validate Origin header if allowedOrigins is configured
+    if (this._allowedOrigins && this._allowedOrigins.length > 0) {
+      const originHeader = req.headers.origin;
+      if (!originHeader || !this._allowedOrigins.includes(originHeader)) {
+        return `Invalid Origin header: ${originHeader}`;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
    * Handles an incoming HTTP request, whether GET or POST
    */
   async handleRequest(req: IncomingMessage & { auth?: AuthInfo }, res: ServerResponse, parsedBody?: unknown): Promise<void> {
+    // Validate request headers for DNS rebinding protection
+    const validationError = this.validateRequestHeaders(req);
+    if (validationError) {
+      res.writeHead(403).end(JSON.stringify({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: validationError
+        },
+        id: null
+      }));
+      this.onerror?.(new Error(validationError));
+      return;
+    }
+
     if (req.method === "POST") {
       await this.handlePostRequest(req, res, parsedBody);
     } else if (req.method === "GET") {

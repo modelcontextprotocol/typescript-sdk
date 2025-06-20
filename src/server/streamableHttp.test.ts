@@ -1,11 +1,25 @@
 import { createServer, type Server, IncomingMessage, ServerResponse } from "node:http";
-import { AddressInfo } from "node:net";
+import { createServer as netCreateServer, AddressInfo } from "node:net";
 import { randomUUID } from "node:crypto";
 import { EventStore, StreamableHTTPServerTransport, EventId, StreamId } from "./streamableHttp.js";
 import { McpServer } from "./mcp.js";
 import { CallToolResult, JSONRPCMessage } from "../types.js";
 import { z } from "zod";
 import { AuthInfo } from "./auth/types.js";
+
+async function getFreePort() {
+    return new Promise( res => {
+        const srv = netCreateServer();
+        srv.listen(0, () => {
+            const address = srv.address()!
+            if (typeof address === "string") {
+                throw new Error("Unexpected address type: " + typeof address);
+            }
+            const port = (address as AddressInfo).port;
+            srv.close((err) => res(port))
+        });
+    })
+}
 
 /**
  * Test server configuration for StreamableHTTPServerTransport tests
@@ -1424,3 +1438,274 @@ describe("StreamableHTTPServerTransport in stateless mode", () => {
     expect(stream2.status).toBe(409); // Conflict - only one stream allowed
   });
 });
+
+// Test DNS rebinding protection
+describe("StreamableHTTPServerTransport DNS rebinding protection", () => {
+  let server: Server;
+  let transport: StreamableHTTPServerTransport;
+  let baseUrl: URL;
+
+  afterEach(async () => {
+    if (server && transport) {
+      await stopTestServer({ server, transport });
+    }
+  });
+
+  describe("Host header validation", () => {
+    it("should accept requests with allowed host headers", async () => {
+      const result = await createTestServerWithDnsProtection({
+        sessionIdGenerator: undefined,
+        allowedHosts: ['localhost'],
+        enableDnsRebindingProtection: true,
+      });
+      server = result.server;
+      transport = result.transport;
+      baseUrl = result.baseUrl;
+
+      // Note: fetch() automatically sets Host header to match the URL
+      // Since we're connecting to localhost:3001 and that's in allowedHosts, this should work
+      const response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify(TEST_MESSAGES.initialize),
+      });
+
+      expect(response.status).toBe(200);
+    });
+
+    it("should reject requests with disallowed host headers", async () => {
+      // Test DNS rebinding protection by creating a server that only allows example.com
+      // but we're connecting via localhost, so it should be rejected
+      const result = await createTestServerWithDnsProtection({
+        sessionIdGenerator: undefined,
+        allowedHosts: ['example.com:3001'],
+        enableDnsRebindingProtection: true,
+      });
+      server = result.server;
+      transport = result.transport;
+      baseUrl = result.baseUrl;
+
+      const response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify(TEST_MESSAGES.initialize),
+      });
+
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.error.message).toContain("Invalid Host header:");
+    });
+
+    it("should reject GET requests with disallowed host headers", async () => {
+      const result = await createTestServerWithDnsProtection({
+        sessionIdGenerator: undefined,
+        allowedHosts: ['example.com:3001'],
+        enableDnsRebindingProtection: true,
+      });
+      server = result.server;
+      transport = result.transport;
+      baseUrl = result.baseUrl;
+
+      const response = await fetch(baseUrl, {
+        method: "GET",
+        headers: {
+          Accept: "text/event-stream",
+        },
+      });
+
+      expect(response.status).toBe(403);
+    });
+  });
+
+  describe("Origin header validation", () => {
+    it("should accept requests with allowed origin headers", async () => {
+      const result = await createTestServerWithDnsProtection({
+        sessionIdGenerator: undefined,
+        allowedOrigins: ['http://localhost:3000', 'https://example.com'],
+        enableDnsRebindingProtection: true,
+      });
+      server = result.server;
+      transport = result.transport;
+      baseUrl = result.baseUrl;
+
+      const response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Origin: "http://localhost:3000",
+        },
+        body: JSON.stringify(TEST_MESSAGES.initialize),
+      });
+
+      expect(response.status).toBe(200);
+    });
+
+    it("should reject requests with disallowed origin headers", async () => {
+      const result = await createTestServerWithDnsProtection({
+        sessionIdGenerator: undefined,
+        allowedOrigins: ['http://localhost:3000'],
+        enableDnsRebindingProtection: true,
+      });
+      server = result.server;
+      transport = result.transport;
+      baseUrl = result.baseUrl;
+
+      const response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Origin: "http://evil.com",
+        },
+        body: JSON.stringify(TEST_MESSAGES.initialize),
+      });
+
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.error.message).toBe("Invalid Origin header: http://evil.com");
+    });
+  });
+
+  describe("enableDnsRebindingProtection option", () => {
+    it("should skip all validations when enableDnsRebindingProtection is false", async () => {
+      const result = await createTestServerWithDnsProtection({
+        sessionIdGenerator: undefined,
+        allowedHosts: ['localhost'],
+        allowedOrigins: ['http://localhost:3000'],
+        enableDnsRebindingProtection: false,
+      });
+      server = result.server;
+      transport = result.transport;
+      baseUrl = result.baseUrl;
+
+      const response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Host: "evil.com",
+          Origin: "http://evil.com",
+        },
+        body: JSON.stringify(TEST_MESSAGES.initialize),
+      });
+
+      // Should pass even with invalid headers because protection is disabled
+      expect(response.status).toBe(200);
+    });
+  });
+
+  describe("Combined validations", () => {
+    it("should validate both host and origin when both are configured", async () => {
+      const result = await createTestServerWithDnsProtection({
+        sessionIdGenerator: undefined,
+        allowedHosts: ['localhost'],
+        allowedOrigins: ['http://localhost:3001'],
+        enableDnsRebindingProtection: true,
+      });
+      server = result.server;
+      transport = result.transport;
+      baseUrl = result.baseUrl;
+
+      // Test with invalid origin (host will be automatically correct via fetch)
+      const response1 = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Origin: "http://evil.com",
+        },
+        body: JSON.stringify(TEST_MESSAGES.initialize),
+      });
+
+      expect(response1.status).toBe(403);
+      const body1 = await response1.json();
+      expect(body1.error.message).toBe("Invalid Origin header: http://evil.com");
+
+      // Test with valid origin
+      const response2 = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Origin: "http://localhost:3001",
+        },
+        body: JSON.stringify(TEST_MESSAGES.initialize),
+      });
+
+      expect(response2.status).toBe(200);
+    });
+  });
+});
+
+/**
+ * Helper to create test server with DNS rebinding protection options
+ */
+async function createTestServerWithDnsProtection(config: {
+  sessionIdGenerator: (() => string) | undefined;
+  allowedHosts?: string[];
+  allowedOrigins?: string[];
+  enableDnsRebindingProtection?: boolean;
+}): Promise<{
+  server: Server;
+  transport: StreamableHTTPServerTransport;
+  mcpServer: McpServer;
+  baseUrl: URL;
+}> {
+  const mcpServer = new McpServer(
+    { name: "test-server", version: "1.0.0" },
+    { capabilities: { logging: {} } }
+  );
+
+  const port = await getFreePort();
+
+  if (config.allowedHosts) {
+    config.allowedHosts = config.allowedHosts.map(host => {
+      if (host.includes(':')) {
+        return host;
+      }
+      return `localhost:${port}`;
+    });
+  }
+
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: config.sessionIdGenerator,
+    allowedHosts: config.allowedHosts,
+    allowedOrigins: config.allowedOrigins,
+    enableDnsRebindingProtection: config.enableDnsRebindingProtection,
+  });
+
+  await mcpServer.connect(transport);
+
+  const httpServer = createServer(async (req, res) => {
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", async () => {
+        const parsedBody = JSON.parse(body);
+        await transport.handleRequest(req as IncomingMessage & { auth?: AuthInfo }, res, parsedBody);
+      });
+    } else {
+      await transport.handleRequest(req as IncomingMessage & { auth?: AuthInfo }, res);
+    }
+  });
+
+  await new Promise<void>((resolve) => {
+    httpServer.listen(port, () => resolve());
+  });
+
+  const serverUrl = new URL(`http://localhost:${port}/`);
+
+  return {
+    server: httpServer,
+    transport,
+    mcpServer,
+    baseUrl: serverUrl,
+  };
+}
