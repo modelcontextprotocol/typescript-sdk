@@ -319,6 +319,11 @@ describe("SSEClientTransport", () => {
   });
 
   describe("auth handling", () => {
+    const authServerMetadataUrls = [
+      "/.well-known/oauth-authorization-server",
+      "/.well-known/openid-configuration",
+    ];
+
     let mockAuthProvider: jest.Mocked<OAuthClientProvider>;
 
     beforeEach(() => {
@@ -551,7 +556,7 @@ describe("SSEClientTransport", () => {
       authServer.close();
 
       authServer = createServer((req, res) => {
-        if (req.url === "/.well-known/oauth-authorization-server") {
+        if (req.url && authServerMetadataUrls.includes(req.url)) {
           res.writeHead(404).end();
           return;
         }
@@ -673,7 +678,7 @@ describe("SSEClientTransport", () => {
       authServer.close();
 
       authServer = createServer((req, res) => {
-        if (req.url === "/.well-known/oauth-authorization-server") {
+        if (req.url && authServerMetadataUrls.includes(req.url)) {
           res.writeHead(404).end();
           return;
         }
@@ -818,7 +823,7 @@ describe("SSEClientTransport", () => {
       authServer.close();
 
       authServer = createServer((req, res) => {
-        if (req.url === "/.well-known/oauth-authorization-server") {
+        if (req.url && authServerMetadataUrls.includes(req.url)) {
           res.writeHead(404).end();
           return;
         }
