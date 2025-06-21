@@ -1204,6 +1204,72 @@ describe("tool()", () => {
     ).rejects.toThrow(/Tool test has an output schema but no structured content was provided/);
   });
 
+    /***
+   * Test: Tool with Output Schema Must Provide Structured Content
+   */
+    test("should not throw error when tool with outputSchema returns no structuredContent and isError is true", async () => {
+      const mcpServer = new McpServer({
+        name: "test server",
+        version: "1.0",
+      });
+  
+      const client = new Client({
+        name: "test client",
+        version: "1.0",
+      });
+  
+      // Register a tool with outputSchema that returns only content without structuredContent
+      mcpServer.registerTool(
+        "test",
+        {
+          description: "Test tool with output schema but missing structured content",
+          inputSchema: {
+            input: z.string(),
+          },
+          outputSchema: {
+            processedInput: z.string(),
+            resultType: z.string(),
+          },
+        },
+        async ({ input }) => ({
+          // Only return content without structuredContent
+          content: [
+            {
+              type: "text",
+              text: `Processed: ${input}`,
+            },
+          ],
+          isError: true,
+        })
+      );
+  
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+  
+      await Promise.all([
+        client.connect(clientTransport),
+        mcpServer.server.connect(serverTransport),
+      ]);
+  
+      // Call the tool and expect it to not throw an error
+      await expect(
+        client.callTool({
+          name: "test",
+          arguments: {
+            input: "hello",
+          },
+        }),
+      ).resolves.toStrictEqual({
+        content: [
+          {
+            type: "text",
+            text: `Processed: hello`,
+          },
+        ],
+        isError: true,
+      });
+    });
+
   /***
    * Test: Schema Validation Failure for Invalid Structured Content
    */
