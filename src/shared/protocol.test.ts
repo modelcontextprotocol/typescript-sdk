@@ -65,6 +65,22 @@ describe("protocol tests", () => {
     expect(oncloseMock).toHaveBeenCalled();
   });
 
+  test("should not overwrite existing hooks when connecting transports", async () => {
+    const oncloseMock = jest.fn();
+    const onerrorMock = jest.fn();
+    const onmessageMock = jest.fn();
+    transport.onclose = oncloseMock;
+    transport.onerror = onerrorMock;
+    transport.onmessage = onmessageMock;
+    await protocol.connect(transport);
+    transport.onclose();
+    transport.onerror(new Error());
+    transport.onmessage("");
+    expect(oncloseMock).toHaveBeenCalled();
+    expect(onerrorMock).toHaveBeenCalled();
+    expect(onmessageMock).toHaveBeenCalled();
+  });
+
   describe("_meta preservation with onprogress", () => {
     test("should preserve existing _meta when adding progressToken", async () => {
       await protocol.connect(transport);
