@@ -117,23 +117,35 @@ export class SSEClientTransport implements Transport {
   }
 
   private _startOrAuth(): Promise<void> {
+    const fetchImpl = (this?._eventSourceInit?.fetch || fetch) as typeof fetch
     return new Promise((resolve, reject) => {
       this._eventSource = new EventSource(
         this._url.href,
-        this._eventSourceInit ?? {
-          fetch: (url, init) => this._commonHeaders().then((headers) => fetch(url, {
-            ...init,
-            headers: {
-              ...headers,
-              Accept: "text/event-stream"
+        {
+          ...this._eventSourceInit,
+          fetch: async (url, init) => {
+            const headers = await this._commonHeaders()
+            const response = await fetchImpl(url, {
+              ...init,
+              headers: new Headers({
+                ...headers,
+                Accept: "text/event-stream"
+              })
+            })
+
+            if (response.status === 401 && response.headers.has('www-authenticate')) {
+              this._resourceMetadataUrl = extractResourceMetadataUrl(response);
             }
-          })),
+
+            return response
+          },
         },
       );
       this._abortController = new AbortController();
 
       this._eventSource.onerror = (event) => {
         if (event.code === 401 && this._authProvider) {
+
           this._authThenStart().then(resolve, reject);
           return;
         }
