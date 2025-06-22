@@ -394,6 +394,20 @@ describe("OAuth Authorization", () => {
       expect(authorizationUrl.searchParams.has("state")).toBe(false);
     });
 
+    // OpenID Connect requires that the user is prompted for consent if the scope includes 'offline_access'
+    it("includes consent prompt parameter if scope includes 'offline_access'", async () => {
+      const { authorizationUrl } = await startAuthorization(
+          "https://auth.example.com",
+          {
+            clientInformation: validClientInfo,
+            redirectUrl: "http://localhost:3000/callback",
+            scope: "read write profile offline_access",
+          }
+      );
+
+      expect(authorizationUrl.searchParams.get("prompt")).toBe("consent");
+    });
+
     it("uses metadata authorization_endpoint when provided", async () => {
       const { authorizationUrl } = await startAuthorization(
         "https://auth.example.com",

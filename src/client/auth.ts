@@ -395,6 +395,13 @@ export async function startAuthorization(
     authorizationUrl.searchParams.set("scope", scope);
   }
 
+  if (scope?.includes("offline_access")) {
+    // if the request includes the OIDC-only "offline_access" scope,
+    // we need to set the prompt to "consent" to ensure the user is prompted to grant offline access
+    // https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
+    authorizationUrl.searchParams.append("prompt", "consent");
+  }
+
   if (resource) {
     authorizationUrl.searchParams.set("resource", resource.href);
   }
