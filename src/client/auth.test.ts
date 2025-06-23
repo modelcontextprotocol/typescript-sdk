@@ -189,7 +189,7 @@ describe("OAuth Authorization", () => {
       code_challenge_methods_supported: ["S256"],
     };
 
-    it("returns metadata when discovery succeeds", async () => {
+    it("returns metadata when oauth-authorization-server discovery succeeds", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -205,6 +205,28 @@ describe("OAuth Authorization", () => {
       expect(options.headers).toEqual({
         "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
       });
+    });
+
+    it("returns metadata when oidc discovery succeeds", async () => {
+      mockFetch.mockImplementation((url) => {
+        if (url.toString().includes('openid-configuration')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => validMetadata,
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+        });
+      });
+
+      const metadata = await discoverOAuthMetadata("https://auth.example.com");
+      expect(metadata).toEqual(validMetadata);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch.mock.calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+      expect(mockFetch.mock.calls[1][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration");
     });
 
     it("returns metadata when first fetch fails but second without MCP header succeeds", async () => {
@@ -266,13 +288,14 @@ describe("OAuth Authorization", () => {
     });
 
     it("returns undefined when discovery endpoint returns 404", async () => {
-      mockFetch.mockResolvedValueOnce({
+      mockFetch.mockResolvedValue({
         ok: false,
         status: 404,
       });
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com");
       expect(metadata).toBeUndefined();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
     it("throws on non-404 errors", async () => {
