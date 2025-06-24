@@ -339,7 +339,7 @@ export class McpServer {
           }
         }
 
-        if (tool.outputSchema) {
+        if (tool.outputSchema && !result.isError) {
           if (!result.structuredContent) {
             throw new McpError(
               ErrorCode.InvalidParams,
