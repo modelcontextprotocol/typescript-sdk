@@ -579,7 +579,7 @@ export abstract class Protocol<
         }
 
         try {
-          const result = resultSchema ? resultSchema.parse(response.result) : response.result;
+          const result = resultSchema && resultSchema.parse ? resultSchema.parse(response.result) : response.result;
           resolve(result);
         } catch (error) {
           reject(error);
