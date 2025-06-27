@@ -98,6 +98,7 @@ export const OAuthClientMetadataSchema = z.object({
   jwks: z.any().optional(),
   software_id: z.string().optional(),
   software_version: z.string().optional(),
+  software_statement: z.string().optional(),
 }).strip();
 
 /**

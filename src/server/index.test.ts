@@ -15,7 +15,7 @@ import {
   ListResourcesRequestSchema,
   ListToolsRequestSchema,
   SetLevelRequestSchema,
-  ErrorCode,
+  ErrorCode
 } from "../types.js";
 import { Transport } from "../shared/transport.js";
 import { InMemoryTransport } from "../inMemory.js";

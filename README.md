@@ -444,7 +444,11 @@ app.post('/mcp', async (req, res) => {
       onsessioninitialized: (sessionId) => {
         // Store the transport by session ID
         transports[sessionId] = transport;
-      }
+      },
+      // DNS rebinding protection is disabled by default for backwards compatibility. If you are running this server
+      // locally, make sure to set:
+      // enableDnsRebindingProtection: true,
+      // allowedHosts: ['127.0.0.1'],
     });
 
     // Clean up transport when closed
@@ -500,6 +504,21 @@ app.delete('/mcp', handleSessionRequest);
 app.listen(3000);
 ```
 
+> [!TIP]
+> When using this in a remote environment, make sure to allow the header parameter `mcp-session-id` in CORS. Otherwise, it may result in a `Bad Request: No valid session ID provided` error. 
+> 
+> For example, in Node.js you can configure it like this:
+> 
+> ```ts
+> app.use(
+>   cors({
+>     origin: ['https://your-remote-domain.com, https://your-other-remote-domain.com'],
+>     exposedHeaders: ['mcp-session-id'],
+>     allowedHeaders: ['Content-Type', 'mcp-session-id'],
+>   })
+> );
+> ```
+
 #### Without Session Management (Stateless)
 
 For simpler use cases where session management isn't needed:
@@ -540,6 +559,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
   }
 });
 
+// SSE notifications not supported in stateless mode
 app.get('/mcp', async (req: Request, res: Response) => {
   console.log('Received GET MCP request');
   res.writeHead(405).end(JSON.stringify({
@@ -552,6 +572,7 @@ app.get('/mcp', async (req: Request, res: Response) => {
   }));
 });
 
+// Session termination not needed in stateless mode
 app.delete('/mcp', async (req: Request, res: Response) => {
   console.log('Received DELETE MCP request');
   res.writeHead(405).end(JSON.stringify({
@@ -578,6 +599,22 @@ This stateless approach is useful for:
 - Simple API wrappers
 - RESTful scenarios where each request is independent
 - Horizontally scaled deployments without shared session state
+
+#### DNS Rebinding Protection
+
+The Streamable HTTP transport includes DNS rebinding protection to prevent security vulnerabilities. By default, this protection is **disabled** for backwards compatibility.
+
+**Important**: If you are running this server locally, enable DNS rebinding protection:
+
+```typescript
+const transport = new StreamableHTTPServerTransport({
+  sessionIdGenerator: () => randomUUID(),
+  enableDnsRebindingProtection: true,
+
+  allowedHosts: ['127.0.0.1', ...],
+  allowedOrigins: ['https://yourdomain.com', 'https://www.yourdomain.com']
+});
+```
 
 ### Testing and Debugging
 
