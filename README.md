@@ -12,6 +12,7 @@
   - [Tools](#tools)
   - [Prompts](#prompts)
   - [Completions](#completions)
+  - [Sampling](#sampling)
 - [Running Your Server](#running-your-server)
   - [stdio](#stdio)
   - [Streamable HTTP](#streamable-http)
@@ -380,6 +381,37 @@ import { getDisplayName } from "@modelcontextprotocol/sdk/shared/metadataUtils.j
 
 // Automatically handles the precedence: title → annotations.title → name
 const displayName = getDisplayName(tool);
+```
+
+### Sampling
+
+MCP servers can also request MCP client LLMs for responses. Below is an example of a sampling request sent just after connecting to the Client
+
+```typescript
+// Result sent back from LLM follow the CreateMessageSchema
+import {CreateMessageResult} from "@modelcontextprotocol/sdk/types.js";
+
+// Async Function to send a sampling request to the LLM at top-level
+async function samplingExample(server: McpServer): Promise<CreateMessageResult> {	
+  const samplingText = "Example Sampling Prompt";
+  const result = await McpServer.server.createMessage(
+    {
+      messages : [{
+        role: "user",
+        content: {
+          text: samplingText,
+          type: "text"
+        }
+      }],
+      maxTokens: 1000
+    }
+  );
+  return result;
+}
+
+// Sampling request just after connecting to MCP Client
+server.connect(transport);
+samplingExample(server);
 ```
 
 ## Running Your Server
