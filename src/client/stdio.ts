@@ -185,6 +185,13 @@ export class StdioClientTransport implements Transport {
     return this._process?.stderr ?? null;
   }
 
+  /**
+   * The process id of the child process, if it has been started.
+   */
+  get pid(): number | undefined {
+    return this._process?.pid;
+  }
+
   private processReadBuffer() {
     while (true) {
       try {
@@ -200,7 +207,23 @@ export class StdioClientTransport implements Transport {
     }
   }
 
+  private forceExitProcess(pid: number): void {
+    try {
+      process.kill(pid, "SIGKILL");
+
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "ESRCH") {
+        // Ignoring ESRCH error, which means the process is already dead.
+        return;
+      }
+
+      console.warn(`Failed to kill process ${pid}: ${err}`);
+    }
+  }
+
   async close(): Promise<void> {
+    const pid = this.pid;
+    this._abortController.signal.onabort = () => setTimeout(() => pid && this.forceExitProcess(pid), 3000);
     this._abortController.abort();
     this._process = undefined;
     this._readBuffer.clear();
