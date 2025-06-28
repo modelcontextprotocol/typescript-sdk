@@ -44,6 +44,8 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 npm install @modelcontextprotocol/sdk
 ```
 
+> ⚠️ MCP requires Node v18.x up to work fine.
+
 ## Quick Start
 
 Let's create a simple MCP server that exposes a calculator tool and some data:
