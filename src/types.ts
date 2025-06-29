@@ -686,7 +686,10 @@ export const GetPromptRequestSchema = RequestSchema.extend({
     /**
      * Arguments to use for templating the prompt.
      */
-    arguments: z.optional(z.record(z.string())),
+    arguments: z.optional(z.record(z.union([
+      z.string(),
+      z.object({ type: z.literal("enum"), enum: z.array(z.string()) })
+    ]))),
   }),
 });
 

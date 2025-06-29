@@ -4072,6 +4072,69 @@ describe("Tool title precedence", () => {
   });
 });
 
+  test("registerPrompt schema should support strings and enums", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.registerPrompt(
+      "test-prompt",
+      {
+        title: "Team Greeting",
+        description: "Generate a greeting for team members",
+        argsSchema: {
+          name: z.string(),
+          visibility: z.enum(["public", "private"]).optional().default("private"),
+        }
+      },
+      async ({ name, visibility }) => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: `Creating a new project named ${name} with visibility ${visibility}.`,
+            },
+          },
+        ],
+      }),
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result1 = await client.getPrompt({
+      name: "test-prompt",
+      arguments: {
+        name: "Test Project",
+        visibility: "public"
+      }
+    });
+
+    expect(result1.messages[0].content.text).toBe("Creating a new project named Test Project with visibility public.");
+
+    await expect(
+      client.getPrompt({
+        name: "test-prompt",
+        arguments: {
+          name: "Test Project",
+          visibility: "foo"
+        }
+      }),
+    ).rejects.toThrow();
+});
+
 describe("elicitInput()", () => {
 
   const checkAvailability = jest.fn().mockResolvedValue(false);
