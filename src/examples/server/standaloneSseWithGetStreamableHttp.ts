@@ -52,7 +52,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
       // New initialization request
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (sessionId) => {
+        onSessionInitialized: (sessionId) => {
           // Store the transport by session ID when session is initialized
           // This avoids race conditions where requests might come in before the session is stored
           console.log(`Session initialized with ID: ${sessionId}`);
@@ -63,7 +63,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
       // Connect the transport to the MCP server
       await server.connect(transport);
 
-      // Handle the request - the onsessioninitialized callback will store the transport
+      // Handle the request - the onSessionInitialized callback will store the transport
       await transport.handleRequest(req, res, req.body);
       return; // Already handled
     } else {
