@@ -47,7 +47,7 @@ export interface StreamableHTTPServerTransportOptions {
    * and need to keep track of them.
    * @param sessionId The generated session ID
    */
-  onsessioninitialized?: (sessionId: string) => void;
+  onSessionInitialized?: (sessionId: string) => void;
 
   /**
    * If true, the server will return JSON responses instead of starting an SSE stream.
@@ -126,7 +126,7 @@ export class StreamableHTTPServerTransport implements Transport {
   private _enableJsonResponse: boolean = false;
   private _standaloneSseStreamId: string = '_GET_stream';
   private _eventStore?: EventStore;
-  private _onsessioninitialized?: (sessionId: string) => void;
+  private _onSessionInitialized?: (sessionId: string) => void;
   private _allowedHosts?: string[];
   private _allowedOrigins?: string[];
   private _enableDnsRebindingProtection: boolean;
@@ -140,7 +140,7 @@ export class StreamableHTTPServerTransport implements Transport {
     this.sessionIdGenerator = options.sessionIdGenerator;
     this._enableJsonResponse = options.enableJsonResponse ?? false;
     this._eventStore = options.eventStore;
-    this._onsessioninitialized = options.onsessioninitialized;
+    this._onSessionInitialized = options.onSessionInitialized;
     this._allowedHosts = options.allowedHosts;
     this._allowedOrigins = options.allowedOrigins;
     this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
@@ -443,10 +443,10 @@ export class StreamableHTTPServerTransport implements Transport {
         this.sessionId = this.sessionIdGenerator?.();
         this._initialized = true;
 
-        // If we have a session ID and an onsessioninitialized handler, call it immediately
+        // If we have a session ID and an onSessionInitialized handler, call it immediately
         // This is needed in cases where the server needs to keep track of multiple sessions
-        if (this.sessionId && this._onsessioninitialized) {
-          this._onsessioninitialized(this.sessionId);
+        if (this.sessionId && this._onSessionInitialized) {
+          this._onSessionInitialized(this.sessionId);
         }
 
       }

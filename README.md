@@ -441,7 +441,7 @@ app.post('/mcp', async (req, res) => {
     // New initialization request
     transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
-      onsessioninitialized: (sessionId) => {
+      onSessionInitialized: (sessionId) => {
         // Store the transport by session ID
         transports[sessionId] = transport;
       },

@@ -110,7 +110,7 @@ app.all('/mcp', async (req: Request, res: Response) => {
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         eventStore, // Enable resumability
-        onsessioninitialized: (sessionId) => {
+        onSessionInitialized: (sessionId) => {
           // Store the transport by session ID when session is initialized
           console.log(`StreamableHTTP session initialized with ID: ${sessionId}`);
           transports[sessionId] = transport;

@@ -514,7 +514,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         eventStore, // Enable resumability
-        onsessioninitialized: (sessionId) => {
+        onSessionInitialized: (sessionId) => {
           // Store the transport by session ID when session is initialized
           // This avoids race conditions where requests might come in before the session is stored
           console.log(`Session initialized with ID: ${sessionId}`);
