@@ -12,7 +12,6 @@ import {
   ZodOptional,
   ZodDefault,
   ZodEnum,
-  ZodBoolean,
 } from "zod";
 import {
   Implementation,
@@ -1249,9 +1248,6 @@ export type RegisteredResourceTemplate = {
 type PromptArgsRawShape = {
   [k: string]:
   | ZodType<string, ZodTypeDef, string>
-  | ZodBoolean
-  | ZodDefault<ZodBoolean>
-  | ZodDefault<ZodOptional<ZodBoolean>>
   | ZodEnum<[string, ...string[]]>
   | ZodDefault<ZodEnum<[string, ...string[]]>>
   | ZodDefault<ZodOptional<ZodEnum<[string, ...string[]]>>>

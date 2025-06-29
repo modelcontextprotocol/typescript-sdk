@@ -4010,7 +4010,7 @@ describe("Tool title precedence", () => {
   });
 });
 
-  test("registerPrompt schema should support strings, booleans and enums", async () => {
+  test("registerPrompt schema should support strings and enums", async () => {
     const mcpServer = new McpServer({
       name: "test server",
       version: "1.0",
@@ -4028,17 +4028,16 @@ describe("Tool title precedence", () => {
         description: "Generate a greeting for team members",
         argsSchema: {
           name: z.string(),
-          initialize: z.boolean().optional().default(false),
           visibility: z.enum(["public", "private"]).optional().default("private"),
         }
       },
-      async ({ initialize, name, visibility }) => ({
+      async ({ name, visibility }) => ({
         messages: [
           {
             role: "assistant",
             content: {
               type: "text",
-              text: `Creating${initialize ? " and initializing" : ""} a new project named ${name} with visibility ${visibility}.`,
+              text: `Creating a new project named ${name} with visibility ${visibility}.`,
             },
           },
         ],
@@ -4057,12 +4056,21 @@ describe("Tool title precedence", () => {
       name: "test-prompt",
       arguments: {
         name: "Test Project",
-        initialize: true,
         visibility: "public"
       }
     });
 
-    expect(result1.messages[0].content.text).toBe("Creating and initializing a new project named Test Project with visibility public.");
+    expect(result1.messages[0].content.text).toBe("Creating a new project named Test Project with visibility public.");
+
+    await expect(
+      client.getPrompt({
+        name: "test-prompt",
+        arguments: {
+          name: "Test Project",
+          visibility: "foo"
+        }
+      }),
+    ).rejects.toThrow();
 });
 
 describe("elicitInput()", () => {

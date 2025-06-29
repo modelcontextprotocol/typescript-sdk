@@ -268,7 +268,7 @@ server.registerPrompt(
   {
     title: "Code Review",
     description: "Review code for best practices and potential issues",
-    // can use string, boolean or enum
+    // can use string or enum
     argsSchema: { code: z.string() }
   },
   ({ code }) => ({
