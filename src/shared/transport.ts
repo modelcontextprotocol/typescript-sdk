@@ -1,5 +1,4 @@
-import { AuthInfo } from "../server/auth/types.js";
-import { JSONRPCMessage, RequestId } from "../types.js";
+import { JSONRPCMessage, MessageExtraInfo, RequestId } from "../types.js";
 
 /**
  * Options for sending a JSON-RPC message.
@@ -66,13 +65,19 @@ export interface Transport {
   /**
    * Callback for when a message (request or response) is received over the connection.
    * 
-   * Includes the authInfo if the transport is authenticated.
+   * Includes the requestInfo and authInfo if the transport is authenticated.
    * 
+   * The requestInfo can be used to get the original request information (headers, etc.)
    */
-  onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
+  onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
 
   /**
    * The session ID generated for this connection.
    */
   sessionId?: string;
+
+  /**
+   * Sets the protocol version used for the connection (called when the initialize response is received).
+   */
+  setProtocolVersion?: (version: string) => void;
 }

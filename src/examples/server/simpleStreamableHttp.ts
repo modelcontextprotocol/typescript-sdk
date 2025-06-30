@@ -5,27 +5,32 @@ import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';
 import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
-import { CallToolResult, GetPromptResult, isInitializeRequest, ReadResourceResult } from '../../types.js';
+import { CallToolResult, GetPromptResult, isInitializeRequest, PrimitiveSchemaDefinition, ReadResourceResult, ResourceLink } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from 'src/shared/auth.js';
+import { checkResourceAllowed } from 'src/shared/auth-utils.js';
 
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
+const strictOAuth = process.argv.includes('--oauth-strict');
 
 // Create an MCP server with implementation details
 const getServer = () => {
   const server = new McpServer({
     name: 'simple-streamable-http-server',
-    version: '1.0.0',
+    version: '1.0.0'
   }, { capabilities: { logging: {} } });
 
   // Register a simple tool that returns a greeting
-  server.tool(
+  server.registerTool(
     'greet',
-    'A simple greeting tool',
     {
-      name: z.string().describe('Name to greet'),
+      title: 'Greeting Tool',  // Display name for UI
+      description: 'A simple greeting tool',
+      inputSchema: {
+        name: z.string().describe('Name to greet'),
+      },
     },
     async ({ name }): Promise<CallToolResult> => {
       return {
@@ -83,13 +88,165 @@ const getServer = () => {
       };
     }
   );
-
-  // Register a simple prompt
-  server.prompt(
-    'greeting-template',
-    'A simple greeting prompt template',
+  // Register a tool that demonstrates elicitation (user input collection)
+  // This creates a closure that captures the server instance
+  server.tool(
+    'collect-user-info',
+    'A tool that collects user information through elicitation',
     {
-      name: z.string().describe('Name to include in greeting'),
+      infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect'),
+    },
+    async ({ infoType }): Promise<CallToolResult> => {
+      let message: string;
+      let requestedSchema: {
+        type: 'object';
+        properties: Record<string, PrimitiveSchemaDefinition>;
+        required?: string[];
+      };
+
+      switch (infoType) {
+        case 'contact':
+          message = 'Please provide your contact information';
+          requestedSchema = {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                title: 'Full Name',
+                description: 'Your full name',
+              },
+              email: {
+                type: 'string',
+                title: 'Email Address',
+                description: 'Your email address',
+                format: 'email',
+              },
+              phone: {
+                type: 'string',
+                title: 'Phone Number',
+                description: 'Your phone number (optional)',
+              },
+            },
+            required: ['name', 'email'],
+          };
+          break;
+        case 'preferences':
+          message = 'Please set your preferences';
+          requestedSchema = {
+            type: 'object',
+            properties: {
+              theme: {
+                type: 'string',
+                title: 'Theme',
+                description: 'Choose your preferred theme',
+                enum: ['light', 'dark', 'auto'],
+                enumNames: ['Light', 'Dark', 'Auto'],
+              },
+              notifications: {
+                type: 'boolean',
+                title: 'Enable Notifications',
+                description: 'Would you like to receive notifications?',
+                default: true,
+              },
+              frequency: {
+                type: 'string',
+                title: 'Notification Frequency',
+                description: 'How often would you like notifications?',
+                enum: ['daily', 'weekly', 'monthly'],
+                enumNames: ['Daily', 'Weekly', 'Monthly'],
+              },
+            },
+            required: ['theme'],
+          };
+          break;
+        case 'feedback':
+          message = 'Please provide your feedback';
+          requestedSchema = {
+            type: 'object',
+            properties: {
+              rating: {
+                type: 'integer',
+                title: 'Rating',
+                description: 'Rate your experience (1-5)',
+                minimum: 1,
+                maximum: 5,
+              },
+              comments: {
+                type: 'string',
+                title: 'Comments',
+                description: 'Additional comments (optional)',
+                maxLength: 500,
+              },
+              recommend: {
+                type: 'boolean',
+                title: 'Would you recommend this?',
+                description: 'Would you recommend this to others?',
+              },
+            },
+            required: ['rating', 'recommend'],
+          };
+          break;
+        default:
+          throw new Error(`Unknown info type: ${infoType}`);
+      }
+
+      try {
+        // Use the underlying server instance to elicit input from the client
+        const result = await server.server.elicitInput({
+          message,
+          requestedSchema,
+        });
+
+        if (result.action === 'accept') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Thank you! Collected ${infoType} information: ${JSON.stringify(result.content, null, 2)}`,
+              },
+            ],
+          };
+        } else if (result.action === 'reject') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No information was collected. User rejected ${infoType} information request.`,
+              },
+            ],
+          };
+        } else {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Information collection was cancelled by the user.`,
+              },
+            ],
+          };
+        }
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error collecting ${infoType} information: ${error}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  // Register a simple prompt with title
+  server.registerPrompt(
+    'greeting-template',
+    {
+      title: 'Greeting Template',  // Display name for UI
+      description: 'A simple greeting prompt template',
+      argsSchema: {
+        name: z.string().describe('Name to include in greeting'),
+      },
     },
     async ({ name }): Promise<GetPromptResult> => {
       return {
@@ -148,10 +305,14 @@ const getServer = () => {
   );
 
   // Create a simple resource at a fixed URI
-  server.resource(
+  server.registerResource(
     'greeting-resource',
     'https://example.com/greetings/default',
-    { mimeType: 'text/plain' },
+    {
+      title: 'Default Greeting',  // Display name for UI
+      description: 'A simple greeting resource',
+      mimeType: 'text/plain'
+    },
     async (): Promise<ReadResourceResult> => {
       return {
         contents: [
@@ -163,6 +324,99 @@ const getServer = () => {
       };
     }
   );
+
+  // Create additional resources for ResourceLink demonstration
+  server.registerResource(
+    'example-file-1',
+    'file:///example/file1.txt',
+    {
+      title: 'Example File 1',
+      description: 'First example file for ResourceLink demonstration',
+      mimeType: 'text/plain'
+    },
+    async (): Promise<ReadResourceResult> => {
+      return {
+        contents: [
+          {
+            uri: 'file:///example/file1.txt',
+            text: 'This is the content of file 1',
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerResource(
+    'example-file-2',
+    'file:///example/file2.txt',
+    {
+      title: 'Example File 2',
+      description: 'Second example file for ResourceLink demonstration',
+      mimeType: 'text/plain'
+    },
+    async (): Promise<ReadResourceResult> => {
+      return {
+        contents: [
+          {
+            uri: 'file:///example/file2.txt',
+            text: 'This is the content of file 2',
+          },
+        ],
+      };
+    }
+  );
+
+  // Register a tool that returns ResourceLinks
+  server.registerTool(
+    'list-files',
+    {
+      title: 'List Files with ResourceLinks',
+      description: 'Returns a list of files as ResourceLinks without embedding their content',
+      inputSchema: {
+        includeDescriptions: z.boolean().optional().describe('Whether to include descriptions in the resource links'),
+      },
+    },
+    async ({ includeDescriptions = true }): Promise<CallToolResult> => {
+      const resourceLinks: ResourceLink[] = [
+        {
+          type: 'resource_link',
+          uri: 'https://example.com/greetings/default',
+          name: 'Default Greeting',
+          mimeType: 'text/plain',
+          ...(includeDescriptions && { description: 'A simple greeting resource' })
+        },
+        {
+          type: 'resource_link',
+          uri: 'file:///example/file1.txt',
+          name: 'Example File 1',
+          mimeType: 'text/plain',
+          ...(includeDescriptions && { description: 'First example file for ResourceLink demonstration' })
+        },
+        {
+          type: 'resource_link',
+          uri: 'file:///example/file2.txt',
+          name: 'Example File 2',
+          mimeType: 'text/plain',
+          ...(includeDescriptions && { description: 'Second example file for ResourceLink demonstration' })
+        }
+      ];
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'Here are the available files as resource links:',
+          },
+          ...resourceLinks,
+          {
+            type: 'text',
+            text: '\nYou can read any of these resources using their URI.',
+          }
+        ],
+      };
+    }
+  );
+
   return server;
 };
 
@@ -176,10 +430,10 @@ app.use(express.json());
 let authMiddleware = null;
 if (useOAuth) {
   // Create auth middleware for MCP endpoints
-  const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}`);
+  const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}/mcp`);
   const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
-  const oauthMetadata: OAuthMetadata = setupAuthServer(authServerUrl);
+  const oauthMetadata: OAuthMetadata = setupAuthServer({authServerUrl, mcpServerUrl, strictResource: strictOAuth});
 
   const tokenVerifier = {
     verifyAccessToken: async (token: string) => {
@@ -206,6 +460,15 @@ if (useOAuth) {
 
       const data = await response.json();
 
+      if (strictOAuth) {
+        if (!data.aud) {
+          throw new Error(`Resource Indicator (RFC8707) missing`);
+        }
+        if (!checkResourceAllowed({ requestedResource: data.aud, configuredResource: mcpServerUrl })) {
+          throw new Error(`Expected resource indicator ${mcpServerUrl}, got: ${data.aud}`);
+        }
+      }
+
       // Convert the response to AuthInfo format
       return {
         token,
@@ -225,7 +488,7 @@ if (useOAuth) {
 
   authMiddleware = requireBearerAuth({
     verifier: tokenVerifier,
-    requiredScopes: ['mcp:tools'],
+    requiredScopes: [],
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
   });
 }
@@ -235,15 +498,13 @@ const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
 // MCP POST endpoint with optional auth
 const mcpPostHandler = async (req: Request, res: Response) => {
-  console.log('Received MCP request:', req.body);
+  const sessionId = req.headers['mcp-session-id'] as string | undefined;
+  console.log(sessionId? `Received MCP request for session: ${sessionId}`: 'Received MCP request:', req.body);
   if (useOAuth && req.auth) {
     console.log('Authenticated user:', req.auth);
   }
   try {
-    // Check for existing session ID
-    const sessionId = req.headers['mcp-session-id'] as string | undefined;
     let transport: StreamableHTTPServerTransport;
-
     if (sessionId && transports[sessionId]) {
       // Reuse existing transport
       transport = transports[sessionId];

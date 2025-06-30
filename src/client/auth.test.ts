@@ -1,3 +1,4 @@
+import { LATEST_PROTOCOL_VERSION } from '../types.js';
 import {
   discoverOAuthMetadata,
   startAuthorization,
@@ -202,7 +203,145 @@ describe("OAuth Authorization", () => {
       const [url, options] = calls[0];
       expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
       expect(options.headers).toEqual({
-        "MCP-Protocol-Version": "2025-03-26"
+        "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
+      });
+    });
+
+    it("returns metadata when discovery succeeds with path", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validMetadata,
+      });
+
+      const metadata = await discoverOAuthMetadata("https://auth.example.com/path/name");
+      expect(metadata).toEqual(validMetadata);
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(1);
+      const [url, options] = calls[0];
+      expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/path/name");
+      expect(options.headers).toEqual({
+        "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
+      });
+    });
+
+    it("falls back to root discovery when path-aware discovery returns 404", async () => {
+      // First call (path-aware) returns 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+      
+      // Second call (root fallback) succeeds
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validMetadata,
+      });
+
+      const metadata = await discoverOAuthMetadata("https://auth.example.com/path/name");
+      expect(metadata).toEqual(validMetadata);
+      
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(2);
+      
+      // First call should be path-aware
+      const [firstUrl, firstOptions] = calls[0];
+      expect(firstUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/path/name");
+      expect(firstOptions.headers).toEqual({
+        "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
+      });
+      
+      // Second call should be root fallback
+      const [secondUrl, secondOptions] = calls[1];
+      expect(secondUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+      expect(secondOptions.headers).toEqual({
+        "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
+      });
+    });
+
+    it("returns undefined when both path-aware and root discovery return 404", async () => {
+      // First call (path-aware) returns 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+      
+      // Second call (root fallback) also returns 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      const metadata = await discoverOAuthMetadata("https://auth.example.com/path/name");
+      expect(metadata).toBeUndefined();
+      
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(2);
+    });
+
+    it("does not fallback when the original URL is already at root path", async () => {
+      // First call (path-aware for root) returns 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      const metadata = await discoverOAuthMetadata("https://auth.example.com/");
+      expect(metadata).toBeUndefined();
+      
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(1); // Should not attempt fallback
+      
+      const [url] = calls[0];
+      expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+    });
+
+    it("does not fallback when the original URL has no path", async () => {
+      // First call (path-aware for no path) returns 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      const metadata = await discoverOAuthMetadata("https://auth.example.com");
+      expect(metadata).toBeUndefined();
+      
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(1); // Should not attempt fallback
+      
+      const [url] = calls[0];
+      expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+    });
+
+    it("falls back when path-aware discovery encounters CORS error", async () => {
+      // First call (path-aware) fails with TypeError (CORS)
+      mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError("CORS error")));
+      
+      // Retry path-aware without headers (simulating CORS retry)
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+      
+      // Second call (root fallback) succeeds
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validMetadata,
+      });
+
+      const metadata = await discoverOAuthMetadata("https://auth.example.com/deep/path");
+      expect(metadata).toEqual(validMetadata);
+      
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(3);
+      
+      // Final call should be root fallback
+      const [lastUrl, lastOptions] = calls[2];
+      expect(lastUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+      expect(lastOptions.headers).toEqual({
+        "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
       });
     });
 
@@ -324,6 +463,7 @@ describe("OAuth Authorization", () => {
           metadata: undefined,
           clientInformation: validClientInfo,
           redirectUrl: "http://localhost:3000/callback",
+          resource: new URL("https://api.example.com/mcp-server"),
         }
       );
 
@@ -338,6 +478,7 @@ describe("OAuth Authorization", () => {
       expect(authorizationUrl.searchParams.get("redirect_uri")).toBe(
         "http://localhost:3000/callback"
       );
+      expect(authorizationUrl.searchParams.get("resource")).toBe("https://api.example.com/mcp-server");
       expect(codeVerifier).toBe("test_verifier");
     });
 
@@ -481,6 +622,7 @@ describe("OAuth Authorization", () => {
         authorizationCode: "code123",
         codeVerifier: "verifier123",
         redirectUri: "http://localhost:3000/callback",
+        resource: new URL("https://api.example.com/mcp-server"),
       });
 
       expect(tokens).toEqual(validTokens);
@@ -502,6 +644,7 @@ describe("OAuth Authorization", () => {
       expect(body.get("client_id")).toBe("client123");
       expect(body.get("client_secret")).toBe("secret123");
       expect(body.get("redirect_uri")).toBe("http://localhost:3000/callback");
+      expect(body.get("resource")).toBe("https://api.example.com/mcp-server");
     });
 
     it("exchanges code for tokens with auth", async () => {
@@ -629,6 +772,7 @@ describe("OAuth Authorization", () => {
       const tokens = await refreshAuthorization("https://auth.example.com", {
         clientInformation: validClientInfo,
         refreshToken: "refresh123",
+        resource: new URL("https://api.example.com/mcp-server"),
       });
 
       expect(tokens).toEqual(validTokensWithNewRefreshToken);
@@ -648,6 +792,7 @@ describe("OAuth Authorization", () => {
       expect(body.get("refresh_token")).toBe("refresh123");
       expect(body.get("client_id")).toBe("client123");
       expect(body.get("client_secret")).toBe("secret123");
+      expect(body.get("resource")).toBe("https://api.example.com/mcp-server");
     });
 
     it("exchanges refresh token for new tokens with auth", async () => {
@@ -920,6 +1065,517 @@ describe("OAuth Authorization", () => {
       expect(mockFetch.mock.calls[1][0].toString()).toBe(
         "https://resource.example.com/.well-known/oauth-authorization-server"
       );
+    });
+
+    it("passes resource parameter through authorization flow", async () => {
+      // Mock successful metadata discovery - need to include protected resource metadata
+      mockFetch.mockImplementation((url) => {
+        const urlString = url.toString();
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://api.example.com/mcp-server",
+              authorization_servers: ["https://auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods for authorization flow
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth without authorization code (should trigger redirect)
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Verify the authorization URL includes the resource parameter
+      expect(mockProvider.redirectToAuthorization).toHaveBeenCalledWith(
+        expect.objectContaining({
+          searchParams: expect.any(URLSearchParams),
+        })
+      );
+
+      const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+      const authUrl: URL = redirectCall[0];
+      expect(authUrl.searchParams.get("resource")).toBe("https://api.example.com/mcp-server");
+    });
+
+    it("includes resource in token exchange when authorization code is provided", async () => {
+      // Mock successful metadata discovery and token exchange - need protected resource metadata
+      mockFetch.mockImplementation((url) => {
+        const urlString = url.toString();
+
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://api.example.com/mcp-server",
+              authorization_servers: ["https://auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        } else if (urlString.includes("/token")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              access_token: "access123",
+              token_type: "Bearer",
+              expires_in: 3600,
+              refresh_token: "refresh123",
+            }),
+          });
+        }
+
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods for token exchange
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.codeVerifier as jest.Mock).mockResolvedValue("test-verifier");
+      (mockProvider.saveTokens as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with authorization code
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        authorizationCode: "auth-code-123",
+      });
+
+      expect(result).toBe("AUTHORIZED");
+
+      // Find the token exchange call
+      const tokenCall = mockFetch.mock.calls.find(call =>
+        call[0].toString().includes("/token")
+      );
+      expect(tokenCall).toBeDefined();
+
+      const body = tokenCall![1].body as URLSearchParams;
+      expect(body.get("resource")).toBe("https://api.example.com/mcp-server");
+      expect(body.get("code")).toBe("auth-code-123");
+    });
+
+    it("includes resource in token refresh", async () => {
+      // Mock successful metadata discovery and token refresh - need protected resource metadata
+      mockFetch.mockImplementation((url) => {
+        const urlString = url.toString();
+
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://api.example.com/mcp-server",
+              authorization_servers: ["https://auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        } else if (urlString.includes("/token")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              access_token: "new-access123",
+              token_type: "Bearer",
+              expires_in: 3600,
+            }),
+          });
+        }
+
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods for token refresh
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue({
+        access_token: "old-access",
+        refresh_token: "refresh123",
+      });
+      (mockProvider.saveTokens as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with existing tokens (should trigger refresh)
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+      });
+
+      expect(result).toBe("AUTHORIZED");
+
+      // Find the token refresh call
+      const tokenCall = mockFetch.mock.calls.find(call =>
+        call[0].toString().includes("/token")
+      );
+      expect(tokenCall).toBeDefined();
+
+      const body = tokenCall![1].body as URLSearchParams;
+      expect(body.get("resource")).toBe("https://api.example.com/mcp-server");
+      expect(body.get("grant_type")).toBe("refresh_token");
+      expect(body.get("refresh_token")).toBe("refresh123");
+    });
+
+    it("skips default PRM resource validation when custom validateResourceURL is provided", async () => {
+      const mockValidateResourceURL = jest.fn().mockResolvedValue(undefined);
+      const providerWithCustomValidation = {
+        ...mockProvider,
+        validateResourceURL: mockValidateResourceURL,
+      };
+
+      // Mock protected resource metadata with mismatched resource URL
+      // This would normally throw an error in default validation, but should be skipped
+      mockFetch.mockImplementation((url) => {
+        const urlString = url.toString();
+
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://different-resource.example.com/mcp-server", // Mismatched resource
+              authorization_servers: ["https://auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods
+      (providerWithCustomValidation.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (providerWithCustomValidation.tokens as jest.Mock).mockResolvedValue(undefined);
+      (providerWithCustomValidation.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (providerWithCustomValidation.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth - should succeed despite resource mismatch because custom validation overrides default
+      const result = await auth(providerWithCustomValidation, {
+        serverUrl: "https://api.example.com/mcp-server",
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Verify custom validation method was called
+      expect(mockValidateResourceURL).toHaveBeenCalledWith(
+        new URL("https://api.example.com/mcp-server"),
+        "https://different-resource.example.com/mcp-server"
+      );
+    });
+
+    it("uses prefix of server URL from PRM resource as resource parameter", async () => {
+      // Mock successful metadata discovery with resource URL that is a prefix of requested URL
+      mockFetch.mockImplementation((url) => {
+        const urlString = url.toString();
+
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              // Resource is a prefix of the requested server URL
+              resource: "https://api.example.com/",
+              authorization_servers: ["https://auth.example.com"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with a URL that has the resource as prefix
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server/endpoint",
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Verify the authorization URL includes the resource parameter from PRM
+      expect(mockProvider.redirectToAuthorization).toHaveBeenCalledWith(
+        expect.objectContaining({
+          searchParams: expect.any(URLSearchParams),
+        })
+      );
+
+      const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+      const authUrl: URL = redirectCall[0];
+      // Should use the PRM's resource value, not the full requested URL
+      expect(authUrl.searchParams.get("resource")).toBe("https://api.example.com/");
+    });
+
+    it("excludes resource parameter when Protected Resource Metadata is not present", async () => {
+      // Mock metadata discovery where protected resource metadata is not available (404)
+      // but authorization server metadata is available
+      mockFetch.mockImplementation((url) => {
+        const urlString = url.toString();
+
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          // Protected resource metadata not available
+          return Promise.resolve({
+            ok: false,
+            status: 404,
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth - should not include resource parameter
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Verify the authorization URL does NOT include the resource parameter
+      expect(mockProvider.redirectToAuthorization).toHaveBeenCalledWith(
+        expect.objectContaining({
+          searchParams: expect.any(URLSearchParams),
+        })
+      );
+
+      const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+      const authUrl: URL = redirectCall[0];
+      // Resource parameter should not be present when PRM is not available
+      expect(authUrl.searchParams.has("resource")).toBe(false);
+    });
+
+    it("excludes resource parameter in token exchange when Protected Resource Metadata is not present", async () => {
+      // Mock metadata discovery - no protected resource metadata, but auth server metadata available
+      mockFetch.mockImplementation((url) => {
+        const urlString = url.toString();
+
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          return Promise.resolve({
+            ok: false,
+            status: 404,
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        } else if (urlString.includes("/token")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              access_token: "access123",
+              token_type: "Bearer",
+              expires_in: 3600,
+              refresh_token: "refresh123",
+            }),
+          });
+        }
+
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods for token exchange
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.codeVerifier as jest.Mock).mockResolvedValue("test-verifier");
+      (mockProvider.saveTokens as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with authorization code
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        authorizationCode: "auth-code-123",
+      });
+
+      expect(result).toBe("AUTHORIZED");
+
+      // Find the token exchange call
+      const tokenCall = mockFetch.mock.calls.find(call =>
+        call[0].toString().includes("/token")
+      );
+      expect(tokenCall).toBeDefined();
+
+      const body = tokenCall![1].body as URLSearchParams;
+      // Resource parameter should not be present when PRM is not available
+      expect(body.has("resource")).toBe(false);
+      expect(body.get("code")).toBe("auth-code-123");
+    });
+
+    it("excludes resource parameter in token refresh when Protected Resource Metadata is not present", async () => {
+      // Mock metadata discovery - no protected resource metadata, but auth server metadata available
+      mockFetch.mockImplementation((url) => {
+        const urlString = url.toString();
+
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          return Promise.resolve({
+            ok: false,
+            status: 404,
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        } else if (urlString.includes("/token")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              access_token: "new-access123",
+              token_type: "Bearer",
+              expires_in: 3600,
+            }),
+          });
+        }
+
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods for token refresh
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue({
+        access_token: "old-access",
+        refresh_token: "refresh123",
+      });
+      (mockProvider.saveTokens as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with existing tokens (should trigger refresh)
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+      });
+
+      expect(result).toBe("AUTHORIZED");
+
+      // Find the token refresh call
+      const tokenCall = mockFetch.mock.calls.find(call =>
+        call[0].toString().includes("/token")
+      );
+      expect(tokenCall).toBeDefined();
+
+      const body = tokenCall![1].body as URLSearchParams;
+      // Resource parameter should not be present when PRM is not available
+      expect(body.has("resource")).toBe(false);
+      expect(body.get("grant_type")).toBe("refresh_token");
+      expect(body.get("refresh_token")).toBe("refresh123");
     });
   });
 

@@ -35,6 +35,7 @@ const RequestAuthorizationParamsSchema = z.object({
   code_challenge_method: z.literal("S256"),
   scope: z.string().optional(),
   state: z.string().optional(),
+  resource: z.string().url().optional(),
 });
 
 export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: AuthorizationHandlerOptions): RequestHandler {
@@ -98,7 +99,6 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
         const status = error instanceof ServerError ? 500 : 400;
         res.status(status).json(error.toResponseObject());
       } else {
-        console.error("Unexpected error looking up client:", error);
         const serverError = new ServerError("Internal Server Error");
         res.status(500).json(serverError.toResponseObject());
       }
@@ -115,7 +115,7 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
         throw new InvalidRequestError(parseResult.error.message);
       }
 
-      const { scope, code_challenge } = parseResult.data;
+      const { scope, code_challenge, resource } = parseResult.data;
       state = parseResult.data.state;
 
       // Validate scopes
@@ -138,13 +138,13 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
         scopes: requestedScopes,
         redirectUri: redirect_uri,
         codeChallenge: code_challenge,
+        resource: resource ? new URL(resource) : undefined,
       }, res);
     } catch (error) {
       // Post-redirect errors - redirect with error parameters
       if (error instanceof OAuthError) {
         res.redirect(302, createErrorRedirect(redirect_uri, error, state));
       } else {
-        console.error("Unexpected error during authorization:", error);
         const serverError = new ServerError("Internal Server Error");
         res.redirect(302, createErrorRedirect(redirect_uri, serverError, state));
       }

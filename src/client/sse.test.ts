@@ -398,7 +398,7 @@ describe("SSEClientTransport", () => {
             'Content-Type': 'application/json',
           })
           .end(JSON.stringify({
-            resource: "https://resource.example.com",
+            resource: resourceBaseUrl.href,
             authorization_servers: [`${authBaseUrl}`],
           }));
           return;
@@ -450,7 +450,7 @@ describe("SSEClientTransport", () => {
                 'Content-Type': 'application/json',
               })
               .end(JSON.stringify({
-                resource: "https://resource.example.com",
+                resource: resourceBaseUrl.href,
                 authorization_servers: [`${authBaseUrl}`],
               }));
               return;
@@ -601,7 +601,7 @@ describe("SSEClientTransport", () => {
             'Content-Type': 'application/json',
           })
           .end(JSON.stringify({
-            resource: "https://resource.example.com",
+            resource: resourceBaseUrl.href,
             authorization_servers: [`${authBaseUrl}`],
           }));
           return;
@@ -723,7 +723,7 @@ describe("SSEClientTransport", () => {
             'Content-Type': 'application/json',
           })
           .end(JSON.stringify({
-            resource: "https://resource.example.com",
+            resource: resourceBaseUrl.href,
             authorization_servers: [`${authBaseUrl}`],
           }));
           return;
@@ -851,7 +851,7 @@ describe("SSEClientTransport", () => {
             'Content-Type': 'application/json',
           })
           .end(JSON.stringify({
-            resource: "https://resource.example.com",
+            resource: resourceBaseUrl.href,
             authorization_servers: [`${authBaseUrl}`],
           }));
           return;

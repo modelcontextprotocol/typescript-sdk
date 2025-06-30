@@ -134,6 +134,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
     // Add optional standard OAuth parameters
     if (params.state) searchParams.set("state", params.state);
     if (params.scopes?.length) searchParams.set("scope", params.scopes.join(" "));
+    if (params.resource) searchParams.set("resource", params.resource.href);
 
     targetUrl.search = searchParams.toString();
     res.redirect(targetUrl.toString());
@@ -152,7 +153,8 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
     client: OAuthClientInformationFull,
     authorizationCode: string,
     codeVerifier?: string,
-    redirectUri?: string
+    redirectUri?: string,
+    resource?: URL
   ): Promise<OAuthTokens> {
     const params = new URLSearchParams({
       grant_type: "authorization_code",
@@ -170,6 +172,10 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
 
     if (redirectUri) {
       params.append("redirect_uri", redirectUri);
+    }
+
+    if (resource) {
+      params.append("resource", resource.href);
     }
 
     const response = await fetch(this._endpoints.tokenUrl, {
@@ -192,7 +198,8 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
   async exchangeRefreshToken(
     client: OAuthClientInformationFull,
     refreshToken: string,
-    scopes?: string[]
+    scopes?: string[],
+    resource?: URL
   ): Promise<OAuthTokens> {
 
     const params = new URLSearchParams({
@@ -207,6 +214,10 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
 
     if (scopes?.length) {
       params.set("scope", scopes.join(" "));
+    }
+
+    if (resource) {
+      params.set("resource", resource.href);
     }
 
     const response = await fetch(this._endpoints.tokenUrl, {

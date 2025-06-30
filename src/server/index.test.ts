@@ -10,11 +10,12 @@ import {
   LATEST_PROTOCOL_VERSION,
   SUPPORTED_PROTOCOL_VERSIONS,
   CreateMessageRequestSchema,
+  ElicitRequestSchema,
   ListPromptsRequestSchema,
   ListResourcesRequestSchema,
   ListToolsRequestSchema,
   SetLevelRequestSchema,
-  ErrorCode,
+  ErrorCode
 } from "../types.js";
 import { Transport } from "../shared/transport.js";
 import { InMemoryTransport } from "../inMemory.js";
@@ -265,6 +266,318 @@ test("should respect client capabilities", async () => {
 
   // This should still throw because roots are not supported by the client
   await expect(server.listRoots()).rejects.toThrow(/^Client does not support/);
+});
+
+test("should respect client elicitation capabilities", async () => {
+  const server = new Server(
+    {
+      name: "test server",
+      version: "1.0",
+    },
+    {
+      capabilities: {
+        prompts: {},
+        resources: {},
+        tools: {},
+        logging: {},
+      },
+      enforceStrictCapabilities: true,
+    },
+  );
+
+  const client = new Client(
+    {
+      name: "test client",
+      version: "1.0",
+    },
+    {
+      capabilities: {
+        elicitation: {},
+      },
+    },
+  );
+
+  client.setRequestHandler(ElicitRequestSchema, (params) => ({
+    action: "accept",
+    content: {
+      username: params.params.message.includes("username") ? "test-user" : undefined,
+      confirmed: true,
+    },
+  }));
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  await Promise.all([
+    client.connect(clientTransport),
+    server.connect(serverTransport),
+  ]);
+
+  expect(server.getClientCapabilities()).toEqual({ elicitation: {} });
+
+  // This should work because elicitation is supported by the client
+  await expect(
+    server.elicitInput({
+      message: "Please provide your username",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          username: {
+            type: "string",
+            title: "Username",
+            description: "Your username",
+          },
+          confirmed: {
+            type: "boolean",
+            title: "Confirm",
+            description: "Please confirm",
+            default: false,
+          },
+        },
+        required: ["username"],
+      },
+    }),
+  ).resolves.toEqual({
+    action: "accept",
+    content: {
+      username: "test-user",
+      confirmed: true,
+    },
+  });
+
+  // This should still throw because sampling is not supported by the client
+  await expect(
+    server.createMessage({
+      messages: [],
+      maxTokens: 10,
+    }),
+  ).rejects.toThrow(/^Client does not support/);
+});
+
+test("should validate elicitation response against requested schema", async () => {
+  const server = new Server(
+    {
+      name: "test server",
+      version: "1.0",
+    },
+    {
+      capabilities: {
+        prompts: {},
+        resources: {},
+        tools: {},
+        logging: {},
+      },
+      enforceStrictCapabilities: true,
+    },
+  );
+
+  const client = new Client(
+    {
+      name: "test client",
+      version: "1.0",
+    },
+    {
+      capabilities: {
+        elicitation: {},
+      },
+    },
+  );
+
+  // Set up client to return valid response
+  client.setRequestHandler(ElicitRequestSchema, (request) => ({
+    action: "accept",
+    content: {
+      name: "John Doe",
+      email: "john@example.com",
+      age: 30,
+    },
+  }));
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  await Promise.all([
+    client.connect(clientTransport),
+    server.connect(serverTransport),
+  ]);
+
+  // Test with valid response
+  await expect(
+    server.elicitInput({
+      message: "Please provide your information",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            minLength: 1,
+          },
+          email: {
+            type: "string",
+            minLength: 1,
+          },
+          age: {
+            type: "integer",
+            minimum: 0,
+            maximum: 150,
+          },
+        },
+        required: ["name", "email"],
+      },
+    }),
+  ).resolves.toEqual({
+    action: "accept",
+    content: {
+      name: "John Doe",
+      email: "john@example.com",
+      age: 30,
+    },
+  });
+});
+
+test("should reject elicitation response with invalid data", async () => {
+  const server = new Server(
+    {
+      name: "test server",
+      version: "1.0",
+    },
+    {
+      capabilities: {
+        prompts: {},
+        resources: {},
+        tools: {},
+        logging: {},
+      },
+      enforceStrictCapabilities: true,
+    },
+  );
+
+  const client = new Client(
+    {
+      name: "test client",
+      version: "1.0",
+    },
+    {
+      capabilities: {
+        elicitation: {},
+      },
+    },
+  );
+
+  // Set up client to return invalid response (missing required field, invalid age)
+  client.setRequestHandler(ElicitRequestSchema, (request) => ({
+    action: "accept",
+    content: {
+      email: "", // Invalid - too short
+      age: -5, // Invalid age
+    },
+  }));
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  await Promise.all([
+    client.connect(clientTransport),
+    server.connect(serverTransport),
+  ]);
+
+  // Test with invalid response
+  await expect(
+    server.elicitInput({
+      message: "Please provide your information",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            minLength: 1,
+          },
+          email: {
+            type: "string",
+            minLength: 1,
+          },
+          age: {
+            type: "integer",
+            minimum: 0,
+            maximum: 150,
+          },
+        },
+        required: ["name", "email"],
+      },
+    }),
+  ).rejects.toThrow(/does not match requested schema/);
+});
+
+test("should allow elicitation reject and cancel without validation", async () => {
+  const server = new Server(
+    {
+      name: "test server",
+      version: "1.0",
+    },
+    {
+      capabilities: {
+        prompts: {},
+        resources: {},
+        tools: {},
+        logging: {},
+      },
+      enforceStrictCapabilities: true,
+    },
+  );
+
+  const client = new Client(
+    {
+      name: "test client",
+      version: "1.0",
+    },
+    {
+      capabilities: {
+        elicitation: {},
+      },
+    },
+  );
+
+  let requestCount = 0;
+  client.setRequestHandler(ElicitRequestSchema, (request) => {
+    requestCount++;
+    if (requestCount === 1) {
+      return { action: "reject" };
+    } else {
+      return { action: "cancel" };
+    }
+  });
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  await Promise.all([
+    client.connect(clientTransport),
+    server.connect(serverTransport),
+  ]);
+
+  const schema = {
+    type: "object" as const,
+    properties: {
+      name: { type: "string" as const },
+    },
+    required: ["name"],
+  };
+
+  // Test reject - should not validate
+  await expect(
+    server.elicitInput({
+      message: "Please provide your name",
+      requestedSchema: schema,
+    }),
+  ).resolves.toEqual({
+    action: "reject",
+  });
+
+  // Test cancel - should not validate  
+  await expect(
+    server.elicitInput({
+      message: "Please provide your name",
+      requestedSchema: schema,
+    }),
+  ).resolves.toEqual({
+    action: "cancel",
+  });
 });
 
 test("should respect server notification capabilities", async () => {
