@@ -290,21 +290,18 @@ const tool = server.registerTool("dynamic-tool", { /* config */ }, handler);
 tool.disable();  // Disable the tool
 tool.enable();   // Re-enable the tool
 
-// Advanced: Pattern-based tool enabling using minimatch
-import { minimatch } from 'minimatch';
+// Advanced: Pattern-based tool enabling using multimatch
+import multimatch from 'multimatch';
 
 const ENABLED_TOOL_PATTERNS = process.env.ENABLED_TOOLS?.split(',') || ['*'];
-
-function isToolEnabled(toolName: string): boolean {
-  return ENABLED_TOOL_PATTERNS.some(pattern => minimatch(toolName, pattern));
-}
+const isEnabled = (toolName: string) => multimatch([toolName], ENABLED_TOOL_PATTERNS).length > 0;
 
 // Register tools with pattern-based enabling
 server.registerTool(
   "file-read",
   {
     description: "Read file contents",
-    enabled: isToolEnabled("file-read")  // Enabled if matches pattern
+    enabled: isEnabled("file-read")
   },
   handler
 );
@@ -313,7 +310,7 @@ server.registerTool(
   "admin-delete-user", 
   {
     description: "Delete user account",
-    enabled: isToolEnabled("admin-delete-user")  // e.g., ENABLED_TOOLS="file-*,user-*"
+    enabled: isEnabled("admin-delete-user")
   },
   handler
 );
