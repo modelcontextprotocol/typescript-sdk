@@ -272,6 +272,46 @@ server.registerTool("admin-tool", {
 
 When `enabled: false`, tools don't appear in listings and cannot be called. Tools default to `enabled: true`.
 
+#### Resource Enabled State
+
+Resources can also be conditionally enabled during registration:
+
+```typescript
+// Environment-based enabling
+server.registerResource("debug-logs", "logs://debug", {
+  description: "Debug log files",
+  enabled: process.env.NODE_ENV === "development"
+}, handler);
+
+// Permission-based enabling  
+server.registerResource("admin-config", "config://admin", {
+  description: "Admin configuration",
+  enabled: user.hasRole("admin")
+}, handler);
+```
+
+When `enabled: false`, resources don't appear in listings and cannot be read. Resources default to `enabled: true`.
+
+#### Prompt Enabled State
+
+Prompts can be conditionally enabled during registration:
+
+```typescript
+// Feature flag enabling
+server.registerPrompt("experimental-prompt", {
+  description: "Experimental prompt template",
+  enabled: features.isEnabled("experimental-prompts")
+}, handler);
+
+// User level enabling
+server.registerPrompt("admin-prompt", {
+  description: "Admin prompt template", 
+  enabled: user.hasRole("admin")
+}, handler);
+```
+
+When `enabled: false`, prompts don't appear in listings and cannot be called. Prompts default to `enabled: true`.
+
 #### ResourceLinks
 
 Tools can return `ResourceLink` objects to reference resources without embedding their full content. This is essential for performance when dealing with large files or many resources - clients can then selectively read only the resources they need using the provided URIs.

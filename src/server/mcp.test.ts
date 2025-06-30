@@ -2603,6 +2603,238 @@ describe("resource()", () => {
   });
 });
 
+describe("registerResource()", () => {
+  /***
+   * Test: Resource Registration with enabled: true (default)
+   */
+  test("should register resource with enabled: true by default", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.registerResource(
+      "test",
+      "test://resource",
+      {
+        title: "Test Resource",
+        description: "A test resource",
+      },
+      async () => ({
+        contents: [
+          {
+            uri: "test://resource",
+            text: "Test content",
+          },
+        ],
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    );
+
+    expect(result.resources).toHaveLength(1);
+    expect(result.resources[0].name).toBe("test");
+    expect(result.resources[0].uri).toBe("test://resource");
+    expect(result.resources[0].title).toBe("Test Resource");
+    expect(result.resources[0].description).toBe("A test resource");
+  });
+
+  /***
+   * Test: Resource Registration with enabled: false
+   */
+  test("should not list resource when enabled: false", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.registerResource(
+      "test",
+      "test://resource",
+      {
+        title: "Test Resource",
+        description: "A test resource",
+        enabled: false,
+      },
+      async () => ({
+        contents: [
+          {
+            uri: "test://resource",
+            text: "Test content",
+          },
+        ],
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    );
+
+    expect(result.resources).toHaveLength(0);
+  });
+
+  /***
+   * Test: Resource Template Registration with enabled: false
+   */
+  test("should not list resource template resources when enabled: false", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.registerResource(
+      "test",
+      new ResourceTemplate("test://resource/{id}", {
+        list: async () => ({
+          resources: [
+            {
+              uri: "test://resource/1",
+              name: "Test Resource 1",
+            },
+          ],
+        }),
+      }),
+      {
+        title: "Test Resource Template",
+        description: "A test resource template",
+        enabled: false,
+      },
+      async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            text: "Test content",
+          },
+        ],
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    );
+
+    expect(result.resources).toHaveLength(0);
+  });
+
+  /***
+   * Test: Dynamic enable/disable of registered resource
+   */
+  test("should allow enabling/disabling registered resource", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    const resource = mcpServer.registerResource(
+      "test",
+      "test://resource",
+      {
+        title: "Test Resource",
+        enabled: false,
+      },
+      async () => ({
+        contents: [
+          {
+            uri: "test://resource",
+            text: "Test content",
+          },
+        ],
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Initially disabled
+    let result = await client.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    );
+    expect(result.resources).toHaveLength(0);
+
+    // Enable the resource
+    resource.enable();
+
+    result = await client.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    );
+    expect(result.resources).toHaveLength(1);
+    expect(result.resources[0].name).toBe("test");
+
+    // Disable the resource
+    resource.disable();
+
+    result = await client.request(
+      {
+        method: "resources/list",
+      },
+      ListResourcesResultSchema,
+    );
+    expect(result.resources).toHaveLength(0);
+  });
+});
+
 describe("prompt()", () => {
   /***
    * Test: Zero-Argument Prompt Registration
@@ -4310,23 +4542,26 @@ describe("Tool enabled state", () => {
 
     expect(tool.enabled).toBe(false);
 
-    // Setup mock transport for testing
-    const mockTransport = {
-      start: jest.fn(),
-      close: jest.fn(),
-      send: jest.fn(),
-      onMessage: jest.fn(),
-      onClose: jest.fn(),
-      onError: jest.fn(),
-    };
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
 
-    await server.connect(mockTransport);
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
 
     // List tools should not include disabled tool
-    const result = await server.server.handleRequest({
-      method: "tools/list",
-      params: {},
-    });
+    const result = await client.request(
+      {
+        method: "tools/list",
+      },
+      ListToolsResultSchema,
+    );
 
     expect(result.tools).toHaveLength(0);
 
@@ -4335,10 +4570,12 @@ describe("Tool enabled state", () => {
     expect(tool.enabled).toBe(true);
 
     // Now list tools should include the enabled tool
-    const result2 = await server.server.handleRequest({
-      method: "tools/list", 
-      params: {},
-    });
+    const result2 = await client.request(
+      {
+        method: "tools/list",
+      },
+      ListToolsResultSchema,
+    );
 
     expect(result2.tools).toHaveLength(1);
     expect(result2.tools[0].name).toBe("disabled_tool");
@@ -4377,5 +4614,293 @@ describe("Tool enabled state", () => {
     );
 
     expect(tool.enabled).toBe(true);
+  });
+});
+
+describe("registerPrompt()", () => {
+  /***
+   * Test: Prompt Registration with enabled: true (default)
+   */
+  test("should register prompt with enabled: true by default", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.registerPrompt(
+      "test",
+      {
+        title: "Test Prompt",
+        description: "A test prompt",
+      },
+      async () => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: "Test response",
+            },
+          },
+        ],
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "prompts/list",
+      },
+      ListPromptsResultSchema,
+    );
+
+    expect(result.prompts).toHaveLength(1);
+    expect(result.prompts[0].name).toBe("test");
+    expect(result.prompts[0].title).toBe("Test Prompt");
+    expect(result.prompts[0].description).toBe("A test prompt");
+  });
+
+  /***
+   * Test: Prompt Registration with enabled: false
+   */
+  test("should not list prompt when enabled: false", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.registerPrompt(
+      "test",
+      {
+        title: "Test Prompt",
+        description: "A test prompt",
+        enabled: false,
+      },
+      async () => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: "Test response",
+            },
+          },
+        ],
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "prompts/list",
+      },
+      ListPromptsResultSchema,
+    );
+
+    expect(result.prompts).toHaveLength(0);
+  });
+
+  /***
+   * Test: Prompt Registration with arguments and enabled: false
+   */
+  test("should not list prompt with arguments when enabled: false", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.registerPrompt(
+      "test",
+      {
+        title: "Test Prompt",
+        description: "A test prompt with arguments",
+        argsSchema: {
+          name: z.string(),
+          age: z.string().optional(),
+        },
+        enabled: false,
+      },
+      async ({ name, age }) => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: `Hello ${name}${age ? `, age ${age}` : ""}`,
+            },
+          },
+        ],
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "prompts/list",
+      },
+      ListPromptsResultSchema,
+    );
+
+    expect(result.prompts).toHaveLength(0);
+  });
+
+  /***
+   * Test: Dynamic enable/disable of registered prompt
+   */
+  test("should allow enabling/disabling registered prompt", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    const prompt = mcpServer.registerPrompt(
+      "test",
+      {
+        title: "Test Prompt",
+        enabled: false,
+      },
+      async () => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: "Test response",
+            },
+          },
+        ],
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Initially disabled
+    let result = await client.request(
+      {
+        method: "prompts/list",
+      },
+      ListPromptsResultSchema,
+    );
+    expect(result.prompts).toHaveLength(0);
+
+    // Enable the prompt
+    prompt.enable();
+
+    result = await client.request(
+      {
+        method: "prompts/list",
+      },
+      ListPromptsResultSchema,
+    );
+    expect(result.prompts).toHaveLength(1);
+    expect(result.prompts[0].name).toBe("test");
+
+    // Disable the prompt
+    prompt.disable();
+
+    result = await client.request(
+      {
+        method: "prompts/list",
+      },
+      ListPromptsResultSchema,
+    );
+    expect(result.prompts).toHaveLength(0);
+  });
+
+  /***
+   * Test: Attempt to call disabled prompt should fail
+   */
+  test("should throw error when trying to get disabled prompt", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.registerPrompt(
+      "test",
+      {
+        title: "Test Prompt",
+        enabled: false,
+      },
+      async () => ({
+        messages: [
+          {
+            role: "assistant",
+            content: {
+              type: "text",
+              text: "Test response",
+            },
+          },
+        ],
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Attempt to get disabled prompt should fail
+    await expect(
+      client.request(
+        {
+          method: "prompts/get",
+          params: {
+            name: "test",
+          },
+        },
+        GetPromptResultSchema,
+      ),
+    ).rejects.toThrow(/Prompt test disabled/);
   });
 });
