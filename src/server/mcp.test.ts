@@ -4291,3 +4291,91 @@ describe("elicitInput()", () => {
     }]);
   });
 });
+
+describe("Tool enabled state", () => {
+  it("should register tool with enabled: false", async () => {
+    const server = new McpServer({ name: "test", version: "1.0.0" });
+    
+    // Register tool with enabled: false
+    const tool = server.registerTool(
+      "disabled_tool",
+      {
+        description: "A tool that starts disabled",
+        enabled: false,
+      },
+      async () => ({
+        content: [{ type: "text", text: "This tool is disabled" }],
+      })
+    );
+
+    expect(tool.enabled).toBe(false);
+
+    // Setup mock transport for testing
+    const mockTransport = {
+      start: jest.fn(),
+      close: jest.fn(),
+      send: jest.fn(),
+      onMessage: jest.fn(),
+      onClose: jest.fn(),
+      onError: jest.fn(),
+    };
+
+    await server.connect(mockTransport);
+
+    // List tools should not include disabled tool
+    const result = await server.server.handleRequest({
+      method: "tools/list",
+      params: {},
+    });
+
+    expect(result.tools).toHaveLength(0);
+
+    // Enable the tool
+    tool.enable();
+    expect(tool.enabled).toBe(true);
+
+    // Now list tools should include the enabled tool
+    const result2 = await server.server.handleRequest({
+      method: "tools/list", 
+      params: {},
+    });
+
+    expect(result2.tools).toHaveLength(1);
+    expect(result2.tools[0].name).toBe("disabled_tool");
+  });
+
+  it("should register tool with enabled: true by default", async () => {
+    const server = new McpServer({ name: "test", version: "1.0.0" });
+    
+    // Register tool without specifying enabled (should default to true)
+    const tool = server.registerTool(
+      "default_enabled_tool",
+      {
+        description: "A tool with default enabled state",
+      },
+      async () => ({
+        content: [{ type: "text", text: "This tool is enabled by default" }],
+      })
+    );
+
+    expect(tool.enabled).toBe(true);
+  });
+
+  it("should register tool with enabled: true explicitly", async () => {
+    const server = new McpServer({ name: "test", version: "1.0.0" });
+    
+    // Register tool with enabled: true explicitly
+    const tool = server.registerTool(
+      "enabled_tool",
+      {
+        description: "A tool explicitly enabled",
+        enabled: true,
+      },
+      async () => ({
+        content: [{ type: "text", text: "This tool is enabled" }],
+      })
+    );
+
+    expect(tool.enabled).toBe(true);
+  });
+});

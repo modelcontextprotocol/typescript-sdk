@@ -252,6 +252,81 @@ server.registerTool(
 );
 ```
 
+#### Tool Enabled State
+
+Tools can be conditionally enabled or disabled during registration. This is useful for implementing feature flags, environment-based configurations, or permission-based access control:
+
+```typescript
+// Tool disabled by default
+server.registerTool(
+  "admin-command",
+  {
+    title: "Admin Command",
+    description: "Execute administrative commands",
+    inputSchema: { command: z.string() },
+    enabled: false  // Disabled by default
+  },
+  async ({ command }) => ({
+    content: [{ type: "text", text: `Executing: ${command}` }]
+  })
+);
+
+// Environment-based tool enabling
+server.registerTool(
+  "debug-tool",
+  {
+    title: "Debug Tool", 
+    description: "Development debugging utilities",
+    inputSchema: { action: z.string() },
+    enabled: process.env.NODE_ENV === "development"  // Only in dev
+  },
+  async ({ action }) => ({
+    content: [{ type: "text", text: `Debug action: ${action}` }]
+  })
+);
+
+// Enable/disable tools dynamically
+const tool = server.registerTool("dynamic-tool", { /* config */ }, handler);
+tool.disable();  // Disable the tool
+tool.enable();   // Re-enable the tool
+
+// Advanced: Pattern-based tool enabling using minimatch
+import { minimatch } from 'minimatch';
+
+const ENABLED_TOOL_PATTERNS = process.env.ENABLED_TOOLS?.split(',') || ['*'];
+
+function isToolEnabled(toolName: string): boolean {
+  return ENABLED_TOOL_PATTERNS.some(pattern => minimatch(toolName, pattern));
+}
+
+// Register tools with pattern-based enabling
+server.registerTool(
+  "file-read",
+  {
+    description: "Read file contents",
+    enabled: isToolEnabled("file-read")  // Enabled if matches pattern
+  },
+  handler
+);
+
+server.registerTool(
+  "admin-delete-user", 
+  {
+    description: "Delete user account",
+    enabled: isToolEnabled("admin-delete-user")  // e.g., ENABLED_TOOLS="file-*,user-*"
+  },
+  handler
+);
+```
+
+Example usage with environment variables:
+- `ENABLED_TOOLS="*"` - Enable all tools
+- `ENABLED_TOOLS="file-*,user-get*"` - Enable file operations and user read operations
+- `ENABLED_TOOLS="debug-*"` - Enable only debug tools
+- `ENABLED_TOOLS=""` - Disable all tools
+
+When `enabled: false`, the tool will not appear in tool listings and cannot be called by clients. Tools default to `enabled: true` if not specified.
+
 #### ResourceLinks
 
 Tools can return `ResourceLink` objects to reference resources without embedding their full content. This is essential for performance when dealing with large files or many resources - clients can then selectively read only the resources they need using the provided URIs.

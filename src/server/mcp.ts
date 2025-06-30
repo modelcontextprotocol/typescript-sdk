@@ -772,7 +772,8 @@ export class McpServer {
     inputSchema: ZodRawShape | undefined,
     outputSchema: ZodRawShape | undefined,
     annotations: ToolAnnotations | undefined,
-    callback: ToolCallback<ZodRawShape | undefined>
+    callback: ToolCallback<ZodRawShape | undefined>,
+    enabled: boolean = true
   ): RegisteredTool {
     const registeredTool: RegisteredTool = {
       title,
@@ -783,7 +784,7 @@ export class McpServer {
         outputSchema === undefined ? undefined : z.object(outputSchema),
       annotations,
       callback,
-      enabled: true,
+      enabled,
       disable: () => registeredTool.update({ enabled: false }),
       enable: () => registeredTool.update({ enabled: true }),
       remove: () => registeredTool.update({ name: null }),
@@ -928,6 +929,7 @@ export class McpServer {
       inputSchema?: InputArgs;
       outputSchema?: OutputArgs;
       annotations?: ToolAnnotations;
+      enabled?: boolean;
     },
     cb: ToolCallback<InputArgs>
   ): RegisteredTool {
@@ -935,7 +937,7 @@ export class McpServer {
       throw new Error(`Tool ${name} is already registered`);
     }
 
-    const { title, description, inputSchema, outputSchema, annotations } = config;
+    const { title, description, inputSchema, outputSchema, annotations, enabled } = config;
 
     return this._createRegisteredTool(
       name,
@@ -944,7 +946,8 @@ export class McpServer {
       inputSchema,
       outputSchema,
       annotations,
-      cb as ToolCallback<ZodRawShape | undefined>
+      cb as ToolCallback<ZodRawShape | undefined>,
+      enabled
     );
   }
 
