@@ -684,11 +684,11 @@ describe("OAuth Authorization", () => {
       expect(body.get("grant_type")).toBe("authorization_code");
       expect(body.get("code")).toBe("code123");
       expect(body.get("code_verifier")).toBe("verifier123");
-      expect(body.get("client_id")).toBe("client123");
+      expect(body.get("client_id")).toBeNull();
       expect(body.get("redirect_uri")).toBe("http://localhost:3000/callback");
       expect(body.get("example_url")).toBe("https://auth.example.com/token");
       expect(body.get("example_param")).toBe("example_value");
-      expect(body.get("client_secret")).toBeUndefined;
+      expect(body.get("client_secret")).toBeNull();
     });
 
     it("validates token response schema", async () => {
@@ -829,10 +829,10 @@ describe("OAuth Authorization", () => {
       const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
       expect(body.get("grant_type")).toBe("refresh_token");
       expect(body.get("refresh_token")).toBe("refresh123");
-      expect(body.get("client_id")).toBe("client123");
+      expect(body.get("client_id")).toBeNull();
       expect(body.get("example_url")).toBe("https://auth.example.com/token");
       expect(body.get("example_param")).toBe("example_value");
-      expect(body.get("client_secret")).toBeUndefined;
+      expect(body.get("client_secret")).toBeNull();
     });
 
     it("exchanges refresh token for new tokens and keep existing refresh token if none is returned", async () => {
@@ -1632,7 +1632,7 @@ describe("OAuth Authorization", () => {
       const request = mockFetch.mock.calls[0][1];
 
       // Check Authorization header
-      const authHeader = request.headers["Authorization"];
+      const authHeader = request.headers.get("Authorization");
       const expected = "Basic " + btoa("client123:secret123");
       expect(authHeader).toBe(expected);
 
@@ -1660,7 +1660,7 @@ describe("OAuth Authorization", () => {
       const request = mockFetch.mock.calls[0][1];
 
       // Check no Authorization header
-      expect(request.headers["Authorization"]).toBeUndefined();
+      expect(request.headers.get("Authorization")).toBeNull();
 
       const body = request.body as URLSearchParams;
       expect(body.get("client_id")).toBe("client123");
@@ -1692,7 +1692,7 @@ describe("OAuth Authorization", () => {
       const request = mockFetch.mock.calls[0][1];
 
       // Check no Authorization header
-      expect(request.headers["Authorization"]).toBeUndefined();
+      expect(request.headers.get("Authorization")).toBeNull();
 
       const body = request.body as URLSearchParams;
       expect(body.get("client_id")).toBe("client123");
@@ -1717,7 +1717,7 @@ describe("OAuth Authorization", () => {
       const request = mockFetch.mock.calls[0][1];
 
       // Check no Authorization header
-      expect(request.headers["Authorization"]).toBeUndefined();
+      expect(request.headers.get("Authorization")).toBeNull();
 
       const body = request.body as URLSearchParams;
       expect(body.get("client_id")).toBe("client123");
@@ -1770,7 +1770,7 @@ describe("OAuth Authorization", () => {
       const request = mockFetch.mock.calls[0][1];
 
       // Check Authorization header
-      const authHeader = request.headers["Authorization"];
+      const authHeader = request.headers.get("Authorization");
       const expected = "Basic " + btoa("client123:secret123");
       expect(authHeader).toBe(expected);
 
@@ -1797,7 +1797,7 @@ describe("OAuth Authorization", () => {
       const request = mockFetch.mock.calls[0][1];
 
       // Check no Authorization header
-      expect(request.headers["Authorization"]).toBeUndefined();
+      expect(request.headers.get("Authorization")).toBeNull();
 
       const body = request.body as URLSearchParams;
       expect(body.get("client_id")).toBe("client123");

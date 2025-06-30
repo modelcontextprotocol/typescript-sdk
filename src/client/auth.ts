@@ -167,7 +167,7 @@ function selectClientAuthMethod(
 function applyClientAuthentication(
   method: string,
   clientInformation: OAuthClientInformation,
-  headers: HeadersInit,
+  headers: Headers,
   params: URLSearchParams
 ): void {
   const { client_id, client_secret } = clientInformation;
@@ -193,13 +193,13 @@ function applyClientAuthentication(
 /**
  * Applies HTTP Basic authentication (RFC 6749 Section 2.3.1)
  */
-function applyBasicAuth(clientId: string, clientSecret: string | undefined, headers: HeadersInit): void {
+function applyBasicAuth(clientId: string, clientSecret: string | undefined, headers: Headers): void {
   if (!clientSecret) {
     throw new Error("client_secret_basic authentication requires a client_secret");
   }
   
   const credentials = btoa(`${clientId}:${clientSecret}`);
-  (headers as any)["Authorization"] = `Basic ${credentials}`;
+  headers.set("Authorization", `Basic ${credentials}`);
 }
 
 /**
@@ -634,10 +634,6 @@ export async function exchangeAuthorization(
         `Incompatible auth server: does not support grant type ${grantType}`,
     );
   }
-
-  // const headers: HeadersInit = {
-  //   "Content-Type": "application/x-www-form-urlencoded",
-  // };
 
   // // Exchange code for tokens
   const headers = new Headers({
