@@ -254,75 +254,23 @@ server.registerTool(
 
 #### Tool Enabled State
 
-Tools can be conditionally enabled or disabled during registration. This is useful for implementing feature flags, environment-based configurations, or permission-based access control:
+Tools can be conditionally enabled during registration using the `enabled` parameter:
 
 ```typescript
-// Tool disabled by default
-server.registerTool(
-  "admin-command",
-  {
-    title: "Admin Command",
-    description: "Execute administrative commands",
-    inputSchema: { command: z.string() },
-    enabled: false  // Disabled by default
-  },
-  async ({ command }) => ({
-    content: [{ type: "text", text: `Executing: ${command}` }]
-  })
-);
+// Environment-based enabling
+server.registerTool("debug-tool", {
+  description: "Debug utilities",
+  enabled: process.env.NODE_ENV === "development"
+}, handler);
 
-// Environment-based tool enabling
-server.registerTool(
-  "debug-tool",
-  {
-    title: "Debug Tool", 
-    description: "Development debugging utilities",
-    inputSchema: { action: z.string() },
-    enabled: process.env.NODE_ENV === "development"  // Only in dev
-  },
-  async ({ action }) => ({
-    content: [{ type: "text", text: `Debug action: ${action}` }]
-  })
-);
-
-// Enable/disable tools dynamically
-const tool = server.registerTool("dynamic-tool", { /* config */ }, handler);
-tool.disable();  // Disable the tool
-tool.enable();   // Re-enable the tool
-
-// Advanced: Pattern-based tool enabling using multimatch
-import multimatch from 'multimatch';
-
-const ENABLED_TOOL_PATTERNS = process.env.ENABLED_TOOLS?.split(',') || ['*'];
-const isEnabled = (toolName: string) => multimatch([toolName], ENABLED_TOOL_PATTERNS).length > 0;
-
-// Register tools with pattern-based enabling
-server.registerTool(
-  "file-read",
-  {
-    description: "Read file contents",
-    enabled: isEnabled("file-read")
-  },
-  handler
-);
-
-server.registerTool(
-  "admin-delete-user", 
-  {
-    description: "Delete user account",
-    enabled: isEnabled("admin-delete-user")
-  },
-  handler
-);
+// Permission-based enabling  
+server.registerTool("admin-tool", {
+  description: "Admin operations",
+  enabled: user.hasRole("admin")
+}, handler);
 ```
 
-Example usage with environment variables:
-- `ENABLED_TOOLS="*"` - Enable all tools
-- `ENABLED_TOOLS="file-*,user-get*"` - Enable file operations and user read operations
-- `ENABLED_TOOLS="debug-*"` - Enable only debug tools
-- `ENABLED_TOOLS=""` - Disable all tools
-
-When `enabled: false`, the tool will not appear in tool listings and cannot be called by clients. Tools default to `enabled: true` if not specified.
+When `enabled: false`, tools don't appear in listings and cannot be called. Tools default to `enabled: true`.
 
 #### ResourceLinks
 

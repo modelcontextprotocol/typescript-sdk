@@ -26,24 +26,13 @@ Currently, developers must implement workarounds like wrapper functions or condi
 
 ### New Capabilities
 ```typescript
-// Environment-based enabling
+// Conditional tool registration based on runtime conditions
 server.registerTool("debug-tool", {
-  description: "Development debugging utilities",
   enabled: process.env.NODE_ENV === "development"
 }, handler);
 
-// Permission-based enabling
-server.registerTool("admin-command", {
-  description: "Administrative operations", 
-  enabled: user.hasRole("admin")
-}, handler);
-
-// Pattern-based enabling with multimatch
-import multimatch from 'multimatch';
-const isEnabled = (name: string) => multimatch([name], ENABLED_PATTERNS).length > 0;
-
-server.registerTool("file-operations", {
-  enabled: isEnabled("file-operations")
+server.registerTool("admin-tool", {
+  enabled: user.hasRole("admin") 
 }, handler);
 ```
 
@@ -62,44 +51,20 @@ server.registerTool("file-operations", {
 
 ## 📚 Documentation & Examples
 
-**Comprehensive Documentation Added:**
-- Basic usage examples (environment variables, feature flags)
-- Advanced pattern-based enabling with multimatch library (simpler than minimatch for this use case)
+**Documentation Added:**
+- Basic usage examples (environment variables, permissions)
 - Clear migration path for existing code
-- Security considerations and best practices
 
-**Real-world Use Cases:**
-```bash
-# Enable all tools
-ENABLED_TOOLS="*"
-
-# Enable only file and user read operations  
-ENABLED_TOOLS="file-*,user-get*"
-
-# Enable only debug tools in development
-ENABLED_TOOLS="debug-*"
-
-# Disable all tools (testing/security)
-ENABLED_TOOLS=""
-```
-
-**Advanced Pattern Example:**
+**Common Use Cases:**
 ```typescript
-import multimatch from 'multimatch';
+// Environment-based
+enabled: process.env.NODE_ENV === "development"
 
-const ENABLED_TOOL_PATTERNS = process.env.ENABLED_TOOLS?.split(',') || ['*'];
-const isEnabled = (toolName: string) => multimatch([toolName], ENABLED_TOOL_PATTERNS).length > 0;
+// Permission-based  
+enabled: user.hasRole("admin")
 
-// Register tools with pattern-based enabling
-server.registerTool("file-read", {
-  description: "Read file contents",
-  enabled: isEnabled("file-read")
-}, handler);
-
-server.registerTool("admin-delete-user", {
-  description: "Delete user account", 
-  enabled: isEnabled("admin-delete-user")
-}, handler);
+// Feature flags
+enabled: features.isEnabled("experimental-tools")
 ```
 
 ## ✅ Testing
@@ -128,12 +93,9 @@ server.registerTool("my-tool", {
 
 ## 🎯 Impact
 
-This change enables:
-- **Cleaner architecture** - no more wrapper functions or conditional registration
-- **Better security** - easy disabling of sensitive operations
-- **Flexible deployment** - same codebase, different tool availability per environment
-- **Improved UX** - users only see tools they can actually use
-- **Future extensibility** - foundation for more advanced tool management features
+- **Cleaner architecture** - no conditional registration logic
+- **Better security** - disable sensitive operations based on context
+- **Flexible deployment** - same code, different tools per environment
 
 ## 📝 Checklist
 
