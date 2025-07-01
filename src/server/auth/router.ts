@@ -218,8 +218,12 @@ export function mcpAuthMetadataRouter(options: AuthMetadataOptions) {
  * @returns The URL for the OAuth protected resource metadata endpoint
  *
  * @example
- * getOAuthProtectedResourceMetadataUrl(new URL('https://api.example.com/mcp'))
+ * getOAuthProtectedResourceMetadataUrl(new URL('https://api.example.com'))
  * // Returns: 'https://api.example.com/.well-known/oauth-protected-resource'
+ *
+ * @example
+ * getOAuthProtectedResourceMetadataUrl(new URL('https://api.example.com/mcp'))
+ * // Returns: 'https://api.example.com/.well-known/oauth-protected-resource/mcp'
  */
 export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): string {
   const wellKnownUrl = new URL(serverUrl);
