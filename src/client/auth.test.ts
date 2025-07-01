@@ -403,6 +403,20 @@ describe("OAuth Authorization", () => {
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
+    it("returns undefined when both CORS requests fail in fetchWithCorsRetry", async () => {
+      // This simulates the exact scenario from PR description:
+      // fetchWithCorsRetry tries with headers (fails with CORS), then retries without headers (also fails with CORS)
+      // We want this to return undefined, not throw TypeError
+      mockFetch.mockImplementation(() => {
+        // Both the initial request with headers and retry without headers fail with CORS TypeError
+        return Promise.reject(new TypeError("Failed to fetch"));
+      });
+
+      // This should return undefined (the desired behavior after the fix)
+      const metadata = await discoverOAuthMetadata("https://auth.example.com/path");
+      expect(metadata).toBeUndefined();
+    });
+
     it("returns undefined when discovery endpoint returns 404", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
