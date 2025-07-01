@@ -528,7 +528,6 @@ export async function startAuthorization(
     scope,
     state,
     resource,
-    addClientAuthentication,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
@@ -536,7 +535,6 @@ export async function startAuthorization(
     scope?: string;
     state?: string;
     resource?: URL;
-    addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
   },
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
   const responseType = "code";

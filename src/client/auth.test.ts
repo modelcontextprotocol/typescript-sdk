@@ -690,8 +690,8 @@ describe("OAuth Authorization", () => {
         exchangeAuthorization("https://auth.example.com", {
           clientInformation: validClientInfo,
           authorizationCode: "code123",
-          redirectUri: "http://localhost:3000/callback",
           codeVerifier: "verifier123",
+          redirectUri: "http://localhost:3000/callback",
         })
       ).rejects.toThrow();
     });
@@ -705,9 +705,9 @@ describe("OAuth Authorization", () => {
       await expect(
         exchangeAuthorization("https://auth.example.com", {
           clientInformation: validClientInfo,
-          redirectUri: "http://localhost:3000/callback",
           authorizationCode: "code123",
           codeVerifier: "verifier123",
+          redirectUri: "http://localhost:3000/callback",
         })
       ).rejects.toThrow("Token exchange failed");
     });
@@ -751,6 +751,9 @@ describe("OAuth Authorization", () => {
         }),
         expect.objectContaining({
           method: "POST",
+          headers: new Headers({
+            "Content-Type": "application/x-www-form-urlencoded",
+          }),
         })
       );
 
