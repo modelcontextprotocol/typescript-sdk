@@ -404,9 +404,8 @@ describe("OAuth Authorization", () => {
     });
 
     it("returns undefined when both CORS requests fail in fetchWithCorsRetry", async () => {
-      // This simulates the exact scenario from PR description:
       // fetchWithCorsRetry tries with headers (fails with CORS), then retries without headers (also fails with CORS)
-      // We want this to return undefined, not throw TypeError
+      // simulating a 404 w/o headers set. We want this to return undefined, not throw TypeError
       mockFetch.mockImplementation(() => {
         // Both the initial request with headers and retry without headers fail with CORS TypeError
         return Promise.reject(new TypeError("Failed to fetch"));
