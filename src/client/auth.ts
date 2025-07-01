@@ -274,12 +274,16 @@ export async function auth(
 
   // Exchange authorization code for tokens
   if (authorizationCode !== undefined) {
+    const codeVerifier = await provider.codeVerifier();
     const tokens = await exchangeAuthorization(authorizationServerUrl, {
       metadata,
       clientInformation,
       authorizationCode,
+      codeVerifier,
+      redirectUri: provider.redirectUrl,
       resource,
-    }, provider);
+      addClientAuthentication: provider.addClientAuthentication,
+    });
 
     await provider.saveTokens(tokens);
     return "AUTHORIZED";
@@ -296,7 +300,8 @@ export async function auth(
         clientInformation,
         refreshToken: tokens.refresh_token,
         resource,
-      }, provider);
+        addClientAuthentication: provider.addClientAuthentication,
+      });
 
       await provider.saveTokens(newTokens);
       return "AUTHORIZED";
@@ -312,9 +317,10 @@ export async function auth(
     metadata,
     clientInformation,
     state,
+    redirectUrl: provider.redirectUrl,
     scope: scope || provider.clientMetadata.scope,
     resource,
-  }, provider);
+  });
 
   await provider.saveCodeVerifier(codeVerifier);
   await provider.redirectToAuthorization(authorizationUrl);
@@ -518,17 +524,20 @@ export async function startAuthorization(
   {
     metadata,
     clientInformation,
+    redirectUrl,
     scope,
     state,
     resource,
+    addClientAuthentication,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
+    redirectUrl: string | URL;
     scope?: string;
     state?: string;
     resource?: URL;
+    addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
   },
-  provider: OAuthClientProvider,
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
   const responseType = "code";
   const codeChallengeMethod = "S256";
@@ -567,7 +576,7 @@ export async function startAuthorization(
     "code_challenge_method",
     codeChallengeMethod,
   );
-  authorizationUrl.searchParams.set("redirect_uri", String(provider.redirectUrl));
+  authorizationUrl.searchParams.set("redirect_uri", String(redirectUrl));
 
   if (state) {
     authorizationUrl.searchParams.set("state", state);
@@ -602,14 +611,19 @@ export async function exchangeAuthorization(
     metadata,
     clientInformation,
     authorizationCode,
+    codeVerifier,
+    redirectUri,
     resource,
+    addClientAuthentication
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
     authorizationCode: string;
+    codeVerifier: string;
+    redirectUri: string | URL;
     resource?: URL;
+    addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
   },
-  provider: OAuthClientProvider
 ): Promise<OAuthTokens> {
   const grantType = "authorization_code";
 
@@ -630,16 +644,15 @@ export async function exchangeAuthorization(
   const headers = new Headers({
     "Content-Type": "application/x-www-form-urlencoded",
   });
-  const codeVerifier = await provider.codeVerifier();
   const params = new URLSearchParams({
     grant_type: grantType,
     code: authorizationCode,
     code_verifier: codeVerifier,
-    redirect_uri: String(provider.redirectUrl),
+    redirect_uri: String(redirectUri),
   });
 
-  if (provider?.addClientAuthentication) {
-    provider.addClientAuthentication(tokenUrl, headers, params);
+  if (addClientAuthentication) {
+    addClientAuthentication(tokenUrl, headers, params);
   } else {
     // Determine and apply client authentication method
     const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
@@ -684,13 +697,14 @@ export async function refreshAuthorization(
     clientInformation,
     refreshToken,
     resource,
+    addClientAuthentication,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
     refreshToken: string;
     resource?: URL;
-  },
-  provider: OAuthClientProvider,
+    addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
+  }
 ): Promise<OAuthTokens> {
   const grantType = "refresh_token";
 
@@ -719,8 +733,8 @@ export async function refreshAuthorization(
     refresh_token: refreshToken,
   });
 
-  if (provider?.addClientAuthentication) {
-    provider.addClientAuthentication(tokenUrl, headers, params);
+  if (addClientAuthentication) {
+    addClientAuthentication(tokenUrl, headers, params);
   } else {
     // Determine and apply client authentication method
     const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];

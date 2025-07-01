@@ -17,25 +17,8 @@ const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
 describe("OAuth Authorization", () => {
-  let mockProvider: OAuthClientProvider;
-
   beforeEach(() => {
     mockFetch.mockReset();
-    mockProvider = {
-      get redirectUrl() { return "http://localhost:3000/callback"; },
-      get clientMetadata() {
-        return {
-          redirect_uris: ["http://localhost:3000/callback"],
-          client_name: "Test Client",
-        };
-      },
-      clientInformation: jest.fn(),
-      tokens: jest.fn(),
-      saveTokens: jest.fn(),
-      redirectToAuthorization: jest.fn(),
-      saveCodeVerifier: jest.fn(),
-      codeVerifier() { return "verifier123"; },
-    };
   });
 
   describe("extractResourceMetadataUrl", () => {
@@ -480,9 +463,9 @@ describe("OAuth Authorization", () => {
         {
           metadata: undefined,
           clientInformation: validClientInfo,
+          redirectUrl: "http://localhost:3000/callback",
           resource: new URL("https://api.example.com/mcp-server"),
-        },
-        mockProvider
+        }
       );
 
       expect(authorizationUrl.toString()).toMatch(
@@ -505,9 +488,9 @@ describe("OAuth Authorization", () => {
         "https://auth.example.com",
         {
           clientInformation: validClientInfo,
+          redirectUrl: "http://localhost:3000/callback",
           scope: "read write profile",
-        },
-        mockProvider
+        }
       );
 
       expect(authorizationUrl.searchParams.get("scope")).toBe("read write profile");
@@ -518,8 +501,8 @@ describe("OAuth Authorization", () => {
         "https://auth.example.com",
         {
           clientInformation: validClientInfo,
-        },
-        mockProvider
+          redirectUrl: "http://localhost:3000/callback",
+        }
       );
 
       expect(authorizationUrl.searchParams.has("scope")).toBe(false);
@@ -530,9 +513,9 @@ describe("OAuth Authorization", () => {
         "https://auth.example.com",
         {
           clientInformation: validClientInfo,
+          redirectUrl: "http://localhost:3000/callback",
           state: "foobar",
-        },
-        mockProvider
+        }
       );
 
       expect(authorizationUrl.searchParams.get("state")).toBe("foobar");
@@ -543,8 +526,8 @@ describe("OAuth Authorization", () => {
         "https://auth.example.com",
         {
           clientInformation: validClientInfo,
-        },
-        mockProvider
+          redirectUrl: "http://localhost:3000/callback",
+        }
       );
 
       expect(authorizationUrl.searchParams.has("state")).toBe(false);
@@ -556,8 +539,8 @@ describe("OAuth Authorization", () => {
         {
           metadata: validMetadata,
           clientInformation: validClientInfo,
-        },
-        mockProvider
+          redirectUrl: "http://localhost:3000/callback",
+        }
       );
 
       expect(authorizationUrl.toString()).toMatch(
@@ -575,7 +558,8 @@ describe("OAuth Authorization", () => {
         startAuthorization("https://auth.example.com", {
           metadata,
           clientInformation: validClientInfo,
-        }, mockProvider)
+          redirectUrl: "http://localhost:3000/callback",
+        })
       ).rejects.toThrow(/does not support response type/);
     });
 
@@ -590,7 +574,8 @@ describe("OAuth Authorization", () => {
         startAuthorization("https://auth.example.com", {
           metadata,
           clientInformation: validClientInfo,
-        }, mockProvider)
+          redirectUrl: "http://localhost:3000/callback",
+        })
       ).rejects.toThrow(/does not support code challenge method/);
     });
   });
@@ -620,8 +605,10 @@ describe("OAuth Authorization", () => {
       const tokens = await exchangeAuthorization("https://auth.example.com", {
         clientInformation: validClientInfo,
         authorizationCode: "code123",
+        codeVerifier: "verifier123",
+        redirectUri: "http://localhost:3000/callback",
         resource: new URL("https://api.example.com/mcp-server"),
-      }, mockProvider);
+      });
 
       expect(tokens).toEqual(validTokens);
       expect(mockFetch).toHaveBeenCalledWith(
@@ -647,12 +634,6 @@ describe("OAuth Authorization", () => {
     });
 
     it("exchanges code for tokens with auth", async () => {
-      mockProvider.addClientAuthentication = function(url: URL, headers: Headers, params: URLSearchParams) {
-        headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
-        params.set("example_url", url.toString());
-        params.set("example_param", "example_value");
-      };
-
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -662,7 +643,14 @@ describe("OAuth Authorization", () => {
       const tokens = await exchangeAuthorization("https://auth.example.com", {
         clientInformation: validClientInfo,
         authorizationCode: "code123",
-      }, mockProvider);
+        codeVerifier: "verifier123",
+        redirectUri: "http://localhost:3000/callback",
+        addClientAuthentication: (url: URL, headers: Headers, params: URLSearchParams) => {
+          headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
+          params.set("example_url", url.toString());
+          params.set("example_param", "example_value");
+        },
+      });
 
       expect(tokens).toEqual(validTokens);
       expect(mockFetch).toHaveBeenCalledWith(
@@ -702,7 +690,9 @@ describe("OAuth Authorization", () => {
         exchangeAuthorization("https://auth.example.com", {
           clientInformation: validClientInfo,
           authorizationCode: "code123",
-        }, mockProvider)
+          redirectUri: "http://localhost:3000/callback",
+          codeVerifier: "verifier123",
+        })
       ).rejects.toThrow();
     });
 
@@ -715,8 +705,10 @@ describe("OAuth Authorization", () => {
       await expect(
         exchangeAuthorization("https://auth.example.com", {
           clientInformation: validClientInfo,
+          redirectUri: "http://localhost:3000/callback",
           authorizationCode: "code123",
-        }, mockProvider)
+          codeVerifier: "verifier123",
+        })
       ).rejects.toThrow("Token exchange failed");
     });
   });
@@ -750,7 +742,7 @@ describe("OAuth Authorization", () => {
         clientInformation: validClientInfo,
         refreshToken: "refresh123",
         resource: new URL("https://api.example.com/mcp-server"),
-      }, mockProvider);
+      });
 
       expect(tokens).toEqual(validTokensWithNewRefreshToken);
       expect(mockFetch).toHaveBeenCalledWith(
@@ -771,12 +763,6 @@ describe("OAuth Authorization", () => {
     });
 
     it("exchanges refresh token for new tokens with auth", async () => {
-      mockProvider.addClientAuthentication = function(url: URL, headers: Headers, params: URLSearchParams) {
-        headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
-        params.set("example_url", url.toString());
-        params.set("example_param", "example_value");
-      };
-
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -786,7 +772,12 @@ describe("OAuth Authorization", () => {
       const tokens = await refreshAuthorization("https://auth.example.com", {
         clientInformation: validClientInfo,
         refreshToken: "refresh123",
-      }, mockProvider);
+        addClientAuthentication: (url: URL, headers: Headers, params: URLSearchParams) => {
+          headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
+          params.set("example_url", url.toString());
+          params.set("example_param", "example_value");
+        },
+      });
 
       expect(tokens).toEqual(validTokensWithNewRefreshToken);
       expect(mockFetch).toHaveBeenCalledWith(
@@ -821,7 +812,7 @@ describe("OAuth Authorization", () => {
       const tokens = await refreshAuthorization("https://auth.example.com", {
         clientInformation: validClientInfo,
         refreshToken,
-      }, mockProvider);
+      });
 
       expect(tokens).toEqual({ refresh_token: refreshToken, ...validTokens });
     });
@@ -840,7 +831,7 @@ describe("OAuth Authorization", () => {
         refreshAuthorization("https://auth.example.com", {
           clientInformation: validClientInfo,
           refreshToken: "refresh123",
-        }, mockProvider)
+        })
       ).rejects.toThrow();
     });
 
@@ -854,7 +845,7 @@ describe("OAuth Authorization", () => {
         refreshAuthorization("https://auth.example.com", {
           clientInformation: validClientInfo,
           refreshToken: "refresh123",
-        }, mockProvider)
+        })
       ).rejects.toThrow("Token refresh failed");
     });
   });
@@ -1599,7 +1590,9 @@ describe("OAuth Authorization", () => {
         metadata: metadataWithBasicOnly,
         clientInformation: validClientInfo,
         authorizationCode: "code123",
-      }, mockProvider);
+        redirectUri: "http://localhost:3000/callback",
+        codeVerifier: "verifier123",
+      });
 
       expect(tokens).toEqual(validTokens);
       const request = mockFetch.mock.calls[0][1];
@@ -1625,7 +1618,9 @@ describe("OAuth Authorization", () => {
         metadata: metadataWithPostOnly,
         clientInformation: validClientInfo,
         authorizationCode: "code123",
-      }, mockProvider);
+        redirectUri: "http://localhost:3000/callback",
+        codeVerifier: "verifier123",
+      });
 
       expect(tokens).toEqual(validTokens);
       const request = mockFetch.mock.calls[0][1];
@@ -1655,7 +1650,9 @@ describe("OAuth Authorization", () => {
         metadata: metadataWithNoneOnly,
         clientInformation: clientInfoWithoutSecret,
         authorizationCode: "code123",
-      }, mockProvider);
+        redirectUri: "http://localhost:3000/callback",
+        codeVerifier: "verifier123",
+      });
 
       expect(tokens).toEqual(validTokens);
       const request = mockFetch.mock.calls[0][1];
@@ -1678,7 +1675,9 @@ describe("OAuth Authorization", () => {
       const tokens = await exchangeAuthorization("https://auth.example.com", {
         clientInformation: validClientInfo,
         authorizationCode: "code123",
-      }, mockProvider);
+        redirectUri: "http://localhost:3000/callback",
+        codeVerifier: "verifier123",
+      });
 
       expect(tokens).toEqual(validTokens);
       const request = mockFetch.mock.calls[0][1];
@@ -1732,7 +1731,7 @@ describe("OAuth Authorization", () => {
         metadata: metadataWithBasicOnly,
         clientInformation: validClientInfo,
         refreshToken: "refresh123",
-      }, mockProvider);
+      });
 
       expect(tokens).toEqual(validTokens);
       const request = mockFetch.mock.calls[0][1];
@@ -1759,7 +1758,7 @@ describe("OAuth Authorization", () => {
         metadata: metadataWithPostOnly,
         clientInformation: validClientInfo,
         refreshToken: "refresh123",
-      }, mockProvider);
+      });
 
       expect(tokens).toEqual(validTokens);
       const request = mockFetch.mock.calls[0][1];
