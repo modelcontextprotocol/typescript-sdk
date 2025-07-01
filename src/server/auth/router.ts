@@ -222,5 +222,12 @@ export function mcpAuthMetadataRouter(options: AuthMetadataOptions) {
  * // Returns: 'https://api.example.com/.well-known/oauth-protected-resource'
  */
 export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): string {
-  return new URL('/.well-known/oauth-protected-resource', serverUrl).href;
+  const wellKnownUrl = new URL(serverUrl);
+  let path = wellKnownUrl.pathname;
+  if (path === '/') {
+		path = path.slice(0, -1);
+	}
+
+  wellKnownUrl.pathname = `/.well-known/oauth-protected-resource${path}`
+  return wellKnownUrl.toString();
 }
