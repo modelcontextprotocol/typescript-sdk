@@ -274,13 +274,10 @@ export async function auth(
 
   // Exchange authorization code for tokens
   if (authorizationCode !== undefined) {
-    const codeVerifier = await provider.codeVerifier();
     const tokens = await exchangeAuthorization(authorizationServerUrl, {
       metadata,
       clientInformation,
       authorizationCode,
-      codeVerifier,
-      redirectUri: provider.redirectUrl,
       resource,
     }, provider);
 
@@ -315,10 +312,9 @@ export async function auth(
     metadata,
     clientInformation,
     state,
-    redirectUrl: provider.redirectUrl,
     scope: scope || provider.clientMetadata.scope,
     resource,
-  });
+  }, provider);
 
   await provider.saveCodeVerifier(codeVerifier);
   await provider.redirectToAuthorization(authorizationUrl);
@@ -522,18 +518,17 @@ export async function startAuthorization(
   {
     metadata,
     clientInformation,
-    redirectUrl,
     scope,
     state,
     resource,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
-    redirectUrl: string | URL;
     scope?: string;
     state?: string;
     resource?: URL;
   },
+  provider: OAuthClientProvider,
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
   const responseType = "code";
   const codeChallengeMethod = "S256";
@@ -572,7 +567,7 @@ export async function startAuthorization(
     "code_challenge_method",
     codeChallengeMethod,
   );
-  authorizationUrl.searchParams.set("redirect_uri", String(redirectUrl));
+  authorizationUrl.searchParams.set("redirect_uri", String(provider.redirectUrl));
 
   if (state) {
     authorizationUrl.searchParams.set("state", state);
@@ -607,18 +602,14 @@ export async function exchangeAuthorization(
     metadata,
     clientInformation,
     authorizationCode,
-    codeVerifier,
-    redirectUri,
     resource,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
     authorizationCode: string;
-    codeVerifier: string;
-    redirectUri: string | URL;
     resource?: URL;
   },
-  provider?: OAuthClientProvider
+  provider: OAuthClientProvider
 ): Promise<OAuthTokens> {
   const grantType = "authorization_code";
 
@@ -635,15 +626,16 @@ export async function exchangeAuthorization(
     );
   }
 
-  // // Exchange code for tokens
+  // Exchange code for tokens
   const headers = new Headers({
     "Content-Type": "application/x-www-form-urlencoded",
   });
+  const codeVerifier = await provider.codeVerifier();
   const params = new URLSearchParams({
     grant_type: grantType,
     code: authorizationCode,
     code_verifier: codeVerifier,
-    redirect_uri: String(redirectUri),
+    redirect_uri: String(provider.redirectUrl),
   });
 
   if (provider?.addClientAuthentication) {
@@ -698,7 +690,7 @@ export async function refreshAuthorization(
     refreshToken: string;
     resource?: URL;
   },
-  provider?: OAuthClientProvider,
+  provider: OAuthClientProvider,
 ): Promise<OAuthTokens> {
   const grantType = "refresh_token";
 
@@ -717,10 +709,6 @@ export async function refreshAuthorization(
   } else {
     tokenUrl = new URL("/token", authorizationServerUrl);
   }
-
-  // const headers: HeadersInit = {
-  //   "Content-Type": "application/x-www-form-urlencoded",
-  // };
 
   // Exchange refresh token
   const headers = new Headers({
