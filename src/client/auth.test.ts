@@ -11,6 +11,7 @@ import {
   auth,
   type OAuthClientProvider,
 } from "./auth.js";
+import { OAuthMetadata } from 'src/shared/auth.js';
 
 // Mock fetch globally
 const mockFetch = jest.fn();
@@ -588,6 +589,13 @@ describe("OAuth Authorization", () => {
       refresh_token: "refresh123",
     };
 
+    const validMetadata = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      response_types_supported: ["code"]
+    };
+
     const validClientInfo = {
       client_id: "client123",
       client_secret: "secret123",
@@ -641,13 +649,15 @@ describe("OAuth Authorization", () => {
       });
 
       const tokens = await exchangeAuthorization("https://auth.example.com", {
+        metadata: validMetadata,
         clientInformation: validClientInfo,
         authorizationCode: "code123",
         codeVerifier: "verifier123",
         redirectUri: "http://localhost:3000/callback",
-        addClientAuthentication: (headers: Headers, params: URLSearchParams, url: string | URL) => {
+        addClientAuthentication: (headers: Headers, params: URLSearchParams, url: string | URL, metadata: OAuthMetadata) => {
           headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
           params.set("example_url", typeof url === 'string' ? url : url.toString());
+          params.set("example_metadata", metadata.authorization_endpoint);
           params.set("example_param", "example_value");
         },
       });
@@ -672,6 +682,7 @@ describe("OAuth Authorization", () => {
       expect(body.get("client_id")).toBeNull();
       expect(body.get("redirect_uri")).toBe("http://localhost:3000/callback");
       expect(body.get("example_url")).toBe("https://auth.example.com");
+      expect(body.get("example_metadata")).toBe("https://auth.example.com/authorize");
       expect(body.get("example_param")).toBe("example_value");
       expect(body.get("client_secret")).toBeNull();
     });
@@ -724,6 +735,13 @@ describe("OAuth Authorization", () => {
       refresh_token: "newrefresh123",
     };
 
+    const validMetadata = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      response_types_supported: ["code"]
+    };
+
     const validClientInfo = {
       client_id: "client123",
       client_secret: "secret123",
@@ -773,11 +791,13 @@ describe("OAuth Authorization", () => {
       });
 
       const tokens = await refreshAuthorization("https://auth.example.com", {
+        metadata: validMetadata,
         clientInformation: validClientInfo,
         refreshToken: "refresh123",
-        addClientAuthentication: (headers: Headers, params: URLSearchParams, url: string | URL) => {
+        addClientAuthentication: (headers: Headers, params: URLSearchParams, url: string | URL, metadata: OAuthMetadata) => {
           headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
           params.set("example_url", typeof url === 'string' ? url : url.toString());
+          params.set("example_metadata", metadata.authorization_endpoint);
           params.set("example_param", "example_value");
         },
       });
@@ -800,6 +820,7 @@ describe("OAuth Authorization", () => {
       expect(body.get("refresh_token")).toBe("refresh123");
       expect(body.get("client_id")).toBeNull();
       expect(body.get("example_url")).toBe("https://auth.example.com");
+      expect(body.get("example_metadata")).toBe("https://auth.example.com/authorize");
       expect(body.get("example_param")).toBe("example_value");
       expect(body.get("client_secret")).toBeNull();
     });
