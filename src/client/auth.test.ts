@@ -232,7 +232,7 @@ describe("OAuth Authorization", () => {
         ok: false,
         status: 404,
       });
-      
+
       // Second call (root fallback) succeeds
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -242,17 +242,17 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com/path/name");
       expect(metadata).toEqual(validMetadata);
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(2);
-      
+
       // First call should be path-aware
       const [firstUrl, firstOptions] = calls[0];
       expect(firstUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/path/name");
       expect(firstOptions.headers).toEqual({
         "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
       });
-      
+
       // Second call should be root fallback
       const [secondUrl, secondOptions] = calls[1];
       expect(secondUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
@@ -267,7 +267,7 @@ describe("OAuth Authorization", () => {
         ok: false,
         status: 404,
       });
-      
+
       // Second call (root fallback) also returns 404
       mockFetch.mockResolvedValueOnce({
         ok: false,
@@ -276,7 +276,7 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com/path/name");
       expect(metadata).toBeUndefined();
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(2);
     });
@@ -290,10 +290,10 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com/");
       expect(metadata).toBeUndefined();
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(1); // Should not attempt fallback
-      
+
       const [url] = calls[0];
       expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
     });
@@ -307,10 +307,10 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com");
       expect(metadata).toBeUndefined();
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(1); // Should not attempt fallback
-      
+
       const [url] = calls[0];
       expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
     });
@@ -318,13 +318,13 @@ describe("OAuth Authorization", () => {
     it("falls back when path-aware discovery encounters CORS error", async () => {
       // First call (path-aware) fails with TypeError (CORS)
       mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError("CORS error")));
-      
+
       // Retry path-aware without headers (simulating CORS retry)
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 404,
       });
-      
+
       // Second call (root fallback) succeeds
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -334,10 +334,10 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com/deep/path");
       expect(metadata).toEqual(validMetadata);
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(3);
-      
+
       // Final call should be root fallback
       const [lastUrl, lastOptions] = calls[2];
       expect(lastUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
@@ -645,9 +645,9 @@ describe("OAuth Authorization", () => {
         authorizationCode: "code123",
         codeVerifier: "verifier123",
         redirectUri: "http://localhost:3000/callback",
-        addClientAuthentication: (url: URL, headers: Headers, params: URLSearchParams) => {
+        addClientAuthentication: (headers: Headers, params: URLSearchParams, url: string | URL) => {
           headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
-          params.set("example_url", url.toString());
+          params.set("example_url", typeof url === 'string' ? url : url.toString());
           params.set("example_param", "example_value");
         },
       });
@@ -671,7 +671,7 @@ describe("OAuth Authorization", () => {
       expect(body.get("code_verifier")).toBe("verifier123");
       expect(body.get("client_id")).toBeNull();
       expect(body.get("redirect_uri")).toBe("http://localhost:3000/callback");
-      expect(body.get("example_url")).toBe("https://auth.example.com/token");
+      expect(body.get("example_url")).toBe("https://auth.example.com");
       expect(body.get("example_param")).toBe("example_value");
       expect(body.get("client_secret")).toBeNull();
     });
@@ -775,9 +775,9 @@ describe("OAuth Authorization", () => {
       const tokens = await refreshAuthorization("https://auth.example.com", {
         clientInformation: validClientInfo,
         refreshToken: "refresh123",
-        addClientAuthentication: (url: URL, headers: Headers, params: URLSearchParams) => {
+        addClientAuthentication: (headers: Headers, params: URLSearchParams, url: string | URL) => {
           headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
-          params.set("example_url", url.toString());
+          params.set("example_url", typeof url === 'string' ? url : url.toString());
           params.set("example_param", "example_value");
         },
       });
@@ -799,7 +799,7 @@ describe("OAuth Authorization", () => {
       expect(body.get("grant_type")).toBe("refresh_token");
       expect(body.get("refresh_token")).toBe("refresh123");
       expect(body.get("client_id")).toBeNull();
-      expect(body.get("example_url")).toBe("https://auth.example.com/token");
+      expect(body.get("example_url")).toBe("https://auth.example.com");
       expect(body.get("example_param")).toBe("example_value");
       expect(body.get("client_secret")).toBeNull();
     });
