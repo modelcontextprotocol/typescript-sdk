@@ -1,11 +1,9 @@
 name: Publish Any Commit
 on:
-  pull_request:
   push:
     branches:
-      - '**'
-    tags:
-      - '!**'
+      - main
+  pull_request:
 
 jobs:
   build:
