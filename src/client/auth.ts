@@ -127,6 +127,42 @@ export interface OAuthClientProvider {
   invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier'): void | Promise<void>;
 }
 
+/**
+ * A provider that delegates authentication to an external system.
+ *
+ * This interface allows for custom authentication mechanisms that are
+ * either already implemented on a specific platform or handled outside the
+ * standard OAuth flow, such as API keys, custom tokens, or integration with external
+ * authentication services.
+ */
+export interface DelegatedAuthClientProvider {
+  /**
+   * Returns authentication headers to be included in requests.
+   *
+   * These headers will be added to all HTTP requests made by the transport.
+   * Common examples include Authorization headers, API keys, or custom
+   * authentication tokens.
+   *
+   * @returns Headers to include in requests, or undefined if no authentication is available
+   */
+  headers(): HeadersInit | undefined | Promise<HeadersInit | undefined>;
+
+  /**
+   * Performs authentication when a 401 Unauthorized response is received.
+   *
+   * This method is called when the server responds with a 401 status code,
+   * indicating that the current authentication is invalid or expired.
+   * The implementation should attempt to refresh or re-establish authentication.
+   *
+   * @param context Authentication context providing server and resource information
+   * @param context.serverUrl The URL of the MCP server being authenticated against
+   * @param context.resourceMetadataUrl Optional URL for resource metadata, if available
+   * @returns Promise that resolves to true if authentication was successful,
+   *          false if authentication failed
+   */
+  authorize(context: { serverUrl: string | URL; resourceMetadataUrl?: URL }): boolean | Promise<boolean>;
+}
+
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
 
 export class UnauthorizedError extends Error {

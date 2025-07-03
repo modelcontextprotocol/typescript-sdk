@@ -1,5 +1,5 @@
-import { StartSSEOptions, StreamableHTTPClientTransport, StreamableHTTPReconnectionOptions } from "./streamableHttp.js";
-import { OAuthClientProvider, UnauthorizedError } from "./auth.js";
+import { StreamableHTTPClientTransport, StreamableHTTPReconnectionOptions, StartSSEOptions } from "./streamableHttp.js";
+import { DelegatedAuthClientProvider, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { JSONRPCMessage, JSONRPCRequest } from "../types.js";
 import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from "../server/auth/errors.js";
 
@@ -465,7 +465,7 @@ describe("StreamableHTTPClientTransport", () => {
 
     // Verify custom fetch was used
     expect(customFetch).toHaveBeenCalled();
-    
+
     // Global fetch should never have been called
     expect(global.fetch).not.toHaveBeenCalled();
   });
@@ -589,32 +589,32 @@ describe("StreamableHTTPClientTransport", () => {
     await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
     expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
   });
-  
+
   describe('Reconnection Logic', () => {
     let transport: StreamableHTTPClientTransport;
-  
+
     // Use fake timers to control setTimeout and make the test instant.
     beforeEach(() => jest.useFakeTimers());
     afterEach(() => jest.useRealTimers());
-  
+
     it('should reconnect a GET-initiated notification stream that fails', async () => {
       // ARRANGE
       transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
         reconnectionOptions: {
-          initialReconnectionDelay: 10, 
-          maxRetries: 1, 
+          initialReconnectionDelay: 10,
+          maxRetries: 1,
           maxReconnectionDelay: 1000,  // Ensure it doesn't retry indefinitely
           reconnectionDelayGrowFactor: 1  // No exponential backoff for simplicity
          }
       });
-  
+
       const errorSpy = jest.fn();
       transport.onerror = errorSpy;
-  
+
       const failingStream = new ReadableStream({
         start(controller) { controller.error(new Error("Network failure")); }
       });
-  
+
       const fetchMock = global.fetch as jest.Mock;
       // Mock the initial GET request, which will fail.
       fetchMock.mockResolvedValueOnce({
@@ -628,13 +628,13 @@ describe("StreamableHTTPClientTransport", () => {
         headers: new Headers({ "content-type": "text/event-stream" }),
         body: new ReadableStream(),
       });
-  
+
       // ACT
       await transport.start();
       // Trigger the GET stream directly using the internal method for a clean test.
       await transport["_startOrAuthSse"]({});
       await jest.advanceTimersByTimeAsync(20); // Trigger reconnection timeout
-  
+
       // ASSERT
       expect(errorSpy).toHaveBeenCalledWith(expect.objectContaining({
         message: expect.stringContaining('SSE stream disconnected: Error: Network failure'),
@@ -644,25 +644,25 @@ describe("StreamableHTTPClientTransport", () => {
       expect(fetchMock.mock.calls[0][1]?.method).toBe('GET');
       expect(fetchMock.mock.calls[1][1]?.method).toBe('GET');
     });
-  
+
     it('should NOT reconnect a POST-initiated stream that fails', async () => {
       // ARRANGE
       transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
-        reconnectionOptions: { 
-          initialReconnectionDelay: 10, 
-          maxRetries: 1, 
+        reconnectionOptions: {
+          initialReconnectionDelay: 10,
+          maxRetries: 1,
           maxReconnectionDelay: 1000,  // Ensure it doesn't retry indefinitely
           reconnectionDelayGrowFactor: 1  // No exponential backoff for simplicity
          }
       });
-  
+
       const errorSpy = jest.fn();
       transport.onerror = errorSpy;
-  
+
       const failingStream = new ReadableStream({
         start(controller) { controller.error(new Error("Network failure")); }
       });
-  
+
       const fetchMock = global.fetch as jest.Mock;
       // Mock the POST request. It returns a streaming content-type but a failing body.
       fetchMock.mockResolvedValueOnce({
@@ -670,7 +670,7 @@ describe("StreamableHTTPClientTransport", () => {
         headers: new Headers({ "content-type": "text/event-stream" }),
         body: failingStream,
       });
-  
+
       // A dummy request message to trigger the `send` logic.
       const requestMessage: JSONRPCRequest = {
         jsonrpc: '2.0',
@@ -678,13 +678,13 @@ describe("StreamableHTTPClientTransport", () => {
         id: 'request-1',
         params: {},
       };
-  
+
       // ACT
       await transport.start();
       // Use the public `send` method to initiate a POST that gets a stream response.
       await transport.send(requestMessage);
       await jest.advanceTimersByTimeAsync(20); // Advance time to check for reconnections
-  
+
       // ASSERT
       expect(errorSpy).toHaveBeenCalledWith(expect.objectContaining({
         message: expect.stringContaining('SSE stream disconnected: Error: Network failure'),
@@ -888,7 +888,7 @@ describe("StreamableHTTPClientTransport", () => {
           ok: false,
           status: 404
         });
-  
+
       // Create transport instance
       transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
         authProvider: mockAuthProvider,
@@ -901,14 +901,14 @@ describe("StreamableHTTPClientTransport", () => {
 
       // Verify custom fetch was used
       expect(customFetch).toHaveBeenCalled();
-      
+
       // Verify specific OAuth endpoints were called with custom fetch
       const customFetchCalls = customFetch.mock.calls;
       const callUrls = customFetchCalls.map(([url]) => url.toString());
-      
+
       // Should have called resource metadata discovery
       expect(callUrls.some(url => url.includes('/.well-known/oauth-protected-resource'))).toBe(true);
-      
+
       // Should have called OAuth authorization server metadata discovery
       expect(callUrls.some(url => url.includes('/.well-known/oauth-authorization-server'))).toBe(true);
 
@@ -966,19 +966,19 @@ describe("StreamableHTTPClientTransport", () => {
 
       // Verify custom fetch was used
       expect(customFetch).toHaveBeenCalled();
-      
+
       // Verify specific OAuth endpoints were called with custom fetch
       const customFetchCalls = customFetch.mock.calls;
       const callUrls = customFetchCalls.map(([url]) => url.toString());
-      
+
       // Should have called resource metadata discovery
       expect(callUrls.some(url => url.includes('/.well-known/oauth-protected-resource'))).toBe(true);
-      
+
       // Should have called OAuth authorization server metadata discovery
       expect(callUrls.some(url => url.includes('/.well-known/oauth-authorization-server'))).toBe(true);
 
       // Should have called token endpoint for authorization code exchange
-      const tokenCalls = customFetchCalls.filter(([url, options]) => 
+      const tokenCalls = customFetchCalls.filter(([url, options]) =>
         url.toString().includes('/token') && options?.method === "POST"
       );
       expect(tokenCalls.length).toBeGreaterThan(0);
@@ -993,6 +993,216 @@ describe("StreamableHTTPClientTransport", () => {
 
       // Global fetch should never have been called
       expect(global.fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("delegated authentication", () => {
+    let mockDelegatedAuthProvider: jest.Mocked<DelegatedAuthClientProvider>;
+
+    beforeEach(() => {
+      mockDelegatedAuthProvider = {
+        headers: jest.fn(),
+        authorize: jest.fn(),
+      };
+    });
+
+    it("includes delegated auth headers in requests", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token",
+        "X-API-Key": "api-key-123"
+      });
+
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        headers: new Headers(),
+      });
+
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "test",
+        params: {},
+        id: "test-id"
+      };
+
+      await transport.send(message);
+
+      const call = (global.fetch as jest.Mock).mock.calls[0];
+      const headers = call[1].headers as Headers;
+      expect(headers.get("authorization")).toBe("Bearer delegated-token");
+      expect(headers.get("x-api-key")).toBe("api-key-123");
+    });
+
+    it("takes precedence over OAuth provider", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token"
+      });
+
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        authProvider: mockAuthProvider,
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        headers: new Headers(),
+      });
+
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "test",
+        params: {},
+        id: "test-id"
+      };
+
+      await transport.send(message);
+
+      const call = (global.fetch as jest.Mock).mock.calls[0];
+      const headers = call[1].headers as Headers;
+      expect(headers.get("authorization")).toBe("Bearer delegated-token");
+      expect(mockAuthProvider.tokens).not.toHaveBeenCalled();
+    });
+
+    it("handles 401 during SSE start with successful reauth", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token"
+      });
+      mockDelegatedAuthProvider.authorize.mockResolvedValue(true);
+
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      // Test the internal SSE start method directly
+      const startMethod = transport["_startOrAuthSse"];
+
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 401,
+          statusText: "Unauthorized",
+          headers: new Headers()
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 405,
+          statusText: "Method Not Allowed",
+          headers: new Headers()
+        });
+
+      await startMethod.call(transport, { resumptionToken: undefined });
+
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledTimes(1);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledWith({
+        serverUrl: new URL("http://localhost:1234/mcp"),
+        resourceMetadataUrl: undefined
+      });
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws UnauthorizedError when reauth fails during SSE start", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token"
+      });
+      mockDelegatedAuthProvider.authorize.mockResolvedValue(false);
+
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      // Test the internal SSE start method directly
+      const startMethod = transport["_startOrAuthSse"];
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        headers: new Headers()
+      });
+
+      await expect(startMethod.call(transport, { resumptionToken: undefined })).rejects.toThrow(UnauthorizedError);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledTimes(1);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledWith({
+        serverUrl: new URL("http://localhost:1234/mcp"),
+        resourceMetadataUrl: undefined
+      });
+    });
+
+    it("handles 401 during POST request with successful reauth", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token"
+      });
+      mockDelegatedAuthProvider.authorize.mockResolvedValue(true);
+
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 401,
+          statusText: "Unauthorized",
+          headers: new Headers()
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 202,
+          headers: new Headers(),
+        });
+
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "test",
+        params: {},
+        id: "test-id"
+      };
+
+      await transport.send(message);
+
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledTimes(1);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledWith({
+        serverUrl: new URL("http://localhost:1234/mcp"),
+        resourceMetadataUrl: undefined
+      });
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws UnauthorizedError when reauth fails during POST request", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token"
+      });
+      mockDelegatedAuthProvider.authorize.mockResolvedValue(false);
+
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        headers: new Headers()
+      });
+
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "test",
+        params: {},
+        id: "test-id"
+      };
+
+      await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledTimes(1);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledWith({
+        serverUrl: new URL("http://localhost:1234/mcp"),
+        resourceMetadataUrl: undefined
+      });
     });
   });
 });

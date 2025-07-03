@@ -1,6 +1,6 @@
 import { Transport, FetchLike } from "../shared/transport.js";
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
-import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
+import { auth, AuthResult, DelegatedAuthClientProvider, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { EventSourceParserStream } from "eventsource-parser/stream";
 
 // Default reconnection options for StreamableHTTP connections
@@ -95,6 +95,19 @@ export type StreamableHTTPClientTransportOptions = {
   authProvider?: OAuthClientProvider;
 
   /**
+   * A delegated authentication provider that handles authentication externally.
+   *
+   * When a `delegatedAuthProvider` is specified:
+   * 1. Authentication headers are obtained via `tokens()` and added to requests.
+   * 2. On 401 responses, `authorize()` is called to perform authentication.
+   * 3. If `authorize()` returns `true`, the request is retried.
+   * 4. If `authorize()` returns `false`, an `UnauthorizedError` is thrown.
+   *
+   * This provider takes precedence over `authProvider` when both are specified.
+   */
+  delegatedAuthProvider?: DelegatedAuthClientProvider;
+
+  /**
    * Customizes HTTP requests to the server.
    */
   requestInit?: RequestInit;
@@ -127,6 +140,7 @@ export class StreamableHTTPClientTransport implements Transport {
   private _resourceMetadataUrl?: URL;
   private _requestInit?: RequestInit;
   private _authProvider?: OAuthClientProvider;
+  private _delegatedAuthProvider?: DelegatedAuthClientProvider;
   private _fetch?: FetchLike;
   private _sessionId?: string;
   private _reconnectionOptions: StreamableHTTPReconnectionOptions;
@@ -144,6 +158,7 @@ export class StreamableHTTPClientTransport implements Transport {
     this._resourceMetadataUrl = undefined;
     this._requestInit = opts?.requestInit;
     this._authProvider = opts?.authProvider;
+    this._delegatedAuthProvider = opts?.delegatedAuthProvider;
     this._fetch = opts?.fetch;
     this._sessionId = opts?.sessionId;
     this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
@@ -171,7 +186,15 @@ export class StreamableHTTPClientTransport implements Transport {
 
   private async _commonHeaders(): Promise<Headers> {
     const headers: HeadersInit & Record<string, string> = {};
-    if (this._authProvider) {
+
+    if (this._delegatedAuthProvider) {
+      const delegatedHeaders = await this._delegatedAuthProvider.headers();
+      if (delegatedHeaders) {
+        for (const [key, value] of Object.entries(this._normalizeHeaders(delegatedHeaders))) {
+          headers[key] = value;
+        }
+      }
+    } else if (this._authProvider) {
       const tokens = await this._authProvider.tokens();
       if (tokens) {
         headers["Authorization"] = `Bearer ${tokens.access_token}`;
@@ -214,9 +237,22 @@ const response = await (this._fetch ?? fetch)(this._url, {
       });
 
       if (!response.ok) {
-        if (response.status === 401 && this._authProvider) {
-          // Need to authenticate
-          return await this._authThenStart();
+        if (response.status === 401) {
+          if (this._delegatedAuthProvider) {
+            const authorized = await this._delegatedAuthProvider.authorize({
+              serverUrl: this._url,
+              resourceMetadataUrl: this._resourceMetadataUrl
+            });
+            if (authorized) {
+              return await this._startOrAuthSse(options);
+            }
+            throw new UnauthorizedError("Delegated authentication failed");
+          }
+
+          if (this._authProvider) {
+            // Need to authenticate
+            return await this._authThenStart();
+          }
         }
 
         // 405 indicates that the server does not offer an SSE stream at GET endpoint
@@ -301,7 +337,7 @@ const response = await (this._fetch ?? fetch)(this._url, {
   }
 
   private _handleSseStream(
-    stream: ReadableStream<Uint8Array> | null, 
+    stream: ReadableStream<Uint8Array> | null,
     options: StartSSEOptions,
     isReconnectable: boolean,
   ): void {
@@ -352,8 +388,8 @@ const response = await (this._fetch ?? fetch)(this._url, {
 
         // Attempt to reconnect if the stream disconnects unexpectedly and we aren't closing
         if (
-          isReconnectable && 
-          this._abortController && 
+          isReconnectable &&
+          this._abortController &&
           !this._abortController.signal.aborted
         ) {
           // Use the exponential backoff reconnection strategy
@@ -436,17 +472,29 @@ const response = await (this._fetch ?? fetch)(this._url, init);
       }
 
       if (!response.ok) {
-        if (response.status === 401 && this._authProvider) {
-
-          this._resourceMetadataUrl = extractResourceMetadataUrl(response);
-
-          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
-          if (result !== "AUTHORIZED") {
-            throw new UnauthorizedError();
+        if (response.status === 401) {
+          if (this._delegatedAuthProvider) {
+            const authorized = await this._delegatedAuthProvider.authorize({
+              serverUrl: this._url,
+              resourceMetadataUrl: this._resourceMetadataUrl
+            });
+            if (authorized) {
+              return this.send(message);
+            }
+            throw new UnauthorizedError("Delegated authentication failed");
           }
 
-          // Purposely _not_ awaited, so we don't call onerror twice
-          return this.send(message);
+          if (this._authProvider) {
+            this._resourceMetadataUrl = extractResourceMetadataUrl(response);
+
+            const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
+            if (result !== "AUTHORIZED") {
+              throw new UnauthorizedError();
+            }
+
+            // Purposely _not_ awaited, so we don't call onerror twice
+            return this.send(message);
+          }
         }
 
         const text = await response.text().catch(() => null);
