@@ -659,32 +659,29 @@ function checkServerNotification(
   spec = sdk;
 }
 
-// TODO(bug): missing type in SDK. This dead code is checked by the test suite below.
-// function checkModelHint(
-//  RemovePassthrough< sdk: SDKTypes.ModelHint>,
-//   spec: SpecTypes.ModelHint
-// ) {
-//   sdk = spec;
-//   spec = sdk;
-// }
+function checkModelHint(
+  sdk: RemovePassthrough<SDKTypes.ModelHint>,
+  spec: SpecTypes.ModelHint
+) {
+  sdk = spec;
+  spec = sdk;
+}
 
-// TODO(bug): missing type in SDK. This dead code is checked by the test suite below.
-// function checkModelPreferences(
-//  RemovePassthrough< sdk: SDKTypes.ModelPreferences>,
-//   spec: SpecTypes.ModelPreferences
-// ) {
-//   sdk = spec;
-//   spec = sdk;
-// }
+function checkModelPreferences(
+  sdk: RemovePassthrough<SDKTypes.ModelPreferences>,
+  spec: SpecTypes.ModelPreferences
+) {
+  sdk = spec;
+  spec = sdk;
+}
 
-// TODO(bug): missing type in SDK. This dead code is checked by the test suite below.
-// function checkAnnotations(
-//  RemovePassthrough< sdk: SDKTypes.Annotations>,
-//   spec: SpecTypes.Annotations
-// ) {
-//   sdk = spec;
-//   spec = sdk;
-// }
+function checkAnnotations(
+  sdk: RemovePassthrough<SDKTypes.Annotations>,
+  spec: SpecTypes.Annotations
+) {
+  sdk = spec;
+  spec = sdk;
+}
 
 // This file is .gitignore'd, and fetched by `npm run fetch:spec-types` (called by `npm run test`)
 const SPEC_TYPES_FILE  = 'src/spec.types.ts';

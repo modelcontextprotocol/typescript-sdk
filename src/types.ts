@@ -429,6 +429,40 @@ export const PaginatedResultSchema = ResultSchema.extend({
   nextCursor: z.optional(CursorSchema),
 });
 
+/* Annotations */
+/**
+ * Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
+ */
+export const AnnotationsSchema = z
+  .object({
+    /**
+     * Describes who the intended customer of this object or data is.
+     *
+     * It can include multiple entries to indicate content useful for multiple audiences (e.g., `["user", "assistant"]`).
+     */
+    audience: z.optional(z.array(z.enum(["user", "assistant"]))),
+
+    /**
+     * Describes how important this data is for operating the server.
+     *
+     * A value of 1 means "most important," and indicates that the data is
+     * effectively required, while 0 means "least important," and indicates that
+     * the data is entirely optional.
+     */
+    priority: z.optional(z.number().min(0).max(1)),
+
+    /**
+     * The moment the resource was last modified, as an ISO 8601 formatted string.
+     *
+     * Should be an ISO 8601 formatted string (e.g., "2025-01-12T15:00:58Z").
+     *
+     * Examples: last activity timestamp in an open file, timestamp when the resource
+     * was attached, etc.
+     */
+    lastModified: z.optional(z.string()),
+  })
+  .passthrough();
+
 /* Resources */
 /**
  * The contents of a specific resource or sub-resource.
@@ -487,6 +521,18 @@ export const ResourceSchema = BaseMetadataSchema.extend({
   mimeType: z.optional(z.string()),
 
   /**
+   * Optional annotations for the client.
+   */
+  annotations: z.optional(AnnotationsSchema),
+
+  /**
+   * The size of the raw resource content, in bytes (i.e., before base64 encoding or any tokenization), if known.
+   *
+   * This can be used by Hosts to display file sizes and estimate context window usage.
+   */
+  size: z.optional(z.number()),
+
+  /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
@@ -513,6 +559,11 @@ export const ResourceTemplateSchema = BaseMetadataSchema.extend({
    * The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
    */
   mimeType: z.optional(z.string()),
+
+  /**
+   * Optional annotations for the client.
+   */
+  annotations: z.optional(AnnotationsSchema),
 
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -702,6 +753,11 @@ export const TextContentSchema = z
     text: z.string(),
 
     /**
+     * Optional annotations for the client.
+     */
+    annotations: z.optional(AnnotationsSchema),
+
+    /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
@@ -723,6 +779,11 @@ export const ImageContentSchema = z
      * The MIME type of the image. Different providers may support different image types.
      */
     mimeType: z.string(),
+
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: z.optional(AnnotationsSchema),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -748,6 +809,11 @@ export const AudioContentSchema = z
     mimeType: z.string(),
 
     /**
+     * Optional annotations for the client.
+     */
+    annotations: z.optional(AnnotationsSchema),
+
+    /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
@@ -762,6 +828,10 @@ export const EmbeddedResourceSchema = z
   .object({
     type: z.literal("resource"),
     resource: z.union([TextResourceContentsSchema, BlobResourceContentsSchema]),
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: z.optional(AnnotationsSchema),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
@@ -1046,11 +1116,22 @@ export const LoggingMessageNotificationSchema = NotificationSchema.extend({
 /* Sampling */
 /**
  * Hints to use for model selection.
+ *
+ * Keys not declared here are currently left unspecified by the spec and are up
+ * to the client to interpret.
  */
 export const ModelHintSchema = z
   .object({
     /**
      * A hint for a model name.
+     *
+     * The client SHOULD treat this as a substring of a model name; for example:
+     *  - `claude-3-5-sonnet` should match `claude-3-5-sonnet-20241022`
+     *  - `sonnet` should match `claude-3-5-sonnet-20241022`, `claude-3-sonnet-20240229`, etc.
+     *  - `claude` should match any Claude model
+     *
+     * The client MAY also map the string to a different provider's model name or a different model family, as long as it fills a similar niche; for example:
+     *  - `gemini-1.5-flash` could match `claude-3-haiku-20240307`
      */
     name: z.string().optional(),
   })
@@ -1058,11 +1139,27 @@ export const ModelHintSchema = z
 
 /**
  * The server's preferences for model selection, requested of the client during sampling.
+ *
+ * Because LLMs can vary along multiple dimensions, choosing the "best" model is
+ * rarely straightforward.  Different models excel in different areas—some are
+ * faster but less capable, others are more capable but more expensive, and so
+ * on. This interface allows servers to express their priorities across multiple
+ * dimensions to help clients make an appropriate selection for their use case.
+ *
+ * These preferences are always advisory. The client MAY ignore them. It is also
+ * up to the client to decide how to interpret these preferences and how to
+ * balance them against other considerations.
  */
 export const ModelPreferencesSchema = z
   .object({
     /**
      * Optional hints to use for model selection.
+     *
+     * If multiple hints are specified, the client MUST evaluate them in order
+     * (such that the first match is taken).
+     *
+     * The client SHOULD prioritize these hints over the numeric priorities, but
+     * MAY still use the priorities to select from ambiguous matches.
      */
     hints: z.optional(z.array(ModelHintSchema)),
     /**
@@ -1569,6 +1666,9 @@ export type PromptMessage = Infer<typeof PromptMessageSchema>;
 export type GetPromptResult = Infer<typeof GetPromptResultSchema>;
 export type PromptListChangedNotification = Infer<typeof PromptListChangedNotificationSchema>;
 
+/* Annotations */
+export type Annotations = Infer<typeof AnnotationsSchema>;
+
 /* Tools */
 export type ToolAnnotations = Infer<typeof ToolAnnotationsSchema>;
 export type Tool = Infer<typeof ToolSchema>;
@@ -1585,6 +1685,8 @@ export type SetLevelRequest = Infer<typeof SetLevelRequestSchema>;
 export type LoggingMessageNotification = Infer<typeof LoggingMessageNotificationSchema>;
 
 /* Sampling */
+export type ModelHint = Infer<typeof ModelHintSchema>;
+export type ModelPreferences = Infer<typeof ModelPreferencesSchema>;
 export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
 export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
 export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
