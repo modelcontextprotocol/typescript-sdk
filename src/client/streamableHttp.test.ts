@@ -406,7 +406,6 @@ describe("StreamableHTTPClientTransport", () => {
     const headers = fetchCall[1].headers;
     expect(headers.get("last-event-id")).toBe("test-event-id");
   });
-  
 
   it("should throw error when invalid content-type is received", async () => {
     // Clear any previous state from other tests

@@ -361,7 +361,6 @@ const response = await (this._fetch ?? fetch)(this._url, {
 
           }
         }
-
       }
     };
     processStream();
