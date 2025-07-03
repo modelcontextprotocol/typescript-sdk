@@ -291,10 +291,10 @@ const response = await (this._fetch ?? fetch)(this._url, {
 
     // Schedule the reconnection
     setTimeout(() => {
-      // Use the last event ID to resume where we left off
+      this._abortController = new AbortController();
+
       this._startOrAuthSse(options).catch(error => {
         this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
-        // Schedule another attempt if this one failed, incrementing the attempt counter
         this._scheduleReconnection(options, attemptCount + 1);
       });
     }, delay);
@@ -367,12 +367,12 @@ const response = await (this._fetch ?? fetch)(this._url, {
   }
 
   async start() {
-    if (this._abortController) {
+    if (this._abortController && !this._abortController.signal.aborted) { // Check if it's already running
       throw new Error(
         "StreamableHTTPClientTransport already started! If using Client class, note that connect() calls start() automatically.",
       );
     }
-
+    // Always create a fresh AbortController when starting a new connection sequence.
     this._abortController = new AbortController();
   }
 
