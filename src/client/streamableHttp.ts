@@ -349,18 +349,16 @@ const response = await (this._fetch ?? fetch)(this._url, {
         // Attempt to reconnect if the stream disconnects unexpectedly and we aren't closing
         if (this._abortController && !this._abortController.signal.aborted) {
           // Use the exponential backoff reconnection strategy
-          if (lastEventId !== undefined) {
-            try {
-              this._scheduleReconnection({
-                resumptionToken: lastEventId,
-                onresumptiontoken,
-                replayMessageId
-              }, 0);
-            }
-            catch (error) {
-              this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
+          try {
+            this._scheduleReconnection({
+              resumptionToken: lastEventId,
+              onresumptiontoken,
+              replayMessageId
+            }, 0);
+          }
+          catch (error) {
+            this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
 
-            }
           }
         }
       }
