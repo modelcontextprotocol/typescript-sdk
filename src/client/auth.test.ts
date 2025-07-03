@@ -1,3 +1,4 @@
+import { mock, Mock } from 'node:test';
 import { LATEST_PROTOCOL_VERSION } from '../types.js';
 import {
   discoverOAuthMetadata,
@@ -10,6 +11,7 @@ import {
   auth,
   type OAuthClientProvider,
 } from "./auth.js";
+import { OAuthMetadata } from 'src/shared/auth.js';
 
 // Mock fetch globally
 const mockFetch = jest.fn();
@@ -231,7 +233,7 @@ describe("OAuth Authorization", () => {
         ok: false,
         status: 404,
       });
-      
+
       // Second call (root fallback) succeeds
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -241,17 +243,17 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com/path/name");
       expect(metadata).toEqual(validMetadata);
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(2);
-      
+
       // First call should be path-aware
       const [firstUrl, firstOptions] = calls[0];
       expect(firstUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/path/name");
       expect(firstOptions.headers).toEqual({
         "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
       });
-      
+
       // Second call should be root fallback
       const [secondUrl, secondOptions] = calls[1];
       expect(secondUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
@@ -266,7 +268,7 @@ describe("OAuth Authorization", () => {
         ok: false,
         status: 404,
       });
-      
+
       // Second call (root fallback) also returns 404
       mockFetch.mockResolvedValueOnce({
         ok: false,
@@ -275,7 +277,7 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com/path/name");
       expect(metadata).toBeUndefined();
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(2);
     });
@@ -289,10 +291,10 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com/");
       expect(metadata).toBeUndefined();
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(1); // Should not attempt fallback
-      
+
       const [url] = calls[0];
       expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
     });
@@ -306,10 +308,10 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com");
       expect(metadata).toBeUndefined();
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(1); // Should not attempt fallback
-      
+
       const [url] = calls[0];
       expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
     });
@@ -317,13 +319,13 @@ describe("OAuth Authorization", () => {
     it("falls back when path-aware discovery encounters CORS error", async () => {
       // First call (path-aware) fails with TypeError (CORS)
       mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError("CORS error")));
-      
+
       // Retry path-aware without headers (simulating CORS retry)
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 404,
       });
-      
+
       // Second call (root fallback) succeeds
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -333,10 +335,10 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com/deep/path");
       expect(metadata).toEqual(validMetadata);
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(3);
-      
+
       // Final call should be root fallback
       const [lastUrl, lastOptions] = calls[2];
       expect(lastUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
@@ -600,6 +602,13 @@ describe("OAuth Authorization", () => {
       refresh_token: "refresh123",
     };
 
+    const validMetadata = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      response_types_supported: ["code"]
+    };
+
     const validClientInfo = {
       client_id: "client123",
       client_secret: "secret123",
@@ -629,9 +638,9 @@ describe("OAuth Authorization", () => {
         }),
         expect.objectContaining({
           method: "POST",
-          headers: {
+          headers: new Headers({
             "Content-Type": "application/x-www-form-urlencoded",
-          },
+          }),
         })
       );
 
@@ -643,6 +652,52 @@ describe("OAuth Authorization", () => {
       expect(body.get("client_secret")).toBe("secret123");
       expect(body.get("redirect_uri")).toBe("http://localhost:3000/callback");
       expect(body.get("resource")).toBe("https://api.example.com/mcp-server");
+    });
+
+    it("exchanges code for tokens with auth", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validTokens,
+      });
+
+      const tokens = await exchangeAuthorization("https://auth.example.com", {
+        metadata: validMetadata,
+        clientInformation: validClientInfo,
+        authorizationCode: "code123",
+        codeVerifier: "verifier123",
+        redirectUri: "http://localhost:3000/callback",
+        addClientAuthentication: (headers: Headers, params: URLSearchParams, url: string | URL, metadata: OAuthMetadata) => {
+          headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
+          params.set("example_url", typeof url === 'string' ? url : url.toString());
+          params.set("example_metadata", metadata.authorization_endpoint);
+          params.set("example_param", "example_value");
+        },
+      });
+
+      expect(tokens).toEqual(validTokens);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          href: "https://auth.example.com/token",
+        }),
+        expect.objectContaining({
+          method: "POST",
+        })
+      );
+
+      const headers = mockFetch.mock.calls[0][1].headers as Headers;
+      expect(headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
+      expect(headers.get("Authorization")).toBe("Basic Y2xpZW50MTIzOnNlY3JldDEyMw==");
+      const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
+      expect(body.get("grant_type")).toBe("authorization_code");
+      expect(body.get("code")).toBe("code123");
+      expect(body.get("code_verifier")).toBe("verifier123");
+      expect(body.get("client_id")).toBeNull();
+      expect(body.get("redirect_uri")).toBe("http://localhost:3000/callback");
+      expect(body.get("example_url")).toBe("https://auth.example.com");
+      expect(body.get("example_metadata")).toBe("https://auth.example.com/authorize");
+      expect(body.get("example_param")).toBe("example_value");
+      expect(body.get("client_secret")).toBeNull();
     });
 
     it("validates token response schema", async () => {
@@ -693,6 +748,13 @@ describe("OAuth Authorization", () => {
       refresh_token: "newrefresh123",
     };
 
+    const validMetadata = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      response_types_supported: ["code"]
+    };
+
     const validClientInfo = {
       client_id: "client123",
       client_secret: "secret123",
@@ -720,9 +782,9 @@ describe("OAuth Authorization", () => {
         }),
         expect.objectContaining({
           method: "POST",
-          headers: {
+          headers: new Headers({
             "Content-Type": "application/x-www-form-urlencoded",
-          },
+          }),
         })
       );
 
@@ -732,6 +794,48 @@ describe("OAuth Authorization", () => {
       expect(body.get("client_id")).toBe("client123");
       expect(body.get("client_secret")).toBe("secret123");
       expect(body.get("resource")).toBe("https://api.example.com/mcp-server");
+    });
+
+    it("exchanges refresh token for new tokens with auth", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validTokensWithNewRefreshToken,
+      });
+
+      const tokens = await refreshAuthorization("https://auth.example.com", {
+        metadata: validMetadata,
+        clientInformation: validClientInfo,
+        refreshToken: "refresh123",
+        addClientAuthentication: (headers: Headers, params: URLSearchParams, url: string | URL, metadata?: OAuthMetadata) => {
+          headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
+          params.set("example_url", typeof url === 'string' ? url : url.toString());
+          params.set("example_metadata", metadata?.authorization_endpoint ?? '?');
+          params.set("example_param", "example_value");
+        },
+      });
+
+      expect(tokens).toEqual(validTokensWithNewRefreshToken);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          href: "https://auth.example.com/token",
+        }),
+        expect.objectContaining({
+          method: "POST",
+        })
+      );
+
+      const headers = mockFetch.mock.calls[0][1].headers as Headers;
+      expect(headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
+      expect(headers.get("Authorization")).toBe("Basic Y2xpZW50MTIzOnNlY3JldDEyMw==");
+      const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
+      expect(body.get("grant_type")).toBe("refresh_token");
+      expect(body.get("refresh_token")).toBe("refresh123");
+      expect(body.get("client_id")).toBeNull();
+      expect(body.get("example_url")).toBe("https://auth.example.com");
+      expect(body.get("example_metadata")).toBe("https://auth.example.com/authorize");
+      expect(body.get("example_param")).toBe("example_value");
+      expect(body.get("client_secret")).toBeNull();
     });
 
     it("exchanges refresh token for new tokens and keep existing refresh token if none is returned", async () => {
@@ -1477,4 +1581,233 @@ describe("OAuth Authorization", () => {
       expect(body.get("refresh_token")).toBe("refresh123");
     });
   });
+
+  describe("exchangeAuthorization with multiple client authentication methods", () => {
+    const validTokens = {
+      access_token: "access123",
+      token_type: "Bearer",
+      expires_in: 3600,
+      refresh_token: "refresh123",
+    };
+
+    const validClientInfo = {
+      client_id: "client123",
+      client_secret: "secret123",
+      redirect_uris: ["http://localhost:3000/callback"],
+      client_name: "Test Client",
+    };
+
+    const metadataWithBasicOnly = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/auth",
+      token_endpoint: "https://auth.example.com/token",
+      response_types_supported: ["code"],
+      code_challenge_methods_supported: ["S256"],
+      token_endpoint_auth_methods_supported: ["client_secret_basic"],
+    };
+
+    const metadataWithPostOnly = {
+      ...metadataWithBasicOnly,
+      token_endpoint_auth_methods_supported: ["client_secret_post"],
+    };
+
+    const metadataWithNoneOnly = {
+      ...metadataWithBasicOnly,
+      token_endpoint_auth_methods_supported: ["none"],
+    };
+
+    it("uses HTTP Basic authentication when client_secret_basic is supported", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validTokens,
+      });
+
+      const tokens = await exchangeAuthorization("https://auth.example.com", {
+        metadata: metadataWithBasicOnly,
+        clientInformation: validClientInfo,
+        authorizationCode: "code123",
+        redirectUri: "http://localhost:3000/callback",
+        codeVerifier: "verifier123",
+      });
+
+      expect(tokens).toEqual(validTokens);
+      const request = mockFetch.mock.calls[0][1];
+
+      // Check Authorization header
+      const authHeader = request.headers.get("Authorization");
+      const expected = "Basic " + btoa("client123:secret123");
+      expect(authHeader).toBe(expected);
+
+      const body = request.body as URLSearchParams;
+      expect(body.get("client_id")).toBeNull();     // should not be in body
+      expect(body.get("client_secret")).toBeNull(); // should not be in body
+    });
+
+    it("includes credentials in request body when client_secret_post is supported", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validTokens,
+      });
+
+      const tokens = await exchangeAuthorization("https://auth.example.com", {
+        metadata: metadataWithPostOnly,
+        clientInformation: validClientInfo,
+        authorizationCode: "code123",
+        redirectUri: "http://localhost:3000/callback",
+        codeVerifier: "verifier123",
+      });
+
+      expect(tokens).toEqual(validTokens);
+      const request = mockFetch.mock.calls[0][1];
+
+      // Check no Authorization header
+      expect(request.headers.get("Authorization")).toBeNull();
+
+      const body = request.body as URLSearchParams;
+      expect(body.get("client_id")).toBe("client123");
+      expect(body.get("client_secret")).toBe("secret123");
+    });
+
+    it("uses public client authentication when none method is specified", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validTokens,
+      });
+
+      const clientInfoWithoutSecret = {
+        client_id: "client123",
+        redirect_uris: ["http://localhost:3000/callback"],
+        client_name: "Test Client",
+      };
+
+      const tokens = await exchangeAuthorization("https://auth.example.com", {
+        metadata: metadataWithNoneOnly,
+        clientInformation: clientInfoWithoutSecret,
+        authorizationCode: "code123",
+        redirectUri: "http://localhost:3000/callback",
+        codeVerifier: "verifier123",
+      });
+
+      expect(tokens).toEqual(validTokens);
+      const request = mockFetch.mock.calls[0][1];
+
+      // Check no Authorization header
+      expect(request.headers.get("Authorization")).toBeNull();
+
+      const body = request.body as URLSearchParams;
+      expect(body.get("client_id")).toBe("client123");
+      expect(body.get("client_secret")).toBeNull();
+    });
+
+    it("defaults to client_secret_post when no auth methods specified", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validTokens,
+      });
+
+      const tokens = await exchangeAuthorization("https://auth.example.com", {
+        clientInformation: validClientInfo,
+        authorizationCode: "code123",
+        redirectUri: "http://localhost:3000/callback",
+        codeVerifier: "verifier123",
+      });
+
+      expect(tokens).toEqual(validTokens);
+      const request = mockFetch.mock.calls[0][1];
+
+      // Check headers
+      expect(request.headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
+      expect(request.headers.get("Authorization")).toBeNull();
+
+      const body = request.body as URLSearchParams;
+      expect(body.get("client_id")).toBe("client123");
+      expect(body.get("client_secret")).toBe("secret123");
+    });
+  });
+
+  describe("refreshAuthorization with multiple client authentication methods", () => {
+    const validTokens = {
+      access_token: "newaccess123",
+      token_type: "Bearer",
+      expires_in: 3600,
+      refresh_token: "newrefresh123",
+    };
+
+    const validClientInfo = {
+      client_id: "client123",
+      client_secret: "secret123",
+      redirect_uris: ["http://localhost:3000/callback"],
+      client_name: "Test Client",
+    };
+
+    const metadataWithBasicOnly = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/auth",
+      token_endpoint: "https://auth.example.com/token",
+      response_types_supported: ["code"],
+      token_endpoint_auth_methods_supported: ["client_secret_basic"],
+    };
+
+    const metadataWithPostOnly = {
+      ...metadataWithBasicOnly,
+      token_endpoint_auth_methods_supported: ["client_secret_post"],
+    };
+
+    it("uses client_secret_basic for refresh token", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validTokens,
+      });
+
+      const tokens = await refreshAuthorization("https://auth.example.com", {
+        metadata: metadataWithBasicOnly,
+        clientInformation: validClientInfo,
+        refreshToken: "refresh123",
+      });
+
+      expect(tokens).toEqual(validTokens);
+      const request = mockFetch.mock.calls[0][1];
+
+      // Check Authorization header
+      const authHeader = request.headers.get("Authorization");
+      const expected = "Basic " + btoa("client123:secret123");
+      expect(authHeader).toBe(expected);
+
+      const body = request.body as URLSearchParams;
+      expect(body.get("client_id")).toBeNull();     // should not be in body
+      expect(body.get("client_secret")).toBeNull(); // should not be in body
+      expect(body.get("refresh_token")).toBe("refresh123");
+    });
+
+    it("uses client_secret_post for refresh token", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validTokens,
+      });
+
+      const tokens = await refreshAuthorization("https://auth.example.com", {
+        metadata: metadataWithPostOnly,
+        clientInformation: validClientInfo,
+        refreshToken: "refresh123",
+      });
+
+      expect(tokens).toEqual(validTokens);
+      const request = mockFetch.mock.calls[0][1];
+
+      // Check no Authorization header
+      expect(request.headers.get("Authorization")).toBeNull();
+
+      const body = request.body as URLSearchParams;
+      expect(body.get("client_id")).toBe("client123");
+      expect(body.get("client_secret")).toBe("secret123");
+      expect(body.get("refresh_token")).toBe("refresh123");
+    });
+  });
+
 });
