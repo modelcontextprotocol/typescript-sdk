@@ -294,6 +294,7 @@ const response = await (this._fetch ?? fetch)(this._url, {
       // Use the last event ID to resume where we left off
       this._startOrAuthSse(options).catch(error => {
         this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
+        // Schedule another attempt if this one failed, incrementing the attempt counter
         this._scheduleReconnection(options, attemptCount + 1);
       });
     }, delay);
@@ -360,6 +361,7 @@ const response = await (this._fetch ?? fetch)(this._url, {
 
           }
         }
+
       }
     };
     processStream();
