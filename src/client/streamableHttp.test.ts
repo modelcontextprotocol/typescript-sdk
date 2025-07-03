@@ -1,5 +1,5 @@
 import { StreamableHTTPClientTransport, StreamableHTTPReconnectionOptions, StartSSEOptions } from "./streamableHttp.js";
-import { OAuthClientProvider, UnauthorizedError } from "./auth.js";
+import { DelegatedAuthClientProvider, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { JSONRPCMessage } from "../types.js";
 
 
@@ -591,5 +591,215 @@ describe("StreamableHTTPClientTransport", () => {
 
     await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
     expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
+  });
+
+  describe("delegated authentication", () => {
+    let mockDelegatedAuthProvider: jest.Mocked<DelegatedAuthClientProvider>;
+
+    beforeEach(() => {
+      mockDelegatedAuthProvider = {
+        headers: jest.fn(),
+        authorize: jest.fn(),
+      };
+    });
+
+    it("includes delegated auth headers in requests", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token",
+        "X-API-Key": "api-key-123"
+      });
+
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        headers: new Headers(),
+      });
+
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "test",
+        params: {},
+        id: "test-id"
+      };
+
+      await transport.send(message);
+
+      const call = (global.fetch as jest.Mock).mock.calls[0];
+      const headers = call[1].headers as Headers;
+      expect(headers.get("authorization")).toBe("Bearer delegated-token");
+      expect(headers.get("x-api-key")).toBe("api-key-123");
+    });
+
+    it("takes precedence over OAuth provider", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token"
+      });
+
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        authProvider: mockAuthProvider,
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        headers: new Headers(),
+      });
+
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "test",
+        params: {},
+        id: "test-id"
+      };
+
+      await transport.send(message);
+
+      const call = (global.fetch as jest.Mock).mock.calls[0];
+      const headers = call[1].headers as Headers;
+      expect(headers.get("authorization")).toBe("Bearer delegated-token");
+      expect(mockAuthProvider.tokens).not.toHaveBeenCalled();
+    });
+
+    it("handles 401 during SSE start with successful reauth", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token"
+      });
+      mockDelegatedAuthProvider.authorize.mockResolvedValue(true);
+
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      // Test the internal SSE start method directly
+      const startMethod = transport["_startOrAuthSse"];
+
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 401,
+          statusText: "Unauthorized",
+          headers: new Headers()
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 405,
+          statusText: "Method Not Allowed",
+          headers: new Headers()
+        });
+
+      await startMethod.call(transport, { resumptionToken: undefined });
+
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledTimes(1);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledWith({
+        serverUrl: new URL("http://localhost:1234/mcp"),
+        resourceMetadataUrl: undefined
+      });
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws UnauthorizedError when reauth fails during SSE start", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token"
+      });
+      mockDelegatedAuthProvider.authorize.mockResolvedValue(false);
+
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      // Test the internal SSE start method directly
+      const startMethod = transport["_startOrAuthSse"];
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        headers: new Headers()
+      });
+
+      await expect(startMethod.call(transport, { resumptionToken: undefined })).rejects.toThrow(UnauthorizedError);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledTimes(1);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledWith({
+        serverUrl: new URL("http://localhost:1234/mcp"),
+        resourceMetadataUrl: undefined
+      });
+    });
+
+    it("handles 401 during POST request with successful reauth", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token"
+      });
+      mockDelegatedAuthProvider.authorize.mockResolvedValue(true);
+
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 401,
+          statusText: "Unauthorized",
+          headers: new Headers()
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 202,
+          headers: new Headers(),
+        });
+
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "test",
+        params: {},
+        id: "test-id"
+      };
+
+      await transport.send(message);
+
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledTimes(1);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledWith({
+        serverUrl: new URL("http://localhost:1234/mcp"),
+        resourceMetadataUrl: undefined
+      });
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws UnauthorizedError when reauth fails during POST request", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token"
+      });
+      mockDelegatedAuthProvider.authorize.mockResolvedValue(false);
+
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        headers: new Headers()
+      });
+
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "test",
+        params: {},
+        id: "test-id"
+      };
+
+      await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledTimes(1);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledWith({
+        serverUrl: new URL("http://localhost:1234/mcp"),
+        resourceMetadataUrl: undefined
+      });
+    });
   });
 });
