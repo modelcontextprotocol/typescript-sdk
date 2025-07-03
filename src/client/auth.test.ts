@@ -794,10 +794,10 @@ describe("OAuth Authorization", () => {
         metadata: validMetadata,
         clientInformation: validClientInfo,
         refreshToken: "refresh123",
-        addClientAuthentication: (headers: Headers, params: URLSearchParams, url: string | URL, metadata: OAuthMetadata) => {
+        addClientAuthentication: (headers: Headers, params: URLSearchParams, url: string | URL, metadata?: OAuthMetadata) => {
           headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
           params.set("example_url", typeof url === 'string' ? url : url.toString());
-          params.set("example_metadata", metadata.authorization_endpoint);
+          params.set("example_metadata", metadata?.authorization_endpoint ?? '?');
           params.set("example_param", "example_value");
         },
       });
