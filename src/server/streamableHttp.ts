@@ -83,7 +83,7 @@ export interface StreamableHTTPServerTransportOptions {
   /**
    * Enables support for multiple instances of the transport.
    */
-  multiInstance?: boolean;
+  throwOnMissingStream?: boolean;
 }
 
 /**
@@ -135,7 +135,7 @@ export class StreamableHTTPServerTransport implements Transport {
   private _allowedHosts?: string[];
   private _allowedOrigins?: string[];
   private _enableDnsRebindingProtection: boolean;
-  private _multiInstance: boolean;
+  private _throwOnMissingStream: boolean;
 
   sessionId?: string;
   onclose?: () => void;
@@ -150,7 +150,7 @@ export class StreamableHTTPServerTransport implements Transport {
     this._allowedHosts = options.allowedHosts;
     this._allowedOrigins = options.allowedOrigins;
     this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
-    this._multiInstance = options.multiInstance ?? false;
+    this._throwOnMissingStream = options.throwOnMissingStream ?? false;
   }
 
   /**
@@ -681,8 +681,8 @@ export class StreamableHTTPServerTransport implements Transport {
     const streamId = this._requestToStreamMapping.get(requestId);
     const response = this._streamMapping.get(streamId!);
     if (!streamId) {
-      if (this._multiInstance) {
-        return; // If multi-instance is enabled, we can ignore messages without a stream
+      if (this._throwOnMissingStream) {
+        return; // If throwOnMissingStream is enabled, we can ignore messages without a stream
       }
       throw new Error(`No connection established for request ID: ${String(requestId)}`);
     }
@@ -711,8 +711,8 @@ export class StreamableHTTPServerTransport implements Transport {
 
       if (allResponsesReady) {
         if (!response) {
-          if (this._multiInstance) {
-            // If multi-instance is enabled, we can ignore messages without a stream
+          if (this._throwOnMissingStream) {
+            // If throwOnMissingStream is enabled, we can ignore messages without a stream
             return;
           }
           throw new Error(`No connection established for request ID: ${String(requestId)}`);
