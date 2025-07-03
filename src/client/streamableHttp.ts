@@ -367,12 +367,11 @@ const response = await (this._fetch ?? fetch)(this._url, {
   }
 
   async start() {
-    if (this._abortController && !this._abortController.signal.aborted) { // Check if it's already running
+    if (this._abortController && !this._abortController.signal.aborted) {
       throw new Error(
         "StreamableHTTPClientTransport already started! If using Client class, note that connect() calls start() automatically.",
       );
     }
-    // Always create a fresh AbortController when starting a new connection sequence.
     this._abortController = new AbortController();
   }
 
