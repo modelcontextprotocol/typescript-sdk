@@ -1,4 +1,32 @@
 #!/usr/bin/env npx -y tsx
+/*
+    This allows exposing a local stdio MCP server as a Streamable HTTP endpoint.
+    The --cloudflare flag exposes the endpoint over the web using a reverse tunnel (requires installing cloudflared).
+    The --auth-key option allows some level of security (defaults to random, use empty to disable - dangerous if exposing on the web)
+
+    Prerequisites:
+    - cloudflared: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads
+    - Node.js with `npx`
+
+    Usage example:
+    
+        export PATH=$PWD:$PATH # Put the script's parent folder in your PATH
+
+        stdio-wrapper.ts --cloudflare \
+            docker run --rm -i \
+                --network=none --cap-drop=ALL --security-opt=no-new-privileges:true \
+                -v claude-memory:/app/dist \
+                node:latest \
+                npx -y @modelcontextprotocol/server-memory
+        
+        PORT=3001 stdio-wrapper.ts --cloudflare \
+            docker run --rm -i \
+                --cap-drop=ALL --security-opt=no-new-privileges:true \
+                ghcr.io/astral-sh/uv:debian \
+                uvx mcp-server-fetch                
+
+    Note that you should not drop the `--network=none` flag unless you fully trust the MCP server, as it will have full access to the internet *and* localhost (any unprotected local server can then pose high risks).
+*/
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { CancelledNotification, CancelledNotificationSchema, isJSONRPCError, isJSONRPCResponse, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
