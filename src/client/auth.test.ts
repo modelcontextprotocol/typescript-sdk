@@ -10,6 +10,7 @@ import {
   auth,
   type OAuthClientProvider,
 } from "./auth.js";
+import {ServerError} from "../server/auth/errors.js";
 
 // Mock fetch globally
 const mockFetch = jest.fn();
@@ -427,10 +428,7 @@ describe("OAuth Authorization", () => {
     });
 
     it("throws on non-404 errors", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-      });
+      mockFetch.mockResolvedValueOnce(new Response(null, { status: 500 }));
 
       await expect(
         discoverOAuthMetadata("https://auth.example.com")
@@ -438,14 +436,15 @@ describe("OAuth Authorization", () => {
     });
 
     it("validates metadata schema", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          // Missing required fields
-          issuer: "https://auth.example.com",
-        }),
-      });
+      mockFetch.mockResolvedValueOnce(
+        Response.json(
+          {
+            // Missing required fields
+            issuer: "https://auth.example.com",
+          },
+          { status: 200 }
+        )
+      );
 
       await expect(
         discoverOAuthMetadata("https://auth.example.com")
@@ -666,10 +665,12 @@ describe("OAuth Authorization", () => {
     });
 
     it("throws on error response", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-      });
+      mockFetch.mockResolvedValueOnce(
+        Response.json(
+          new ServerError("Token exchange failed").toResponseObject(),
+          { status: 400 }
+        )
+      );
 
       await expect(
         exchangeAuthorization("https://auth.example.com", {
@@ -769,10 +770,12 @@ describe("OAuth Authorization", () => {
     });
 
     it("throws on error response", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-      });
+      mockFetch.mockResolvedValueOnce(
+        Response.json(
+          new ServerError("Token refresh failed").toResponseObject(),
+          { status: 400 }
+        )
+      );
 
       await expect(
         refreshAuthorization("https://auth.example.com", {
@@ -857,10 +860,12 @@ describe("OAuth Authorization", () => {
     });
 
     it("throws on error response", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-      });
+      mockFetch.mockResolvedValueOnce(
+        Response.json(
+          new ServerError("Dynamic client registration failed").toResponseObject(),
+          { status: 400 }
+        )
+      );
 
       await expect(
         registerClient("https://auth.example.com", {
