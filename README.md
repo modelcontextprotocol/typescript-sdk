@@ -584,6 +584,26 @@ app.listen(3000);
 > );
 > ```
 
+
+#### CORS Configuration for Browser-Based Clients
+
+If you'd like your server to be accessible by browser-based MCP clients, you'll need to configure CORS headers. The `Mcp-Session-Id` header must be exposed for browser clients to access it:
+
+```typescript
+import cors from 'cors';
+
+// Add CORS middleware before your MCP routes
+app.use(cors({
+  origin: '*', // Configure appropriately for production
+  exposedHeaders: ['Mcp-Session-Id']
+}));
+```
+
+This configuration is necessary because:
+- The MCP streamable HTTP transport uses the `Mcp-Session-Id` header for session management
+- Browsers restrict access to response headers unless explicitly exposed via CORS
+- Without this configuration, browser-based clients won't be able to read the session ID from initialization responses
+
 #### Without Session Management (Stateless)
 
 For simpler use cases where session management isn't needed:

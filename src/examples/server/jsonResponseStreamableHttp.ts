@@ -4,6 +4,7 @@ import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { z } from 'zod';
 import { CallToolResult, isInitializeRequest } from '../../types.js';
+import cors from 'cors';
 
 
 // Create an MCP server with implementation details
@@ -80,6 +81,12 @@ const getServer = () => {
 
 const app = express();
 app.use(express.json());
+
+// Configure CORS to expose Mcp-Session-Id header for browser-based clients
+app.use(cors({
+  origin: '*', // Allow all origins - adjust as needed for production
+  exposedHeaders: ['Mcp-Session-Id']
+}));
 
 // Map to store transports by session ID
 const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
