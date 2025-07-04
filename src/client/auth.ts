@@ -876,6 +876,66 @@ export async function refreshAuthorization(
 }
 
 /**
+ * Revokes an OAuth 2.0 access token or refresh token according to RFC 7009.
+ * 
+ * Makes a direct HTTP POST request to the authorization server's revocation endpoint.
+ * The endpoint is discovered from OAuth metadata or defaults to `/revoke`.
+ */
+export async function revokeToken(
+  authorizationServerUrl: string | URL,
+  {
+    metadata,
+    clientInformation,
+    token,
+    tokenTypeHint,
+    resource,
+  }: {
+    metadata?: OAuthMetadata;
+    clientInformation: OAuthClientInformation;
+    token: string;
+    tokenTypeHint?: 'access_token' | 'refresh_token';
+    resource?: URL;
+  },
+): Promise<void> {
+  let revokeUrl: URL;
+  if (metadata?.revocation_endpoint) {
+    revokeUrl = new URL(metadata.revocation_endpoint);
+  } else {
+    revokeUrl = new URL("/revoke", authorizationServerUrl);
+  }
+
+  // Build revocation request
+  const params = new URLSearchParams({
+    token,
+    client_id: clientInformation.client_id,
+  });
+
+  if (clientInformation.client_secret) {
+    params.set("client_secret", clientInformation.client_secret);
+  }
+
+  if (tokenTypeHint) {
+    params.set("token_type_hint", tokenTypeHint);
+  }
+
+  if (resource) {
+    params.set("resource", resource.href);
+  }
+
+  const response = await fetch(revokeUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Token revocation failed: HTTP ${response.status}`);
+  }
+}
+
+/**
  * Performs OAuth 2.0 Dynamic Client Registration according to RFC 7591.
  */
 export async function registerClient(

@@ -8,6 +8,7 @@ import {
   discoverOAuthProtectedResourceMetadata,
   extractResourceMetadataUrl,
   auth,
+  revokeToken,
   type OAuthClientProvider,
 } from "./auth.js";
 import {ServerError} from "../server/auth/errors.js";
@@ -2088,4 +2089,185 @@ describe("OAuth Authorization", () => {
     });
   });
 
+
+  describe("revokeToken", () => {
+    const validClientInfo = {
+      client_id: "client123",
+      client_secret: "secret123",
+      redirect_uris: ["http://localhost:3000/callback"],
+      client_name: "Test Client",
+    };
+
+    const validMetadata = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      revocation_endpoint: "https://auth.example.com/revoke",
+      response_types_supported: ["code"],
+      code_challenge_methods_supported: ["S256"],
+    };
+
+    it("revokes access token successfully", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+      });
+
+      await revokeToken("https://auth.example.com", {
+        clientInformation: validClientInfo,
+        token: "access_token_123",
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          href: "https://auth.example.com/revoke",
+        }),
+        expect.objectContaining({
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+        })
+      );
+
+      const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
+      expect(body.get("token")).toBe("access_token_123");
+      expect(body.get("client_id")).toBe("client123");
+      expect(body.get("client_secret")).toBe("secret123");
+      expect(body.has("token_type_hint")).toBe(false);
+    });
+
+    it("revokes refresh token successfully", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+      });
+
+      await revokeToken("https://auth.example.com", {
+        clientInformation: validClientInfo,
+        token: "refresh_token_123",
+        tokenTypeHint: "refresh_token",
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          href: "https://auth.example.com/revoke",
+        }),
+        expect.objectContaining({
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+        })
+      );
+
+      const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
+      expect(body.get("token")).toBe("refresh_token_123");
+      expect(body.get("token_type_hint")).toBe("refresh_token");
+      expect(body.get("client_id")).toBe("client123");
+      expect(body.get("client_secret")).toBe("secret123");
+    });
+
+    it("uses revocation_endpoint from metadata when provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+      });
+
+      await revokeToken("https://auth.example.com", {
+        metadata: validMetadata,
+        clientInformation: validClientInfo,
+        token: "access_token_123",
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          href: "https://auth.example.com/revoke",
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it("falls back to /revoke endpoint when metadata not provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+      });
+
+      await revokeToken("https://auth.example.com", {
+        clientInformation: validClientInfo,
+        token: "access_token_123",
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          href: "https://auth.example.com/revoke",
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it("includes resource parameter when provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+      });
+
+      await revokeToken("https://auth.example.com", {
+        clientInformation: validClientInfo,
+        token: "access_token_123",
+        resource: new URL("https://api.example.com/mcp-server"),
+      });
+
+      const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
+      expect(body.get("resource")).toBe("https://api.example.com/mcp-server");
+    });
+
+    it("handles client without secret", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+      });
+
+      const clientWithoutSecret = {
+        client_id: "public_client",
+        redirect_uris: ["http://localhost:3000/callback"],
+        client_name: "Public Client",
+      };
+
+      await revokeToken("https://auth.example.com", {
+        clientInformation: clientWithoutSecret,
+        token: "access_token_123",
+      });
+
+      const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
+      expect(body.get("client_id")).toBe("public_client");
+      expect(body.has("client_secret")).toBe(false);
+    });
+
+    it("throws on 500 Internal Server Error", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+      });
+
+      await expect(
+        revokeToken("https://auth.example.com", {
+          clientInformation: validClientInfo,
+          token: "access_token_123",
+        })
+      ).rejects.toThrow("Token revocation failed: HTTP 500");
+    });
+
+    it("throws on network error", async () => {
+      mockFetch.mockRejectedValueOnce(new TypeError("Network error"));
+
+      await expect(
+        revokeToken("https://auth.example.com", {
+          clientInformation: validClientInfo,
+          token: "access_token_123",
+        })
+      ).rejects.toThrow("Network error");
+    });
+  });
 });
