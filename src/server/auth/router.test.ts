@@ -1,4 +1,4 @@
-import { mcpAuthRouter, AuthRouterOptions, mcpAuthMetadataRouter, AuthMetadataOptions } from './router.js';
+import { mcpAuthRouter, AuthRouterOptions, mcpAuthMetadataRouter, AuthMetadataOptions, getOAuthProtectedResourceMetadataUrl } from './router.js';
 import { OAuthServerProvider, AuthorizationParams } from './provider.js';
 import { OAuthRegisteredClientsStore } from './clients.js';
 import { OAuthClientInformationFull, OAuthMetadata, OAuthTokenRevocationRequest, OAuthTokens } from '../../shared/auth.js';
@@ -479,4 +479,46 @@ describe('MCP Auth Metadata Router', () => {
       expect(resourceResponse.body.resource_documentation).toBeUndefined();
     });
   });
+});
+
+describe('MCP Protected Resource Metadata URL', () => {
+
+  it('should insert well-known URI after host', () => {
+    const serverUrl = new URL('https://mcp.example.com')
+    expect(getOAuthProtectedResourceMetadataUrl(serverUrl)).toBe('https://mcp.example.com/.well-known/oauth-protected-resource');
+  });
+
+  // NOTE: There's some ambiguity in the specifications as to expected output.
+  // See discussion on OAuth WG mailing list for further details and rationale:
+  // https://mailarchive.ietf.org/arch/msg/oauth/LLoteOrAn0sd172dsll254oHGX4/
+  it('should insert well-known URI after host with path', () => {
+    const serverUrl = new URL('https://mcp.example.com/')
+    expect(getOAuthProtectedResourceMetadataUrl(serverUrl)).toBe('https://mcp.example.com/.well-known/oauth-protected-resource');
+  });
+
+  it('should insert well-known URI between host and path', () => {
+    const serverUrl = new URL('https://mcp.example.com/mcp')
+    expect(getOAuthProtectedResourceMetadataUrl(serverUrl)).toBe('https://mcp.example.com/.well-known/oauth-protected-resource/mcp');
+  });
+
+  it('should insert well-known URI between host and query', () => {
+    const serverUrl = new URL('https://mcp.example.com?k=v')
+    expect(getOAuthProtectedResourceMetadataUrl(serverUrl)).toBe('https://mcp.example.com/.well-known/oauth-protected-resource?k=v');
+  });
+
+  it('should insert well-known URI between host and path with query', () => {
+    const serverUrl = new URL('https://mcp.example.com/mcp?k=v')
+    expect(getOAuthProtectedResourceMetadataUrl(serverUrl)).toBe('https://mcp.example.com/.well-known/oauth-protected-resource/mcp?k=v');
+  });
+
+  it('should insert well-known URI between host and path while preserving trailing slash from path', () => {
+    const serverUrl = new URL('https://mcp.example.com/mcp/')
+    expect(getOAuthProtectedResourceMetadataUrl(serverUrl)).toBe('https://mcp.example.com/.well-known/oauth-protected-resource/mcp/');
+  });
+
+  it('should insert well-known URI between host and path with query while preserving trailing slash from path', () => {
+    const serverUrl = new URL('https://mcp.example.com/mcp/?k=v')
+    expect(getOAuthProtectedResourceMetadataUrl(serverUrl)).toBe('https://mcp.example.com/.well-known/oauth-protected-resource/mcp/?k=v');
+  });
+
 });
