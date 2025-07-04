@@ -261,7 +261,9 @@ export async function discoverOAuthProtectedResourceMetadata(
   if (opts?.resourceMetadataUrl) {
     url = new URL(opts?.resourceMetadataUrl);
   } else {
-    url = new URL("/.well-known/oauth-protected-resource", serverUrl);
+    const issuer = new URL(serverUrl);
+    const wellKnownPath = buildWellKnownPath('oauth-protected-resource', issuer.pathname);
+    url = new URL(wellKnownPath, issuer);
   }
 
   let response: Response;
@@ -318,8 +320,8 @@ async function fetchWithCorsRetry(
 /**
  * Constructs the well-known path for OAuth metadata discovery
  */
-function buildWellKnownPath(pathname: string): string {
-  let wellKnownPath = `/.well-known/oauth-authorization-server${pathname}`;
+function buildWellKnownPath(wellKnownPrefix: string, pathname: string): string {
+  let wellKnownPath = `/.well-known/${wellKnownPrefix}${pathname}`;
   if (pathname.endsWith('/')) {
     // Strip trailing slash from pathname to avoid double slashes
     wellKnownPath = wellKnownPath.slice(0, -1);
@@ -361,7 +363,7 @@ export async function discoverOAuthMetadata(
   const protocolVersion = opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
 
   // Try path-aware discovery first (RFC 8414 compliant)
-  const wellKnownPath = buildWellKnownPath(issuer.pathname);
+  const wellKnownPath = buildWellKnownPath('oauth-authorization-server', issuer.pathname);
   const pathAwareUrl = new URL(wellKnownPath, issuer);
   let response = await tryMetadataDiscovery(pathAwareUrl, protocolVersion);
 
