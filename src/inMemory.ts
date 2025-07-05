@@ -51,7 +51,9 @@ export class InMemoryTransport implements Transport {
    */
   async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId, authInfo?: AuthInfo }): Promise<void> {
     if (!this._otherTransport) {
-      throw new Error("Not connected");
+      const error = new Error("Not connected");
+      this.onerror?.(error);
+      throw error;
     }
 
     if (this._otherTransport.onmessage) {
