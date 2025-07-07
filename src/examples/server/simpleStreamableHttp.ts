@@ -11,6 +11,8 @@ import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from 'src/shared/auth.js';
 import { checkResourceAllowed } from 'src/shared/auth-utils.js';
 
+import cors from 'cors';
+
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
 const strictOAuth = process.argv.includes('--oauth-strict');
@@ -206,12 +208,12 @@ const getServer = () => {
               },
             ],
           };
-        } else if (result.action === 'reject') {
+        } else if (result.action === 'decline') {
           return {
             content: [
               {
                 type: 'text',
-                text: `No information was collected. User rejected ${infoType} information request.`,
+                text: `No information was collected. User declined ${infoType} information request.`,
               },
             ],
           };
@@ -420,11 +422,17 @@ const getServer = () => {
   return server;
 };
 
-const MCP_PORT = 3000;
-const AUTH_PORT = 3001;
+const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 3000;
+const AUTH_PORT = process.env.MCP_AUTH_PORT ? parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
 
 const app = express();
 app.use(express.json());
+
+// Allow CORS all domains, expose the Mcp-Session-Id header
+app.use(cors({
+  origin: '*', // Allow all origins
+  exposedHeaders: ["Mcp-Session-Id"]
+}));
 
 // Set up OAuth if enabled
 let authMiddleware = null;
@@ -433,7 +441,7 @@ if (useOAuth) {
   const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}/mcp`);
   const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
-  const oauthMetadata: OAuthMetadata = setupAuthServer({authServerUrl, mcpServerUrl, strictResource: strictOAuth});
+  const oauthMetadata: OAuthMetadata = setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: strictOAuth });
 
   const tokenVerifier = {
     verifyAccessToken: async (token: string) => {
@@ -499,7 +507,12 @@ const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 // MCP POST endpoint with optional auth
 const mcpPostHandler = async (req: Request, res: Response) => {
   const sessionId = req.headers['mcp-session-id'] as string | undefined;
-  console.log(sessionId? `Received MCP request for session: ${sessionId}`: 'Received MCP request:', req.body);
+  if (sessionId) {
+    console.log(`Received MCP request for session: ${sessionId}`);
+  } else {
+    console.log('Request body:', req.body);
+  }
+
   if (useOAuth && req.auth) {
     console.log('Authenticated user:', req.auth);
   }

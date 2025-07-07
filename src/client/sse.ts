@@ -1,5 +1,5 @@
 import { EventSource, type ErrorEvent, type EventSourceInit } from "eventsource";
-import { Transport } from "../shared/transport.js";
+import { Transport, FetchLike } from "../shared/transport.js";
 import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 
@@ -47,6 +47,11 @@ export type SSEClientTransportOptions = {
    * Customizes recurring POST requests to the server.
    */
   requestInit?: RequestInit;
+
+  /**
+   * Custom fetch implementation used for all network requests.
+   */
+  fetch?: FetchLike;
 };
 
 /**
@@ -62,6 +67,7 @@ export class SSEClientTransport implements Transport {
   private _eventSourceInit?: EventSourceInit;
   private _requestInit?: RequestInit;
   private _authProvider?: OAuthClientProvider;
+  private _fetch?: FetchLike;
   private _protocolVersion?: string;
 
   onclose?: () => void;
@@ -77,6 +83,7 @@ export class SSEClientTransport implements Transport {
     this._eventSourceInit = opts?.eventSourceInit;
     this._requestInit = opts?.requestInit;
     this._authProvider = opts?.authProvider;
+    this._fetch = opts?.fetch;
   }
 
   private async _authThenStart(): Promise<void> {
@@ -117,7 +124,7 @@ export class SSEClientTransport implements Transport {
   }
 
   private _startOrAuth(): Promise<void> {
-    const fetchImpl = (this?._eventSourceInit?.fetch || fetch) as typeof fetch
+const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch) as typeof fetch
     return new Promise((resolve, reject) => {
       this._eventSource = new EventSource(
         this._url.href,
@@ -242,7 +249,7 @@ export class SSEClientTransport implements Transport {
         signal: this._abortController?.signal,
       };
 
-      const response = await fetch(this._endpoint, init);
+const response = await (this._fetch ?? fetch)(this._endpoint, init);
       if (!response.ok) {
         if (response.status === 401 && this._authProvider) {
 

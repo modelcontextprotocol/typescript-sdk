@@ -267,6 +267,7 @@ describe("tool()", () => {
     expect(result.tools[0].name).toBe("test");
     expect(result.tools[0].inputSchema).toEqual({
       type: "object",
+      properties: {},
     });
 
     // Adding the tool before the connection was established means no notification was sent

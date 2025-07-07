@@ -262,6 +262,38 @@ describe("SSEClientTransport", () => {
       expect(lastServerRequest.headers.authorization).toBe(authToken);
     });
 
+    it("uses custom fetch implementation from options", async () => {
+      const authToken = "Bearer custom-token";
+
+      const fetchWithAuth = jest.fn((url: string | URL, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        headers.set("Authorization", authToken);
+        return fetch(url.toString(), { ...init, headers });
+      });
+
+      transport = new SSEClientTransport(resourceBaseUrl, {
+        fetch: fetchWithAuth,
+      });
+
+      await transport.start();
+
+      expect(lastServerRequest.headers.authorization).toBe(authToken);
+
+      // Send a message to verify fetchWithAuth used for POST as well
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        id: "1",
+        method: "test",
+        params: {},
+      };
+
+      await transport.send(message);
+
+      expect(fetchWithAuth).toHaveBeenCalledTimes(2);
+      expect(lastServerRequest.method).toBe("POST");
+      expect(lastServerRequest.headers.authorization).toBe(authToken);
+    });
+
     it("passes custom headers to fetch requests", async () => {
       const customHeaders = {
         Authorization: "Bearer test-token",

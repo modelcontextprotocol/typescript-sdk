@@ -1238,7 +1238,7 @@ export const ElicitResultSchema = ResultSchema.extend({
   /**
    * The user's response action.
    */
-  action: z.enum(["accept", "reject", "cancel"]),
+  action: z.enum(["accept", "decline", "cancel"]),
   /**
    * The collected user input content (only present if action is "accept").
    */

@@ -423,24 +423,23 @@ export async function discoverOAuthProtectedResourceMetadata(
 }
 
 /**
- * Looks up RFC 8414 OAuth 2.0 Authorization Server Metadata.
- *
- * If the server returns a 404 for the well-known endpoint, this function will
- * return `undefined`. Any other errors will be thrown as exceptions.
- */
-/**
  * Helper function to handle fetch with CORS retry logic
  */
 async function fetchWithCorsRetry(
   url: URL,
-  headers: Record<string, string>,
-): Promise<Response> {
+  headers?: Record<string, string>,
+): Promise<Response | undefined> {
   try {
     return await fetch(url, { headers });
   } catch (error) {
-    // CORS errors come back as TypeError, retry without headers
     if (error instanceof TypeError) {
-      return await fetch(url);
+      if (headers) {
+        // CORS errors come back as TypeError, retry without headers
+        return fetchWithCorsRetry(url)
+      } else {
+        // We're getting CORS errors on retry too, return undefined
+        return undefined
+      }
     }
     throw error;
   }
@@ -464,7 +463,7 @@ function buildWellKnownPath(pathname: string): string {
 async function tryMetadataDiscovery(
   url: URL,
   protocolVersion: string,
-): Promise<Response> {
+): Promise<Response | undefined> {
   const headers = {
     "MCP-Protocol-Version": protocolVersion
   };
@@ -474,10 +473,16 @@ async function tryMetadataDiscovery(
 /**
  * Determines if fallback to root discovery should be attempted
  */
-function shouldAttemptFallback(response: Response, pathname: string): boolean {
-  return response.status === 404 && pathname !== '/';
+function shouldAttemptFallback(response: Response | undefined, pathname: string): boolean {
+  return !response || response.status === 404 && pathname !== '/';
 }
 
+/**
+ * Looks up RFC 8414 OAuth 2.0 Authorization Server Metadata.
+ *
+ * If the server returns a 404 for the well-known endpoint, this function will
+ * return `undefined`. Any other errors will be thrown as exceptions.
+ */
 export async function discoverOAuthMetadata(
   authorizationServerUrl: string | URL,
   opts?: { protocolVersion?: string },
@@ -492,18 +497,10 @@ export async function discoverOAuthMetadata(
 
   // If path-aware discovery fails with 404, try fallback to root discovery
   if (shouldAttemptFallback(response, issuer.pathname)) {
-    try {
-      const rootUrl = new URL("/.well-known/oauth-authorization-server", issuer);
-      response = await tryMetadataDiscovery(rootUrl, protocolVersion);
-
-      if (response.status === 404) {
-        return undefined;
-      }
-    } catch {
-      // If fallback fails, return undefined
-      return undefined;
-    }
-  } else if (response.status === 404) {
+    const rootUrl = new URL("/.well-known/oauth-authorization-server", issuer);
+    response = await tryMetadataDiscovery(rootUrl, protocolVersion);
+  }
+  if (!response || response.status === 404) {
     return undefined;
   }
 

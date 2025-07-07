@@ -538,7 +538,7 @@ test("should allow elicitation reject and cancel without validation", async () =
   client.setRequestHandler(ElicitRequestSchema, (request) => {
     requestCount++;
     if (requestCount === 1) {
-      return { action: "reject" };
+      return { action: "decline" };
     } else {
       return { action: "cancel" };
     }
@@ -566,7 +566,7 @@ test("should allow elicitation reject and cancel without validation", async () =
       requestedSchema: schema,
     }),
   ).resolves.toEqual({
-    action: "reject",
+    action: "decline",
   });
 
   // Test cancel - should not validate  

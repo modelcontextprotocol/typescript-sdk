@@ -12,6 +12,7 @@
   - [Tools](#tools)
   - [Prompts](#prompts)
   - [Completions](#completions)
+  - [Sampling](#sampling)
 - [Running Your Server](#running-your-server)
   - [stdio](#stdio)
   - [Streamable HTTP](#streamable-http)
@@ -43,6 +44,8 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 ```bash
 npm install @modelcontextprotocol/sdk
 ```
+
+> ⚠️ MCP requires Node v18.x up to work fine.
 
 ## Quick Start
 
@@ -382,6 +385,68 @@ import { getDisplayName } from "@modelcontextprotocol/sdk/shared/metadataUtils.j
 const displayName = getDisplayName(tool);
 ```
 
+### Sampling
+
+MCP servers can request LLM completions from connected clients that support sampling.
+
+```typescript
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+
+const mcpServer = new McpServer({
+  name: "tools-with-sample-server",
+  version: "1.0.0",
+});
+
+// Tool that uses LLM sampling to summarize any text
+mcpServer.registerTool(
+  "summarize",
+  {
+    description: "Summarize any text using an LLM",
+    inputSchema: {
+      text: z.string().describe("Text to summarize"),
+    },
+  },
+  async ({ text }) => {
+    // Call the LLM through MCP sampling
+    const response = await mcpServer.server.createMessage({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: `Please summarize the following text concisely:\n\n${text}`,
+          },
+        },
+      ],
+      maxTokens: 500,
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: response.content.type === "text" ? response.content.text : "Unable to generate summary",
+        },
+      ],
+    };
+  }
+);
+
+async function main() {
+  const transport = new StdioServerTransport();
+  await mcpServer.connect(transport);
+  console.log("MCP server is running...");
+}
+
+main().catch((error) => {
+  console.error("Server error:", error);
+  process.exit(1);
+});
+```
+
+
 ## Running Your Server
 
 MCP servers in TypeScript need to be connected to a transport to communicate with clients. How you start the server depends on the choice of transport:
@@ -505,19 +570,30 @@ app.listen(3000);
 ```
 
 > [!TIP]
-> When using this in a remote environment, make sure to allow the header parameter `mcp-session-id` in CORS. Otherwise, it may result in a `Bad Request: No valid session ID provided` error. 
-> 
-> For example, in Node.js you can configure it like this:
-> 
-> ```ts
-> app.use(
->   cors({
->     origin: ['https://your-remote-domain.com, https://your-other-remote-domain.com'],
->     exposedHeaders: ['mcp-session-id'],
->     allowedHeaders: ['Content-Type', 'mcp-session-id'],
->   })
-> );
+> When using this in a remote environment, make sure to allow the header parameter `mcp-session-id` in CORS. Otherwise, it may result in a `Bad Request: No valid session ID provided` error. Read the following section for examples.
 > ```
+
+
+#### CORS Configuration for Browser-Based Clients
+
+If you'd like your server to be accessible by browser-based MCP clients, you'll need to configure CORS headers. The `Mcp-Session-Id` header must be exposed for browser clients to access it:
+
+```typescript
+import cors from 'cors';
+
+// Add CORS middleware before your MCP routes
+app.use(cors({
+  origin: '*', // Configure appropriately for production, for example:
+  // origin: ['https://your-remote-domain.com, https://your-other-remote-domain.com'],
+  exposedHeaders: ['Mcp-Session-Id']
+  allowedHeaders: ['Content-Type', 'mcp-session-id'],
+}));
+```
+
+This configuration is necessary because:
+- The MCP streamable HTTP transport uses the `Mcp-Session-Id` header for session management
+- Browsers restrict access to response headers unless explicitly exposed via CORS
+- Without this configuration, browser-based clients won't be able to read the session ID from initialization responses
 
 #### Without Session Management (Stateless)
 
@@ -588,8 +664,17 @@ app.delete('/mcp', async (req: Request, res: Response) => {
 
 // Start the server
 const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`MCP Stateless Streamable HTTP Server listening on port ${PORT}`);
+setupServer().then(() => {
+  app.listen(PORT, (error) => {
+    if (error) {
+      console.error('Failed to start server:', error);
+      process.exit(1);
+    }
+    console.log(`MCP Stateless Streamable HTTP Server listening on port ${PORT}`);
+  });
+}).catch(error => {
+  console.error('Failed to set up the server:', error);
+  process.exit(1);
 });
 
 ```
@@ -967,7 +1052,7 @@ Client-side: Handle elicitation requests
 ```typescript
 // This is a placeholder - implement based on your UI framework
 async function getInputFromUser(message: string, schema: any): Promise<{
-  action: "accept" | "reject" | "cancel";
+  action: "accept" | "decline" | "cancel";
   data?: Record<string, any>;
 }> {
   // This should be implemented depending on the app
