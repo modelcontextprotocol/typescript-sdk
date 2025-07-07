@@ -106,10 +106,8 @@ export class SSEClientTransport implements Transport {
     return await this._startOrAuth();
   }
 
-  private async _commonHeaders(): Promise<HeadersInit> {
-    const headers = {
-      ...this._requestInit?.headers,
-    } as HeadersInit & Record<string, string>;
+  private async _commonHeaders(): Promise<Headers> {
+    const headers: HeadersInit = {};
     if (this._authProvider) {
       const tokens = await this._authProvider.tokens();
       if (tokens) {
@@ -126,7 +124,7 @@ export class SSEClientTransport implements Transport {
   }
 
   private _startOrAuth(): Promise<void> {
-const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch) as typeof fetch
+    const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch) as typeof fetch
     return new Promise((resolve, reject) => {
       this._eventSource = new EventSource(
         this._url.href,
