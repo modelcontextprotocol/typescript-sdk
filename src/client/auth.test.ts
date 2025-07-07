@@ -1,4 +1,3 @@
-import { mock, Mock } from 'node:test';
 import { LATEST_PROTOCOL_VERSION } from '../types.js';
 import {
   discoverOAuthMetadata,
