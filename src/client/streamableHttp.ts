@@ -1,6 +1,6 @@
-import { Transport } from "../shared/transport.js";
+import { Transport, FetchLike } from "../shared/transport.js";
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
-import { auth, AuthResult, OAuthClientProvider, UnauthorizedError } from "./auth.js";
+import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { EventSourceParserStream } from "eventsource-parser/stream";
 
 // Default reconnection options for StreamableHTTP connections
@@ -23,7 +23,7 @@ export class StreamableHTTPError extends Error {
 /**
  * Options for starting or authenticating an SSE connection
  */
-interface StartSSEOptions {
+export interface StartSSEOptions {
   /**
    * The resumption token used to continue long-running requests that were interrupted.
    *
@@ -100,6 +100,11 @@ export type StreamableHTTPClientTransportOptions = {
   requestInit?: RequestInit;
 
   /**
+   * Custom fetch implementation used for all network requests.
+   */
+  fetch?: FetchLike;
+
+  /**
    * Options to configure the reconnection behavior.
    */
   reconnectionOptions?: StreamableHTTPReconnectionOptions;
@@ -119,10 +124,13 @@ export type StreamableHTTPClientTransportOptions = {
 export class StreamableHTTPClientTransport implements Transport {
   private _abortController?: AbortController;
   private _url: URL;
+  private _resourceMetadataUrl?: URL;
   private _requestInit?: RequestInit;
   private _authProvider?: OAuthClientProvider;
+  private _fetch?: FetchLike;
   private _sessionId?: string;
   private _reconnectionOptions: StreamableHTTPReconnectionOptions;
+  private _protocolVersion?: string;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -133,8 +141,10 @@ export class StreamableHTTPClientTransport implements Transport {
     opts?: StreamableHTTPClientTransportOptions,
   ) {
     this._url = url;
+    this._resourceMetadataUrl = undefined;
     this._requestInit = opts?.requestInit;
     this._authProvider = opts?.authProvider;
+    this._fetch = opts?.fetch;
     this._sessionId = opts?.sessionId;
     this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
   }
@@ -146,7 +156,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
     let result: AuthResult;
     try {
-      result = await auth(this._authProvider, { serverUrl: this._url });
+      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl });
     } catch (error) {
       this.onerror?.(error as Error);
       throw error;
@@ -160,7 +170,7 @@ export class StreamableHTTPClientTransport implements Transport {
   }
 
   private async _commonHeaders(): Promise<Headers> {
-    const headers: HeadersInit = {};
+    const headers: HeadersInit & Record<string, string> = {};
     if (this._authProvider) {
       const tokens = await this._authProvider.tokens();
       if (tokens) {
@@ -171,10 +181,16 @@ export class StreamableHTTPClientTransport implements Transport {
     if (this._sessionId) {
       headers["mcp-session-id"] = this._sessionId;
     }
+    if (this._protocolVersion) {
+      headers["mcp-protocol-version"] = this._protocolVersion;
+    }
 
-    return new Headers(
-      { ...headers, ...this._requestInit?.headers }
-    );
+    const extraHeaders = this._normalizeHeaders(this._requestInit?.headers);
+
+    return new Headers({
+      ...headers,
+      ...extraHeaders,
+    });
   }
 
 
@@ -191,7 +207,7 @@ export class StreamableHTTPClientTransport implements Transport {
         headers.set("last-event-id", resumptionToken);
       }
 
-      const response = await fetch(this._url, {
+const response = await (this._fetch ?? fetch)(this._url, {
         method: "GET",
         headers,
         signal: this._abortController?.signal,
@@ -225,7 +241,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
   /**
    * Calculates the next reconnection delay using  backoff algorithm
-   * 
+   *
    * @param attempt Current reconnection attempt count for the specific stream
    * @returns Time to wait in milliseconds before next reconnection attempt
    */
@@ -240,9 +256,23 @@ export class StreamableHTTPClientTransport implements Transport {
 
   }
 
+    private _normalizeHeaders(headers: HeadersInit | undefined): Record<string, string> {
+    if (!headers) return {};
+
+    if (headers instanceof Headers) {
+      return Object.fromEntries(headers.entries());
+    }
+
+    if (Array.isArray(headers)) {
+      return Object.fromEntries(headers);
+    }
+
+    return { ...headers as Record<string, string> };
+  }
+
   /**
    * Schedule a reconnection attempt with exponential backoff
-   * 
+   *
    * @param lastEventId The ID of the last received event for resumability
    * @param attemptCount Current reconnection attempt count for this specific stream
    */
@@ -356,7 +386,7 @@ export class StreamableHTTPClientTransport implements Transport {
       throw new UnauthorizedError("No auth provider");
     }
 
-    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode });
+    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl });
     if (result !== "AUTHORIZED") {
       throw new UnauthorizedError("Failed to authorize");
     }
@@ -391,7 +421,7 @@ export class StreamableHTTPClientTransport implements Transport {
         signal: this._abortController?.signal,
       };
 
-      const response = await fetch(this._url, init);
+const response = await (this._fetch ?? fetch)(this._url, init);
 
       // Handle session ID received during initialization
       const sessionId = response.headers.get("mcp-session-id");
@@ -401,7 +431,10 @@ export class StreamableHTTPClientTransport implements Transport {
 
       if (!response.ok) {
         if (response.status === 401 && this._authProvider) {
-          const result = await auth(this._authProvider, { serverUrl: this._url });
+
+          this._resourceMetadataUrl = extractResourceMetadataUrl(response);
+
+          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl });
           if (result !== "AUTHORIZED") {
             throw new UnauthorizedError();
           }
@@ -470,12 +503,12 @@ export class StreamableHTTPClientTransport implements Transport {
 
   /**
    * Terminates the current session by sending a DELETE request to the server.
-   * 
+   *
    * Clients that no longer need a particular session
    * (e.g., because the user is leaving the client application) SHOULD send an
    * HTTP DELETE to the MCP endpoint with the Mcp-Session-Id header to explicitly
    * terminate the session.
-   * 
+   *
    * The server MAY respond with HTTP 405 Method Not Allowed, indicating that
    * the server does not allow clients to terminate sessions.
    */
@@ -494,7 +527,7 @@ export class StreamableHTTPClientTransport implements Transport {
         signal: this._abortController?.signal,
       };
 
-      const response = await fetch(this._url, init);
+const response = await (this._fetch ?? fetch)(this._url, init);
 
       // We specifically handle 405 as a valid response according to the spec,
       // meaning the server does not support explicit session termination
@@ -510,5 +543,12 @@ export class StreamableHTTPClientTransport implements Transport {
       this.onerror?.(error as Error);
       throw error;
     }
+  }
+
+  setProtocolVersion(version: string): void {
+    this._protocolVersion = version;
+  }
+  get protocolVersion(): string | undefined {
+    return this._protocolVersion;
   }
 }

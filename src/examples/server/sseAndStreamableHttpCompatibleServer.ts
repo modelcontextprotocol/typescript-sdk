@@ -194,7 +194,7 @@ app.post("/messages", async (req: Request, res: Response) => {
     return;
   }
   if (transport) {
-    await transport.handlePostMessage(req, res);
+    await transport.handlePostMessage(req, res, req.body);
   } else {
     res.status(400).send('No transport found for sessionId');
   }

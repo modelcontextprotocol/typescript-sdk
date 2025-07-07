@@ -102,10 +102,6 @@ app.get('/mcp', async (req: Request, res: Response) => {
     const server = getServer();
     await server.connect(transport);
 
-    // Start the SSE transport to begin streaming
-    // This sends an initial 'endpoint' event with the session ID in the URL
-    await transport.start();
-
     console.log(`Established SSE stream with session ID: ${sessionId}`);
   } catch (error) {
     console.error('Error establishing SSE stream:', error);

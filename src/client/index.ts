@@ -39,7 +39,12 @@ import {
   SubscribeRequest,
   SUPPORTED_PROTOCOL_VERSIONS,
   UnsubscribeRequest,
+  Tool,
+  ErrorCode,
+  McpError,
 } from "../types.js";
+import Ajv from "ajv";
+import type { ValidateFunction } from "ajv";
 
 export type ClientOptions = ProtocolOptions & {
   /**
@@ -86,6 +91,8 @@ export class Client<
   private _serverVersion?: Implementation;
   private _capabilities: ClientCapabilities;
   private _instructions?: string;
+  private _cachedToolOutputValidators: Map<string, ValidateFunction> = new Map();
+  private _ajv: InstanceType<typeof Ajv>;
 
   /**
    * Initializes this client with the given name and version information.
@@ -96,6 +103,7 @@ export class Client<
   ) {
     super(options);
     this._capabilities = options?.capabilities ?? {};
+    this._ajv = new Ajv();
   }
 
   /**
@@ -157,6 +165,10 @@ export class Client<
 
       this._serverCapabilities = result.capabilities;
       this._serverVersion = result.serverInfo;
+      // HTTP transports must set the protocol version in each header after initialization.
+      if (transport.setProtocolVersion) {
+        transport.setProtocolVersion(result.protocolVersion);
+      }
 
       this._instructions = result.instructions;
 
@@ -295,6 +307,14 @@ export class Client<
         }
         break;
 
+      case "elicitation/create":
+        if (!this._capabilities.elicitation) {
+          throw new Error(
+            `Client does not support elicitation capability (required for ${method})`,
+          );
+        }
+        break;
+
       case "roots/list":
         if (!this._capabilities.roots) {
           throw new Error(
@@ -413,22 +433,84 @@ export class Client<
       | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
     options?: RequestOptions,
   ) {
-    return this.request(
+    const result = await this.request(
       { method: "tools/call", params },
       resultSchema,
       options,
     );
+
+    // Check if the tool has an outputSchema
+    const validator = this.getToolOutputValidator(params.name);
+    if (validator) {
+      // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
+      if (!result.structuredContent && !result.isError) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          `Tool ${params.name} has an output schema but did not return structured content`
+        );
+      }
+
+      // Only validate structured content if present (not when there's an error)
+      if (result.structuredContent) {
+        try {
+          // Validate the structured content (which is already an object) against the schema
+          const isValid = validator(result.structuredContent);
+
+          if (!isValid) {
+            throw new McpError(
+              ErrorCode.InvalidParams,
+              `Structured content does not match the tool's output schema: ${this._ajv.errorsText(validator.errors)}`
+            );
+          }
+        } catch (error) {
+          if (error instanceof McpError) {
+            throw error;
+          }
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `Failed to validate structured content: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+      }
+    }
+
+    return result;
+  }
+
+  private cacheToolOutputSchemas(tools: Tool[]) {
+    this._cachedToolOutputValidators.clear();
+
+    for (const tool of tools) {
+      // If the tool has an outputSchema, create and cache the Ajv validator
+      if (tool.outputSchema) {
+        try {
+          const validator = this._ajv.compile(tool.outputSchema);
+          this._cachedToolOutputValidators.set(tool.name, validator);
+        } catch {
+          // Ignore schema compilation errors
+        }
+      }
+    }
+  }
+
+  private getToolOutputValidator(toolName: string): ValidateFunction | undefined {
+    return this._cachedToolOutputValidators.get(toolName);
   }
 
   async listTools(
     params?: ListToolsRequest["params"],
     options?: RequestOptions,
   ) {
-    return this.request(
+    const result = await this.request(
       { method: "tools/list", params },
       ListToolsResultSchema,
       options,
     );
+
+    // Cache the tools and their output schemas for future validation
+    this.cacheToolOutputSchemas(result.tools);
+
+    return result;
   }
 
   async sendRootsListChanged() {

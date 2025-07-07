@@ -264,12 +264,14 @@ describe('Token Handler', () => {
     });
 
     it('returns tokens for valid code exchange', async () => {
+      const mockExchangeCode = jest.spyOn(mockProvider, 'exchangeAuthorizationCode');
       const response = await supertest(app)
         .post('/token')
         .type('form')
         .send({
           client_id: 'valid-client',
           client_secret: 'valid-secret',
+          resource: 'https://api.example.com/resource',
           grant_type: 'authorization_code',
           code: 'valid_code',
           code_verifier: 'valid_verifier'
@@ -280,6 +282,13 @@ describe('Token Handler', () => {
       expect(response.body.token_type).toBe('bearer');
       expect(response.body.expires_in).toBe(3600);
       expect(response.body.refresh_token).toBe('mock_refresh_token');
+      expect(mockExchangeCode).toHaveBeenCalledWith(
+        validClient,
+        'valid_code',
+        undefined, // code_verifier is undefined after PKCE validation
+        undefined, // redirect_uri
+        new URL('https://api.example.com/resource') // resource parameter
+      );
     });
 
     it('passes through code verifier when using proxy provider', async () => {
@@ -322,7 +331,8 @@ describe('Token Handler', () => {
             client_secret: 'valid-secret',
             grant_type: 'authorization_code',
             code: 'valid_code',
-            code_verifier: 'any_verifier'
+            code_verifier: 'any_verifier',
+            redirect_uri: 'https://example.com/callback'
           });
 
         expect(response.status).toBe(200);
@@ -336,6 +346,69 @@ describe('Token Handler', () => {
               'Content-Type': 'application/x-www-form-urlencoded'
             },
             body: expect.stringContaining('code_verifier=any_verifier')
+          })
+        );
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it('passes through redirect_uri when using proxy provider', async () => {
+      const originalFetch = global.fetch;
+
+      try {
+        global.fetch = jest.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({
+            access_token: 'mock_access_token',
+            token_type: 'bearer',
+            expires_in: 3600,
+            refresh_token: 'mock_refresh_token'
+          })
+        });
+
+        const proxyProvider = new ProxyOAuthServerProvider({
+          endpoints: {
+            authorizationUrl: 'https://example.com/authorize',
+            tokenUrl: 'https://example.com/token'
+          },
+          verifyAccessToken: async (token) => ({
+            token,
+            clientId: 'valid-client',
+            scopes: ['read', 'write'],
+            expiresAt: Date.now() / 1000 + 3600
+          }),
+          getClient: async (clientId) => clientId === 'valid-client' ? validClient : undefined
+        });
+
+        const proxyApp = express();
+        const options: TokenHandlerOptions = { provider: proxyProvider };
+        proxyApp.use('/token', tokenHandler(options));
+
+        const redirectUri = 'https://example.com/callback';
+        const response = await supertest(proxyApp)
+          .post('/token')
+          .type('form')
+          .send({
+            client_id: 'valid-client',
+            client_secret: 'valid-secret',
+            grant_type: 'authorization_code',
+            code: 'valid_code',
+            code_verifier: 'any_verifier',
+            redirect_uri: redirectUri
+          });
+
+        expect(response.status).toBe(200);
+        expect(response.body.access_token).toBe('mock_access_token');
+
+        expect(global.fetch).toHaveBeenCalledWith(
+          'https://example.com/token',
+          expect.objectContaining({
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: expect.stringContaining(`redirect_uri=${encodeURIComponent(redirectUri)}`)
           })
         );
       } finally {
@@ -376,12 +449,14 @@ describe('Token Handler', () => {
     });
 
     it('returns new tokens for valid refresh token', async () => {
+      const mockExchangeRefresh = jest.spyOn(mockProvider, 'exchangeRefreshToken');
       const response = await supertest(app)
         .post('/token')
         .type('form')
         .send({
           client_id: 'valid-client',
           client_secret: 'valid-secret',
+          resource: 'https://api.example.com/resource',
           grant_type: 'refresh_token',
           refresh_token: 'valid_refresh_token'
         });
@@ -391,6 +466,12 @@ describe('Token Handler', () => {
       expect(response.body.token_type).toBe('bearer');
       expect(response.body.expires_in).toBe(3600);
       expect(response.body.refresh_token).toBe('new_mock_refresh_token');
+      expect(mockExchangeRefresh).toHaveBeenCalledWith(
+        validClient,
+        'valid_refresh_token',
+        undefined, // scopes
+        new URL('https://api.example.com/resource') // resource parameter
+      );
     });
 
     it('respects requested scopes on refresh', async () => {

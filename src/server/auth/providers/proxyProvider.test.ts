@@ -88,6 +88,7 @@ describe("Proxy OAuth Server Provider", () => {
           codeChallenge: "test-challenge",
           state: "test-state",
           scopes: ["read", "write"],
+          resource: new URL('https://api.example.com/resource'),
         },
         mockResponse
       );
@@ -100,6 +101,7 @@ describe("Proxy OAuth Server Provider", () => {
       expectedUrl.searchParams.set("code_challenge_method", "S256");
       expectedUrl.searchParams.set("state", "test-state");
       expectedUrl.searchParams.set("scope", "read write");
+      expectedUrl.searchParams.set('resource', 'https://api.example.com/resource');
 
       expect(mockResponse.redirect).toHaveBeenCalledWith(expectedUrl.toString());
     });
@@ -142,6 +144,63 @@ describe("Proxy OAuth Server Provider", () => {
       expect(tokens).toEqual(mockTokenResponse);
     });
 
+    it("includes redirect_uri in token request when provided", async () => {
+      const redirectUri = "https://example.com/callback";
+      const tokens = await provider.exchangeAuthorizationCode(
+        validClient,
+        "test-code",
+        "test-verifier",
+        redirectUri
+      );
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "https://auth.example.com/token",
+        expect.objectContaining({
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: expect.stringContaining(`redirect_uri=${encodeURIComponent(redirectUri)}`)
+        })
+      );
+      expect(tokens).toEqual(mockTokenResponse);
+    });
+
+    it('includes resource parameter in authorization code exchange', async () => {
+      const tokens = await provider.exchangeAuthorizationCode(
+        validClient,
+        'test-code',
+        'test-verifier',
+        'https://example.com/callback',
+        new URL('https://api.example.com/resource')
+      );
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://auth.example.com/token',
+        expect.objectContaining({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: expect.stringContaining('resource=' + encodeURIComponent('https://api.example.com/resource'))
+        })
+      );
+      expect(tokens).toEqual(mockTokenResponse);
+    });
+
+    it('handles authorization code exchange without resource parameter', async () => {
+      const tokens = await provider.exchangeAuthorizationCode(
+        validClient,
+        'test-code',
+        'test-verifier'
+      );
+
+      const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
+      const body = fetchCall[1].body as string;
+      expect(body).not.toContain('resource=');
+      expect(tokens).toEqual(mockTokenResponse);
+    });
+
     it("exchanges refresh token for new tokens", async () => {
       const tokens = await provider.exchangeRefreshToken(
         validClient,
@@ -162,6 +221,26 @@ describe("Proxy OAuth Server Provider", () => {
       expect(tokens).toEqual(mockTokenResponse);
     });
 
+    it('includes resource parameter in refresh token exchange', async () => {
+      const tokens = await provider.exchangeRefreshToken(
+        validClient,
+        'test-refresh-token',
+        ['read', 'write'],
+        new URL('https://api.example.com/resource')
+      );
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://auth.example.com/token',
+        expect.objectContaining({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: expect.stringContaining('resource=' + encodeURIComponent('https://api.example.com/resource'))
+        })
+      );
+      expect(tokens).toEqual(mockTokenResponse);
+    });
   });
 
   describe("client registration", () => {

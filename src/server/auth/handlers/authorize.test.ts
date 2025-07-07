@@ -276,6 +276,34 @@ describe('Authorization Handler', () => {
     });
   });
 
+  describe('Resource parameter validation', () => {
+    it('propagates resource parameter', async () => {
+      const mockProviderWithResource = jest.spyOn(mockProvider, 'authorize');
+      
+      const response = await supertest(app)
+        .get('/authorize')
+        .query({
+          client_id: 'valid-client',
+          redirect_uri: 'https://example.com/callback',
+          response_type: 'code',
+          code_challenge: 'challenge123',
+          code_challenge_method: 'S256',
+          resource: 'https://api.example.com/resource'
+        });
+
+      expect(response.status).toBe(302);
+      expect(mockProviderWithResource).toHaveBeenCalledWith(
+        validClient,
+        expect.objectContaining({
+          resource: new URL('https://api.example.com/resource'),
+          redirectUri: 'https://example.com/callback',
+          codeChallenge: 'challenge123'
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
   describe('Successful authorization', () => {
     it('handles successful authorization with all parameters', async () => {
       const response = await supertest(app)

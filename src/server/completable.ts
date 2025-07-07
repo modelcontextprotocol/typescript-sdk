@@ -15,6 +15,9 @@ export enum McpZodTypeKind {
 
 export type CompleteCallback<T extends ZodTypeAny = ZodTypeAny> = (
   value: T["_input"],
+  context?: {
+    arguments?: Record<string, string>;
+  },
 ) => T["_input"][] | Promise<T["_input"][]>;
 
 export interface CompletableDef<T extends ZodTypeAny = ZodTypeAny>
