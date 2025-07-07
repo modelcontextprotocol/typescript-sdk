@@ -43,14 +43,20 @@ import {
   ErrorCode,
   McpError,
 } from "../types.js";
-import Ajv from "ajv";
-import type { ValidateFunction } from "ajv";
+import { SchemaValidator, ValidateFunction } from "../shared/validator.js";
+import { AjvValidator } from "../shared/validators/ajv-validator.js";
 
 export type ClientOptions = ProtocolOptions & {
   /**
    * Capabilities to advertise as being supported by this client.
    */
   capabilities?: ClientCapabilities;
+
+  /**
+   * Custom schema validator for edge runtime compatibility.
+   * If not provided, uses the default AJV validator.
+   */
+  validator?: SchemaValidator;
 };
 
 /**
@@ -92,7 +98,7 @@ export class Client<
   private _capabilities: ClientCapabilities;
   private _instructions?: string;
   private _cachedToolOutputValidators: Map<string, ValidateFunction> = new Map();
-  private _ajv: InstanceType<typeof Ajv>;
+  private _validator: SchemaValidator;
 
   /**
    * Initializes this client with the given name and version information.
@@ -103,7 +109,7 @@ export class Client<
   ) {
     super(options);
     this._capabilities = options?.capabilities ?? {};
-    this._ajv = new Ajv();
+    this._validator = options?.validator ?? new AjvValidator();
   }
 
   /**
@@ -459,7 +465,7 @@ export class Client<
           if (!isValid) {
             throw new McpError(
               ErrorCode.InvalidParams,
-              `Structured content does not match the tool's output schema: ${this._ajv.errorsText(validator.errors)}`
+              `Structured content does not match the tool's output schema: ${this._validator.errorsText(validator.errors)}`
             );
           }
         } catch (error) {
@@ -484,7 +490,7 @@ export class Client<
       // If the tool has an outputSchema, create and cache the Ajv validator
       if (tool.outputSchema) {
         try {
-          const validator = this._ajv.compile(tool.outputSchema);
+          const validator = this._validator.compile(tool.outputSchema);
           this._cachedToolOutputValidators.set(tool.name, validator);
         } catch {
           // Ignore schema compilation errors
