@@ -96,7 +96,7 @@ export class SSEClientTransport implements Transport {
     return await this._startOrAuth();
   }
 
-  private async _commonHeaders(): Promise<HeadersInit> {
+  private async _commonHeaders(): Promise<Headers> {
     const headers: HeadersInit = {};
     if (this._authProvider) {
       const tokens = await this._authProvider.tokens();
@@ -105,7 +105,9 @@ export class SSEClientTransport implements Transport {
       }
     }
 
-    return headers;
+    return new Headers(
+      { ...headers, ...this._requestInit?.headers }
+    );
   }
 
   private _startOrAuth(): Promise<void> {
@@ -114,14 +116,11 @@ export class SSEClientTransport implements Transport {
         this._url.href,
         this._eventSourceInit ?? {
           fetch: async (url, init) => {
-            const commonHeaders = await this._commonHeaders();
-            const allHeaders = { ...commonHeaders, ...this._requestInit?.headers};
+            const headers = await this._commonHeaders();
+            headers.set("Accept", "text/event-stream");
             return fetch(url, {
               ...init,
-              headers: {
-                ...allHeaders,
-                Accept: "text/event-stream"
-              }
+              headers,
             })
           }
         },
@@ -215,8 +214,7 @@ export class SSEClientTransport implements Transport {
     }
 
     try {
-      const commonHeaders = await this._commonHeaders();
-      const headers = new Headers({ ...commonHeaders, ...this._requestInit?.headers });
+      const headers = await this._commonHeaders();
       headers.set("content-type", "application/json");
       const init = {
         ...this._requestInit,
