@@ -391,7 +391,7 @@ describe("SSEClientTransport", () => {
         "X-Custom-Header": "custom-value",
       };
 
-      transport = new SSEClientTransport(baseUrl, {
+      transport = new SSEClientTransport(resourceBaseUrl, {
         authProvider: mockAuthProvider,
         requestInit: {
           headers: customHeaders,
