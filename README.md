@@ -1272,6 +1272,35 @@ app.listen(3000);
 
 **Note**: The SSE transport is now deprecated in favor of Streamable HTTP. New implementations should use Streamable HTTP, and existing SSE implementations should plan to migrate.
 
+### Edge Runtime Compatibility
+
+The SDK uses JSON Schema validation which requires dynamic code generation (`eval()`) by default. For edge runtimes like Cloudflare Workers that prohibit this, you can provide a custom validator:
+
+```typescript
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+
+// Example using @cfworker/json-schema (install separately)
+class EdgeValidator implements SchemaValidator {
+  compile(schema: unknown): ValidateFunction {
+    // Implementation using edge-compatible validator
+    // See docs/edge-runtime-compatibility.md for full example
+  }
+  
+  errorsText(errors?: ErrorObject[] | null): string {
+    // Error formatting implementation
+  }
+}
+
+// Use with client or server
+const client = new Client(
+  { name: "edge-client", version: "1.0.0" },
+  { validator: new EdgeValidator() }
+);
+```
+
+See [Edge Runtime Compatibility](docs/edge-runtime-compatibility.md) for detailed instructions and examples.
+
 ## Documentation
 
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
