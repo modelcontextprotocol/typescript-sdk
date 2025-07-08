@@ -902,6 +902,40 @@ const transport = new StdioServerTransport();
 await server.connect(transport);
 ```
 
+### Improving Network Efficiency with Notification Debouncing
+
+When performing bulk updates that trigger notifications (e.g., enabling or disabling multiple tools in a loop), the SDK can send a large number of messages in a short period. To improve performance and reduce network traffic, you can enable notification debouncing.
+
+This feature coalesces multiple, rapid calls for the same notification type into a single message. For example, if you disable five tools in a row, only one `notifications/tools/list_changed` message will be sent instead of five.
+
+This is an opt-in feature configured during server initialization.
+
+```typescript
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+
+const server = new McpServer(
+  {
+    name: "efficient-server",
+    version: "1.0.0"
+  },
+  {
+    // Enable notification debouncing for specific methods
+    debouncedNotificationMethods: [
+      'notifications/tools/list_changed',
+      'notifications/resources/list_changed',
+      'notifications/prompts/list_changed'
+    ]
+  }
+);
+
+// Now, any rapid changes to tools, resources, or prompts will result
+// in a single, consolidated notification for each type.
+server.registerTool("tool1", ...).disable();
+server.registerTool("tool2", ...).disable();
+server.registerTool("tool3", ...).disable();
+// Only one 'notifications/tools/list_changed' is sent.
+```
+
 ### Low-Level Server
 
 For more control, you can use the low-level Server class directly:

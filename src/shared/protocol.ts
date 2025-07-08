@@ -45,6 +45,13 @@ export type ProtocolOptions = {
    * Currently this defaults to false, for backwards compatibility with SDK versions that did not advertise capabilities correctly. In future, this will default to true.
    */
   enforceStrictCapabilities?: boolean;
+  /**
+   * An array of notification method names that should be automatically debounced.
+   * Any notifications with a method in this list will be coalesced if they
+   * occur in the same tick of the event loop.
+   * e.g., ['notifications/tools/list_changed']
+   */
+  debouncedNotificationMethods?: string[];
 };
 
 /**
@@ -191,6 +198,7 @@ export abstract class Protocol<
   > = new Map();
   private _progressHandlers: Map<number, ProgressCallback> = new Map();
   private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
+  private _pendingDebouncedNotifications = new Set<string>();
 
   /**
    * Callback for when the connection is closed for any reason.
@@ -631,6 +639,35 @@ export abstract class Protocol<
     }
 
     this.assertNotificationCapability(notification.method);
+
+    const debouncedMethods = this._options?.debouncedNotificationMethods ?? [];
+    if (debouncedMethods.includes(notification.method)) {
+      // If a notification of this type is already scheduled, do nothing.
+      if (this._pendingDebouncedNotifications.has(notification.method)) {
+        return;
+      }
+
+      // Mark this notification type as pending.
+      this._pendingDebouncedNotifications.add(notification.method);
+
+      // Schedule the actual send to happen in the next microtask.
+      // This allows all synchronous calls in the current event loop tick to be coalesced.
+      Promise.resolve().then(() => {
+        // Un-mark the notification so the next one can be scheduled.
+        this._pendingDebouncedNotifications.delete(notification.method);
+
+        const jsonrpcNotification: JSONRPCNotification = {
+          ...notification,
+          jsonrpc: "2.0",
+        };
+        // Send the notification, but don't await it here to avoid blocking.
+        // Handle potential errors with a .catch().
+        this._transport?.send(jsonrpcNotification, options).catch(error => this._onerror(error));
+      });
+
+      // Return immediately.
+      return;
+    }
 
     const jsonrpcNotification: JSONRPCNotification = {
       ...notification,
