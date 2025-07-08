@@ -169,7 +169,7 @@ export class McpServer {
           }
 
           const args = parseResult.data;
-          const cb = tool.callback as ToolCallback<ZodRawShape, ZodRawShape>;
+          const cb = tool.callback as ToolCallback<ZodRawShape>;
           try {
             result = await Promise.resolve(cb(args, extra));
           } catch (error) {
@@ -184,7 +184,7 @@ export class McpServer {
             };
           }
         } else {
-          const cb = tool.callback as ToolCallback<undefined, ZodRawShape>;
+          const cb = tool.callback as ToolCallback<undefined>;
           try {
             result = await Promise.resolve(cb(extra));
           } catch (error) {
@@ -772,7 +772,7 @@ export class McpServer {
     inputSchema: ZodRawShape | undefined,
     outputSchema: ZodRawShape | undefined,
     annotations: ToolAnnotations | undefined,
-    callback: ToolCallback<ZodRawShape | undefined, ZodRawShape | undefined>
+    callback: ToolCallback<ZodRawShape | undefined>
   ): RegisteredTool {
     const registeredTool: RegisteredTool = {
       title,
@@ -929,7 +929,7 @@ export class McpServer {
       outputSchema?: OutputArgs;
       annotations?: ToolAnnotations;
     },
-    cb: ToolCallback<InputArgs, OutputArgs>
+    cb: ToolCallback<InputArgs>
   ): RegisteredTool {
     if (this._registeredTools[name]) {
       throw new Error(`Tool ${name} is already registered`);
@@ -944,7 +944,7 @@ export class McpServer {
       inputSchema,
       outputSchema,
       annotations,
-      cb as ToolCallback<ZodRawShape | undefined, ZodRawShape | undefined>
+      cb as ToolCallback<ZodRawShape | undefined>
     );
   }
 
@@ -1139,16 +1139,6 @@ export class ResourceTemplate {
 }
 
 /**
- * Type helper to create a strongly-typed CallToolResult with structuredContent
- */
-type TypedCallToolResult<OutputArgs extends undefined | ZodRawShape> =
-  OutputArgs extends ZodRawShape
-    ? CallToolResult & {
-        structuredContent?: z.objectOutputType<OutputArgs, ZodTypeAny>;
-      }
-    : CallToolResult;
-
-/**
  * Callback for a tool handler registered with Server.tool().
  *
  * Parameters will include tool arguments, if applicable, as well as other request handler context.
@@ -1158,21 +1148,13 @@ type TypedCallToolResult<OutputArgs extends undefined | ZodRawShape> =
  * - `content` if the tool does not have an outputSchema
  * - Both fields are optional but typically one should be provided
  */
-export type ToolCallback<
-  InputArgs extends undefined | ZodRawShape = undefined,
-  OutputArgs extends undefined | ZodRawShape = undefined
-> = InputArgs extends ZodRawShape
+export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
+  Args extends ZodRawShape
   ? (
-      args: z.objectOutputType<InputArgs, ZodTypeAny>,
-      extra: RequestHandlerExtra<ServerRequest, ServerNotification>
-    ) =>
-      | TypedCallToolResult<OutputArgs>
-      | Promise<TypedCallToolResult<OutputArgs>>
-  : (
-      extra: RequestHandlerExtra<ServerRequest, ServerNotification>
-    ) =>
-      | TypedCallToolResult<OutputArgs>
-      | Promise<TypedCallToolResult<OutputArgs>>;
+    args: z.objectOutputType<Args, ZodTypeAny>,
+    extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+  ) => CallToolResult | Promise<CallToolResult>
+  : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
 
 export type RegisteredTool = {
   title?: string;
@@ -1180,24 +1162,22 @@ export type RegisteredTool = {
   inputSchema?: AnyZodObject;
   outputSchema?: AnyZodObject;
   annotations?: ToolAnnotations;
-  callback: ToolCallback<ZodRawShape | undefined, ZodRawShape | undefined>;
+  callback: ToolCallback<undefined | ZodRawShape>;
   enabled: boolean;
   enable(): void;
   disable(): void;
-  update<
-    InputArgs extends ZodRawShape,
-    OutputArgs extends ZodRawShape
-  >(updates: {
-    name?: string | null;
-    title?: string;
-    description?: string;
-    paramsSchema?: InputArgs;
-    outputSchema?: OutputArgs;
-    annotations?: ToolAnnotations;
-    callback?: ToolCallback<InputArgs, OutputArgs>
-    enabled?: boolean
-  }): void;
-  remove(): void;
+  update<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape>(
+    updates: {
+      name?: string | null,
+      title?: string,
+      description?: string,
+      paramsSchema?: InputArgs,
+      outputSchema?: OutputArgs,
+      annotations?: ToolAnnotations,
+      callback?: ToolCallback<InputArgs>,
+      enabled?: boolean
+    }): void
+  remove(): void
 };
 
 const EMPTY_OBJECT_JSON_SCHEMA = {
