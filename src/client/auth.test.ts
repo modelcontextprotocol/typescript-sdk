@@ -231,7 +231,7 @@ describe("OAuth Authorization", () => {
         ok: false,
         status: 404,
       });
-      
+
       // Second call (root fallback) succeeds
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -241,17 +241,17 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com/path/name");
       expect(metadata).toEqual(validMetadata);
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(2);
-      
+
       // First call should be path-aware
       const [firstUrl, firstOptions] = calls[0];
       expect(firstUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/path/name");
       expect(firstOptions.headers).toEqual({
         "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
       });
-      
+
       // Second call should be root fallback
       const [secondUrl, secondOptions] = calls[1];
       expect(secondUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
@@ -266,7 +266,7 @@ describe("OAuth Authorization", () => {
         ok: false,
         status: 404,
       });
-      
+
       // Second call (root fallback) also returns 404
       mockFetch.mockResolvedValueOnce({
         ok: false,
@@ -275,7 +275,7 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com/path/name");
       expect(metadata).toBeUndefined();
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(2);
     });
@@ -289,10 +289,10 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com/");
       expect(metadata).toBeUndefined();
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(1); // Should not attempt fallback
-      
+
       const [url] = calls[0];
       expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
     });
@@ -306,10 +306,10 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com");
       expect(metadata).toBeUndefined();
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(1); // Should not attempt fallback
-      
+
       const [url] = calls[0];
       expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
     });
@@ -317,13 +317,13 @@ describe("OAuth Authorization", () => {
     it("falls back when path-aware discovery encounters CORS error", async () => {
       // First call (path-aware) fails with TypeError (CORS)
       mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError("CORS error")));
-      
+
       // Retry path-aware without headers (simulating CORS retry)
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 404,
       });
-      
+
       // Second call (root fallback) succeeds
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -333,10 +333,10 @@ describe("OAuth Authorization", () => {
 
       const metadata = await discoverOAuthMetadata("https://auth.example.com/deep/path");
       expect(metadata).toEqual(validMetadata);
-      
+
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(3);
-      
+
       // Final call should be root fallback
       const [lastUrl, lastOptions] = calls[2];
       expect(lastUrl.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
@@ -389,8 +389,11 @@ describe("OAuth Authorization", () => {
         if (callCount === 1) {
           // First call - fail with TypeError
           return Promise.reject(new TypeError("First failure"));
-        } else {
+        } else if (callCount === 2) {
           // Second call - fail with different error
+          return Promise.reject(new Error("Second failure"));
+        } else {
+          // Third call - fail with different error
           return Promise.reject(new Error("Second failure"));
         }
       });
@@ -400,7 +403,7 @@ describe("OAuth Authorization", () => {
         .rejects.toThrow("Second failure");
 
       // Verify both calls were made
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
 
     it("returns undefined when both CORS requests fail in fetchWithCorsRetry", async () => {
@@ -962,6 +965,96 @@ describe("OAuth Authorization", () => {
 
       // Second call should be to oauth metadata
       expect(mockFetch.mock.calls[1][0].toString()).toBe(
+        "https://resource.example.com/.well-known/oauth-authorization-server"
+      );
+    });
+    it("falls back to /.well-known/oauth-authorization-server when no protected-resource-metadata with additional path", async () => {
+      // Setup: First call to protected resource metadata fails (404)
+      // Second call to auth server metadata fails
+      // Third call to auth server metadata succeeds without pathname
+      // Fourth call to client registration succeeds
+
+      let callCount = 0;
+      const calledUrls: string[] = [];
+      mockFetch.mockImplementation((url) => {
+        callCount++;
+        calledUrls.push(url.toString());
+
+        const urlString = url.toString();
+        console.warn(`Mock fetch called with: ${urlString}`, callCount);
+
+        if (callCount === 1 && urlString.includes("/.well-known/oauth-protected-resource")) {
+          // First call - protected resource metadata fails with 404
+          return Promise.resolve({
+            ok: false,
+            status: 404,
+          });
+        } else if (callCount === 2 && urlString.includes("/.well-known/oauth-authorization-server") && urlString.endsWith("/v1/sse")) {
+          // Second call - auth server metadata fails - First with headers
+          return Promise.resolve({
+            ok: false,
+            status: 404,
+          });
+        } else if (callCount === 3 && urlString.endsWith("/.well-known/oauth-authorization-server")) {
+          // Third call - auth server metadata succeeds with out pathname
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              registration_endpoint: "https://auth.example.com/register",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+
+        } else if (callCount === 4 && urlString.includes("/register")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              client_id: "test-client-id",
+              client_secret: "test-client-secret",
+              client_id_issued_at: 1612137600,
+              client_secret_expires_at: 1612224000,
+              redirect_uris: ["http://localhost:3000/callback"],
+              client_name: "Test Client",
+            }),
+          });
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+      });
+
+      // Mock provider methods
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      mockProvider.saveClientInformation = jest.fn();
+
+      // Call the auth function
+      const result = await auth(mockProvider, {
+        serverUrl: "https://resource.example.com/v1/sse",
+      });
+
+      // Verify the result
+      expect(result).toBe("REDIRECT");
+
+      // Verify the sequence of calls
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+
+      // First call should be to protected resource metadata
+      expect(mockFetch.mock.calls[0][0].toString()).toBe(
+        "https://resource.example.com/.well-known/oauth-protected-resource"
+      );
+
+      // Second call should be to oauth metadata
+      expect(mockFetch.mock.calls[1][0].toString()).toBe(
+        "https://resource.example.com/.well-known/oauth-authorization-server/v1/sse"
+      );
+      // Second call should be to oauth metadata
+      expect(mockFetch.mock.calls[2][0].toString()).toBe(
         "https://resource.example.com/.well-known/oauth-authorization-server"
       );
     });

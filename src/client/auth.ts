@@ -107,12 +107,13 @@ export async function auth(
     serverUrl: string | URL;
     authorizationCode?: string;
     scope?: string;
-    resourceMetadataUrl?: URL }): Promise<AuthResult> {
+    resourceMetadataUrl?: URL
+  }): Promise<AuthResult> {
 
   let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
   let authorizationServerUrl = serverUrl;
   try {
-    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, {resourceMetadataUrl});
+    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl });
     if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
       authorizationServerUrl = resourceMetadata.authorization_servers[0];
     }
@@ -197,7 +198,7 @@ export async function auth(
   return "REDIRECT";
 }
 
-export async function selectResourceURL(serverUrl: string| URL, provider: OAuthClientProvider, resourceMetadata?: OAuthProtectedResourceMetadata): Promise<URL | undefined> {
+export async function selectResourceURL(serverUrl: string | URL, provider: OAuthClientProvider, resourceMetadata?: OAuthProtectedResourceMetadata): Promise<URL | undefined> {
   const defaultResource = resourceUrlFromServerUrl(serverUrl);
 
   // If provider has custom validation, delegate to it
@@ -363,7 +364,13 @@ export async function discoverOAuthMetadata(
   // Try path-aware discovery first (RFC 8414 compliant)
   const wellKnownPath = buildWellKnownPath(issuer.pathname);
   const pathAwareUrl = new URL(wellKnownPath, issuer);
-  let response = await tryMetadataDiscovery(pathAwareUrl, protocolVersion);
+  let response;
+  try {
+    response = await tryMetadataDiscovery(pathAwareUrl, protocolVersion);
+  } catch (error) {
+    // If fetch fails, we assume the server does not support path-aware discovery
+    response = undefined;
+  }
 
   // If path-aware discovery fails with 404, try fallback to root discovery
   if (shouldAttemptFallback(response, issuer.pathname)) {
