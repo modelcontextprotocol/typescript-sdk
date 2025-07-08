@@ -231,7 +231,7 @@ const response = await (this._fetch ?? fetch)(this._url, {
         );
       }
 
-      this._handleSseStream(response.body, options);
+      this._handleSseStream(response.body, options, true);
     } catch (error) {
       this.onerror?.(error as Error);
       throw error;
@@ -300,7 +300,11 @@ const response = await (this._fetch ?? fetch)(this._url, {
     }, delay);
   }
 
-  private _handleSseStream(stream: ReadableStream<Uint8Array> | null, options: StartSSEOptions): void {
+  private _handleSseStream(
+    stream: ReadableStream<Uint8Array> | null, 
+    options: StartSSEOptions,
+    isReconnectable: boolean,
+  ): void {
     if (!stream) {
       return;
     }
@@ -347,7 +351,11 @@ const response = await (this._fetch ?? fetch)(this._url, {
         this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
 
         // Attempt to reconnect if the stream disconnects unexpectedly and we aren't closing
-        if (this._abortController && !this._abortController.signal.aborted) {
+        if (
+          isReconnectable && 
+          this._abortController && 
+          !this._abortController.signal.aborted
+        ) {
           // Use the exponential backoff reconnection strategy
           try {
             this._scheduleReconnection({
@@ -471,7 +479,7 @@ const response = await (this._fetch ?? fetch)(this._url, init);
           // Handle SSE stream responses for requests
           // We use the same handler as standalone streams, which now supports
           // reconnection with the last event ID
-          this._handleSseStream(response.body, { onresumptiontoken });
+          this._handleSseStream(response.body, { onresumptiontoken }, false);
         } else if (contentType?.includes("application/json")) {
           // For non-streaming servers, we might get direct JSON responses
           const data = await response.json();
