@@ -1476,5 +1476,63 @@ describe("OAuth Authorization", () => {
       expect(body.get("grant_type")).toBe("refresh_token");
       expect(body.get("refresh_token")).toBe("refresh123");
     });
+
+    it("fetches AS metadata with path from serverUrl when PRM returns external AS", async () => {
+      // Mock PRM discovery that returns an external AS
+      mockFetch.mockImplementation((url) => {
+        const urlString = url.toString();
+
+        if (urlString === "https://my.resource.com/.well-known/oauth-protected-resource") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://my.resource.com/",
+              authorization_servers: ["https://auth.example.com/"],
+            }),
+          });
+        } else if (urlString === "https://auth.example.com/.well-known/oauth-authorization-server/path/name") {
+          // Path-aware discovery on AS with path from serverUrl
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth with serverUrl that has a path
+      const result = await auth(mockProvider, {
+        serverUrl: "https://my.resource.com/path/name",
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Verify the correct URLs were fetched
+      const calls = mockFetch.mock.calls;
+      
+      // First call should be to PRM
+      expect(calls[0][0].toString()).toBe("https://my.resource.com/.well-known/oauth-protected-resource");
+      
+      // Second call should be to AS metadata with the path from serverUrl
+      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/path/name");
+    });
   });
 });
