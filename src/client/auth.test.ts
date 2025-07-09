@@ -144,14 +144,14 @@ describe("OAuth Authorization", () => {
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
-    it("throws on 404 errors", async () => {
+    it("returns undefined on 404 errors", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 404,
       });
 
       await expect(discoverOAuthProtectedResourceMetadata("https://resource.example.com"))
-        .rejects.toThrow("Resource server does not implement OAuth 2.0 Protected Resource Metadata.");
+        .resolves.toBeUndefined();
     });
 
     it("throws on non-404 errors", async () => {

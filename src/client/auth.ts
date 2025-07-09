@@ -102,17 +102,23 @@ export async function auth(
   { serverUrl,
     authorizationCode,
     scope,
-    resourceMetadataUrl
+    resourceMetadataUrl,
+    protocolVersion,
   }: {
     serverUrl: string | URL;
     authorizationCode?: string;
     scope?: string;
-    resourceMetadataUrl?: URL }): Promise<AuthResult> {
+    resourceMetadataUrl?: URL,
+    protocolVersion?: string,
+}): Promise<AuthResult> {
 
   let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
   let authorizationServerUrl = serverUrl;
   try {
-    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, {resourceMetadataUrl});
+    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, {
+      resourceMetadataUrl,
+      protocolVersion,
+    });
     if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
       authorizationServerUrl = resourceMetadata.authorization_servers[0];
     }
@@ -123,7 +129,8 @@ export async function auth(
   const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
 
   const metadata = await discoverOAuthMetadata(serverUrl, {
-    authorizationServerUrl
+    authorizationServerUrl,
+    protocolVersion,
   });
 
   // Handle client registration if needed
@@ -358,9 +365,11 @@ function shouldAttemptFallback(response: Response | undefined, pathname: string)
 export async function discoverOAuthMetadata(
   issuer: string | URL,
   {
-    authorizationServerUrl
+    authorizationServerUrl,
+    protocolVersion,
   }: {
-    authorizationServerUrl?: string | URL
+    authorizationServerUrl?: string | URL,
+    protocolVersion?: string,
   } = {},
 ): Promise<OAuthMetadata | undefined> {
   if (typeof issuer === 'string') {
