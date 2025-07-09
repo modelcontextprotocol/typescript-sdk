@@ -63,7 +63,7 @@ describe("requireBearerAuth middleware", () => {
   
   it.each([
     [Math.floor(Date.now() / 1000) - 100], // Token expired 100 seconds ago
-    [0], // Token expires at the same time as now
+    [Math.floor(Date.now() / 1000)], // Token expires at the same time as now
   ])("should reject expired tokens (expiresAt: %s)", async (expiresAt: number) => {
     const expiredAuthInfo: AuthInfo = {
       token: "expired-token",
