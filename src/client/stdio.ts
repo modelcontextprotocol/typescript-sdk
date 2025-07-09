@@ -1,7 +1,7 @@
 import { ChildProcess, IOType } from "node:child_process";
 import spawn from "cross-spawn";
 import process from "node:process";
-import { Stream } from "node:stream";
+import { Stream, PassThrough } from "node:stream";
 import { ReadBuffer, serializeMessage } from "../shared/stdio.js";
 import { Transport } from "../shared/transport.js";
 import { JSONRPCMessage } from "../types.js";
@@ -56,6 +56,7 @@ export const DEFAULT_INHERITED_ENV_VARS =
         "TEMP",
         "USERNAME",
         "USERPROFILE",
+        "PROGRAMFILES",
       ]
     : /* list inspired by the default env inheritance of sudo */
       ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"];
@@ -93,6 +94,7 @@ export class StdioClientTransport implements Transport {
   private _abortController: AbortController = new AbortController();
   private _readBuffer: ReadBuffer = new ReadBuffer();
   private _serverParams: StdioServerParameters;
+  private _stderrStream: PassThrough | null = null;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -100,6 +102,9 @@ export class StdioClientTransport implements Transport {
 
   constructor(server: StdioServerParameters) {
     this._serverParams = server;
+    if (server.stderr === "pipe" || server.stderr === "overlapped") {
+      this._stderrStream = new PassThrough();
+    }
   }
 
   /**
@@ -117,7 +122,11 @@ export class StdioClientTransport implements Transport {
         this._serverParams.command,
         this._serverParams.args ?? [],
         {
-          env: this._serverParams.env ?? getDefaultEnvironment(),
+          // merge default env with server env because mcp server needs some env vars
+          env: {
+            ...getDefaultEnvironment(),
+            ...this._serverParams.env,
+          },
           stdio: ["pipe", "pipe", this._serverParams.stderr ?? "inherit"],
           shell: false,
           signal: this._abortController.signal,
@@ -158,16 +167,35 @@ export class StdioClientTransport implements Transport {
       this._process.stdout?.on("error", (error) => {
         this.onerror?.(error);
       });
+
+      if (this._stderrStream && this._process.stderr) {
+        this._process.stderr.pipe(this._stderrStream);
+      }
     });
   }
 
   /**
    * The stderr stream of the child process, if `StdioServerParameters.stderr` was set to "pipe" or "overlapped".
    *
-   * This is only available after the process has been started.
+   * If stderr piping was requested, a PassThrough stream is returned _immediately_, allowing callers to
+   * attach listeners before the start method is invoked. This prevents loss of any early
+   * error output emitted by the child process.
    */
   get stderr(): Stream | null {
+    if (this._stderrStream) {
+      return this._stderrStream;
+    }
+
     return this._process?.stderr ?? null;
+  }
+
+  /**
+   * The child process pid spawned by this transport.
+   *
+   * This is only available after the transport has been started.
+   */
+  get pid(): number | null {
+    return this._process?.pid ?? null;
   }
 
   private processReadBuffer() {

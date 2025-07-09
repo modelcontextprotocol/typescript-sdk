@@ -15,5 +15,12 @@ export default tseslint.config(
                 { "argsIgnorePattern": "^_" }
             ]
         }
+    },
+    {
+        files: ["src/client/**/*.ts", "src/server/**/*.ts"],
+        ignores: ["**/*.test.ts"],
+        rules: {
+            "no-console": "error"
+        }
     }
 );

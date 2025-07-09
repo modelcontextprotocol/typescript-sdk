@@ -5,7 +5,7 @@ import { Client } from '../client/index.js';
 import { StreamableHTTPClientTransport } from '../client/streamableHttp.js';
 import { McpServer } from '../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../server/streamableHttp.js';
-import { CallToolResultSchema, ListToolsResultSchema, ListResourcesResultSchema, ListPromptsResultSchema } from '../types.js';
+import { CallToolResultSchema, ListToolsResultSchema, ListResourcesResultSchema, ListPromptsResultSchema, LATEST_PROTOCOL_VERSION } from '../types.js';
 import { z } from 'zod';
 
 describe('Streamable HTTP Transport Session Management', () => {
@@ -145,7 +145,7 @@ describe('Streamable HTTP Transport Session Management', () => {
         params: {}
       }, ListToolsResultSchema);
 
-      
+
     });
     it('should operate without session management', async () => {
       // Create and connect a client
@@ -207,6 +207,27 @@ describe('Streamable HTTP Transport Session Management', () => {
       expect(greetingResult.content).toEqual([
         { type: 'text', text: 'Hello, Stateless Transport!' }
       ]);
+
+      // Clean up
+      await transport.close();
+    });
+
+    it('should set protocol version after connecting', async () => {
+      // Create and connect a client
+      const client = new Client({
+        name: 'test-client',
+        version: '1.0.0'
+      });
+
+      const transport = new StreamableHTTPClientTransport(baseUrl);
+
+      // Verify protocol version is not set before connecting
+      expect(transport.protocolVersion).toBeUndefined();
+
+      await client.connect(transport);
+
+      // Verify protocol version is set after connecting
+      expect(transport.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
 
       // Clean up
       await transport.close();

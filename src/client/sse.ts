@@ -1,7 +1,7 @@
 import { EventSource, type ErrorEvent, type EventSourceInit } from "eventsource";
-import { Transport } from "../shared/transport.js";
+import { Transport, FetchLike } from "../shared/transport.js";
 import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
-import { auth, AuthResult, OAuthClientProvider, UnauthorizedError } from "./auth.js";
+import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 
 export class SseError extends Error {
   constructor(
@@ -19,23 +19,23 @@ export class SseError extends Error {
 export type SSEClientTransportOptions = {
   /**
    * An OAuth client provider to use for authentication.
-   * 
+   *
    * When an `authProvider` is specified and the SSE connection is started:
    * 1. The connection is attempted with any existing access token from the `authProvider`.
    * 2. If the access token has expired, the `authProvider` is used to refresh the token.
    * 3. If token refresh fails or no access token exists, and auth is required, `OAuthClientProvider.redirectToAuthorization` is called, and an `UnauthorizedError` will be thrown from `connect`/`start`.
-   * 
+   *
    * After the user has finished authorizing via their user agent, and is redirected back to the MCP client application, call `SSEClientTransport.finishAuth` with the authorization code before retrying the connection.
-   * 
+   *
    * If an `authProvider` is not provided, and auth is required, an `UnauthorizedError` will be thrown.
-   * 
+   *
    * `UnauthorizedError` might also be thrown when sending any message over the SSE transport, indicating that the session has expired, and needs to be re-authed and reconnected.
    */
   authProvider?: OAuthClientProvider;
 
   /**
    * Customizes the initial SSE request to the server (the request that begins the stream).
-   * 
+   *
    * NOTE: Setting this property will prevent an `Authorization` header from
    * being automatically attached to the SSE request, if an `authProvider` is
    * also given. This can be worked around by setting the `Authorization` header
@@ -47,6 +47,11 @@ export type SSEClientTransportOptions = {
    * Customizes recurring POST requests to the server.
    */
   requestInit?: RequestInit;
+
+  /**
+   * Custom fetch implementation used for all network requests.
+   */
+  fetch?: FetchLike;
 };
 
 /**
@@ -58,9 +63,12 @@ export class SSEClientTransport implements Transport {
   private _endpoint?: URL;
   private _abortController?: AbortController;
   private _url: URL;
+  private _resourceMetadataUrl?: URL;
   private _eventSourceInit?: EventSourceInit;
   private _requestInit?: RequestInit;
   private _authProvider?: OAuthClientProvider;
+  private _fetch?: FetchLike;
+  private _protocolVersion?: string;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -71,9 +79,11 @@ export class SSEClientTransport implements Transport {
     opts?: SSEClientTransportOptions,
   ) {
     this._url = url;
+    this._resourceMetadataUrl = undefined;
     this._eventSourceInit = opts?.eventSourceInit;
     this._requestInit = opts?.requestInit;
     this._authProvider = opts?.authProvider;
+    this._fetch = opts?.fetch;
   }
 
   private async _authThenStart(): Promise<void> {
@@ -83,7 +93,7 @@ export class SSEClientTransport implements Transport {
 
     let result: AuthResult;
     try {
-      result = await auth(this._authProvider, { serverUrl: this._url });
+      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl });
     } catch (error) {
       this.onerror?.(error as Error);
       throw error;
@@ -96,7 +106,7 @@ export class SSEClientTransport implements Transport {
     return await this._startOrAuth();
   }
 
-  private async _commonHeaders(): Promise<HeadersInit> {
+  private async _commonHeaders(): Promise<Headers> {
     const headers: HeadersInit = {};
     if (this._authProvider) {
       const tokens = await this._authProvider.tokens();
@@ -104,28 +114,43 @@ export class SSEClientTransport implements Transport {
         headers["Authorization"] = `Bearer ${tokens.access_token}`;
       }
     }
+    if (this._protocolVersion) {
+      headers["mcp-protocol-version"] = this._protocolVersion;
+    }
 
-    return headers;
+    return new Headers(
+      { ...headers, ...this._requestInit?.headers }
+    );
   }
 
   private _startOrAuth(): Promise<void> {
+    const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch) as typeof fetch
     return new Promise((resolve, reject) => {
       this._eventSource = new EventSource(
         this._url.href,
-        this._eventSourceInit ?? {
-          fetch: (url, init) => this._commonHeaders().then((headers) => fetch(url, {
-            ...init,
-            headers: {
-              ...headers,
-              Accept: "text/event-stream"
+        {
+          ...this._eventSourceInit,
+          fetch: async (url, init) => {
+            const headers = await this._commonHeaders();
+            headers.set("Accept", "text/event-stream");
+            const response = await fetchImpl(url, {
+              ...init,
+              headers,
+            })
+
+            if (response.status === 401 && response.headers.has('www-authenticate')) {
+              this._resourceMetadataUrl = extractResourceMetadataUrl(response);
             }
-          })),
+
+            return response
+          },
         },
       );
       this._abortController = new AbortController();
 
       this._eventSource.onerror = (event) => {
         if (event.code === 401 && this._authProvider) {
+
           this._authThenStart().then(resolve, reject);
           return;
         }
@@ -193,7 +218,7 @@ export class SSEClientTransport implements Transport {
       throw new UnauthorizedError("No auth provider");
     }
 
-    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode });
+    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl });
     if (result !== "AUTHORIZED") {
       throw new UnauthorizedError("Failed to authorize");
     }
@@ -211,8 +236,7 @@ export class SSEClientTransport implements Transport {
     }
 
     try {
-      const commonHeaders = await this._commonHeaders();
-      const headers = new Headers({ ...commonHeaders, ...this._requestInit?.headers });
+      const headers = await this._commonHeaders();
       headers.set("content-type", "application/json");
       const init = {
         ...this._requestInit,
@@ -222,10 +246,13 @@ export class SSEClientTransport implements Transport {
         signal: this._abortController?.signal,
       };
 
-      const response = await fetch(this._endpoint, init);
+const response = await (this._fetch ?? fetch)(this._endpoint, init);
       if (!response.ok) {
         if (response.status === 401 && this._authProvider) {
-          const result = await auth(this._authProvider, { serverUrl: this._url });
+
+          this._resourceMetadataUrl = extractResourceMetadataUrl(response);
+
+          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl });
           if (result !== "AUTHORIZED") {
             throw new UnauthorizedError();
           }
@@ -243,5 +270,9 @@ export class SSEClientTransport implements Transport {
       this.onerror?.(error as Error);
       throw error;
     }
+  }
+
+  setProtocolVersion(version: string): void {
+    this._protocolVersion = version;
   }
 }
