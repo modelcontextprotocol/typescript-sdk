@@ -4,8 +4,9 @@ import { OAuthErrorResponse } from "../../shared/auth.js";
  * Base class for all OAuth errors
  */
 export class OAuthError extends Error {
+  static errorCode: string;
+
   constructor(
-    public readonly errorCode: string,
     message: string,
     public readonly errorUri?: string
   ) {
@@ -28,6 +29,10 @@ export class OAuthError extends Error {
 
     return response;
   }
+
+  get errorCode(): string {
+    return (this.constructor as typeof OAuthError).errorCode
+  }
 }
 
 /**
@@ -36,9 +41,7 @@ export class OAuthError extends Error {
  * or is otherwise malformed.
  */
 export class InvalidRequestError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("invalid_request", message, errorUri);
-  }
+  static errorCode = "invalid_request";
 }
 
 /**
@@ -46,9 +49,7 @@ export class InvalidRequestError extends OAuthError {
  * authentication included, or unsupported authentication method).
  */
 export class InvalidClientError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("invalid_client", message, errorUri);
-  }
+  static errorCode = "invalid_client";
 }
 
 /**
@@ -57,9 +58,7 @@ export class InvalidClientError extends OAuthError {
  * authorization request, or was issued to another client.
  */
 export class InvalidGrantError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("invalid_grant", message, errorUri);
-  }
+  static errorCode = "invalid_grant";
 }
 
 /**
@@ -67,9 +66,7 @@ export class InvalidGrantError extends OAuthError {
  * this authorization grant type.
  */
 export class UnauthorizedClientError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("unauthorized_client", message, errorUri);
-  }
+  static errorCode = "unauthorized_client";
 }
 
 /**
@@ -77,9 +74,7 @@ export class UnauthorizedClientError extends OAuthError {
  * by the authorization server.
  */
 export class UnsupportedGrantTypeError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("unsupported_grant_type", message, errorUri);
-  }
+  static errorCode = "unsupported_grant_type";
 }
 
 /**
@@ -87,18 +82,14 @@ export class UnsupportedGrantTypeError extends OAuthError {
  * exceeds the scope granted by the resource owner.
  */
 export class InvalidScopeError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("invalid_scope", message, errorUri);
-  }
+  static errorCode = "invalid_scope";
 }
 
 /**
  * Access denied error - The resource owner or authorization server denied the request.
  */
 export class AccessDeniedError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("access_denied", message, errorUri);
-  }
+  static errorCode = "access_denied";
 }
 
 /**
@@ -106,9 +97,7 @@ export class AccessDeniedError extends OAuthError {
  * that prevented it from fulfilling the request.
  */
 export class ServerError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("server_error", message, errorUri);
-  }
+  static errorCode = "server_error";
 }
 
 /**
@@ -116,9 +105,7 @@ export class ServerError extends OAuthError {
  * handle the request due to a temporary overloading or maintenance of the server.
  */
 export class TemporarilyUnavailableError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("temporarily_unavailable", message, errorUri);
-  }
+  static errorCode = "temporarily_unavailable";
 }
 
 /**
@@ -126,9 +113,7 @@ export class TemporarilyUnavailableError extends OAuthError {
  * obtaining an authorization code using this method.
  */
 export class UnsupportedResponseTypeError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("unsupported_response_type", message, errorUri);
-  }
+  static errorCode = "unsupported_response_type";
 }
 
 /**
@@ -136,9 +121,7 @@ export class UnsupportedResponseTypeError extends OAuthError {
  * the requested token type.
  */
 export class UnsupportedTokenTypeError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("unsupported_token_type", message, errorUri);
-  }
+  static errorCode = "unsupported_token_type";
 }
 
 /**
@@ -146,9 +129,7 @@ export class UnsupportedTokenTypeError extends OAuthError {
  * or invalid for other reasons.
  */
 export class InvalidTokenError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("invalid_token", message, errorUri);
-  }
+  static errorCode = "invalid_token";
 }
 
 /**
@@ -156,9 +137,7 @@ export class InvalidTokenError extends OAuthError {
  * (Custom, non-standard error)
  */
 export class MethodNotAllowedError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("method_not_allowed", message, errorUri);
-  }
+  static errorCode = "method_not_allowed";
 }
 
 /**
@@ -166,9 +145,7 @@ export class MethodNotAllowedError extends OAuthError {
  * (Custom, non-standard error based on RFC 6585)
  */
 export class TooManyRequestsError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("too_many_requests", message, errorUri);
-  }
+  static errorCode = "too_many_requests";
 }
 
 /**
@@ -176,16 +153,47 @@ export class TooManyRequestsError extends OAuthError {
  * (Custom error for dynamic client registration - RFC 7591)
  */
 export class InvalidClientMetadataError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("invalid_client_metadata", message, errorUri);
-  }
+  static errorCode = "invalid_client_metadata";
 }
 
 /**
  * Insufficient scope error - The request requires higher privileges than provided by the access token.
  */
 export class InsufficientScopeError extends OAuthError {
-  constructor(message: string, errorUri?: string) {
-    super("insufficient_scope", message, errorUri);
+  static errorCode = "insufficient_scope";
+}
+
+/**
+ * A utility class for defining one-off error codes
+ */
+export class CustomOAuthError extends OAuthError {
+  constructor(private readonly customErrorCode: string, message: string, errorUri?: string) {
+    super(message, errorUri);
+  }
+
+  get errorCode(): string {
+    return this.customErrorCode;
   }
 }
+
+/**
+ * A full list of all OAuthErrors, enabling parsing from error responses
+ */
+export const OAUTH_ERRORS = {
+  [InvalidRequestError.errorCode]: InvalidRequestError,
+  [InvalidClientError.errorCode]: InvalidClientError,
+  [InvalidGrantError.errorCode]: InvalidGrantError,
+  [UnauthorizedClientError.errorCode]: UnauthorizedClientError,
+  [UnsupportedGrantTypeError.errorCode]: UnsupportedGrantTypeError,
+  [InvalidScopeError.errorCode]: InvalidScopeError,
+  [AccessDeniedError.errorCode]: AccessDeniedError,
+  [ServerError.errorCode]: ServerError,
+  [TemporarilyUnavailableError.errorCode]: TemporarilyUnavailableError,
+  [UnsupportedResponseTypeError.errorCode]: UnsupportedResponseTypeError,
+  [UnsupportedTokenTypeError.errorCode]: UnsupportedTokenTypeError,
+  [InvalidTokenError.errorCode]: InvalidTokenError,
+  [MethodNotAllowedError.errorCode]: MethodNotAllowedError,
+  [TooManyRequestsError.errorCode]: TooManyRequestsError,
+  [InvalidClientMetadataError.errorCode]: InvalidClientMetadataError,
+  [InsufficientScopeError.errorCode]: InsufficientScopeError,
+} as const;

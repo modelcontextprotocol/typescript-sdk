@@ -1,8 +1,24 @@
 import pkceChallenge from "pkce-challenge";
 import { LATEST_PROTOCOL_VERSION } from "../types.js";
-import type { OAuthClientMetadata, OAuthClientInformation, OAuthTokens, OAuthMetadata, OAuthClientInformationFull, OAuthProtectedResourceMetadata } from "../shared/auth.js";
+import {
+  OAuthClientMetadata,
+  OAuthClientInformation,
+  OAuthTokens,
+  OAuthMetadata,
+  OAuthClientInformationFull,
+  OAuthProtectedResourceMetadata,
+  OAuthErrorResponseSchema
+} from "../shared/auth.js";
 import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthProtectedResourceMetadataSchema, OAuthTokensSchema } from "../shared/auth.js";
 import { checkResourceAllowed, resourceUrlFromServerUrl } from "../shared/auth-utils.js";
+import {
+  InvalidClientError,
+  InvalidGrantError,
+  OAUTH_ERRORS,
+  OAuthError,
+  ServerError,
+  UnauthorizedClientError
+} from "../server/auth/errors.js";
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
@@ -81,6 +97,13 @@ export interface OAuthClientProvider {
    * Implementations must verify the returned resource matches the MCP server.
    */
   validateResourceURL?(serverUrl: string | URL, resource?: string): Promise<URL | undefined>;
+
+  /**
+   * If implemented, provides a way for the client to invalidate (e.g. delete) the specified
+   * credentials, in the case where the server has indicated that they are no longer valid.
+   * This avoids requiring the user to intervene manually.
+   */
+  invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier'): void | Promise<void>;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -92,12 +115,64 @@ export class UnauthorizedError extends Error {
 }
 
 /**
+ * Parses an OAuth error response from a string or Response object.
+ *
+ * If the input is a standard OAuth2.0 error response, it will be parsed according to the spec
+ * and an instance of the appropriate OAuthError subclass will be returned.
+ * If parsing fails, it falls back to a generic ServerError that includes
+ * the response status (if available) and original content.
+ *
+ * @param input - A Response object or string containing the error response
+ * @returns A Promise that resolves to an OAuthError instance
+ */
+export async function parseErrorResponse(input: Response | string): Promise<OAuthError> {
+  const statusCode = input instanceof Response ? input.status : undefined;
+  const body = input instanceof Response ? await input.text() : input;
+
+  try {
+    const result = OAuthErrorResponseSchema.parse(JSON.parse(body));
+    const { error, error_description, error_uri } = result;
+    const errorClass = OAUTH_ERRORS[error] || ServerError;
+    return new errorClass(error_description || '', error_uri);
+  } catch (error) {
+    // Not a valid OAuth error response, but try to inform the user of the raw data anyway
+    const errorMessage = `${statusCode ? `HTTP ${statusCode}: ` : ''}Invalid OAuth error response: ${error}. Raw body: ${body}`;
+    return new ServerError(errorMessage);
+  }
+}
+
+/**
  * Orchestrates the full auth flow with a server.
  *
  * This can be used as a single entry point for all authorization functionality,
  * instead of linking together the other lower-level functions in this module.
  */
 export async function auth(
+  provider: OAuthClientProvider,
+  options: {
+    serverUrl: string | URL;
+    authorizationCode?: string;
+    scope?: string;
+    resourceMetadataUrl?: URL }): Promise<AuthResult> {
+
+  try {
+    return await authInternal(provider, options);
+  } catch (error) {
+    // Handle recoverable error types by invalidating credentials and retrying
+    if (error instanceof InvalidClientError || error instanceof UnauthorizedClientError) {
+      await provider.invalidateCredentials?.('all');
+      return await authInternal(provider, options);
+    } else if (error instanceof InvalidGrantError) {
+      await provider.invalidateCredentials?.('tokens');
+      return await authInternal(provider, options);
+    }
+
+    // Throw otherwise
+    throw error
+  }
+}
+
+async function authInternal(
   provider: OAuthClientProvider,
   { serverUrl,
     authorizationCode,
@@ -157,7 +232,7 @@ export async function auth(
     });
 
     await provider.saveTokens(tokens);
-    return "AUTHORIZED";
+    return "AUTHORIZED"
   }
 
   const tokens = await provider.tokens();
@@ -174,9 +249,15 @@ export async function auth(
       });
 
       await provider.saveTokens(newTokens);
-      return "AUTHORIZED";
-    } catch {
-      // Could not refresh OAuth tokens
+      return "AUTHORIZED"
+    } catch (error) {
+      // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
+      if (!(error instanceof OAuthError) || error instanceof ServerError) {
+        // Could not refresh OAuth tokens
+      } else {
+        // Refresh failed for another reason, re-throw
+        throw error;
+      }
     }
   }
 
@@ -194,7 +275,7 @@ export async function auth(
 
   await provider.saveCodeVerifier(codeVerifier);
   await provider.redirectToAuthorization(authorizationUrl);
-  return "REDIRECT";
+  return "REDIRECT"
 }
 
 export async function selectResourceURL(serverUrl: string| URL, provider: OAuthClientProvider, resourceMetadata?: OAuthProtectedResourceMetadata): Promise<URL | undefined> {
@@ -523,7 +604,7 @@ export async function exchangeAuthorization(
   });
 
   if (!response.ok) {
-    throw new Error(`Token exchange failed: HTTP ${response.status}`);
+    throw await parseErrorResponse(response);
   }
 
   return OAuthTokensSchema.parse(await response.json());
@@ -587,7 +668,7 @@ export async function refreshAuthorization(
     body: params,
   });
   if (!response.ok) {
-    throw new Error(`Token refresh failed: HTTP ${response.status}`);
+    throw await parseErrorResponse(response);
   }
 
   return OAuthTokensSchema.parse({ refresh_token: refreshToken, ...(await response.json()) });
@@ -627,7 +708,7 @@ export async function registerClient(
   });
 
   if (!response.ok) {
-    throw new Error(`Dynamic client registration failed: HTTP ${response.status}`);
+    throw await parseErrorResponse(response);
   }
 
   return OAuthClientInformationFullSchema.parse(await response.json());
