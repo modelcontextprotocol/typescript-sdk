@@ -109,15 +109,10 @@ export async function auth(
     scope?: string;
     resourceMetadataUrl?: URL }): Promise<AuthResult> {
 
-  let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
   let authorizationServerUrl = serverUrl;
-  try {
-    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, {resourceMetadataUrl});
-    if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
-      authorizationServerUrl = resourceMetadata.authorization_servers[0];
-    }
-  } catch {
-    // Ignore errors and fall back to /.well-known/oauth-authorization-server
+  const resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, {resourceMetadataUrl});
+  if (resourceMetadata?.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
+    authorizationServerUrl = resourceMetadata.authorization_servers[0];
   }
 
   const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
@@ -255,7 +250,7 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
 export async function discoverOAuthProtectedResourceMetadata(
   serverUrl: string | URL,
   opts?: { protocolVersion?: string, resourceMetadataUrl?: string | URL },
-): Promise<OAuthProtectedResourceMetadata> {
+): Promise<OAuthProtectedResourceMetadata | undefined> {
 
   let url: URL
   if (opts?.resourceMetadataUrl) {
@@ -281,7 +276,7 @@ export async function discoverOAuthProtectedResourceMetadata(
   }
 
   if (response.status === 404) {
-    throw new Error(`Resource server does not implement OAuth 2.0 Protected Resource Metadata.`);
+    return undefined;
   }
 
   if (!response.ok) {
@@ -289,7 +284,8 @@ export async function discoverOAuthProtectedResourceMetadata(
       `HTTP ${response.status} trying to load well-known OAuth protected resource metadata.`,
     );
   }
-  return OAuthProtectedResourceMetadataSchema.parse(await response.json());
+  const data = await response.json();
+  return OAuthProtectedResourceMetadataSchema.parse(data);
 }
 
 /**
@@ -357,6 +353,7 @@ export async function discoverOAuthMetadata(
   authorizationServerUrl: string | URL,
   opts?: { protocolVersion?: string },
 ): Promise<OAuthMetadata | undefined> {
+  console.log('# Discovering OAuth Metadata for', authorizationServerUrl);
   const issuer = new URL(authorizationServerUrl);
   const protocolVersion = opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
 
