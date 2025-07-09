@@ -86,9 +86,10 @@ export interface OAuthClientProvider {
    * - Adding custom headers for proprietary authentication schemes
    * - Implementing client assertion-based authentication (e.g., JWT bearer tokens)
    *
-   * @param url - The token endpoint URL being called
    * @param headers - The request headers (can be modified to add authentication)
    * @param params - The request body parameters (can be modified to add credentials)
+   * @param url - The token endpoint URL being called
+   * @param metadata - Optional OAuth metadata for the server, which may include supported authentication methods
    */
   addClientAuthentication?(headers: Headers, params: URLSearchParams, url: string | URL, metadata?: OAuthMetadata): void | Promise<void>;
 
@@ -110,6 +111,8 @@ export class UnauthorizedError extends Error {
   }
 }
 
+type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
+
 /**
  * Determines the best client authentication method to use based on server support and client configuration.
  *
@@ -125,8 +128,8 @@ export class UnauthorizedError extends Error {
 function selectClientAuthMethod(
   clientInformation: OAuthClientInformation,
   supportedMethods: string[]
-): string {
-  const hasClientSecret = !!clientInformation.client_secret;
+): ClientAuthMethod {
+  const hasClientSecret = clientInformation.client_secret !== undefined;
 
   // If server doesn't specify supported methods, use RFC 6749 defaults
   if (supportedMethods.length === 0) {
@@ -165,29 +168,26 @@ function selectClientAuthMethod(
  * @throws {Error} When required credentials are missing
  */
 function applyClientAuthentication(
-  method: string,
+  method: ClientAuthMethod,
   clientInformation: OAuthClientInformation,
   headers: Headers,
   params: URLSearchParams
 ): void {
   const { client_id, client_secret } = clientInformation;
 
-  if (method === "client_secret_basic") {
-    applyBasicAuth(client_id, client_secret, headers);
-    return;
+  switch (method) {
+    case "client_secret_basic":
+      applyBasicAuth(client_id, client_secret, headers);
+      return;
+    case "client_secret_post":
+      applyPostAuth(client_id, client_secret, params);
+      return;
+    case "none":
+      applyPublicAuth(client_id, params);
+      return;
+    default:
+      throw new Error(`Unsupported client authentication method: ${method}`);
   }
-
-  if (method === "client_secret_post") {
-    applyPostAuth(client_id, client_secret, params);
-    return;
-  }
-
-  if (method === "none") {
-    applyPublicAuth(client_id, params);
-    return;
-  }
-
-  throw new Error(`Unsupported client authentication method: ${method}`);
 }
 
 /**

@@ -10,7 +10,7 @@ import {
   auth,
   type OAuthClientProvider,
 } from "./auth.js";
-import { OAuthMetadata } from 'src/shared/auth.js';
+import { OAuthMetadata } from '../shared/auth.js';
 
 // Mock fetch globally
 const mockFetch = jest.fn();
@@ -1615,6 +1615,11 @@ describe("OAuth Authorization", () => {
       token_endpoint_auth_methods_supported: ["none"],
     };
 
+    const metadataWithAllBuiltinMethods = {
+      ...metadataWithBasicOnly,
+      token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post", "none"],
+    };
+
     it("uses HTTP Basic authentication when client_secret_basic is supported", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -1639,8 +1644,8 @@ describe("OAuth Authorization", () => {
       expect(authHeader).toBe(expected);
 
       const body = request.body as URLSearchParams;
-      expect(body.get("client_id")).toBeNull();     // should not be in body
-      expect(body.get("client_secret")).toBeNull(); // should not be in body
+      expect(body.get("client_id")).toBeNull();
+      expect(body.get("client_secret")).toBeNull();
     });
 
     it("includes credentials in request body when client_secret_post is supported", async () => {
@@ -1667,6 +1672,35 @@ describe("OAuth Authorization", () => {
       const body = request.body as URLSearchParams;
       expect(body.get("client_id")).toBe("client123");
       expect(body.get("client_secret")).toBe("secret123");
+    });
+
+    it("it picks client_secret_basic when all builtin methods are supported", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validTokens,
+      });
+
+      const tokens = await exchangeAuthorization("https://auth.example.com", {
+        metadata: metadataWithAllBuiltinMethods,
+        clientInformation: validClientInfo,
+        authorizationCode: "code123",
+        redirectUri: "http://localhost:3000/callback",
+        codeVerifier: "verifier123",
+      });
+
+      expect(tokens).toEqual(validTokens);
+      const request = mockFetch.mock.calls[0][1];
+
+      // Check Authorization header - should use Basic auth as it's the most secure
+      const authHeader = request.headers.get("Authorization");
+      const expected = "Basic " + btoa("client123:secret123");
+      expect(authHeader).toBe(expected);
+
+      // Credentials should not be in body when using Basic auth
+      const body = request.body as URLSearchParams;
+      expect(body.get("client_id")).toBeNull();
+      expect(body.get("client_secret")).toBeNull();
     });
 
     it("uses public client authentication when none method is specified", async () => {
