@@ -382,6 +382,29 @@ describe("SSEClientTransport", () => {
       expect(mockAuthProvider.tokens).toHaveBeenCalled();
     });
 
+    it("attaches custom header from provider on initial SSE connection", async () => {
+      mockAuthProvider.tokens.mockResolvedValue({
+        access_token: "test-token",
+        token_type: "Bearer"
+      });
+      const customHeaders = {
+        "X-Custom-Header": "custom-value",
+      };
+
+      transport = new SSEClientTransport(resourceBaseUrl, {
+        authProvider: mockAuthProvider,
+        requestInit: {
+          headers: customHeaders,
+        },
+      });
+
+      await transport.start();
+
+      expect(lastServerRequest.headers.authorization).toBe("Bearer test-token");
+      expect(lastServerRequest.headers["x-custom-header"]).toBe("custom-value");
+      expect(mockAuthProvider.tokens).toHaveBeenCalled();
+    });
+
     it("attaches auth header from provider on POST requests", async () => {
       mockAuthProvider.tokens.mockResolvedValue({
         access_token: "test-token",

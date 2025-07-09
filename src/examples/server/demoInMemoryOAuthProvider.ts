@@ -200,7 +200,11 @@ export const setupAuthServer = ({authServerUrl, mcpServerUrl, strictResource}: {
 
   const auth_port = authServerUrl.port;
   // Start the auth server
-  authApp.listen(auth_port, () => {
+  authApp.listen(auth_port, (error) => {
+    if (error) {
+      console.error('Failed to start server:', error);
+      process.exit(1);
+    }
     console.log(`OAuth Authorization Server listening on port ${auth_port}`);
   });
 

@@ -50,6 +50,18 @@ export interface StreamableHTTPServerTransportOptions {
   onsessioninitialized?: (sessionId: string) => void;
 
   /**
+   * A callback for session close events
+   * This is called when the server closes a session due to a DELETE request.
+   * Useful in cases when you need to clean up resources associated with the session.
+   * Note that this is different from the transport closing, if you are handling 
+   * HTTP requests from multiple nodes you might want to close each 
+   * StreamableHTTPServerTransport after a request is completed while still keeping the 
+   * session open/running.
+   * @param sessionId The session ID that was closed
+  */
+  onsessionclosed?: (sessionId: string) => void;
+
+  /**
    * If true, the server will return JSON responses instead of starting an SSE stream.
    * This can be useful for simple request/response scenarios without streaming.
    * Default is false (SSE streams are preferred).
@@ -127,6 +139,7 @@ export class StreamableHTTPServerTransport implements Transport {
   private _standaloneSseStreamId: string = '_GET_stream';
   private _eventStore?: EventStore;
   private _onsessioninitialized?: (sessionId: string) => void;
+  private _onsessionclosed?: (sessionId: string) => void;
   private _allowedHosts?: string[];
   private _allowedOrigins?: string[];
   private _enableDnsRebindingProtection: boolean;
@@ -141,6 +154,7 @@ export class StreamableHTTPServerTransport implements Transport {
     this._enableJsonResponse = options.enableJsonResponse ?? false;
     this._eventStore = options.eventStore;
     this._onsessioninitialized = options.onsessioninitialized;
+    this._onsessionclosed = options.onsessionclosed;
     this._allowedHosts = options.allowedHosts;
     this._allowedOrigins = options.allowedOrigins;
     this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
@@ -538,6 +552,7 @@ export class StreamableHTTPServerTransport implements Transport {
     if (!this.validateProtocolVersion(req, res)) {
       return;
     }
+    this._onsessionclosed?.(this.sessionId!);
     await this.close();
     res.writeHead(200).end();
   }

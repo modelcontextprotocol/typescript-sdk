@@ -648,7 +648,11 @@ if (useOAuth && authMiddleware) {
   app.delete('/mcp', mcpDeleteHandler);
 }
 
-app.listen(MCP_PORT, () => {
+app.listen(MCP_PORT, (error) => {
+  if (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
   console.log(`MCP Streamable HTTP Server listening on port ${MCP_PORT}`);
 });
 
