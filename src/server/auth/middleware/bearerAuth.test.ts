@@ -103,7 +103,7 @@ describe("requireBearerAuth middleware", () => {
       authorization: "Bearer expired-token",
     };
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("expired-token");
