@@ -360,10 +360,15 @@ export async function discoverOAuthMetadata(
   const issuer = new URL(authorizationServerUrl);
   const protocolVersion = opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
 
-  // Try path-aware discovery first (RFC 8414 compliant)
-  const wellKnownPath = buildWellKnownPath(issuer.pathname);
-  const pathAwareUrl = new URL(wellKnownPath, issuer);
-  let response = await tryMetadataDiscovery(pathAwareUrl, protocolVersion);
+  // Try provided issuer URL first
+  let response = await tryMetadataDiscovery(issuer, protocolVersion);
+
+  // Try path-aware discovery next (RFC 8414 compliant)
+  if (shouldAttemptFallback(response, issuer.pathname)) {
+    const wellKnownPath = buildWellKnownPath(issuer.pathname);
+    const pathAwareUrl = new URL(wellKnownPath, issuer);
+    response = await tryMetadataDiscovery(pathAwareUrl, protocolVersion);
+  }
 
   // If path-aware discovery fails with 404, try fallback to root discovery
   if (shouldAttemptFallback(response, issuer.pathname)) {
@@ -380,7 +385,9 @@ export async function discoverOAuthMetadata(
     );
   }
 
-  return OAuthMetadataSchema.parse(await response.json());
+  const jsonData = await response.json();
+  const parsedMetadata = OAuthMetadataSchema.parse(jsonData);
+  return parsedMetadata;
 }
 
 /**
@@ -428,7 +435,7 @@ export async function startAuthorization(
   } else {
     authorizationUrl = new URL("/authorize", authorizationServerUrl);
   }
-
+  
   // Generate PKCE challenge
   const challenge = await pkceChallenge();
   const codeVerifier = challenge.code_verifier;
