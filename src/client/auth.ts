@@ -235,12 +235,13 @@ export async function auth(
     serverUrl: string | URL;
     authorizationCode?: string;
     scope?: string;
-    resourceMetadataUrl?: URL }): Promise<AuthResult> {
+    resourceMetadataUrl?: URL
+  }): Promise<AuthResult> {
 
   let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
   let authorizationServerUrl = serverUrl;
   try {
-    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, {resourceMetadataUrl});
+    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl });
     if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
       authorizationServerUrl = resourceMetadata.authorization_servers[0];
     }
@@ -265,6 +266,7 @@ export async function auth(
 
     const fullInformation = await registerClient(authorizationServerUrl, {
       metadata,
+      resourceMetadata,
       clientMetadata: provider.clientMetadata,
     });
 
@@ -318,7 +320,7 @@ export async function auth(
     clientInformation,
     state,
     redirectUrl: provider.redirectUrl,
-    scope: scope || provider.clientMetadata.scope,
+    scope: (scope || provider.clientMetadata.scope) ?? resourceMetadata?.scopes_supported?.join(" "),
     resource,
   });
 
@@ -761,9 +763,11 @@ export async function registerClient(
   authorizationServerUrl: string | URL,
   {
     metadata,
+    resourceMetadata,
     clientMetadata,
   }: {
     metadata?: OAuthMetadata;
+    resourceMetadata?: OAuthProtectedResourceMetadata;
     clientMetadata: OAuthClientMetadata;
   },
 ): Promise<OAuthClientInformationFull> {
@@ -779,12 +783,17 @@ export async function registerClient(
     registrationUrl = new URL("/register", authorizationServerUrl);
   }
 
+  const scope = clientMetadata?.scope ?? resourceMetadata?.scopes_supported?.join(" ");
+
   const response = await fetch(registrationUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(clientMetadata),
+    body: JSON.stringify({
+      ...clientMetadata,
+      ...(scope !== undefined ? { scope } : undefined)
+    }),
   });
 
   if (!response.ok) {
