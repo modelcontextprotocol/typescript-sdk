@@ -142,7 +142,7 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
       new URL(oauthMetadata.registration_endpoint).pathname,
       clientRegistrationHandler({
         clientsStore: options.provider.clientsStore,
-        ...options,
+        ...options.clientRegistrationOptions,
       })
     );
   }
