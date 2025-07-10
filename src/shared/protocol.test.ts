@@ -466,6 +466,108 @@ describe("protocol tests", () => {
       await expect(requestPromise).resolves.toEqual({ result: "success" });
     });
   });
+
+  describe("Debounced Notifications", () => {
+    // We need to flush the microtask queue to test the debouncing logic.
+    // This helper function does that.
+    const flushMicrotasks = () => new Promise(resolve => setImmediate(resolve));
+
+    it("should debounce multiple synchronous calls for a debounced method into a single send", async () => {
+      // ARRANGE
+      // Instantiate a protocol with the debouncing option enabled for a specific method.
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })({ debouncedNotificationMethods: ['test/debounced'] });
+      await protocol.connect(transport);
+
+      // ACT
+      // Call the notification method multiple times in the same event loop tick.
+      protocol.notification({ method: 'test/debounced', params: { v: 1 } });
+      protocol.notification({ method: 'test/debounced', params: { v: 2 } });
+      protocol.notification({ method: 'test/debounced', params: { v: 3 } });
+
+      // Assert that it has NOT been called yet, because it's scheduled for the next microtask.
+      expect(sendSpy).not.toHaveBeenCalled();
+
+      // Now, wait for the microtask queue to be processed.
+      await flushMicrotasks();
+
+      // ASSERT
+      // It should have been called exactly once.
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+      // And it should have sent the FIRST notification that was queued.
+      expect(sendSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'test/debounced',
+          params: { v: 1 }
+        }),
+        undefined
+      );
+    });
+
+    it("should send non-debounced notifications immediately and multiple times", async () => {
+      // ARRANGE
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })({ debouncedNotificationMethods: ['test/debounced'] }); // Configure for a different method
+      await protocol.connect(transport);
+
+      // ACT
+      // Call a non-debounced notification method multiple times.
+      await protocol.notification({ method: 'test/immediate' });
+      await protocol.notification({ method: 'test/immediate' });
+
+      // ASSERT
+      // Since this method is not in the debounce list, it should be sent every time.
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("should not debounce any notifications if the option is not provided", async () => {
+      // ARRANGE
+      // Use the default protocol from beforeEach, which has no debounce options.
+      await protocol.connect(transport);
+
+      // ACT
+      await protocol.notification({ method: 'any/method' });
+      await protocol.notification({ method: 'any/method' });
+
+      // ASSERT
+      // Without the config, behavior should be immediate sending.
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("should handle sequential batches of debounced notifications correctly", async () => {
+      // ARRANGE
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })({ debouncedNotificationMethods: ['test/debounced'] });
+      await protocol.connect(transport);
+
+      // ACT (Batch 1)
+      protocol.notification({ method: 'test/debounced' });
+      protocol.notification({ method: 'test/debounced' });
+      await flushMicrotasks();
+
+      // ASSERT (Batch 1)
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+
+      // ACT (Batch 2)
+      // After the first batch has been sent, a new batch should be possible.
+      protocol.notification({ method: 'test/debounced' });
+      protocol.notification({ method: 'test/debounced' });
+      await flushMicrotasks();
+
+      // ASSERT (Batch 2)
+      // The total number of sends should now be 2.
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+    });
+  });
 });
 
 describe("mergeCapabilities", () => {
