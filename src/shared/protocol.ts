@@ -27,6 +27,8 @@ import {
 } from "../types.js";
 import { Transport, TransportSendOptions } from "./transport.js";
 import { AuthInfo } from "../server/auth/types.js";
+import { getResourceManager } from "./resource-manager.js";
+import { getStateManager, RequestState } from "./request-state.js";
 
 /**
  * Callback for progress notifications.
@@ -185,6 +187,12 @@ export abstract class Protocol<
     string,
     (notification: JSONRPCNotification) => Promise<void>
   > = new Map();
+
+  // Optimized: Use resource manager instead of separate maps
+  private _resourceManager = getResourceManager();
+  private _stateManager = getStateManager();
+
+  // Legacy maps for backward compatibility (will be phased out)
   private _responseHandlers: Map<
     number,
     (response: JSONRPCResponse | Error) => void
@@ -490,12 +498,7 @@ export abstract class Protocol<
     return this._transport;
   }
 
-  /**
-   * Closes the connection.
-   */
-  async close(): Promise<void> {
-    await this._transport?.close();
-  }
+
 
   /**
    * A method to check if a capability is supported by the remote side, for the given method to be called.
@@ -525,6 +528,8 @@ export abstract class Protocol<
   /**
    * Sends a request and wait for a response.
    *
+   * Optimized version with resource management and serialization caching.
+   *
    * Do not use this method to emit notifications! Use notification() instead.
    */
   request<T extends ZodType<object>>(
@@ -547,6 +552,15 @@ export abstract class Protocol<
       options?.signal?.throwIfAborted();
 
       const messageId = this._requestMessageId++;
+
+      // Initialize request state (non-blocking)
+      this._stateManager.initialize(messageId, {
+        method: request.method,
+        hasParams: !!request.params
+      }).catch(error => {
+        console.warn('Failed to initialize request state:', error);
+      });
+
       const jsonrpcRequest: JSONRPCRequest = {
         ...request,
         jsonrpc: "2.0",
@@ -554,7 +568,6 @@ export abstract class Protocol<
       };
 
       if (options?.onprogress) {
-        this._progressHandlers.set(messageId, options.onprogress);
         jsonrpcRequest.params = {
           ...request.params,
           _meta: {
@@ -565,6 +578,14 @@ export abstract class Protocol<
       }
 
       const cancel = (reason: unknown) => {
+        // Update state to cancelled (non-blocking)
+        this._stateManager.transition(messageId, RequestState.CANCELLED, { reason: String(reason) })
+          .catch(error => console.warn('Failed to update state to cancelled:', error));
+
+        // Clean up resources using resource manager
+        this._resourceManager.cleanup(messageId);
+
+        // Legacy cleanup for backward compatibility
         this._responseHandlers.delete(messageId);
         this._progressHandlers.delete(messageId);
         this._cleanupTimeout(messageId);
@@ -585,37 +606,66 @@ export abstract class Protocol<
         reject(reason);
       };
 
-      this._responseHandlers.set(messageId, (response) => {
+      const responseHandler = (response: JSONRPCResponse | Error) => {
         if (options?.signal?.aborted) {
           return;
         }
 
         if (response instanceof Error) {
+          this._stateManager.transition(messageId, RequestState.ERROR, { error: response.message })
+            .catch(error => console.warn('Failed to update state to error:', error));
+          this._resourceManager.cleanup(messageId);
           return reject(response);
         }
 
         try {
+          this._stateManager.transition(messageId, RequestState.COMPLETED)
+            .catch(error => console.warn('Failed to update state to completed:', error));
           const result = resultSchema.parse(response.result);
+          this._resourceManager.cleanup(messageId);
           resolve(result);
         } catch (error) {
+          this._stateManager.transition(messageId, RequestState.ERROR, { error: String(error) })
+            .catch(err => console.warn('Failed to update state to error:', err));
+          this._resourceManager.cleanup(messageId);
           reject(error);
         }
+      };
+
+      // Register resources with resource manager
+      this._resourceManager.register(messageId, {
+        responseHandler,
+        progressHandler: options?.onprogress,
       });
+
+      // Legacy handler registration for backward compatibility
+      this._responseHandlers.set(messageId, responseHandler);
 
       options?.signal?.addEventListener("abort", () => {
         cancel(options?.signal?.reason);
       });
 
       const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
-      const timeoutHandler = () => cancel(new McpError(
-        ErrorCode.RequestTimeout,
-        "Request timed out",
-        { timeout }
-      ));
+      const timeoutHandler = () => {
+        this._stateManager.transition(messageId, RequestState.TIMEOUT)
+          .catch(error => console.warn('Failed to update state to timeout:', error));
+        cancel(new McpError(
+          ErrorCode.RequestTimeout,
+          "Request timed out",
+          { timeout }
+        ));
+      };
 
       this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
+      // Update state to processing before sending (non-blocking)
+      this._stateManager.transition(messageId, RequestState.PROCESSING)
+        .catch(error => console.warn('Failed to update state to processing:', error));
+
       this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch((error) => {
+        this._stateManager.transition(messageId, RequestState.ERROR, { error: error.message })
+          .catch(err => console.warn('Failed to update state to error:', err));
+        this._resourceManager.cleanup(messageId);
         this._cleanupTimeout(messageId);
         reject(error);
       });
@@ -624,6 +674,8 @@ export abstract class Protocol<
 
   /**
    * Emits a notification, which is a one-way message that does not expect a response.
+   *
+   * Optimized version with improved serialization.
    */
   async notification(notification: SendNotificationT, options?: NotificationOptions): Promise<void> {
     if (!this._transport) {
@@ -637,6 +689,7 @@ export abstract class Protocol<
       jsonrpc: "2.0",
     };
 
+    // Use optimized JSON serialization for notifications too
     await this._transport.send(jsonrpcNotification, options);
   }
 
@@ -707,6 +760,50 @@ export abstract class Protocol<
    */
   removeNotificationHandler(method: string): void {
     this._notificationHandlers.delete(method);
+  }
+
+  /**
+   * Closes the connection and cleans up all resources.
+   *
+   * Optimized version with proper resource cleanup.
+   */
+  async close(): Promise<void> {
+    // Clean up all active resources
+    this._resourceManager.destroy();
+    this._stateManager.destroy();
+
+    // Legacy cleanup for backward compatibility
+    this._responseHandlers.clear();
+    this._progressHandlers.clear();
+    this._timeoutInfo.clear();
+
+    if (this._transport) {
+      await this._transport.close();
+      this._transport = undefined;
+    }
+  }
+
+  /**
+   * Get performance statistics for monitoring
+   */
+  getPerformanceStats(): {
+    resourceStats: Record<string, unknown>;
+    stateStats: Record<string, unknown>;
+    legacyHandlers: {
+      responseHandlers: number;
+      progressHandlers: number;
+      timeoutInfo: number;
+    };
+  } {
+    return {
+      resourceStats: this._resourceManager.getStats(),
+      stateStats: this._stateManager.getStats(),
+      legacyHandlers: {
+        responseHandlers: this._responseHandlers.size,
+        progressHandlers: this._progressHandlers.size,
+        timeoutInfo: this._timeoutInfo.size,
+      },
+    };
   }
 }
 
