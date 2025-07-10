@@ -14,6 +14,7 @@ import {
 } from "./auth.js";
 import {ServerError} from "../server/auth/errors.js";
 import { AuthorizationServerMetadata } from '../shared/auth.js';
+import { OAuthClientMetadata, OAuthProtectedResourceMetadata } from '../shared/auth.js';
 
 // Mock fetch globally
 const mockFetch = jest.fn();
@@ -1457,6 +1458,48 @@ describe("OAuth Authorization", () => {
       );
     });
 
+    it("registers client with scopes_supported from resourceMetadata if scope is not provided", async () => {
+      const resourceMetadata: OAuthProtectedResourceMetadata = {
+        scopes_supported: ["openid", "profile"],
+        resource: "https://api.example.com/mcp-server",
+      };
+
+      const validClientMetadataWithoutScope: OAuthClientMetadata = {
+        ...validClientMetadata,
+        scope: undefined,
+      };
+
+      const expectedClientInfo = {
+        ...validClientInfo,
+        scope: "openid profile",
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => expectedClientInfo,
+      });
+
+      const clientInfo = await registerClient("https://auth.example.com", {
+        clientMetadata: validClientMetadataWithoutScope,
+        resourceMetadata,
+      });
+
+      expect(clientInfo).toEqual(expectedClientInfo);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          href: "https://auth.example.com/register",
+        }),
+        expect.objectContaining({
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ...validClientMetadata, scope: "openid profile" }),
+        })
+      );
+    });
+
     it("validates client information response schema", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -1797,6 +1840,64 @@ describe("OAuth Authorization", () => {
       expect(body.get("resource")).toBe("https://api.example.com/mcp-server");
       expect(body.get("grant_type")).toBe("refresh_token");
       expect(body.get("refresh_token")).toBe("refresh123");
+    });
+
+    it("uses scopes_supported from resource metadata if scope is not provided", async () => {
+      // Mock successful metadata discovery - need to include protected resource metadata
+      mockFetch.mockImplementation((url) => {
+        const urlString = url.toString();
+        if (urlString.includes("/.well-known/oauth-protected-resource")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resource: "https://api.example.com/mcp-server",
+              authorization_servers: ["https://auth.example.com"],
+              scopes_supported: ["openid", "profile"],
+            }),
+          });
+        } else if (urlString.includes("/.well-known/oauth-authorization-server")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              issuer: "https://auth.example.com",
+              authorization_endpoint: "https://auth.example.com/authorize",
+              token_endpoint: "https://auth.example.com/token",
+              response_types_supported: ["code"],
+              code_challenge_methods_supported: ["S256"],
+            }),
+          });
+        }
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      // Mock provider methods for authorization flow
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
+      (mockProvider.redirectToAuthorization as jest.Mock).mockResolvedValue(undefined);
+
+      // Call auth without authorization code (should trigger redirect)
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+      });
+
+      expect(result).toBe("REDIRECT");
+
+      // Verify the authorization URL includes the resource parameter
+      expect(mockProvider.redirectToAuthorization).toHaveBeenCalledWith(
+        expect.objectContaining({
+          searchParams: expect.any(URLSearchParams),
+        })
+      );
+
+      const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+      const authUrl: URL = redirectCall[0];
+      expect(authUrl.searchParams.get("scope")).toBe("openid profile");
     });
 
     it("skips default PRM resource validation when custom validateResourceURL is provided", async () => {
