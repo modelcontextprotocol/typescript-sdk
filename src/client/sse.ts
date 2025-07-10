@@ -53,7 +53,7 @@ export class SSEClientTransport implements Transport {
   private _endpoint?: URL;
   private _abortController?: AbortController;
   private _url: URL;
-  private _eventSourceInit?: EventSourceInit;
+  private _eventSourceInit: EventSourceInit;
   private _requestInit?: RequestInit;
   private _authProvider?: OAuthClientProvider;
 
@@ -66,7 +66,19 @@ export class SSEClientTransport implements Transport {
     opts?: SSEClientTransportOptions,
   ) {
     this._url = url;
-    this._eventSourceInit = opts?.eventSourceInit;
+
+    const actualFetch = opts?.eventSourceInit?.fetch ?? fetch;
+    this._eventSourceInit = {
+      ...(opts?.eventSourceInit ?? {}),
+      fetch: (url, init) => this._commonHeaders().then((headers) => actualFetch(url, {
+        ...init,
+        headers: {
+          ...headers,
+          Accept: "text/event-stream"
+        }
+      })),
+    };
+
     this._requestInit = opts?.requestInit;
     this._authProvider = opts?.authProvider;
   }
@@ -105,7 +117,7 @@ export class SSEClientTransport implements Transport {
 
   private _startOrAuth(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this._eventSource = new EventSource(this._url.href, this._getEventSourceInit());
+      this._eventSource = new EventSource(this._url.href, this._eventSourceInit);
       this._abortController = new AbortController();
 
       this._eventSource.onerror = (event) => {
@@ -157,44 +169,6 @@ export class SSEClientTransport implements Transport {
         this.onmessage?.(message);
       };
     });
-  }
-
-  private _getEventSourceInit(): EventSourceInit {
-    let eventSourceInit: EventSourceInit;
-
-    if (this._eventSourceInit) {
-      const originalFetch = this._eventSourceInit.fetch;
-
-      if (originalFetch && this._authProvider) {
-        // merge the new headers with the existing headers
-        eventSourceInit = {
-          ...this._eventSourceInit,
-          fetch: async (url, init) => {
-            const newHeaders: Record<string, string> = await this._commonHeaders();
-            return originalFetch(url, {
-              ...init,
-              headers: {
-                ...newHeaders,
-                ...init?.headers
-              }
-            });
-          }
-        };
-      } else {
-        eventSourceInit = this._eventSourceInit;
-      }
-    } else {
-      eventSourceInit = {
-        fetch: (url, init) => this._commonHeaders().then((headers) => fetch(url, {
-          ...init,
-          headers: {
-            ...headers,
-            Accept: "text/event-stream"
-          }
-        })),
-      };
-    }
-    return eventSourceInit;
   }
 
   async start() {
