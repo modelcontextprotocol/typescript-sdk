@@ -81,7 +81,7 @@ export class SSEClientTransport implements Transport {
     this._url = url;
     this._resourceMetadataUrl = undefined;
 
-    const actualFetch = opts?.eventSourceInit?.fetch ?? fetch;
+    const actualFetch = opts?.eventSourceInit?.fetch ?? opts?.fetch ?? fetch;
     this._eventSourceInit = {
       ...(opts?.eventSourceInit ?? {}),
       fetch: (url, init) => this._commonHeaders().then((headers) => actualFetch(url, {
