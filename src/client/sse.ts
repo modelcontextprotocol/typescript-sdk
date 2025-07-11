@@ -35,11 +35,6 @@ export type SSEClientTransportOptions = {
 
   /**
    * Customizes the initial SSE request to the server (the request that begins the stream).
-   *
-   * NOTE: Setting this property will prevent an `Authorization` header from
-   * being automatically attached to the SSE request, if an `authProvider` is
-   * also given. This can be worked around by setting the `Authorization` header
-   * manually.
    */
   eventSourceInit?: EventSourceInit;
 
@@ -64,7 +59,7 @@ export class SSEClientTransport implements Transport {
   private _abortController?: AbortController;
   private _url: URL;
   private _resourceMetadataUrl?: URL;
-  private _eventSourceInit: EventSourceInit;
+  private _eventSourceInit?: EventSourceInit;
   private _requestInit?: RequestInit;
   private _authProvider?: OAuthClientProvider;
   private _fetch?: FetchLike;
@@ -80,19 +75,7 @@ export class SSEClientTransport implements Transport {
   ) {
     this._url = url;
     this._resourceMetadataUrl = undefined;
-
-    const actualFetch = opts?.eventSourceInit?.fetch ?? opts?.fetch ?? fetch;
-    this._eventSourceInit = {
-      ...(opts?.eventSourceInit ?? {}),
-      fetch: (url, init) => this._commonHeaders().then((headers) => actualFetch(url, {
-        ...init,
-        headers: {
-          ...Object.fromEntries(headers.entries()),
-          Accept: "text/event-stream"
-        }
-      })),
-    };
-
+    this._eventSourceInit = opts?.eventSourceInit;
     this._requestInit = opts?.requestInit;
     this._authProvider = opts?.authProvider;
     this._fetch = opts?.fetch;
@@ -147,7 +130,9 @@ export class SSEClientTransport implements Transport {
             headers.set("Accept", "text/event-stream");
             const response = await fetchImpl(url, {
               ...init,
-              headers,
+              headers: {
+                ...Object.fromEntries(headers.entries()),
+              }
             })
 
             if (response.status === 401 && response.headers.has('www-authenticate')) {
