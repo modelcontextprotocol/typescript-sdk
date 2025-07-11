@@ -69,6 +69,9 @@ web_modules/
 # Output of 'npm pack'
 *.tgz
 
+# Output of 'npm run fetch:spec-types'
+spec.types.ts
+
 # Yarn Integrity file
 .yarn-integrity
 
