@@ -664,6 +664,7 @@ describe("SSEClientTransport", () => {
 
       let connectionAttempts = 0;
       resourceServer = createServer((req, res) => {
+        recordServerRequest(req, res);
         lastServerRequest = req;
 
         if (req.url === "/.well-known/oauth-protected-resource") {

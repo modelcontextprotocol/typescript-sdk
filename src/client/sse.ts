@@ -87,7 +87,7 @@ export class SSEClientTransport implements Transport {
       fetch: (url, init) => this._commonHeaders().then((headers) => actualFetch(url, {
         ...init,
         headers: {
-          ...headers,
+          ...Object.fromEntries(headers.entries()),
           Accept: "text/event-stream"
         }
       })),
