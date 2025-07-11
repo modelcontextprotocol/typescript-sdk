@@ -2,17 +2,11 @@ import { Request, Response } from "express";
 import { requireBearerAuth } from "./bearerAuth.js";
 import { AuthInfo } from "../types.js";
 import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from "../errors.js";
-import { OAuthServerProvider } from "../provider.js";
-import { OAuthRegisteredClientsStore } from "../clients.js";
+import { OAuthTokenVerifier } from "../provider.js";
 
-// Mock provider
+// Mock verifier
 const mockVerifyAccessToken = jest.fn();
-const mockProvider: OAuthServerProvider = {
-  clientsStore: {} as OAuthRegisteredClientsStore,
-  authorize: jest.fn(),
-  challengeForAuthorizationCode: jest.fn(),
-  exchangeAuthorizationCode: jest.fn(),
-  exchangeRefreshToken: jest.fn(),
+const mockVerifier: OAuthTokenVerifier = {
   verifyAccessToken: mockVerifyAccessToken,
 };
 
@@ -43,6 +37,7 @@ describe("requireBearerAuth middleware", () => {
       token: "valid-token",
       clientId: "client-123",
       scopes: ["read", "write"],
+      expiresAt: Math.floor(Date.now() / 1000) + 3600, // Token expires in an hour
     };
     mockVerifyAccessToken.mockResolvedValue(validAuthInfo);
 
@@ -50,7 +45,7 @@ describe("requireBearerAuth middleware", () => {
       authorization: "Bearer valid-token",
     };
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("valid-token");
@@ -60,12 +55,16 @@ describe("requireBearerAuth middleware", () => {
     expect(mockResponse.json).not.toHaveBeenCalled();
   });
   
-  it("should reject expired tokens", async () => {
+  it.each([
+    [100], // Token expired 100 seconds ago
+    [0], // Token expires at the same time as now
+  ])("should reject expired tokens (expired %s seconds ago)", async (expiredSecondsAgo: number) => {
+    const expiresAt = Math.floor(Date.now() / 1000) - expiredSecondsAgo;
     const expiredAuthInfo: AuthInfo = {
       token: "expired-token",
       clientId: "client-123",
       scopes: ["read", "write"],
-      expiresAt: Math.floor(Date.now() / 1000) - 100, // Token expired 100 seconds ago
+      expiresAt
     };
     mockVerifyAccessToken.mockResolvedValue(expiredAuthInfo);
 
@@ -73,7 +72,7 @@ describe("requireBearerAuth middleware", () => {
       authorization: "Bearer expired-token",
     };
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("expired-token");
@@ -87,7 +86,38 @@ describe("requireBearerAuth middleware", () => {
     );
     expect(nextFunction).not.toHaveBeenCalled();
   });
-  
+
+  it.each([
+    [undefined], // Token has no expiration time
+    [NaN], // Token has no expiration time
+  ])("should reject tokens with no expiration time (expiresAt: %s)", async (expiresAt: number | undefined) => {
+    const noExpirationAuthInfo: AuthInfo = {
+      token: "no-expiration-token",
+      clientId: "client-123",
+      scopes: ["read", "write"],
+      expiresAt
+    };
+    mockVerifyAccessToken.mockResolvedValue(noExpirationAuthInfo);
+
+    mockRequest.headers = {
+      authorization: "Bearer expired-token",
+    };
+
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
+    await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
+
+    expect(mockVerifyAccessToken).toHaveBeenCalledWith("expired-token");
+    expect(mockResponse.status).toHaveBeenCalledWith(401);
+    expect(mockResponse.set).toHaveBeenCalledWith(
+      "WWW-Authenticate",
+      expect.stringContaining('Bearer error="invalid_token"')
+    );
+    expect(mockResponse.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: "invalid_token", error_description: "Token has no expiration time" })
+    );
+    expect(nextFunction).not.toHaveBeenCalled();
+  });
+
   it("should accept non-expired tokens", async () => {
     const nonExpiredAuthInfo: AuthInfo = {
       token: "valid-token",
@@ -101,7 +131,7 @@ describe("requireBearerAuth middleware", () => {
       authorization: "Bearer valid-token",
     };
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("valid-token");
@@ -124,7 +154,7 @@ describe("requireBearerAuth middleware", () => {
     };
 
     const middleware = requireBearerAuth({
-      provider: mockProvider,
+      verifier: mockVerifier,
       requiredScopes: ["read", "write"]
     });
 
@@ -147,6 +177,7 @@ describe("requireBearerAuth middleware", () => {
       token: "valid-token",
       clientId: "client-123",
       scopes: ["read", "write", "admin"],
+      expiresAt: Math.floor(Date.now() / 1000) + 3600, // Token expires in an hour
     };
     mockVerifyAccessToken.mockResolvedValue(authInfo);
 
@@ -155,7 +186,7 @@ describe("requireBearerAuth middleware", () => {
     };
 
     const middleware = requireBearerAuth({
-      provider: mockProvider,
+      verifier: mockVerifier,
       requiredScopes: ["read", "write"]
     });
 
@@ -169,7 +200,7 @@ describe("requireBearerAuth middleware", () => {
   });
 
   it("should return 401 when no Authorization header is present", async () => {
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).not.toHaveBeenCalled();
@@ -189,7 +220,7 @@ describe("requireBearerAuth middleware", () => {
       authorization: "InvalidFormat",
     };
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).not.toHaveBeenCalled();
@@ -214,7 +245,7 @@ describe("requireBearerAuth middleware", () => {
 
     mockVerifyAccessToken.mockRejectedValue(new InvalidTokenError("Token expired"));
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("invalid-token");
@@ -236,7 +267,7 @@ describe("requireBearerAuth middleware", () => {
 
     mockVerifyAccessToken.mockRejectedValue(new InsufficientScopeError("Required scopes: read, write"));
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("valid-token");
@@ -258,7 +289,7 @@ describe("requireBearerAuth middleware", () => {
 
     mockVerifyAccessToken.mockRejectedValue(new ServerError("Internal server issue"));
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("valid-token");
@@ -276,7 +307,7 @@ describe("requireBearerAuth middleware", () => {
 
     mockVerifyAccessToken.mockRejectedValue(new OAuthError("custom_error", "Some OAuth error"));
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("valid-token");
@@ -294,7 +325,7 @@ describe("requireBearerAuth middleware", () => {
 
     mockVerifyAccessToken.mockRejectedValue(new Error("Unexpected error"));
 
-    const middleware = requireBearerAuth({ provider: mockProvider });
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
     await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
     expect(mockVerifyAccessToken).toHaveBeenCalledWith("valid-token");
@@ -303,5 +334,126 @@ describe("requireBearerAuth middleware", () => {
       expect.objectContaining({ error: "server_error", error_description: "Internal Server Error" })
     );
     expect(nextFunction).not.toHaveBeenCalled();
+  });
+
+  describe("with resourceMetadataUrl", () => {
+    const resourceMetadataUrl = "https://api.example.com/.well-known/oauth-protected-resource";
+
+    it("should include resource_metadata in WWW-Authenticate header for 401 responses", async () => {
+      mockRequest.headers = {};
+
+      const middleware = requireBearerAuth({ verifier: mockVerifier, resourceMetadataUrl });
+      await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
+
+      expect(mockResponse.status).toHaveBeenCalledWith(401);
+      expect(mockResponse.set).toHaveBeenCalledWith(
+        "WWW-Authenticate",
+        `Bearer error="invalid_token", error_description="Missing Authorization header", resource_metadata="${resourceMetadataUrl}"`
+      );
+      expect(nextFunction).not.toHaveBeenCalled();
+    });
+
+    it("should include resource_metadata in WWW-Authenticate header when token verification fails", async () => {
+      mockRequest.headers = {
+        authorization: "Bearer invalid-token",
+      };
+
+      mockVerifyAccessToken.mockRejectedValue(new InvalidTokenError("Token expired"));
+
+      const middleware = requireBearerAuth({ verifier: mockVerifier, resourceMetadataUrl });
+      await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
+
+      expect(mockResponse.status).toHaveBeenCalledWith(401);
+      expect(mockResponse.set).toHaveBeenCalledWith(
+        "WWW-Authenticate",
+        `Bearer error="invalid_token", error_description="Token expired", resource_metadata="${resourceMetadataUrl}"`
+      );
+      expect(nextFunction).not.toHaveBeenCalled();
+    });
+
+    it("should include resource_metadata in WWW-Authenticate header for insufficient scope errors", async () => {
+      mockRequest.headers = {
+        authorization: "Bearer valid-token",
+      };
+
+      mockVerifyAccessToken.mockRejectedValue(new InsufficientScopeError("Required scopes: admin"));
+
+      const middleware = requireBearerAuth({ verifier: mockVerifier, resourceMetadataUrl });
+      await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
+
+      expect(mockResponse.status).toHaveBeenCalledWith(403);
+      expect(mockResponse.set).toHaveBeenCalledWith(
+        "WWW-Authenticate",
+        `Bearer error="insufficient_scope", error_description="Required scopes: admin", resource_metadata="${resourceMetadataUrl}"`
+      );
+      expect(nextFunction).not.toHaveBeenCalled();
+    });
+
+    it("should include resource_metadata when token is expired", async () => {
+      const expiredAuthInfo: AuthInfo = {
+        token: "expired-token",
+        clientId: "client-123",
+        scopes: ["read", "write"],
+        expiresAt: Math.floor(Date.now() / 1000) - 100,
+      };
+      mockVerifyAccessToken.mockResolvedValue(expiredAuthInfo);
+
+      mockRequest.headers = {
+        authorization: "Bearer expired-token",
+      };
+
+      const middleware = requireBearerAuth({ verifier: mockVerifier, resourceMetadataUrl });
+      await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
+
+      expect(mockResponse.status).toHaveBeenCalledWith(401);
+      expect(mockResponse.set).toHaveBeenCalledWith(
+        "WWW-Authenticate",
+        `Bearer error="invalid_token", error_description="Token has expired", resource_metadata="${resourceMetadataUrl}"`
+      );
+      expect(nextFunction).not.toHaveBeenCalled();
+    });
+
+    it("should include resource_metadata when scope check fails", async () => {
+      const authInfo: AuthInfo = {
+        token: "valid-token",
+        clientId: "client-123",
+        scopes: ["read"],
+      };
+      mockVerifyAccessToken.mockResolvedValue(authInfo);
+
+      mockRequest.headers = {
+        authorization: "Bearer valid-token",
+      };
+
+      const middleware = requireBearerAuth({
+        verifier: mockVerifier,
+        requiredScopes: ["read", "write"],
+        resourceMetadataUrl
+      });
+
+      await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
+
+      expect(mockResponse.status).toHaveBeenCalledWith(403);
+      expect(mockResponse.set).toHaveBeenCalledWith(
+        "WWW-Authenticate",
+        `Bearer error="insufficient_scope", error_description="Insufficient scope", resource_metadata="${resourceMetadataUrl}"`
+      );
+      expect(nextFunction).not.toHaveBeenCalled();
+    });
+
+    it("should not affect server errors (no WWW-Authenticate header)", async () => {
+      mockRequest.headers = {
+        authorization: "Bearer valid-token",
+      };
+
+      mockVerifyAccessToken.mockRejectedValue(new ServerError("Internal server issue"));
+
+      const middleware = requireBearerAuth({ verifier: mockVerifier, resourceMetadataUrl });
+      await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
+
+      expect(mockResponse.status).toHaveBeenCalledWith(500);
+      expect(mockResponse.set).not.toHaveBeenCalledWith("WWW-Authenticate", expect.anything());
+      expect(nextFunction).not.toHaveBeenCalled();
+    });
   });
 });

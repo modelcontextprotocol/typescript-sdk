@@ -9,7 +9,7 @@ import {
   InvalidRequestError,
   ServerError,
   TooManyRequestsError,
-  OAuthError
+  OAuthError,
 } from "../errors.js";
 
 export type RevocationHandlerOptions = {
@@ -21,7 +21,10 @@ export type RevocationHandlerOptions = {
   rateLimit?: Partial<RateLimitOptions> | false;
 };
 
-export function revocationHandler({ provider, rateLimit: rateLimitConfig }: RevocationHandlerOptions): RequestHandler {
+export function revocationHandler({
+  provider,
+  rateLimit: rateLimitConfig,
+}: RevocationHandlerOptions): RequestHandler {
   if (!provider.revokeToken) {
     throw new Error("Auth provider does not support revoking tokens");
   }
@@ -37,21 +40,25 @@ export function revocationHandler({ provider, rateLimit: rateLimitConfig }: Revo
 
   // Apply rate limiting unless explicitly disabled
   if (rateLimitConfig !== false) {
-    router.use(rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 50, // 50 requests per windowMs
-      standardHeaders: true,
-      legacyHeaders: false,
-      message: new TooManyRequestsError('You have exceeded the rate limit for token revocation requests').toResponseObject(),
-      ...rateLimitConfig
-    }));
+    router.use(
+      rateLimit({
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        max: 50, // 50 requests per windowMs
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: new TooManyRequestsError(
+          "You have exceeded the rate limit for token revocation requests"
+        ).toResponseObject(),
+        ...rateLimitConfig,
+      })
+    );
   }
 
   // Authenticate and extract client details
   router.use(authenticateClient({ clientsStore: provider.clientsStore }));
 
   router.post("/", async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader("Cache-Control", "no-store");
 
     try {
       const parseResult = OAuthTokenRevocationRequestSchema.safeParse(req.body);
@@ -62,7 +69,6 @@ export function revocationHandler({ provider, rateLimit: rateLimitConfig }: Revo
       const client = req.client;
       if (!client) {
         // This should never happen
-        console.error("Missing client information after authentication");
         throw new ServerError("Internal Server Error");
       }
 
@@ -73,7 +79,6 @@ export function revocationHandler({ provider, rateLimit: rateLimitConfig }: Revo
         const status = error instanceof ServerError ? 500 : 400;
         res.status(status).json(error.toResponseObject());
       } else {
-        console.error("Unexpected error revoking token:", error);
         const serverError = new ServerError("Internal Server Error");
         res.status(500).json(serverError.toResponseObject());
       }

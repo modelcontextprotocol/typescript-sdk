@@ -1,18 +1,23 @@
 import { RequestHandler } from "express";
 import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from "../errors.js";
-import { OAuthServerProvider } from "../provider.js";
+import { OAuthTokenVerifier } from "../provider.js";
 import { AuthInfo } from "../types.js";
 
 export type BearerAuthMiddlewareOptions = {
   /**
    * A provider used to verify tokens.
    */
-  provider: OAuthServerProvider;
+  verifier: OAuthTokenVerifier;
 
   /**
    * Optional scopes that the token must have.
    */
   requiredScopes?: string[];
+
+  /**
+   * Optional resource metadata URL to include in WWW-Authenticate header.
+   */
+  resourceMetadataUrl?: string;
 };
 
 declare module "express-serve-static-core" {
@@ -26,10 +31,13 @@ declare module "express-serve-static-core" {
 
 /**
  * Middleware that requires a valid Bearer token in the Authorization header.
- * 
+ *
  * This will validate the token with the auth provider and add the resulting auth info to the request object.
+ *
+ * If resourceMetadataUrl is provided, it will be included in the WWW-Authenticate header
+ * for 401 responses as per the OAuth 2.0 Protected Resource Metadata spec.
  */
-export function requireBearerAuth({ provider, requiredScopes = [] }: BearerAuthMiddlewareOptions): RequestHandler {
+export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetadataUrl }: BearerAuthMiddlewareOptions): RequestHandler {
   return async (req, res, next) => {
     try {
       const authHeader = req.headers.authorization;
@@ -42,7 +50,7 @@ export function requireBearerAuth({ provider, requiredScopes = [] }: BearerAuthM
         throw new InvalidTokenError("Invalid Authorization header format, expected 'Bearer TOKEN'");
       }
 
-      const authInfo = await provider.verifyAccessToken(token);
+      const authInfo = await verifier.verifyAccessToken(token);
 
       // Check if token has the required scopes (if any)
       if (requiredScopes.length > 0) {
@@ -55,8 +63,10 @@ export function requireBearerAuth({ provider, requiredScopes = [] }: BearerAuthM
         }
       }
 
-      // Check if the token is expired
-      if (!!authInfo.expiresAt && authInfo.expiresAt < Date.now() / 1000) {
+      // Check if the token is set to expire or if it is expired
+      if (typeof authInfo.expiresAt !== 'number' || isNaN(authInfo.expiresAt)) {
+        throw new InvalidTokenError("Token has no expiration time");
+      } else if (authInfo.expiresAt < Date.now() / 1000) {
         throw new InvalidTokenError("Token has expired");
       }
 
@@ -64,17 +74,22 @@ export function requireBearerAuth({ provider, requiredScopes = [] }: BearerAuthM
       next();
     } catch (error) {
       if (error instanceof InvalidTokenError) {
-        res.set("WWW-Authenticate", `Bearer error="${error.errorCode}", error_description="${error.message}"`);
+        const wwwAuthValue = resourceMetadataUrl
+          ? `Bearer error="${error.errorCode}", error_description="${error.message}", resource_metadata="${resourceMetadataUrl}"`
+          : `Bearer error="${error.errorCode}", error_description="${error.message}"`;
+        res.set("WWW-Authenticate", wwwAuthValue);
         res.status(401).json(error.toResponseObject());
       } else if (error instanceof InsufficientScopeError) {
-        res.set("WWW-Authenticate", `Bearer error="${error.errorCode}", error_description="${error.message}"`);
+        const wwwAuthValue = resourceMetadataUrl
+          ? `Bearer error="${error.errorCode}", error_description="${error.message}", resource_metadata="${resourceMetadataUrl}"`
+          : `Bearer error="${error.errorCode}", error_description="${error.message}"`;
+        res.set("WWW-Authenticate", wwwAuthValue);
         res.status(403).json(error.toResponseObject());
       } else if (error instanceof ServerError) {
         res.status(500).json(error.toResponseObject());
       } else if (error instanceof OAuthError) {
         res.status(400).json(error.toResponseObject());
       } else {
-        console.error("Unexpected error authenticating bearer token:", error);
         const serverError = new ServerError("Internal Server Error");
         res.status(500).json(serverError.toResponseObject());
       }

@@ -64,7 +64,6 @@ export function authenticateClient({ clientsStore }: ClientAuthenticationMiddlew
         const status = error instanceof ServerError ? 500 : 400;
         res.status(status).json(error.toResponseObject());
       } else {
-        console.error("Unexpected error authenticating client:", error);
         const serverError = new ServerError("Internal Server Error");
         res.status(500).json(serverError.toResponseObject());
       }

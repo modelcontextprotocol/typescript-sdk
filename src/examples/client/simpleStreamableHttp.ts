@@ -14,7 +14,13 @@ import {
   ListResourcesResultSchema,
   LoggingMessageNotificationSchema,
   ResourceListChangedNotificationSchema,
+  ElicitRequestSchema,
+  ResourceLink,
+  ReadResourceRequest,
+  ReadResourceResultSchema,
 } from '../../types.js';
+import { getDisplayName } from '../../shared/metadataUtils.js';
+import Ajv from "ajv";
 
 // Create readline interface for user input
 const readline = createInterface({
@@ -54,10 +60,13 @@ function printHelp(): void {
   console.log('  call-tool <name> [args]    - Call a tool with optional JSON arguments');
   console.log('  greet [name]               - Call the greet tool');
   console.log('  multi-greet [name]         - Call the multi-greet tool with notifications');
+  console.log('  collect-info [type]        - Test elicitation with collect-user-info tool (contact/preferences/feedback)');
   console.log('  start-notifications [interval] [count] - Start periodic notifications');
+  console.log('  run-notifications-tool-with-resumability [interval] [count] - Run notification tool with resumability');
   console.log('  list-prompts               - List available prompts');
   console.log('  get-prompt [name] [args]   - Get a prompt with optional JSON arguments');
   console.log('  list-resources             - List available resources');
+  console.log('  read-resource <uri>        - Read a specific resource by URI');
   console.log('  help                       - Show this help');
   console.log('  quit                       - Exit the program');
 }
@@ -114,10 +123,21 @@ function commandLoop(): void {
           await callMultiGreetTool(args[1] || 'MCP User');
           break;
 
+        case 'collect-info':
+          await callCollectInfoTool(args[1] || 'contact');
+          break;
+
         case 'start-notifications': {
           const interval = args[1] ? parseInt(args[1], 10) : 2000;
           const count = args[2] ? parseInt(args[2], 10) : 10;
           await startNotifications(interval, count);
+          break;
+        }
+
+        case 'run-notifications-tool-with-resumability': {
+          const interval = args[1] ? parseInt(args[1], 10) : 2000;
+          const count = args[2] ? parseInt(args[2], 10) : 10;
+          await runNotificationsToolWithResumability(interval, count);
           break;
         }
 
@@ -144,6 +164,14 @@ function commandLoop(): void {
 
         case 'list-resources':
           await listResources();
+          break;
+
+        case 'read-resource':
+          if (args.length < 2) {
+            console.log('Usage: read-resource <uri>');
+          } else {
+            await readResource(args[1]);
+          }
           break;
 
         case 'help':
@@ -183,14 +211,211 @@ async function connect(url?: string): Promise<void> {
   console.log(`Connecting to ${serverUrl}...`);
 
   try {
-    // Create a new client
+    // Create a new client with elicitation capability
     client = new Client({
       name: 'example-client',
       version: '1.0.0'
+    }, {
+      capabilities: {
+        elicitation: {},
+      },
     });
     client.onerror = (error) => {
       console.error('\x1b[31mClient error:', error, '\x1b[0m');
     }
+
+    // Set up elicitation request handler with proper validation
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      console.log('\n🔔 Elicitation Request Received:');
+      console.log(`Message: ${request.params.message}`);
+      console.log('Requested Schema:');
+      console.log(JSON.stringify(request.params.requestedSchema, null, 2));
+
+      const schema = request.params.requestedSchema;
+      const properties = schema.properties;
+      const required = schema.required || [];
+
+      // Set up AJV validator for the requested schema
+      const ajv = new Ajv();
+      const validate = ajv.compile(schema);
+
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      while (attempts < maxAttempts) {
+        attempts++;
+        console.log(`\nPlease provide the following information (attempt ${attempts}/${maxAttempts}):`);
+
+        const content: Record<string, unknown> = {};
+        let inputCancelled = false;
+
+        // Collect input for each field
+        for (const [fieldName, fieldSchema] of Object.entries(properties)) {
+          const field = fieldSchema as {
+            type?: string;
+            title?: string;
+            description?: string;
+            default?: unknown;
+            enum?: string[];
+            minimum?: number;
+            maximum?: number;
+            minLength?: number;
+            maxLength?: number;
+            format?: string;
+          };
+
+          const isRequired = required.includes(fieldName);
+          let prompt = `${field.title || fieldName}`;
+
+          // Add helpful information to the prompt
+          if (field.description) {
+            prompt += ` (${field.description})`;
+          }
+          if (field.enum) {
+            prompt += ` [options: ${field.enum.join(', ')}]`;
+          }
+          if (field.type === 'number' || field.type === 'integer') {
+            if (field.minimum !== undefined && field.maximum !== undefined) {
+              prompt += ` [${field.minimum}-${field.maximum}]`;
+            } else if (field.minimum !== undefined) {
+              prompt += ` [min: ${field.minimum}]`;
+            } else if (field.maximum !== undefined) {
+              prompt += ` [max: ${field.maximum}]`;
+            }
+          }
+          if (field.type === 'string' && field.format) {
+            prompt += ` [format: ${field.format}]`;
+          }
+          if (isRequired) {
+            prompt += ' *required*';
+          }
+          if (field.default !== undefined) {
+            prompt += ` [default: ${field.default}]`;
+          }
+
+          prompt += ': ';
+
+          const answer = await new Promise<string>((resolve) => {
+            readline.question(prompt, (input) => {
+              resolve(input.trim());
+            });
+          });
+
+          // Check for cancellation
+          if (answer.toLowerCase() === 'cancel' || answer.toLowerCase() === 'c') {
+            inputCancelled = true;
+            break;
+          }
+
+          // Parse and validate the input
+          try {
+            if (answer === '' && field.default !== undefined) {
+              content[fieldName] = field.default;
+            } else if (answer === '' && !isRequired) {
+              // Skip optional empty fields
+              continue;
+            } else if (answer === '') {
+              throw new Error(`${fieldName} is required`);
+            } else {
+              // Parse the value based on type
+              let parsedValue: unknown;
+
+              if (field.type === 'boolean') {
+                parsedValue = answer.toLowerCase() === 'true' || answer.toLowerCase() === 'yes' || answer === '1';
+              } else if (field.type === 'number') {
+                parsedValue = parseFloat(answer);
+                if (isNaN(parsedValue as number)) {
+                  throw new Error(`${fieldName} must be a valid number`);
+                }
+              } else if (field.type === 'integer') {
+                parsedValue = parseInt(answer, 10);
+                if (isNaN(parsedValue as number)) {
+                  throw new Error(`${fieldName} must be a valid integer`);
+                }
+              } else if (field.enum) {
+                if (!field.enum.includes(answer)) {
+                  throw new Error(`${fieldName} must be one of: ${field.enum.join(', ')}`);
+                }
+                parsedValue = answer;
+              } else {
+                parsedValue = answer;
+              }
+
+              content[fieldName] = parsedValue;
+            }
+          } catch (error) {
+            console.log(`❌ Error: ${error}`);
+            // Continue to next attempt
+            break;
+          }
+        }
+
+        if (inputCancelled) {
+          return { action: 'cancel' };
+        }
+
+        // If we didn't complete all fields due to an error, try again
+        if (Object.keys(content).length !== Object.keys(properties).filter(name =>
+          required.includes(name) || content[name] !== undefined
+        ).length) {
+          if (attempts < maxAttempts) {
+            console.log('Please try again...');
+            continue;
+          } else {
+            console.log('Maximum attempts reached. Declining request.');
+            return { action: 'decline' };
+          }
+        }
+
+        // Validate the complete object against the schema
+        const isValid = validate(content);
+
+        if (!isValid) {
+          console.log('❌ Validation errors:');
+          validate.errors?.forEach(error => {
+            console.log(`  - ${error.dataPath || 'root'}: ${error.message}`);
+          });
+
+          if (attempts < maxAttempts) {
+            console.log('Please correct the errors and try again...');
+            continue;
+          } else {
+            console.log('Maximum attempts reached. Declining request.');
+            return { action: 'decline' };
+          }
+        }
+
+        // Show the collected data and ask for confirmation
+        console.log('\n✅ Collected data:');
+        console.log(JSON.stringify(content, null, 2));
+
+        const confirmAnswer = await new Promise<string>((resolve) => {
+          readline.question('\nSubmit this information? (yes/no/cancel): ', (input) => {
+            resolve(input.trim().toLowerCase());
+          });
+        });
+
+
+        if (confirmAnswer === 'yes' || confirmAnswer === 'y') {
+          return {
+            action: 'accept',
+            content,
+          };
+        } else if (confirmAnswer === 'cancel' || confirmAnswer === 'c') {
+          return { action: 'cancel' };
+        } else if (confirmAnswer === 'no' || confirmAnswer === 'n') {
+          if (attempts < maxAttempts) {
+            console.log('Please re-enter the information...');
+            continue;
+          } else {
+            return { action: 'decline' };
+          }
+        }
+      }
+
+      console.log('Maximum attempts reached. Declining request.');
+      return { action: 'decline' };
+    });
 
     transport = new StreamableHTTPClientTransport(
       new URL(serverUrl),
@@ -264,12 +489,12 @@ async function terminateSession(): Promise<void> {
     console.log('Terminating session with ID:', transport.sessionId);
     await transport.terminateSession();
     console.log('Session terminated successfully');
-    
+
     // Check if sessionId was cleared after termination
     if (!transport.sessionId) {
       console.log('Session ID has been cleared');
       sessionId = undefined;
-      
+
       // Also close the transport and clear client objects
       await transport.close();
       console.log('Transport closed after session termination');
@@ -309,7 +534,7 @@ async function listTools(): Promise<void> {
       console.log('  No tools available');
     } else {
       for (const tool of toolsResult.tools) {
-        console.log(`  - ${tool.name}: ${tool.description}`);
+        console.log(`  - id: ${tool.name}, name: ${getDisplayName(tool)}, description: ${tool.description}`);
       }
     }
   } catch (error) {
@@ -333,11 +558,91 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
     };
 
     console.log(`Calling tool '${name}' with args:`, args);
+    const result = await client.request(request, CallToolResultSchema);
+
+    console.log('Tool result:');
+    const resourceLinks: ResourceLink[] = [];
+
+    result.content.forEach(item => {
+      if (item.type === 'text') {
+        console.log(`  ${item.text}`);
+      } else if (item.type === 'resource_link') {
+        const resourceLink = item as ResourceLink;
+        resourceLinks.push(resourceLink);
+        console.log(`  📁 Resource Link: ${resourceLink.name}`);
+        console.log(`     URI: ${resourceLink.uri}`);
+        if (resourceLink.mimeType) {
+          console.log(`     Type: ${resourceLink.mimeType}`);
+        }
+        if (resourceLink.description) {
+          console.log(`     Description: ${resourceLink.description}`);
+        }
+      } else if (item.type === 'resource') {
+        console.log(`  [Embedded Resource: ${item.resource.uri}]`);
+      } else if (item.type === 'image') {
+        console.log(`  [Image: ${item.mimeType}]`);
+      } else if (item.type === 'audio') {
+        console.log(`  [Audio: ${item.mimeType}]`);
+      } else {
+        console.log(`  [Unknown content type]:`, item);
+      }
+    });
+
+    // Offer to read resource links
+    if (resourceLinks.length > 0) {
+      console.log(`\nFound ${resourceLinks.length} resource link(s). Use 'read-resource <uri>' to read their content.`);
+    }
+  } catch (error) {
+    console.log(`Error calling tool ${name}: ${error}`);
+  }
+}
+
+
+async function callGreetTool(name: string): Promise<void> {
+  await callTool('greet', { name });
+}
+
+async function callMultiGreetTool(name: string): Promise<void> {
+  console.log('Calling multi-greet tool with notifications...');
+  await callTool('multi-greet', { name });
+}
+
+async function callCollectInfoTool(infoType: string): Promise<void> {
+  console.log(`Testing elicitation with collect-user-info tool (${infoType})...`);
+  await callTool('collect-user-info', { infoType });
+}
+
+async function startNotifications(interval: number, count: number): Promise<void> {
+  console.log(`Starting notification stream: interval=${interval}ms, count=${count || 'unlimited'}`);
+  await callTool('start-notification-stream', { interval, count });
+}
+
+async function runNotificationsToolWithResumability(interval: number, count: number): Promise<void> {
+  if (!client) {
+    console.log('Not connected to server.');
+    return;
+  }
+
+  try {
+    console.log(`Starting notification stream with resumability: interval=${interval}ms, count=${count || 'unlimited'}`);
+    console.log(`Using resumption token: ${notificationsToolLastEventId || 'none'}`);
+
+    const request: CallToolRequest = {
+      method: 'tools/call',
+      params: {
+        name: 'start-notification-stream',
+        arguments: { interval, count }
+      }
+    };
+
     const onLastEventIdUpdate = (event: string) => {
       notificationsToolLastEventId = event;
+      console.log(`Updated resumption token: ${event}`);
     };
+
     const result = await client.request(request, CallToolResultSchema, {
-      resumptionToken: notificationsToolLastEventId, onresumptiontoken: onLastEventIdUpdate
+      resumptionToken: notificationsToolLastEventId,
+      onresumptiontoken: onLastEventIdUpdate
     });
 
     console.log('Tool result:');
@@ -349,22 +654,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<vo
       }
     });
   } catch (error) {
-    console.log(`Error calling tool ${name}: ${error}`);
+    console.log(`Error starting notification stream: ${error}`);
   }
-}
-
-async function callGreetTool(name: string): Promise<void> {
-  await callTool('greet', { name });
-}
-
-async function callMultiGreetTool(name: string): Promise<void> {
-  console.log('Calling multi-greet tool with notifications...');
-  await callTool('multi-greet', { name });
-}
-
-async function startNotifications(interval: number, count: number): Promise<void> {
-  console.log(`Starting notification stream: interval=${interval}ms, count=${count || 'unlimited'}`);
-  await callTool('start-notification-stream', { interval, count });
 }
 
 async function listPrompts(): Promise<void> {
@@ -384,7 +675,7 @@ async function listPrompts(): Promise<void> {
       console.log('  No prompts available');
     } else {
       for (const prompt of promptsResult.prompts) {
-        console.log(`  - ${prompt.name}: ${prompt.description}`);
+        console.log(`  - id: ${prompt.name}, name: ${getDisplayName(prompt)}, description: ${prompt.description}`);
       }
     }
   } catch (error) {
@@ -435,11 +726,47 @@ async function listResources(): Promise<void> {
       console.log('  No resources available');
     } else {
       for (const resource of resourcesResult.resources) {
-        console.log(`  - ${resource.name}: ${resource.uri}`);
+        console.log(`  - id: ${resource.name}, name: ${getDisplayName(resource)}, description: ${resource.uri}`);
       }
     }
   } catch (error) {
     console.log(`Resources not supported by this server (${error})`);
+  }
+}
+
+async function readResource(uri: string): Promise<void> {
+  if (!client) {
+    console.log('Not connected to server.');
+    return;
+  }
+
+  try {
+    const request: ReadResourceRequest = {
+      method: 'resources/read',
+      params: { uri }
+    };
+
+    console.log(`Reading resource: ${uri}`);
+    const result = await client.request(request, ReadResourceResultSchema);
+
+    console.log('Resource contents:');
+    for (const content of result.contents) {
+      console.log(`  URI: ${content.uri}`);
+      if (content.mimeType) {
+        console.log(`  Type: ${content.mimeType}`);
+      }
+
+      if ('text' in content && typeof content.text === 'string') {
+        console.log('  Content:');
+        console.log('  ---');
+        console.log(content.text.split('\n').map((line: string) => '  ' + line).join('\n'));
+        console.log('  ---');
+      } else if ('blob' in content && typeof content.blob === 'string') {
+        console.log(`  [Binary data: ${content.blob.length} bytes]`);
+      }
+    }
+  } catch (error) {
+    console.log(`Error reading resource ${uri}: ${error}`);
   }
 }
 
@@ -456,7 +783,7 @@ async function cleanup(): Promise<void> {
           console.error('Error terminating session:', error);
         }
       }
-      
+
       // Then close the transport
       await transport.close();
     } catch (error) {

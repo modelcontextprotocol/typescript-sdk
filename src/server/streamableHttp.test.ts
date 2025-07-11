@@ -1,10 +1,25 @@
 import { createServer, type Server, IncomingMessage, ServerResponse } from "node:http";
-import { AddressInfo } from "node:net";
+import { createServer as netCreateServer, AddressInfo } from "node:net";
 import { randomUUID } from "node:crypto";
 import { EventStore, StreamableHTTPServerTransport, EventId, StreamId } from "./streamableHttp.js";
 import { McpServer } from "./mcp.js";
 import { CallToolResult, JSONRPCMessage } from "../types.js";
 import { z } from "zod";
+import { AuthInfo } from "./auth/types.js";
+
+async function getFreePort() {
+  return new Promise(res => {
+    const srv = netCreateServer();
+    srv.listen(0, () => {
+      const address = srv.address()!
+      if (typeof address === "string") {
+        throw new Error("Unexpected address type: " + typeof address);
+      }
+      const port = (address as AddressInfo).port;
+      srv.close((_err) => res(port))
+    });
+  })
+}
 
 /**
  * Test server configuration for StreamableHTTPServerTransport tests
@@ -14,6 +29,8 @@ interface TestServerConfig {
   enableJsonResponse?: boolean;
   customRequestHandler?: (req: IncomingMessage, res: ServerResponse, parsedBody?: unknown) => Promise<void>;
   eventStore?: EventStore;
+  onsessioninitialized?: (sessionId: string) => void | Promise<void>;
+  onsessionclosed?: (sessionId: string) => void | Promise<void>;
 }
 
 /**
@@ -42,7 +59,9 @@ async function createTestServer(config: TestServerConfig = { sessionIdGenerator:
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: config.sessionIdGenerator,
     enableJsonResponse: config.enableJsonResponse ?? false,
-    eventStore: config.eventStore
+    eventStore: config.eventStore,
+    onsessioninitialized: config.onsessioninitialized,
+    onsessionclosed: config.onsessionclosed
   });
 
   await mcpServer.connect(transport);
@@ -52,6 +71,63 @@ async function createTestServer(config: TestServerConfig = { sessionIdGenerator:
       if (config.customRequestHandler) {
         await config.customRequestHandler(req, res);
       } else {
+        await transport.handleRequest(req, res);
+      }
+    } catch (error) {
+      console.error("Error handling request:", error);
+      if (!res.headersSent) res.writeHead(500).end();
+    }
+  });
+
+  const baseUrl = await new Promise<URL>((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address() as AddressInfo;
+      resolve(new URL(`http://127.0.0.1:${addr.port}`));
+    });
+  });
+
+  return { server, transport, mcpServer, baseUrl };
+}
+
+/**
+ * Helper to create and start authenticated test HTTP server with MCP setup
+ */
+async function createTestAuthServer(config: TestServerConfig = { sessionIdGenerator: (() => randomUUID()) }): Promise<{
+  server: Server;
+  transport: StreamableHTTPServerTransport;
+  mcpServer: McpServer;
+  baseUrl: URL;
+}> {
+  const mcpServer = new McpServer(
+    { name: "test-server", version: "1.0.0" },
+    { capabilities: { logging: {} } }
+  );
+
+  mcpServer.tool(
+    "profile",
+    "A user profile data tool",
+    { active: z.boolean().describe("Profile status") },
+    async ({ active }, { authInfo }): Promise<CallToolResult> => {
+      return { content: [{ type: "text", text: `${active ? 'Active' : 'Inactive'} profile from token: ${authInfo?.token}!` }] };
+    }
+  );
+
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: config.sessionIdGenerator,
+    enableJsonResponse: config.enableJsonResponse ?? false,
+    eventStore: config.eventStore,
+    onsessioninitialized: config.onsessioninitialized,
+    onsessionclosed: config.onsessionclosed
+  });
+
+  await mcpServer.connect(transport);
+
+  const server = createServer(async (req: IncomingMessage & { auth?: AuthInfo }, res) => {
+    try {
+      if (config.customRequestHandler) {
+        await config.customRequestHandler(req, res);
+      } else {
+        req.auth = { token: req.headers["authorization"]?.split(" ")[1] } as AuthInfo;
         await transport.handleRequest(req, res);
       }
     } catch (error) {
@@ -120,14 +196,17 @@ async function readSSEEvent(response: Response): Promise<string> {
 /**
  * Helper to send JSON-RPC request
  */
-async function sendPostRequest(baseUrl: URL, message: JSONRPCMessage | JSONRPCMessage[], sessionId?: string): Promise<Response> {
+async function sendPostRequest(baseUrl: URL, message: JSONRPCMessage | JSONRPCMessage[], sessionId?: string, extraHeaders?: Record<string, string>): Promise<Response> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json, text/event-stream",
+    ...extraHeaders
   };
 
   if (sessionId) {
     headers["mcp-session-id"] = sessionId;
+    // After initialization, include the protocol version header
+    headers["mcp-protocol-version"] = "2025-03-26";
   }
 
   return fetch(baseUrl, {
@@ -149,6 +228,7 @@ function expectErrorResponse(data: unknown, expectedCode: number, expectedMessag
 
 describe("StreamableHTTPServerTransport", () => {
   let server: Server;
+  let mcpServer: McpServer;
   let transport: StreamableHTTPServerTransport;
   let baseUrl: URL;
   let sessionId: string;
@@ -157,6 +237,7 @@ describe("StreamableHTTPServerTransport", () => {
     const result = await createTestServer();
     server = result.server;
     transport = result.transport;
+    mcpServer = result.mcpServer;
     baseUrl = result.baseUrl;
   });
 
@@ -220,7 +301,7 @@ describe("StreamableHTTPServerTransport", () => {
     expectErrorResponse(errorData, -32600, /Only one initialization request is allowed/);
   });
 
-  it("should pandle post requests via sse response correctly", async () => {
+  it("should handle post requests via sse response correctly", async () => {
     sessionId = await initializeServer();
 
     const response = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList, sessionId);
@@ -288,6 +369,69 @@ describe("StreamableHTTPServerTransport", () => {
     });
   });
 
+  /***
+   * Test: Tool With Request Info
+   */
+  it("should pass request info to tool callback", async () => {
+    sessionId = await initializeServer();
+
+    mcpServer.tool(
+      "test-request-info",
+      "A simple test tool with request info",
+      { name: z.string().describe("Name to greet") },
+      async ({ name }, { requestInfo }): Promise<CallToolResult> => {
+        return { content: [{ type: "text", text: `Hello, ${name}!` }, { type: "text", text: `${JSON.stringify(requestInfo)}` }] };
+      }
+    );
+
+    const toolCallMessage: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: {
+        name: "test-request-info",
+        arguments: {
+          name: "Test User",
+        },
+      },
+      id: "call-1",
+    };
+
+    const response = await sendPostRequest(baseUrl, toolCallMessage, sessionId);
+    expect(response.status).toBe(200);
+
+    const text = await readSSEEvent(response);
+    const eventLines = text.split("\n");
+    const dataLine = eventLines.find(line => line.startsWith("data:"));
+    expect(dataLine).toBeDefined();
+
+    const eventData = JSON.parse(dataLine!.substring(5));
+
+    expect(eventData).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        content: [
+          { type: "text", text: "Hello, Test User!" },
+          { type: "text", text: expect.any(String) }
+        ],
+      },
+      id: "call-1",
+    });
+
+    const requestInfo = JSON.parse(eventData.result.content[1].text);
+    expect(requestInfo).toMatchObject({
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        connection: 'keep-alive',
+        'mcp-session-id': sessionId,
+        'accept-language': '*',
+        'user-agent': expect.any(String),
+        'accept-encoding': expect.any(String),
+        'content-length': expect.any(String),
+      },
+    });
+  });
+
   it("should reject requests without a valid session ID", async () => {
     const response = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList);
 
@@ -319,6 +463,7 @@ describe("StreamableHTTPServerTransport", () => {
       headers: {
         Accept: "text/event-stream",
         "mcp-session-id": sessionId,
+        "mcp-protocol-version": "2025-03-26",
       },
     });
 
@@ -360,6 +505,7 @@ describe("StreamableHTTPServerTransport", () => {
       headers: {
         Accept: "text/event-stream",
         "mcp-session-id": sessionId,
+        "mcp-protocol-version": "2025-03-26",
       },
     });
 
@@ -391,6 +537,7 @@ describe("StreamableHTTPServerTransport", () => {
       headers: {
         Accept: "text/event-stream",
         "mcp-session-id": sessionId,
+        "mcp-protocol-version": "2025-03-26",
       },
     });
 
@@ -402,6 +549,7 @@ describe("StreamableHTTPServerTransport", () => {
       headers: {
         Accept: "text/event-stream",
         "mcp-session-id": sessionId,
+        "mcp-protocol-version": "2025-03-26",
       },
     });
 
@@ -420,6 +568,7 @@ describe("StreamableHTTPServerTransport", () => {
       headers: {
         Accept: "application/json",
         "mcp-session-id": sessionId,
+        "mcp-protocol-version": "2025-03-26",
       },
     });
 
@@ -613,6 +762,7 @@ describe("StreamableHTTPServerTransport", () => {
       headers: {
         Accept: "text/event-stream",
         "mcp-session-id": sessionId,
+        "mcp-protocol-version": "2025-03-26",
       },
     });
 
@@ -648,7 +798,10 @@ describe("StreamableHTTPServerTransport", () => {
     // Now DELETE the session
     const deleteResponse = await fetch(tempUrl, {
       method: "DELETE",
-      headers: { "mcp-session-id": tempSessionId || "" },
+      headers: {
+        "mcp-session-id": tempSessionId || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
     });
 
     expect(deleteResponse.status).toBe(200);
@@ -664,12 +817,222 @@ describe("StreamableHTTPServerTransport", () => {
     // Try to delete with invalid session ID
     const response = await fetch(baseUrl, {
       method: "DELETE",
-      headers: { "mcp-session-id": "invalid-session-id" },
+      headers: {
+        "mcp-session-id": "invalid-session-id",
+        "mcp-protocol-version": "2025-03-26",
+      },
     });
 
     expect(response.status).toBe(404);
     const errorData = await response.json();
     expectErrorResponse(errorData, -32001, /Session not found/);
+  });
+
+  describe("protocol version header validation", () => {
+    it("should accept requests with matching protocol version", async () => {
+      sessionId = await initializeServer();
+
+      // Send request with matching protocol version
+      const response = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList, sessionId);
+
+      expect(response.status).toBe(200);
+    });
+
+    it("should accept requests without protocol version header", async () => {
+      sessionId = await initializeServer();
+
+      // Send request without protocol version header
+      const response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          "mcp-session-id": sessionId,
+          // No mcp-protocol-version header
+        },
+        body: JSON.stringify(TEST_MESSAGES.toolsList),
+      });
+
+      expect(response.status).toBe(200);
+    });
+
+    it("should reject requests with unsupported protocol version", async () => {
+      sessionId = await initializeServer();
+
+      // Send request with unsupported protocol version
+      const response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          "mcp-session-id": sessionId,
+          "mcp-protocol-version": "1999-01-01", // Unsupported version
+        },
+        body: JSON.stringify(TEST_MESSAGES.toolsList),
+      });
+
+      expect(response.status).toBe(400);
+      const errorData = await response.json();
+      expectErrorResponse(errorData, -32000, /Bad Request: Unsupported protocol version \(supported versions: .+\)/);
+    });
+
+    it("should accept when protocol version differs from negotiated version", async () => {
+      sessionId = await initializeServer();
+
+      // Spy on console.warn to verify warning is logged
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      // Send request with different but supported protocol version
+      const response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          "mcp-session-id": sessionId,
+          "mcp-protocol-version": "2024-11-05", // Different but supported version
+        },
+        body: JSON.stringify(TEST_MESSAGES.toolsList),
+      });
+
+      // Request should still succeed
+      expect(response.status).toBe(200);
+
+      warnSpy.mockRestore();
+    });
+
+    it("should handle protocol version validation for GET requests", async () => {
+      sessionId = await initializeServer();
+
+      // GET request with unsupported protocol version
+      const response = await fetch(baseUrl, {
+        method: "GET",
+        headers: {
+          Accept: "text/event-stream",
+          "mcp-session-id": sessionId,
+          "mcp-protocol-version": "invalid-version",
+        },
+      });
+
+      expect(response.status).toBe(400);
+      const errorData = await response.json();
+      expectErrorResponse(errorData, -32000, /Bad Request: Unsupported protocol version \(supported versions: .+\)/);
+    });
+
+    it("should handle protocol version validation for DELETE requests", async () => {
+      sessionId = await initializeServer();
+
+      // DELETE request with unsupported protocol version
+      const response = await fetch(baseUrl, {
+        method: "DELETE",
+        headers: {
+          "mcp-session-id": sessionId,
+          "mcp-protocol-version": "invalid-version",
+        },
+      });
+
+      expect(response.status).toBe(400);
+      const errorData = await response.json();
+      expectErrorResponse(errorData, -32000, /Bad Request: Unsupported protocol version \(supported versions: .+\)/);
+    });
+  });
+});
+
+describe("StreamableHTTPServerTransport with AuthInfo", () => {
+  let server: Server;
+  let transport: StreamableHTTPServerTransport;
+  let baseUrl: URL;
+  let sessionId: string;
+
+  beforeEach(async () => {
+    const result = await createTestAuthServer();
+    server = result.server;
+    transport = result.transport;
+    baseUrl = result.baseUrl;
+  });
+
+  afterEach(async () => {
+    await stopTestServer({ server, transport });
+  });
+
+  async function initializeServer(): Promise<string> {
+    const response = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+
+    expect(response.status).toBe(200);
+    const newSessionId = response.headers.get("mcp-session-id");
+    expect(newSessionId).toBeDefined();
+    return newSessionId as string;
+  }
+
+  it("should call a tool with authInfo", async () => {
+    sessionId = await initializeServer();
+
+    const toolCallMessage: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: {
+        name: "profile",
+        arguments: { active: true },
+      },
+      id: "call-1",
+    };
+
+    const response = await sendPostRequest(baseUrl, toolCallMessage, sessionId, { 'authorization': 'Bearer test-token' });
+    expect(response.status).toBe(200);
+
+    const text = await readSSEEvent(response);
+    const eventLines = text.split("\n");
+    const dataLine = eventLines.find(line => line.startsWith("data:"));
+    expect(dataLine).toBeDefined();
+
+    const eventData = JSON.parse(dataLine!.substring(5));
+    expect(eventData).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        content: [
+          {
+            type: "text",
+            text: "Active profile from token: test-token!",
+          },
+        ],
+      },
+      id: "call-1",
+    });
+  });
+
+  it("should calls tool without authInfo when it is optional", async () => {
+    sessionId = await initializeServer();
+
+    const toolCallMessage: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: {
+        name: "profile",
+        arguments: { active: false },
+      },
+      id: "call-1",
+    };
+
+    const response = await sendPostRequest(baseUrl, toolCallMessage, sessionId);
+    expect(response.status).toBe(200);
+
+    const text = await readSSEEvent(response);
+    const eventLines = text.split("\n");
+    const dataLine = eventLines.find(line => line.startsWith("data:"));
+    expect(dataLine).toBeDefined();
+
+    const eventData = JSON.parse(dataLine!.substring(5));
+    expect(eventData).toMatchObject({
+      jsonrpc: "2.0",
+      result: {
+        content: [
+          {
+            type: "text",
+            text: "Inactive profile from token: undefined!",
+          },
+        ],
+      },
+      id: "call-1",
+    });
   });
 });
 
@@ -964,6 +1327,7 @@ describe("StreamableHTTPServerTransport with resumability", () => {
       headers: {
         Accept: "text/event-stream",
         "mcp-session-id": sessionId,
+        "mcp-protocol-version": "2025-03-26",
       },
     });
 
@@ -1040,6 +1404,7 @@ describe("StreamableHTTPServerTransport with resumability", () => {
       headers: {
         Accept: "text/event-stream",
         "mcp-session-id": sessionId,
+        "mcp-protocol-version": "2025-03-26",
         "last-event-id": firstEventId
       },
     });
@@ -1126,15 +1491,658 @@ describe("StreamableHTTPServerTransport in stateless mode", () => {
     // Open first SSE stream
     const stream1 = await fetch(baseUrl, {
       method: "GET",
-      headers: { Accept: "text/event-stream" },
+      headers: {
+        Accept: "text/event-stream",
+        "mcp-protocol-version": "2025-03-26"
+      },
     });
     expect(stream1.status).toBe(200);
 
     // Open second SSE stream - should still be rejected, stateless mode still only allows one
     const stream2 = await fetch(baseUrl, {
       method: "GET",
-      headers: { Accept: "text/event-stream" },
+      headers: {
+        Accept: "text/event-stream",
+        "mcp-protocol-version": "2025-03-26"
+      },
     });
     expect(stream2.status).toBe(409); // Conflict - only one stream allowed
   });
 });
+
+// Test onsessionclosed callback
+describe("StreamableHTTPServerTransport onsessionclosed callback", () => {
+  it("should call onsessionclosed callback when session is closed via DELETE", async () => {
+    const mockCallback = jest.fn();
+    
+    // Create server with onsessionclosed callback
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessionclosed: mockCallback,
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to get a session ID
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    const tempSessionId = initResponse.headers.get("mcp-session-id");
+    expect(tempSessionId).toBeDefined();
+
+    // DELETE the session
+    const deleteResponse = await fetch(tempUrl, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": tempSessionId || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse.status).toBe(200);
+    expect(mockCallback).toHaveBeenCalledWith(tempSessionId);
+    expect(mockCallback).toHaveBeenCalledTimes(1);
+
+    // Clean up
+    tempServer.close();
+  });
+
+  it("should not call onsessionclosed callback when not provided", async () => {
+    // Create server without onsessionclosed callback
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to get a session ID
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    const tempSessionId = initResponse.headers.get("mcp-session-id");
+
+    // DELETE the session - should not throw error
+    const deleteResponse = await fetch(tempUrl, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": tempSessionId || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse.status).toBe(200);
+
+    // Clean up
+    tempServer.close();
+  });
+
+  it("should not call onsessionclosed callback for invalid session DELETE", async () => {
+    const mockCallback = jest.fn();
+    
+    // Create server with onsessionclosed callback
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessionclosed: mockCallback,
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to get a valid session
+    await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+
+    // Try to DELETE with invalid session ID
+    const deleteResponse = await fetch(tempUrl, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": "invalid-session-id",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse.status).toBe(404);
+    expect(mockCallback).not.toHaveBeenCalled();
+
+    // Clean up
+    tempServer.close();
+  });
+
+  it("should call onsessionclosed callback with correct session ID when multiple sessions exist", async () => {
+    const mockCallback = jest.fn();
+    
+    // Create first server
+    const result1 = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessionclosed: mockCallback,
+    });
+    
+    const server1 = result1.server;
+    const url1 = result1.baseUrl;
+
+    // Create second server
+    const result2 = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessionclosed: mockCallback,
+    });
+    
+    const server2 = result2.server;
+    const url2 = result2.baseUrl;
+
+    // Initialize both servers
+    const initResponse1 = await sendPostRequest(url1, TEST_MESSAGES.initialize);
+    const sessionId1 = initResponse1.headers.get("mcp-session-id");
+    
+    const initResponse2 = await sendPostRequest(url2, TEST_MESSAGES.initialize);
+    const sessionId2 = initResponse2.headers.get("mcp-session-id");
+
+    expect(sessionId1).toBeDefined();
+    expect(sessionId2).toBeDefined();
+    expect(sessionId1).not.toBe(sessionId2);
+
+    // DELETE first session
+    const deleteResponse1 = await fetch(url1, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": sessionId1 || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse1.status).toBe(200);
+    expect(mockCallback).toHaveBeenCalledWith(sessionId1);
+    expect(mockCallback).toHaveBeenCalledTimes(1);
+
+    // DELETE second session
+    const deleteResponse2 = await fetch(url2, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": sessionId2 || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse2.status).toBe(200);
+    expect(mockCallback).toHaveBeenCalledWith(sessionId2);
+    expect(mockCallback).toHaveBeenCalledTimes(2);
+
+    // Clean up
+    server1.close();
+    server2.close();
+  });
+});
+
+// Test async callbacks for onsessioninitialized and onsessionclosed
+describe("StreamableHTTPServerTransport async callbacks", () => {
+  it("should support async onsessioninitialized callback", async () => {
+    const initializationOrder: string[] = [];
+    
+    // Create server with async onsessioninitialized callback
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: async (sessionId: string) => {
+        initializationOrder.push('async-start');
+        // Simulate async operation
+        await new Promise(resolve => setTimeout(resolve, 10));
+        initializationOrder.push('async-end');
+        initializationOrder.push(sessionId);
+      },
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to trigger the callback
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    const tempSessionId = initResponse.headers.get("mcp-session-id");
+    
+    // Give time for async callback to complete
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
+    expect(initializationOrder).toEqual(['async-start', 'async-end', tempSessionId]);
+    
+    // Clean up
+    tempServer.close();
+  });
+
+  it("should support sync onsessioninitialized callback (backwards compatibility)", async () => {
+    const capturedSessionId: string[] = [];
+    
+    // Create server with sync onsessioninitialized callback
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (sessionId: string) => {
+        capturedSessionId.push(sessionId);
+      },
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to trigger the callback
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    const tempSessionId = initResponse.headers.get("mcp-session-id");
+    
+    expect(capturedSessionId).toEqual([tempSessionId]);
+    
+    // Clean up
+    tempServer.close();
+  });
+
+  it("should support async onsessionclosed callback", async () => {
+    const closureOrder: string[] = [];
+    
+    // Create server with async onsessionclosed callback
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessionclosed: async (sessionId: string) => {
+        closureOrder.push('async-close-start');
+        // Simulate async operation
+        await new Promise(resolve => setTimeout(resolve, 10));
+        closureOrder.push('async-close-end');
+        closureOrder.push(sessionId);
+      },
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to get a session ID
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    const tempSessionId = initResponse.headers.get("mcp-session-id");
+    expect(tempSessionId).toBeDefined();
+
+    // DELETE the session
+    const deleteResponse = await fetch(tempUrl, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": tempSessionId || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse.status).toBe(200);
+    
+    // Give time for async callback to complete
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
+    expect(closureOrder).toEqual(['async-close-start', 'async-close-end', tempSessionId]);
+
+    // Clean up
+    tempServer.close();
+  });
+
+  it("should propagate errors from async onsessioninitialized callback", async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+    
+    // Create server with async onsessioninitialized callback that throws
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: async (_sessionId: string) => {
+        throw new Error('Async initialization error');
+      },
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize should fail when callback throws
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    expect(initResponse.status).toBe(400);
+    
+    // Clean up
+    consoleErrorSpy.mockRestore();
+    tempServer.close();
+  });
+
+  it("should propagate errors from async onsessionclosed callback", async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+    
+    // Create server with async onsessionclosed callback that throws
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessionclosed: async (_sessionId: string) => {
+        throw new Error('Async closure error');
+      },
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to get a session ID
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    const tempSessionId = initResponse.headers.get("mcp-session-id");
+
+    // DELETE should fail when callback throws
+    const deleteResponse = await fetch(tempUrl, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": tempSessionId || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse.status).toBe(500);
+    
+    // Clean up
+    consoleErrorSpy.mockRestore();
+    tempServer.close();
+  });
+
+  it("should handle both async callbacks together", async () => {
+    const events: string[] = [];
+    
+    // Create server with both async callbacks
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: async (sessionId: string) => {
+        await new Promise(resolve => setTimeout(resolve, 5));
+        events.push(`initialized:${sessionId}`);
+      },
+      onsessionclosed: async (sessionId: string) => {
+        await new Promise(resolve => setTimeout(resolve, 5));
+        events.push(`closed:${sessionId}`);
+      },
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to trigger first callback
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    const tempSessionId = initResponse.headers.get("mcp-session-id");
+    
+    // Wait for async callback
+    await new Promise(resolve => setTimeout(resolve, 20));
+    
+    expect(events).toContain(`initialized:${tempSessionId}`);
+
+    // DELETE to trigger second callback
+    const deleteResponse = await fetch(tempUrl, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": tempSessionId || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse.status).toBe(200);
+    
+    // Wait for async callback
+    await new Promise(resolve => setTimeout(resolve, 20));
+    
+    expect(events).toContain(`closed:${tempSessionId}`);
+    expect(events).toHaveLength(2);
+
+    // Clean up
+    tempServer.close();
+  });
+});
+
+// Test DNS rebinding protection
+describe("StreamableHTTPServerTransport DNS rebinding protection", () => {
+  let server: Server;
+  let transport: StreamableHTTPServerTransport;
+  let baseUrl: URL;
+
+  afterEach(async () => {
+    if (server && transport) {
+      await stopTestServer({ server, transport });
+    }
+  });
+
+  describe("Host header validation", () => {
+    it("should accept requests with allowed host headers", async () => {
+      const result = await createTestServerWithDnsProtection({
+        sessionIdGenerator: undefined,
+        allowedHosts: ['localhost'],
+        enableDnsRebindingProtection: true,
+      });
+      server = result.server;
+      transport = result.transport;
+      baseUrl = result.baseUrl;
+
+      // Note: fetch() automatically sets Host header to match the URL
+      // Since we're connecting to localhost:3001 and that's in allowedHosts, this should work
+      const response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify(TEST_MESSAGES.initialize),
+      });
+
+      expect(response.status).toBe(200);
+    });
+
+    it("should reject requests with disallowed host headers", async () => {
+      // Test DNS rebinding protection by creating a server that only allows example.com
+      // but we're connecting via localhost, so it should be rejected
+      const result = await createTestServerWithDnsProtection({
+        sessionIdGenerator: undefined,
+        allowedHosts: ['example.com:3001'],
+        enableDnsRebindingProtection: true,
+      });
+      server = result.server;
+      transport = result.transport;
+      baseUrl = result.baseUrl;
+
+      const response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify(TEST_MESSAGES.initialize),
+      });
+
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.error.message).toContain("Invalid Host header:");
+    });
+
+    it("should reject GET requests with disallowed host headers", async () => {
+      const result = await createTestServerWithDnsProtection({
+        sessionIdGenerator: undefined,
+        allowedHosts: ['example.com:3001'],
+        enableDnsRebindingProtection: true,
+      });
+      server = result.server;
+      transport = result.transport;
+      baseUrl = result.baseUrl;
+
+      const response = await fetch(baseUrl, {
+        method: "GET",
+        headers: {
+          Accept: "text/event-stream",
+        },
+      });
+
+      expect(response.status).toBe(403);
+    });
+  });
+
+  describe("Origin header validation", () => {
+    it("should accept requests with allowed origin headers", async () => {
+      const result = await createTestServerWithDnsProtection({
+        sessionIdGenerator: undefined,
+        allowedOrigins: ['http://localhost:3000', 'https://example.com'],
+        enableDnsRebindingProtection: true,
+      });
+      server = result.server;
+      transport = result.transport;
+      baseUrl = result.baseUrl;
+
+      const response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Origin: "http://localhost:3000",
+        },
+        body: JSON.stringify(TEST_MESSAGES.initialize),
+      });
+
+      expect(response.status).toBe(200);
+    });
+
+    it("should reject requests with disallowed origin headers", async () => {
+      const result = await createTestServerWithDnsProtection({
+        sessionIdGenerator: undefined,
+        allowedOrigins: ['http://localhost:3000'],
+        enableDnsRebindingProtection: true,
+      });
+      server = result.server;
+      transport = result.transport;
+      baseUrl = result.baseUrl;
+
+      const response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Origin: "http://evil.com",
+        },
+        body: JSON.stringify(TEST_MESSAGES.initialize),
+      });
+
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.error.message).toBe("Invalid Origin header: http://evil.com");
+    });
+  });
+
+  describe("enableDnsRebindingProtection option", () => {
+    it("should skip all validations when enableDnsRebindingProtection is false", async () => {
+      const result = await createTestServerWithDnsProtection({
+        sessionIdGenerator: undefined,
+        allowedHosts: ['localhost'],
+        allowedOrigins: ['http://localhost:3000'],
+        enableDnsRebindingProtection: false,
+      });
+      server = result.server;
+      transport = result.transport;
+      baseUrl = result.baseUrl;
+
+      const response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Host: "evil.com",
+          Origin: "http://evil.com",
+        },
+        body: JSON.stringify(TEST_MESSAGES.initialize),
+      });
+
+      // Should pass even with invalid headers because protection is disabled
+      expect(response.status).toBe(200);
+    });
+  });
+
+  describe("Combined validations", () => {
+    it("should validate both host and origin when both are configured", async () => {
+      const result = await createTestServerWithDnsProtection({
+        sessionIdGenerator: undefined,
+        allowedHosts: ['localhost'],
+        allowedOrigins: ['http://localhost:3001'],
+        enableDnsRebindingProtection: true,
+      });
+      server = result.server;
+      transport = result.transport;
+      baseUrl = result.baseUrl;
+
+      // Test with invalid origin (host will be automatically correct via fetch)
+      const response1 = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Origin: "http://evil.com",
+        },
+        body: JSON.stringify(TEST_MESSAGES.initialize),
+      });
+
+      expect(response1.status).toBe(403);
+      const body1 = await response1.json();
+      expect(body1.error.message).toBe("Invalid Origin header: http://evil.com");
+
+      // Test with valid origin
+      const response2 = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Origin: "http://localhost:3001",
+        },
+        body: JSON.stringify(TEST_MESSAGES.initialize),
+      });
+
+      expect(response2.status).toBe(200);
+    });
+  });
+});
+
+/**
+ * Helper to create test server with DNS rebinding protection options
+ */
+async function createTestServerWithDnsProtection(config: {
+  sessionIdGenerator: (() => string) | undefined;
+  allowedHosts?: string[];
+  allowedOrigins?: string[];
+  enableDnsRebindingProtection?: boolean;
+}): Promise<{
+  server: Server;
+  transport: StreamableHTTPServerTransport;
+  mcpServer: McpServer;
+  baseUrl: URL;
+}> {
+  const mcpServer = new McpServer(
+    { name: "test-server", version: "1.0.0" },
+    { capabilities: { logging: {} } }
+  );
+
+  const port = await getFreePort();
+
+  if (config.allowedHosts) {
+    config.allowedHosts = config.allowedHosts.map(host => {
+      if (host.includes(':')) {
+        return host;
+      }
+      return `localhost:${port}`;
+    });
+  }
+
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: config.sessionIdGenerator,
+    allowedHosts: config.allowedHosts,
+    allowedOrigins: config.allowedOrigins,
+    enableDnsRebindingProtection: config.enableDnsRebindingProtection,
+  });
+
+  await mcpServer.connect(transport);
+
+  const httpServer = createServer(async (req, res) => {
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", async () => {
+        const parsedBody = JSON.parse(body);
+        await transport.handleRequest(req as IncomingMessage & { auth?: AuthInfo }, res, parsedBody);
+      });
+    } else {
+      await transport.handleRequest(req as IncomingMessage & { auth?: AuthInfo }, res);
+    }
+  });
+
+  await new Promise<void>((resolve) => {
+    httpServer.listen(port, () => resolve());
+  });
+
+  const serverUrl = new URL(`http://localhost:${port}/`);
+
+  return {
+    server: httpServer,
+    transport,
+    mcpServer,
+    baseUrl: serverUrl,
+  };
+}

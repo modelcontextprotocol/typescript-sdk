@@ -23,6 +23,12 @@ export interface AuthInfo {
   expiresAt?: number;
 
   /**
+   * The RFC 8707 resource server identifier for which this token is valid.
+   * If set, this MUST match the MCP server's resource identifier (minus hash fragment).
+   */
+  resource?: URL;
+
+  /**
    * Additional data associated with the token.
    * This field should be used for any additional data that needs to be attached to the auth info.
   */

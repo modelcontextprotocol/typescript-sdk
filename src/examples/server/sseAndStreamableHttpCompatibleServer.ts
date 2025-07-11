@@ -6,6 +6,7 @@ import { SSEServerTransport } from '../../server/sse.js';
 import { z } from 'zod';
 import { CallToolResult, isInitializeRequest } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
+import cors from 'cors';
 
 /**
  * This example server demonstrates backwards compatibility with both:
@@ -70,6 +71,12 @@ const getServer = () => {
 // Create Express application
 const app = express();
 app.use(express.json());
+
+// Configure CORS to expose Mcp-Session-Id header for browser-based clients
+app.use(cors({
+  origin: '*', // Allow all origins - adjust as needed for production
+  exposedHeaders: ['Mcp-Session-Id']
+}));
 
 // Store transports by session ID
 const transports: Record<string, StreamableHTTPServerTransport | SSEServerTransport> = {};
@@ -203,7 +210,11 @@ app.post("/messages", async (req: Request, res: Response) => {
 
 // Start the server
 const PORT = 3000;
-app.listen(PORT, () => {
+app.listen(PORT, (error) => {
+  if (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
   console.log(`Backwards compatible MCP server listening on port ${PORT}`);
   console.log(`
 ==============================================
