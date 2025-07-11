@@ -421,6 +421,7 @@ export abstract class Protocol<
                 ? error["code"]
                 : ErrorCode.InternalError,
               message: error.message ?? "Internal error",
+              data: error.data,
             },
           });
         },
