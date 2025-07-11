@@ -1759,7 +1759,7 @@ describe("OAuth Authorization", () => {
             status: 200,
             json: async () => ({
               resource: "https://my.resource.com/",
-              authorization_servers: ["https://auth.example.com/"],
+              authorization_servers: ["https://auth.example.com/oauth"],
             }),
           });
         } else if (urlString === "https://auth.example.com/.well-known/oauth-authorization-server/path/name") {
@@ -1802,8 +1802,8 @@ describe("OAuth Authorization", () => {
       // First call should be to PRM
       expect(calls[0][0].toString()).toBe("https://my.resource.com/.well-known/oauth-protected-resource/path/name");
       
-      // Second call should be to AS metadata with the path from serverUrl
-      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/path/name");
+      // Second call should be to AS metadata with the path from authorization server
+      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/oauth");
     });
   });
 
