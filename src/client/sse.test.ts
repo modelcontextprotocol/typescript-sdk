@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type Server } from "http";
+import { createServer, IncomingMessage, Server, ServerResponse } from "http";
 import { AddressInfo } from "net";
 import { JSONRPCMessage } from "../types.js";
 import { SSEClientTransport } from "./sse.js";
@@ -12,7 +12,20 @@ describe("SSEClientTransport", () => {
   let resourceBaseUrl: URL;
   let authBaseUrl: URL;
   let lastServerRequest: IncomingMessage;
+  const serverRequests: Record<string, IncomingMessage[]> = {};
   let sendServerMessage: ((message: string) => void) | null = null;
+
+  const recordServerRequest = (req: IncomingMessage, res: ServerResponse) => {
+    lastServerRequest = req;
+
+    const key = `${req.method} ${req.url}`;
+    serverRequests[key] = serverRequests[key] || [];
+    serverRequests[key].push(req);
+
+    res.on('finish', () => {
+      console.log(`[server] ${req.method} ${req.url} -> ${res.statusCode} ${res.statusMessage}`);
+    });
+  };
 
   beforeEach((done) => {
     // Reset state
@@ -606,6 +619,8 @@ describe("SSEClientTransport", () => {
       authServer.close();
 
       authServer = createServer((req, res) => {
+        recordServerRequest(req, res);
+
         if (req.url === "/.well-known/oauth-authorization-server") {
           res.writeHead(404).end();
           return;
@@ -618,7 +633,7 @@ describe("SSEClientTransport", () => {
           req.on("end", () => {
             const params = new URLSearchParams(body);
             if (params.get("grant_type") === "refresh_token" &&
-              params.get("refresh_token") === "refresh-token" &&
+              params.get("refresh_token")?.includes("refresh-token") &&
               params.get("client_id") === "test-client-id" &&
               params.get("client_secret") === "test-client-secret") {
               res.writeHead(200, { "Content-Type": "application/json" });
@@ -649,6 +664,7 @@ describe("SSEClientTransport", () => {
 
       let connectionAttempts = 0;
       resourceServer = createServer((req, res) => {
+        recordServerRequest(req, res);
         lastServerRequest = req;
 
         if (req.url === "/.well-known/oauth-protected-resource") {
@@ -698,6 +714,14 @@ describe("SSEClientTransport", () => {
 
       transport = new SSEClientTransport(resourceBaseUrl, {
         authProvider: mockAuthProvider,
+        eventSourceInit: {
+          fetch: (url, init) => {
+            return fetch(url, { ...init, headers: {
+              ...init?.headers,
+              'X-Custom-Header': 'custom-value'
+            } });
+          }
+        },
       });
 
       await transport.start();
@@ -709,6 +733,9 @@ describe("SSEClientTransport", () => {
       });
       expect(connectionAttempts).toBe(1);
       expect(lastServerRequest.headers.authorization).toBe("Bearer new-token");
+      expect(serverRequests["GET /"]).toHaveLength(2);
+      expect(serverRequests["GET /"]
+        .every(req => req.headers["x-custom-header"] === "custom-value")).toBe(true);
     });
 
     it("refreshes expired token during POST request", async () => {

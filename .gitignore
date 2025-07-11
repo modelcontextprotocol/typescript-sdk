@@ -128,5 +128,9 @@ out
 .yarn/install-state.gz
 .pnp.*
 
+# IDE
+.vscode/
+.idea/
+
 .DS_Store
 dist/

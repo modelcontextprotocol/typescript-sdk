@@ -35,11 +35,6 @@ export type SSEClientTransportOptions = {
 
   /**
    * Customizes the initial SSE request to the server (the request that begins the stream).
-   *
-   * NOTE: Setting this property will prevent an `Authorization` header from
-   * being automatically attached to the SSE request, if an `authProvider` is
-   * also given. This can be worked around by setting the `Authorization` header
-   * manually.
    */
   eventSourceInit?: EventSourceInit;
 
@@ -135,7 +130,9 @@ export class SSEClientTransport implements Transport {
             headers.set("Accept", "text/event-stream");
             const response = await fetchImpl(url, {
               ...init,
-              headers,
+              headers: {
+                ...Object.fromEntries(headers.entries()),
+              }
             })
 
             if (response.status === 401 && response.headers.has('www-authenticate')) {
