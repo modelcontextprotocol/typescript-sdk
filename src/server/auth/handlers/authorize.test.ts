@@ -102,6 +102,10 @@ describe('Authorization Handler', () => {
     app.use('/authorize', handler);
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   describe('HTTP method validation', () => {
     it('rejects non-GET/POST methods', async () => {
       const response = await supertest(app)
@@ -305,7 +309,6 @@ describe('Authorization Handler', () => {
 
     it('propagates nonce parameter for OpenID Connect flows', async () => {
       const mockProviderWithNonce = jest.spyOn(mockProvider, 'authorize');
-      mockProviderWithNonce.mockClear();
       
       const response = await supertest(app)
         .get('/authorize')
@@ -334,7 +337,6 @@ describe('Authorization Handler', () => {
 
     it('handles authorization without nonce parameter', async () => {
       const mockProviderWithoutNonce = jest.spyOn(mockProvider, 'authorize');
-      mockProviderWithoutNonce.mockClear();
       
       const response = await supertest(app)
         .get('/authorize')
