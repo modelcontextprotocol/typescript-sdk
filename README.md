@@ -884,7 +884,7 @@ putMessageTool.disable()
 
 const upgradeAuthTool = server.tool(
   "upgradeAuth",
-  { permission: z.enum(["write", admin"])},
+  { permission: z.enum(["write", "admin"])},
   // Any mutations here will automatically emit `listChanged` notifications
   async ({ permission }) => {
     const { ok, err, previous } = await upgradeAuthAndStoreToken(permission)
