@@ -548,6 +548,7 @@ export async function discoverOAuthMetadata(
 
 /**
  * Begins the authorization flow with the given server, by generating a PKCE challenge and constructing the authorization URL.
+ * For OpenID Connect flows (when scope includes 'openid'), automatically generates a nonce if not provided.
  */
 export async function startAuthorization(
   authorizationServerUrl: string | URL,
@@ -557,6 +558,7 @@ export async function startAuthorization(
     redirectUrl,
     scope,
     state,
+    nonce,
     resource,
   }: {
     metadata?: OAuthMetadata;
@@ -564,9 +566,10 @@ export async function startAuthorization(
     redirectUrl: string | URL;
     scope?: string;
     state?: string;
+    nonce?: string;
     resource?: URL;
   },
-): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
+): Promise<{ authorizationUrl: URL; codeVerifier: string; nonce?: string }> {
   const responseType = "code";
   const codeChallengeMethod = "S256";
 
@@ -625,7 +628,13 @@ export async function startAuthorization(
     authorizationUrl.searchParams.set("resource", resource.href);
   }
 
-  return { authorizationUrl, codeVerifier };
+  let generatedNonce: string | undefined;
+  if (scope?.includes("openid")) {
+    generatedNonce = nonce ?? crypto.randomUUID();
+    authorizationUrl.searchParams.set("nonce", generatedNonce);
+  }
+
+  return { authorizationUrl, codeVerifier, nonce: generatedNonce };
 }
 
 /**
