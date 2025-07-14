@@ -347,6 +347,35 @@ describe("OAuth Authorization", () => {
       const [url] = calls[0];
       expect(url.toString()).toBe("https://custom.example.com/metadata");
     });
+
+    it("supports overriding the fetch function used for requests", async () => {
+      const validMetadata = {
+        resource: "https://resource.example.com",
+        authorization_servers: ["https://auth.example.com"],
+      };
+
+      const customFetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => validMetadata,
+      });
+
+      const metadata = await discoverOAuthProtectedResourceMetadata(
+        "https://resource.example.com",
+        undefined,
+        customFetch
+      );
+
+      expect(metadata).toEqual(validMetadata);
+      expect(customFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch).not.toHaveBeenCalled();
+
+      const [url, options] = customFetch.mock.calls[0];
+      expect(url.toString()).toBe("https://resource.example.com/.well-known/oauth-protected-resource");
+      expect(options.headers).toEqual({
+        "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
+      });
+    });
   });
 
   describe("discoverOAuthMetadata", () => {
@@ -618,6 +647,39 @@ describe("OAuth Authorization", () => {
       await expect(
         discoverOAuthMetadata("https://auth.example.com")
       ).rejects.toThrow();
+    });
+
+    it("supports overriding the fetch function used for requests", async () => {
+      const validMetadata = {
+        issuer: "https://auth.example.com",
+        authorization_endpoint: "https://auth.example.com/authorize",
+        token_endpoint: "https://auth.example.com/token",
+        registration_endpoint: "https://auth.example.com/register",
+        response_types_supported: ["code"],
+        code_challenge_methods_supported: ["S256"],
+      };
+
+      const customFetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => validMetadata,
+      });
+
+      const metadata = await discoverOAuthMetadata(
+        "https://auth.example.com",
+        {},
+        customFetch
+      );
+
+      expect(metadata).toEqual(validMetadata);
+      expect(customFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch).not.toHaveBeenCalled();
+
+      const [url, options] = customFetch.mock.calls[0];
+      expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+      expect(options.headers).toEqual({
+        "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
+      });
     });
   });
 
@@ -1823,6 +1885,68 @@ describe("OAuth Authorization", () => {
       
       // Second call should be to AS metadata with the path from authorization server
       expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/oauth");
+    });
+
+    it("supports overriding the fetch function used for requests", async () => {
+      const customFetch = jest.fn();
+      
+      // Mock PRM discovery
+      customFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          resource: "https://resource.example.com",
+          authorization_servers: ["https://auth.example.com"],
+        }),
+      });
+      
+      // Mock AS metadata discovery
+      customFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          issuer: "https://auth.example.com",
+          authorization_endpoint: "https://auth.example.com/authorize",
+          token_endpoint: "https://auth.example.com/token",
+          registration_endpoint: "https://auth.example.com/register",
+          response_types_supported: ["code"],
+          code_challenge_methods_supported: ["S256"],
+        }),
+      });
+
+      const mockProvider: OAuthClientProvider = {
+        get redirectUrl() { return "http://localhost:3000/callback"; },
+        get clientMetadata() { 
+          return {
+            client_name: "Test Client",
+            redirect_uris: ["http://localhost:3000/callback"],
+          };
+        },
+        clientInformation: jest.fn().mockResolvedValue({
+          client_id: "client123",
+          client_secret: "secret123",
+        }),
+        tokens: jest.fn().mockResolvedValue(undefined),
+        saveTokens: jest.fn(),
+        redirectToAuthorization: jest.fn(),
+        saveCodeVerifier: jest.fn(),
+        codeVerifier: jest.fn().mockResolvedValue("verifier123"),
+      };
+
+      const result = await auth(mockProvider, {
+        serverUrl: "https://resource.example.com",
+        fetchFn: customFetch,
+      });
+
+      expect(result).toBe("REDIRECT");
+      expect(customFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch).not.toHaveBeenCalled();
+      
+      // Verify custom fetch was called for PRM discovery
+      expect(customFetch.mock.calls[0][0].toString()).toBe("https://resource.example.com/.well-known/oauth-protected-resource");
+      
+      // Verify custom fetch was called for AS metadata discovery
+      expect(customFetch.mock.calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
     });
   });
 

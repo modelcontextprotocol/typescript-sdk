@@ -19,7 +19,7 @@ import {
   ServerError,
   UnauthorizedClientError
 } from "../server/auth/errors.js";
-import { FetchLike } from "src/shared/transport.js";
+import { FetchLike } from "../shared/transport.js";
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.

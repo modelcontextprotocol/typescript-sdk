@@ -10,7 +10,7 @@ import {
 import { AuthInfo } from "../types.js";
 import { AuthorizationParams, OAuthServerProvider } from "../provider.js";
 import { ServerError } from "../errors.js";
-import { FetchLike } from "src/shared/transport.js";
+import { FetchLike } from "../../../shared/transport.js";
 
 export type ProxyEndpoints = {
   authorizationUrl: string;
