@@ -45,7 +45,7 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 npm install @modelcontextprotocol/sdk
 ```
 
-> ⚠️ MCP requires Node v18.x up to work fine.
+> ⚠️ MCP requires Node.js v18.x or higher to work fine.
 
 ## Quick Start
 
@@ -584,8 +584,8 @@ import cors from 'cors';
 // Add CORS middleware before your MCP routes
 app.use(cors({
   origin: '*', // Configure appropriately for production, for example:
-  // origin: ['https://your-remote-domain.com, https://your-other-remote-domain.com'],
-  exposedHeaders: ['Mcp-Session-Id']
+  // origin: ['https://your-remote-domain.com', 'https://your-other-remote-domain.com'],
+  exposedHeaders: ['Mcp-Session-Id'],
   allowedHeaders: ['Content-Type', 'mcp-session-id'],
 }));
 ```
@@ -876,7 +876,7 @@ const putMessageTool = server.tool(
   "putMessage",
   { channel: z.string(), message: z.string() },
   async ({ channel, message }) => ({
-    content: [{ type: "text", text: await putMessage(channel, string) }]
+    content: [{ type: "text", text: await putMessage(channel, message) }]
   })
 );
 // Until we upgrade auth, `putMessage` is disabled (won't show up in listTools)
@@ -884,7 +884,7 @@ putMessageTool.disable()
 
 const upgradeAuthTool = server.tool(
   "upgradeAuth",
-  { permission: z.enum(["write', admin"])},
+  { permission: z.enum(["write", admin"])},
   // Any mutations here will automatically emit `listChanged` notifications
   async ({ permission }) => {
     const { ok, err, previous } = await upgradeAuthAndStoreToken(permission)
@@ -1175,7 +1175,7 @@ This setup allows you to:
 
 ### Backwards Compatibility
 
-Clients and servers with StreamableHttp tranport can maintain [backwards compatibility](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility) with the deprecated HTTP+SSE transport (from protocol version 2024-11-05) as follows
+Clients and servers with StreamableHttp transport can maintain [backwards compatibility](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility) with the deprecated HTTP+SSE transport (from protocol version 2024-11-05) as follows
 
 #### Client-Side Compatibility
 
