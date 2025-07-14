@@ -472,9 +472,48 @@ describe("protocol tests", () => {
     // This helper function does that.
     const flushMicrotasks = () => new Promise(resolve => setImmediate(resolve));
 
-    it("should debounce multiple synchronous calls for a debounced method into a single send", async () => {
+      it("should NOT debounce a notification that has parameters", async () => {
       // ARRANGE
-      // Instantiate a protocol with the debouncing option enabled for a specific method.
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })({ debouncedNotificationMethods: ['test/debounced_with_params'] });
+      await protocol.connect(transport);
+
+      // ACT
+      // These notifications are configured for debouncing but contain params, so they should be sent immediately.
+      await protocol.notification({ method: 'test/debounced_with_params', params: { data: 1 } });
+      await protocol.notification({ method: 'test/debounced_with_params', params: { data: 2 } });
+
+      // ASSERT
+      // Both should have been sent immediately to avoid data loss.
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+      expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ params: { data: 1 } }), undefined);
+      expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ params: { data: 2 } }), undefined);
+    });
+
+    it("should NOT debounce a notification that has a relatedRequestId", async () => {
+      // ARRANGE
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })({ debouncedNotificationMethods: ['test/debounced_with_options'] });
+      await protocol.connect(transport);
+
+      // ACT
+      await protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 'req-1' });
+      await protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 'req-2' });
+
+      // ASSERT
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+      expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 'req-1' });
+      expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 'req-2' });
+    });
+
+    it("should clear pending debounced notifications on connection close", async () => {
+      // ARRANGE
       protocol = new (class extends Protocol<Request, Notification, Result> {
         protected assertCapabilityForMethod(): void {}
         protected assertNotificationCapability(): void {}
@@ -483,25 +522,67 @@ describe("protocol tests", () => {
       await protocol.connect(transport);
 
       // ACT
-      // Call the notification method multiple times in the same event loop tick.
-      protocol.notification({ method: 'test/debounced', params: { v: 1 } });
-      protocol.notification({ method: 'test/debounced', params: { v: 2 } });
-      protocol.notification({ method: 'test/debounced', params: { v: 3 } });
+      // Schedule a notification but don't flush the microtask queue.
+      protocol.notification({ method: 'test/debounced' });
 
-      // Assert that it has NOT been called yet, because it's scheduled for the next microtask.
-      expect(sendSpy).not.toHaveBeenCalled();
+      // Close the connection. This should clear the pending set.
+      await protocol.close();
 
-      // Now, wait for the microtask queue to be processed.
+      // Now, flush the microtask queue.
       await flushMicrotasks();
 
       // ASSERT
-      // It should have been called exactly once.
+      // The send should never have happened because the transport was cleared.
+      expect(sendSpy).not.toHaveBeenCalled();
+    });
+
+    it("should debounce multiple synchronous calls when params property is omitted", async () => {
+      // ARRANGE
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })({ debouncedNotificationMethods: ['test/debounced'] });
+      await protocol.connect(transport);
+
+      // ACT
+      // This is the more idiomatic way to write a notification with no params.
+      protocol.notification({ method: 'test/debounced' });
+      protocol.notification({ method: 'test/debounced' });
+      protocol.notification({ method: 'test/debounced' });
+
+      expect(sendSpy).not.toHaveBeenCalled();
+      await flushMicrotasks();
+
+      // ASSERT
       expect(sendSpy).toHaveBeenCalledTimes(1);
-      // And it should have sent the FIRST notification that was queued.
+      // The final sent object might not even have the `params` key, which is fine.
+      // We can check that it was called and that the params are "falsy".
+      const sentNotification = sendSpy.mock.calls[0][0];
+      expect(sentNotification.method).toBe('test/debounced');
+      expect(sentNotification.params).toBeUndefined();
+    });
+
+    it("should debounce calls when params is explicitly undefined", async () => {
+      // ARRANGE
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })({ debouncedNotificationMethods: ['test/debounced'] });
+      await protocol.connect(transport);
+
+      // ACT
+      protocol.notification({ method: 'test/debounced', params: undefined });
+      protocol.notification({ method: 'test/debounced', params: undefined });
+      await flushMicrotasks();
+
+      // ASSERT
+      expect(sendSpy).toHaveBeenCalledTimes(1);
       expect(sendSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'test/debounced',
-          params: { v: 1 }
+          params: undefined
         }),
         undefined
       );

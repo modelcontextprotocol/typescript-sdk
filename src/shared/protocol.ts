@@ -329,6 +329,7 @@ export abstract class Protocol<
     const responseHandlers = this._responseHandlers;
     this._responseHandlers = new Map();
     this._progressHandlers.clear();
+    this._pendingDebouncedNotifications.clear();
     this._transport = undefined;
     this.onclose?.();
 
@@ -641,7 +642,13 @@ export abstract class Protocol<
     this.assertNotificationCapability(notification.method);
 
     const debouncedMethods = this._options?.debouncedNotificationMethods ?? [];
-    if (debouncedMethods.includes(notification.method)) {
+    // A notification can only be debounced if it's in the list AND it's "simple"
+    // (i.e., has no parameters and no related request ID that could be lost).
+    const canDebounce = debouncedMethods.includes(notification.method)
+      && !notification.params
+      && !(options?.relatedRequestId);
+
+    if (canDebounce) {
       // If a notification of this type is already scheduled, do nothing.
       if (this._pendingDebouncedNotifications.has(notification.method)) {
         return;
@@ -655,6 +662,11 @@ export abstract class Protocol<
       Promise.resolve().then(() => {
         // Un-mark the notification so the next one can be scheduled.
         this._pendingDebouncedNotifications.delete(notification.method);
+
+        // SAFETY CHECK: If the connection was closed while this was pending, abort.
+        if (!this._transport) {
+          return;
+        }
 
         const jsonrpcNotification: JSONRPCNotification = {
           ...notification,

@@ -908,6 +908,9 @@ When performing bulk updates that trigger notifications (e.g., enabling or disab
 
 This feature coalesces multiple, rapid calls for the same notification type into a single message. For example, if you disable five tools in a row, only one `notifications/tools/list_changed` message will be sent instead of five.
 
+> [!IMPORTANT]
+> This feature is designed for "simple" notifications that do not carry unique data in their parameters. To prevent silent data loss, debouncing is **automatically bypassed** for any notification that contains a `params` object or a `relatedRequestId`. Such notifications will always be sent immediately.
+
 This is an opt-in feature configured during server initialization.
 
 ```typescript
