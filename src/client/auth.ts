@@ -19,6 +19,7 @@ import {
   ServerError,
   UnauthorizedClientError
 } from "../server/auth/errors.js";
+import { FetchLike } from "src/shared/transport.js";
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
@@ -281,8 +282,9 @@ export async function auth(
     serverUrl: string | URL;
     authorizationCode?: string;
     scope?: string;
-    resourceMetadataUrl?: URL }): Promise<AuthResult> {
-
+    resourceMetadataUrl?: URL;
+    fetchFn?: FetchLike;
+}): Promise<AuthResult> {
   try {
     return await authInternal(provider, options);
   } catch (error) {
@@ -305,18 +307,21 @@ async function authInternal(
   { serverUrl,
     authorizationCode,
     scope,
-    resourceMetadataUrl
+    resourceMetadataUrl,
+    fetchFn,
   }: {
     serverUrl: string | URL;
     authorizationCode?: string;
     scope?: string;
-    resourceMetadataUrl?: URL
-  }): Promise<AuthResult> {
+    resourceMetadataUrl?: URL;
+    fetchFn?: FetchLike;
+  },
+): Promise<AuthResult> {
 
   let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
   let authorizationServerUrl = serverUrl;
   try {
-    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl });
+    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl }, fetchFn);
     if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
       authorizationServerUrl = resourceMetadata.authorization_servers[0];
     }
@@ -328,7 +333,7 @@ async function authInternal(
 
   const metadata = await discoverOAuthMetadata(serverUrl, {
     authorizationServerUrl
-  });
+  }, fetchFn);
 
   // Handle client registration if needed
   let clientInformation = await Promise.resolve(provider.clientInformation());
@@ -469,10 +474,12 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
 export async function discoverOAuthProtectedResourceMetadata(
   serverUrl: string | URL,
   opts?: { protocolVersion?: string, resourceMetadataUrl?: string | URL },
+  fetchFn: FetchLike = fetch,
 ): Promise<OAuthProtectedResourceMetadata> {
   const response = await discoverMetadataWithFallback(
     serverUrl,
     'oauth-protected-resource',
+    fetchFn,
     {
       protocolVersion: opts?.protocolVersion,
       metadataUrl: opts?.resourceMetadataUrl,
@@ -497,14 +504,15 @@ export async function discoverOAuthProtectedResourceMetadata(
 async function fetchWithCorsRetry(
   url: URL,
   headers?: Record<string, string>,
+  fetchFn: FetchLike = fetch,
 ): Promise<Response | undefined> {
   try {
-    return await fetch(url, { headers });
+    return await fetchFn(url, { headers });
   } catch (error) {
     if (error instanceof TypeError) {
       if (headers) {
         // CORS errors come back as TypeError, retry without headers
-        return fetchWithCorsRetry(url)
+        return fetchWithCorsRetry(url, undefined, fetchFn)
       } else {
         // We're getting CORS errors on retry too, return undefined
         return undefined
@@ -532,11 +540,12 @@ function buildWellKnownPath(wellKnownPrefix: string, pathname: string): string {
 async function tryMetadataDiscovery(
   url: URL,
   protocolVersion: string,
+  fetchFn: FetchLike = fetch,
 ): Promise<Response | undefined> {
   const headers = {
     "MCP-Protocol-Version": protocolVersion
   };
-  return await fetchWithCorsRetry(url, headers);
+  return await fetchWithCorsRetry(url, headers, fetchFn);
 }
 
 /**
@@ -552,6 +561,7 @@ function shouldAttemptFallback(response: Response | undefined, pathname: string)
 async function discoverMetadataWithFallback(
   serverUrl: string | URL,
   wellKnownType: 'oauth-authorization-server' | 'oauth-protected-resource',
+  fetchFn: FetchLike,
   opts?: { protocolVersion?: string; metadataUrl?: string | URL, metadataServerUrl?: string | URL },
 ): Promise<Response | undefined> {
   const issuer = new URL(serverUrl);
@@ -567,12 +577,12 @@ async function discoverMetadataWithFallback(
     url.search = issuer.search;
   }
 
-  let response = await tryMetadataDiscovery(url, protocolVersion);
+  let response = await tryMetadataDiscovery(url, protocolVersion, fetchFn);
 
   // If path-aware discovery fails with 404 and we're not already at root, try fallback to root discovery
   if (!opts?.metadataUrl && shouldAttemptFallback(response, issuer.pathname)) {
     const rootUrl = new URL(`/.well-known/${wellKnownType}`, issuer);
-    response = await tryMetadataDiscovery(rootUrl, protocolVersion);
+    response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
   }
 
   return response;
@@ -593,6 +603,7 @@ export async function discoverOAuthMetadata(
     authorizationServerUrl?: string | URL,
     protocolVersion?: string,
   } = {},
+  fetchFn: FetchLike = fetch,
 ): Promise<OAuthMetadata | undefined> {
   if (typeof issuer === 'string') {
     issuer = new URL(issuer);
@@ -608,6 +619,7 @@ export async function discoverOAuthMetadata(
   const response = await discoverMetadataWithFallback(
     authorizationServerUrl,
     'oauth-authorization-server',
+    fetchFn,
     {
       protocolVersion,
       metadataServerUrl: authorizationServerUrl,
@@ -730,7 +742,8 @@ export async function exchangeAuthorization(
     codeVerifier,
     redirectUri,
     resource,
-    addClientAuthentication
+    addClientAuthentication,
+    fetchFn,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
@@ -739,6 +752,7 @@ export async function exchangeAuthorization(
     redirectUri: string | URL;
     resource?: URL;
     addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
+    fetchFn?: FetchLike;
   },
 ): Promise<OAuthTokens> {
   const grantType = "authorization_code";
@@ -781,7 +795,7 @@ export async function exchangeAuthorization(
     params.set("resource", resource.href);
   }
 
-  const response = await fetch(tokenUrl, {
+  const response = await (fetchFn ?? fetch)(tokenUrl, {
     method: "POST",
     headers,
     body: params,
@@ -814,12 +828,14 @@ export async function refreshAuthorization(
     refreshToken,
     resource,
     addClientAuthentication,
+    fetchFn,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
     refreshToken: string;
     resource?: URL;
     addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
+    fetchFn?: FetchLike;
   }
 ): Promise<OAuthTokens> {
   const grantType = "refresh_token";
@@ -863,7 +879,7 @@ export async function refreshAuthorization(
     params.set("resource", resource.href);
   }
 
-  const response = await fetch(tokenUrl, {
+  const response = await (fetchFn ?? fetch)(tokenUrl, {
     method: "POST",
     headers,
     body: params,
@@ -883,9 +899,11 @@ export async function registerClient(
   {
     metadata,
     clientMetadata,
+    fetchFn,
   }: {
     metadata?: OAuthMetadata;
     clientMetadata: OAuthClientMetadata;
+    fetchFn?: FetchLike;
   },
 ): Promise<OAuthClientInformationFull> {
   let registrationUrl: URL;
@@ -900,7 +918,7 @@ export async function registerClient(
     registrationUrl = new URL("/register", authorizationServerUrl);
   }
 
-  const response = await fetch(registrationUrl, {
+  const response = await (fetchFn ?? fetch)(registrationUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
