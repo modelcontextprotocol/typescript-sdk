@@ -1,10 +1,12 @@
 import { JSONRPCMessage, MessageExtraInfo, RequestId } from "../types.js";
 
+export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
+
 /**
  * Options for sending a JSON-RPC message.
  */
 export type TransportSendOptions = {
-  /** 
+  /**
    * If present, `relatedRequestId` is used to indicate to the transport which incoming request to associate this outgoing message with.
    */
   relatedRequestId?: RequestId;
@@ -38,7 +40,7 @@ export interface Transport {
 
   /**
    * Sends a JSON-RPC message (request or response).
-   * 
+   *
    * If present, `relatedRequestId` is used to indicate to the transport which incoming request to associate this outgoing message with.
    */
   send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void>;
@@ -64,9 +66,9 @@ export interface Transport {
 
   /**
    * Callback for when a message (request or response) is received over the connection.
-   * 
+   *
    * Includes the requestInfo and authInfo if the transport is authenticated.
-   * 
+   *
    * The requestInfo can be used to get the original request information (headers, etc.)
    */
   onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;

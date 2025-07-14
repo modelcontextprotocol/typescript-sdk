@@ -1,4 +1,4 @@
-import { StreamableHTTPClientTransport, StreamableHTTPReconnectionOptions } from "./streamableHttp.js";
+import { StreamableHTTPClientTransport, StreamableHTTPReconnectionOptions, StartSSEOptions } from "./streamableHttp.js";
 import { OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { JSONRPCMessage } from "../types.js";
 import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from "../server/auth/errors.js";
@@ -445,6 +445,35 @@ describe("StreamableHTTPClientTransport", () => {
     expect(errorSpy).toHaveBeenCalled();
   });
 
+  it("uses custom fetch implementation", async () => {
+    const authToken = "Bearer custom-token";
+
+    const fetchWithAuth = jest.fn((url: string | URL, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      headers.set("Authorization", authToken);
+      return (global.fetch as jest.Mock)(url, { ...init, headers });
+    });
+
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(
+        new Response(null, { status: 200, headers: { "content-type": "text/event-stream" } })
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 202 }));
+
+    transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), { fetch: fetchWithAuth });
+
+    await transport.start();
+    await (transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> })._startOrAuthSse({});
+
+    await transport.send({ jsonrpc: "2.0", method: "test", params: {}, id: "1" } as JSONRPCMessage);
+
+    expect(fetchWithAuth).toHaveBeenCalled();
+    for (const call of (global.fetch as jest.Mock).mock.calls) {
+      const headers = call[1].headers as Headers;
+      expect(headers.get("Authorization")).toBe(authToken);
+    }
+  });
+
 
   it("should always send specified custom headers", async () => {
     const requestInit = {
@@ -532,7 +561,7 @@ describe("StreamableHTTPClientTransport", () => {
     // Second retry - should double (2^1 * 100 = 200)
     expect(getDelay(1)).toBe(200);
 
-    // Third retry - should double again (2^2 * 100 = 400) 
+    // Third retry - should double again (2^2 * 100 = 400)
     expect(getDelay(2)).toBe(400);
 
     // Fourth retry - should double again (2^3 * 100 = 800)

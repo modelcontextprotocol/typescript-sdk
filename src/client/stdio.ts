@@ -122,7 +122,11 @@ export class StdioClientTransport implements Transport {
         this._serverParams.command,
         this._serverParams.args ?? [],
         {
-          env: this._serverParams.env ?? getDefaultEnvironment(),
+          // merge default env with server env because mcp server needs some env vars
+          env: {
+            ...getDefaultEnvironment(),
+            ...this._serverParams.env,
+          },
           stdio: ["pipe", "pipe", this._serverParams.stderr ?? "inherit"],
           shell: false,
           signal: this._abortController.signal,

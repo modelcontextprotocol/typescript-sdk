@@ -29,6 +29,8 @@ interface TestServerConfig {
   enableJsonResponse?: boolean;
   customRequestHandler?: (req: IncomingMessage, res: ServerResponse, parsedBody?: unknown) => Promise<void>;
   eventStore?: EventStore;
+  onsessioninitialized?: (sessionId: string) => void | Promise<void>;
+  onsessionclosed?: (sessionId: string) => void | Promise<void>;
 }
 
 /**
@@ -57,7 +59,9 @@ async function createTestServer(config: TestServerConfig = { sessionIdGenerator:
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: config.sessionIdGenerator,
     enableJsonResponse: config.enableJsonResponse ?? false,
-    eventStore: config.eventStore
+    eventStore: config.eventStore,
+    onsessioninitialized: config.onsessioninitialized,
+    onsessionclosed: config.onsessionclosed
   });
 
   await mcpServer.connect(transport);
@@ -111,7 +115,9 @@ async function createTestAuthServer(config: TestServerConfig = { sessionIdGenera
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: config.sessionIdGenerator,
     enableJsonResponse: config.enableJsonResponse ?? false,
-    eventStore: config.eventStore
+    eventStore: config.eventStore,
+    onsessioninitialized: config.onsessioninitialized,
+    onsessionclosed: config.onsessionclosed
   });
 
   await mcpServer.connect(transport);
@@ -1501,6 +1507,372 @@ describe("StreamableHTTPServerTransport in stateless mode", () => {
       },
     });
     expect(stream2.status).toBe(409); // Conflict - only one stream allowed
+  });
+});
+
+// Test onsessionclosed callback
+describe("StreamableHTTPServerTransport onsessionclosed callback", () => {
+  it("should call onsessionclosed callback when session is closed via DELETE", async () => {
+    const mockCallback = jest.fn();
+    
+    // Create server with onsessionclosed callback
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessionclosed: mockCallback,
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to get a session ID
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    const tempSessionId = initResponse.headers.get("mcp-session-id");
+    expect(tempSessionId).toBeDefined();
+
+    // DELETE the session
+    const deleteResponse = await fetch(tempUrl, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": tempSessionId || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse.status).toBe(200);
+    expect(mockCallback).toHaveBeenCalledWith(tempSessionId);
+    expect(mockCallback).toHaveBeenCalledTimes(1);
+
+    // Clean up
+    tempServer.close();
+  });
+
+  it("should not call onsessionclosed callback when not provided", async () => {
+    // Create server without onsessionclosed callback
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to get a session ID
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    const tempSessionId = initResponse.headers.get("mcp-session-id");
+
+    // DELETE the session - should not throw error
+    const deleteResponse = await fetch(tempUrl, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": tempSessionId || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse.status).toBe(200);
+
+    // Clean up
+    tempServer.close();
+  });
+
+  it("should not call onsessionclosed callback for invalid session DELETE", async () => {
+    const mockCallback = jest.fn();
+    
+    // Create server with onsessionclosed callback
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessionclosed: mockCallback,
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to get a valid session
+    await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+
+    // Try to DELETE with invalid session ID
+    const deleteResponse = await fetch(tempUrl, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": "invalid-session-id",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse.status).toBe(404);
+    expect(mockCallback).not.toHaveBeenCalled();
+
+    // Clean up
+    tempServer.close();
+  });
+
+  it("should call onsessionclosed callback with correct session ID when multiple sessions exist", async () => {
+    const mockCallback = jest.fn();
+    
+    // Create first server
+    const result1 = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessionclosed: mockCallback,
+    });
+    
+    const server1 = result1.server;
+    const url1 = result1.baseUrl;
+
+    // Create second server
+    const result2 = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessionclosed: mockCallback,
+    });
+    
+    const server2 = result2.server;
+    const url2 = result2.baseUrl;
+
+    // Initialize both servers
+    const initResponse1 = await sendPostRequest(url1, TEST_MESSAGES.initialize);
+    const sessionId1 = initResponse1.headers.get("mcp-session-id");
+    
+    const initResponse2 = await sendPostRequest(url2, TEST_MESSAGES.initialize);
+    const sessionId2 = initResponse2.headers.get("mcp-session-id");
+
+    expect(sessionId1).toBeDefined();
+    expect(sessionId2).toBeDefined();
+    expect(sessionId1).not.toBe(sessionId2);
+
+    // DELETE first session
+    const deleteResponse1 = await fetch(url1, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": sessionId1 || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse1.status).toBe(200);
+    expect(mockCallback).toHaveBeenCalledWith(sessionId1);
+    expect(mockCallback).toHaveBeenCalledTimes(1);
+
+    // DELETE second session
+    const deleteResponse2 = await fetch(url2, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": sessionId2 || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse2.status).toBe(200);
+    expect(mockCallback).toHaveBeenCalledWith(sessionId2);
+    expect(mockCallback).toHaveBeenCalledTimes(2);
+
+    // Clean up
+    server1.close();
+    server2.close();
+  });
+});
+
+// Test async callbacks for onsessioninitialized and onsessionclosed
+describe("StreamableHTTPServerTransport async callbacks", () => {
+  it("should support async onsessioninitialized callback", async () => {
+    const initializationOrder: string[] = [];
+    
+    // Create server with async onsessioninitialized callback
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: async (sessionId: string) => {
+        initializationOrder.push('async-start');
+        // Simulate async operation
+        await new Promise(resolve => setTimeout(resolve, 10));
+        initializationOrder.push('async-end');
+        initializationOrder.push(sessionId);
+      },
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to trigger the callback
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    const tempSessionId = initResponse.headers.get("mcp-session-id");
+    
+    // Give time for async callback to complete
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
+    expect(initializationOrder).toEqual(['async-start', 'async-end', tempSessionId]);
+    
+    // Clean up
+    tempServer.close();
+  });
+
+  it("should support sync onsessioninitialized callback (backwards compatibility)", async () => {
+    const capturedSessionId: string[] = [];
+    
+    // Create server with sync onsessioninitialized callback
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (sessionId: string) => {
+        capturedSessionId.push(sessionId);
+      },
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to trigger the callback
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    const tempSessionId = initResponse.headers.get("mcp-session-id");
+    
+    expect(capturedSessionId).toEqual([tempSessionId]);
+    
+    // Clean up
+    tempServer.close();
+  });
+
+  it("should support async onsessionclosed callback", async () => {
+    const closureOrder: string[] = [];
+    
+    // Create server with async onsessionclosed callback
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessionclosed: async (sessionId: string) => {
+        closureOrder.push('async-close-start');
+        // Simulate async operation
+        await new Promise(resolve => setTimeout(resolve, 10));
+        closureOrder.push('async-close-end');
+        closureOrder.push(sessionId);
+      },
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to get a session ID
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    const tempSessionId = initResponse.headers.get("mcp-session-id");
+    expect(tempSessionId).toBeDefined();
+
+    // DELETE the session
+    const deleteResponse = await fetch(tempUrl, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": tempSessionId || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse.status).toBe(200);
+    
+    // Give time for async callback to complete
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
+    expect(closureOrder).toEqual(['async-close-start', 'async-close-end', tempSessionId]);
+
+    // Clean up
+    tempServer.close();
+  });
+
+  it("should propagate errors from async onsessioninitialized callback", async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+    
+    // Create server with async onsessioninitialized callback that throws
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: async (_sessionId: string) => {
+        throw new Error('Async initialization error');
+      },
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize should fail when callback throws
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    expect(initResponse.status).toBe(400);
+    
+    // Clean up
+    consoleErrorSpy.mockRestore();
+    tempServer.close();
+  });
+
+  it("should propagate errors from async onsessionclosed callback", async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+    
+    // Create server with async onsessionclosed callback that throws
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessionclosed: async (_sessionId: string) => {
+        throw new Error('Async closure error');
+      },
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to get a session ID
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    const tempSessionId = initResponse.headers.get("mcp-session-id");
+
+    // DELETE should fail when callback throws
+    const deleteResponse = await fetch(tempUrl, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": tempSessionId || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse.status).toBe(500);
+    
+    // Clean up
+    consoleErrorSpy.mockRestore();
+    tempServer.close();
+  });
+
+  it("should handle both async callbacks together", async () => {
+    const events: string[] = [];
+    
+    // Create server with both async callbacks
+    const result = await createTestServer({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: async (sessionId: string) => {
+        await new Promise(resolve => setTimeout(resolve, 5));
+        events.push(`initialized:${sessionId}`);
+      },
+      onsessionclosed: async (sessionId: string) => {
+        await new Promise(resolve => setTimeout(resolve, 5));
+        events.push(`closed:${sessionId}`);
+      },
+    });
+    
+    const tempServer = result.server;
+    const tempUrl = result.baseUrl;
+
+    // Initialize to trigger first callback
+    const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
+    const tempSessionId = initResponse.headers.get("mcp-session-id");
+    
+    // Wait for async callback
+    await new Promise(resolve => setTimeout(resolve, 20));
+    
+    expect(events).toContain(`initialized:${tempSessionId}`);
+
+    // DELETE to trigger second callback
+    const deleteResponse = await fetch(tempUrl, {
+      method: "DELETE",
+      headers: {
+        "mcp-session-id": tempSessionId || "",
+        "mcp-protocol-version": "2025-03-26",
+      },
+    });
+
+    expect(deleteResponse.status).toBe(200);
+    
+    // Wait for async callback
+    await new Promise(resolve => setTimeout(resolve, 20));
+    
+    expect(events).toContain(`closed:${tempSessionId}`);
+    expect(events).toHaveLength(2);
+
+    // Clean up
+    tempServer.close();
   });
 });
 

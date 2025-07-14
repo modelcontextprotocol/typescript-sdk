@@ -1,9 +1,16 @@
 import { JSONRPCMessage } from "../types.js";
 import { StdioClientTransport, StdioServerParameters } from "./stdio.js";
 
-const serverParameters: StdioServerParameters = {
-  command: "/usr/bin/tee",
+// Configure default server parameters based on OS
+// Uses 'more' command for Windows and 'tee' command for Unix/Linux
+const getDefaultServerParameters = (): StdioServerParameters => {
+  if (process.platform === "win32") {
+    return { command: "more" };
+  }
+  return { command: "/usr/bin/tee" };
 };
+
+const serverParameters = getDefaultServerParameters();
 
 test("should start then close cleanly", async () => {
   const client = new StdioClientTransport(serverParameters);

@@ -102,7 +102,11 @@ async function runServer(port: number | null) {
       await transport.handlePostMessage(req, res);
     });
 
-    app.listen(port, () => {
+    app.listen(port, (error) => {
+      if (error) {
+        console.error('Failed to start server:', error);
+        process.exit(1);
+      }
       console.log(`Server running on http://localhost:${port}/sse`);
     });
   } else {

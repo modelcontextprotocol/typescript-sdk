@@ -1,4 +1,4 @@
-import { Transport } from "../shared/transport.js";
+import { Transport, FetchLike } from "../shared/transport.js";
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { EventSourceParserStream } from "eventsource-parser/stream";
@@ -23,7 +23,7 @@ export class StreamableHTTPError extends Error {
 /**
  * Options for starting or authenticating an SSE connection
  */
-interface StartSSEOptions {
+export interface StartSSEOptions {
   /**
    * The resumption token used to continue long-running requests that were interrupted.
    *
@@ -100,6 +100,11 @@ export type StreamableHTTPClientTransportOptions = {
   requestInit?: RequestInit;
 
   /**
+   * Custom fetch implementation used for all network requests.
+   */
+  fetch?: FetchLike;
+
+  /**
    * Options to configure the reconnection behavior.
    */
   reconnectionOptions?: StreamableHTTPReconnectionOptions;
@@ -122,6 +127,7 @@ export class StreamableHTTPClientTransport implements Transport {
   private _resourceMetadataUrl?: URL;
   private _requestInit?: RequestInit;
   private _authProvider?: OAuthClientProvider;
+  private _fetch?: FetchLike;
   private _sessionId?: string;
   private _reconnectionOptions: StreamableHTTPReconnectionOptions;
   private _protocolVersion?: string;
@@ -138,6 +144,7 @@ export class StreamableHTTPClientTransport implements Transport {
     this._resourceMetadataUrl = undefined;
     this._requestInit = opts?.requestInit;
     this._authProvider = opts?.authProvider;
+    this._fetch = opts?.fetch;
     this._sessionId = opts?.sessionId;
     this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
   }
@@ -200,7 +207,7 @@ export class StreamableHTTPClientTransport implements Transport {
         headers.set("last-event-id", resumptionToken);
       }
 
-      const response = await fetch(this._url, {
+const response = await (this._fetch ?? fetch)(this._url, {
         method: "GET",
         headers,
         signal: this._abortController?.signal,
@@ -251,15 +258,15 @@ export class StreamableHTTPClientTransport implements Transport {
 
     private _normalizeHeaders(headers: HeadersInit | undefined): Record<string, string> {
     if (!headers) return {};
-    
+
     if (headers instanceof Headers) {
       return Object.fromEntries(headers.entries());
     }
-    
+
     if (Array.isArray(headers)) {
       return Object.fromEntries(headers);
     }
-    
+
     return { ...headers as Record<string, string> };
   }
 
@@ -414,7 +421,7 @@ export class StreamableHTTPClientTransport implements Transport {
         signal: this._abortController?.signal,
       };
 
-      const response = await fetch(this._url, init);
+const response = await (this._fetch ?? fetch)(this._url, init);
 
       // Handle session ID received during initialization
       const sessionId = response.headers.get("mcp-session-id");
@@ -520,7 +527,7 @@ export class StreamableHTTPClientTransport implements Transport {
         signal: this._abortController?.signal,
       };
 
-      const response = await fetch(this._url, init);
+const response = await (this._fetch ?? fetch)(this._url, init);
 
       // We specifically handle 405 as a valid response according to the spec,
       // meaning the server does not support explicit session termination

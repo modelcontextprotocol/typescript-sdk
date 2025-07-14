@@ -45,7 +45,7 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 npm install @modelcontextprotocol/sdk
 ```
 
-> ⚠️ MCP requires Node v18.x up to work fine.
+> ⚠️ MCP requires Node.js v18.x or higher to work fine.
 
 ## Quick Start
 
@@ -570,19 +570,30 @@ app.listen(3000);
 ```
 
 > [!TIP]
-> When using this in a remote environment, make sure to allow the header parameter `mcp-session-id` in CORS. Otherwise, it may result in a `Bad Request: No valid session ID provided` error. 
-> 
-> For example, in Node.js you can configure it like this:
-> 
-> ```ts
-> app.use(
->   cors({
->     origin: ['https://your-remote-domain.com, https://your-other-remote-domain.com'],
->     exposedHeaders: ['mcp-session-id'],
->     allowedHeaders: ['Content-Type', 'mcp-session-id'],
->   })
-> );
+> When using this in a remote environment, make sure to allow the header parameter `mcp-session-id` in CORS. Otherwise, it may result in a `Bad Request: No valid session ID provided` error. Read the following section for examples.
 > ```
+
+
+#### CORS Configuration for Browser-Based Clients
+
+If you'd like your server to be accessible by browser-based MCP clients, you'll need to configure CORS headers. The `Mcp-Session-Id` header must be exposed for browser clients to access it:
+
+```typescript
+import cors from 'cors';
+
+// Add CORS middleware before your MCP routes
+app.use(cors({
+  origin: '*', // Configure appropriately for production, for example:
+  // origin: ['https://your-remote-domain.com', 'https://your-other-remote-domain.com'],
+  exposedHeaders: ['Mcp-Session-Id'],
+  allowedHeaders: ['Content-Type', 'mcp-session-id'],
+}));
+```
+
+This configuration is necessary because:
+- The MCP streamable HTTP transport uses the `Mcp-Session-Id` header for session management
+- Browsers restrict access to response headers unless explicitly exposed via CORS
+- Without this configuration, browser-based clients won't be able to read the session ID from initialization responses
 
 #### Without Session Management (Stateless)
 
@@ -865,7 +876,7 @@ const putMessageTool = server.tool(
   "putMessage",
   { channel: z.string(), message: z.string() },
   async ({ channel, message }) => ({
-    content: [{ type: "text", text: await putMessage(channel, string) }]
+    content: [{ type: "text", text: await putMessage(channel, message) }]
   })
 );
 // Until we upgrade auth, `putMessage` is disabled (won't show up in listTools)
@@ -873,7 +884,7 @@ putMessageTool.disable()
 
 const upgradeAuthTool = server.tool(
   "upgradeAuth",
-  { permission: z.enum(["write', admin"])},
+  { permission: z.enum(["write", "admin"])},
   // Any mutations here will automatically emit `listChanged` notifications
   async ({ permission }) => {
     const { ok, err, previous } = await upgradeAuthAndStoreToken(permission)
@@ -1041,7 +1052,7 @@ Client-side: Handle elicitation requests
 ```typescript
 // This is a placeholder - implement based on your UI framework
 async function getInputFromUser(message: string, schema: any): Promise<{
-  action: "accept" | "reject" | "cancel";
+  action: "accept" | "decline" | "cancel";
   data?: Record<string, any>;
 }> {
   // This should be implemented depending on the app
@@ -1164,7 +1175,7 @@ This setup allows you to:
 
 ### Backwards Compatibility
 
-Clients and servers with StreamableHttp tranport can maintain [backwards compatibility](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility) with the deprecated HTTP+SSE transport (from protocol version 2024-11-05) as follows
+Clients and servers with StreamableHttp transport can maintain [backwards compatibility](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility) with the deprecated HTTP+SSE transport (from protocol version 2024-11-05) as follows
 
 #### Client-Side Compatibility
 

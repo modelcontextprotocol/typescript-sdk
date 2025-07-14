@@ -31,6 +31,13 @@ export type ClientRegistrationHandlerOptions = {
    * Registration endpoints are particularly sensitive to abuse and should be rate limited.
    */
   rateLimit?: Partial<RateLimitOptions> | false;
+
+  /**
+   * Whether to generate a client ID before calling the client registration endpoint.
+   *
+   * If not set, defaults to true.
+   */
+  clientIdGeneration?: boolean;
 };
 
 const DEFAULT_CLIENT_SECRET_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
@@ -38,7 +45,8 @@ const DEFAULT_CLIENT_SECRET_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
 export function clientRegistrationHandler({
   clientsStore,
   clientSecretExpirySeconds = DEFAULT_CLIENT_SECRET_EXPIRY_SECONDS,
-  rateLimit: rateLimitConfig
+  rateLimit: rateLimitConfig,
+  clientIdGeneration = true,
 }: ClientRegistrationHandlerOptions): RequestHandler {
   if (!clientsStore.registerClient) {
     throw new Error("Client registration store does not support registering clients");
@@ -78,7 +86,6 @@ export function clientRegistrationHandler({
       const isPublicClient = clientMetadata.token_endpoint_auth_method === 'none'
 
       // Generate client credentials
-      const clientId = crypto.randomUUID();
       const clientSecret = isPublicClient
         ? undefined
         : crypto.randomBytes(32).toString('hex');
@@ -89,13 +96,16 @@ export function clientRegistrationHandler({
       const secretExpiryTime = clientsDoExpire ? clientIdIssuedAt + clientSecretExpirySeconds : 0
       const clientSecretExpiresAt = isPublicClient ? undefined : secretExpiryTime
 
-      let clientInfo: OAuthClientInformationFull = {
+      let clientInfo: Omit<OAuthClientInformationFull, "client_id"> & { client_id?: string } = {
         ...clientMetadata,
-        client_id: clientId,
         client_secret: clientSecret,
         client_id_issued_at: clientIdIssuedAt,
         client_secret_expires_at: clientSecretExpiresAt,
       };
+
+      if (clientIdGeneration) {
+        clientInfo.client_id = crypto.randomUUID();
+      }
 
       clientInfo = await clientsStore.registerClient!(clientInfo);
       res.status(201).json(clientInfo);
