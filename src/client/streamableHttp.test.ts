@@ -1,6 +1,6 @@
 import { StreamableHTTPClientTransport, StreamableHTTPReconnectionOptions, StartSSEOptions } from "./streamableHttp.js";
 import { OAuthClientProvider, UnauthorizedError } from "./auth.js";
-import { JSONRPCMessage } from "../types.js";
+import { JSONRPCMessage, JSONRPCRequest } from "../types.js";
 import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from "../server/auth/errors.js";
 
 
@@ -593,6 +593,111 @@ describe("StreamableHTTPClientTransport", () => {
 
     await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
     expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
+  });
+  
+  describe('Reconnection Logic', () => {
+    let transport: StreamableHTTPClientTransport;
+  
+    // Use fake timers to control setTimeout and make the test instant.
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+  
+    it('should reconnect a GET-initiated notification stream that fails', async () => {
+      // ARRANGE
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        reconnectionOptions: {
+          initialReconnectionDelay: 10, 
+          maxRetries: 1, 
+          maxReconnectionDelay: 1000,  // Ensure it doesn't retry indefinitely
+          reconnectionDelayGrowFactor: 1  // No exponential backoff for simplicity
+         }
+      });
+  
+      const errorSpy = jest.fn();
+      transport.onerror = errorSpy;
+  
+      const failingStream = new ReadableStream({
+        start(controller) { controller.error(new Error("Network failure")); }
+      });
+  
+      const fetchMock = global.fetch as jest.Mock;
+      // Mock the initial GET request, which will fail.
+      fetchMock.mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ "content-type": "text/event-stream" }),
+        body: failingStream,
+      });
+      // Mock the reconnection GET request, which will succeed.
+      fetchMock.mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ "content-type": "text/event-stream" }),
+        body: new ReadableStream(),
+      });
+  
+      // ACT
+      await transport.start();
+      // Trigger the GET stream directly using the internal method for a clean test.
+      await transport["_startOrAuthSse"]({});
+      await jest.advanceTimersByTimeAsync(20); // Trigger reconnection timeout
+  
+      // ASSERT
+      expect(errorSpy).toHaveBeenCalledWith(expect.objectContaining({
+        message: expect.stringContaining('SSE stream disconnected: Error: Network failure'),
+      }));
+      // THE KEY ASSERTION: A second fetch call proves reconnection was attempted.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[0][1]?.method).toBe('GET');
+      expect(fetchMock.mock.calls[1][1]?.method).toBe('GET');
+    });
+  
+    it('should NOT reconnect a POST-initiated stream that fails', async () => {
+      // ARRANGE
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        reconnectionOptions: { 
+          initialReconnectionDelay: 10, 
+          maxRetries: 1, 
+          maxReconnectionDelay: 1000,  // Ensure it doesn't retry indefinitely
+          reconnectionDelayGrowFactor: 1  // No exponential backoff for simplicity
+         }
+      });
+  
+      const errorSpy = jest.fn();
+      transport.onerror = errorSpy;
+  
+      const failingStream = new ReadableStream({
+        start(controller) { controller.error(new Error("Network failure")); }
+      });
+  
+      const fetchMock = global.fetch as jest.Mock;
+      // Mock the POST request. It returns a streaming content-type but a failing body.
+      fetchMock.mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ "content-type": "text/event-stream" }),
+        body: failingStream,
+      });
+  
+      // A dummy request message to trigger the `send` logic.
+      const requestMessage: JSONRPCRequest = {
+        jsonrpc: '2.0',
+        method: 'long_running_tool',
+        id: 'request-1',
+        params: {},
+      };
+  
+      // ACT
+      await transport.start();
+      // Use the public `send` method to initiate a POST that gets a stream response.
+      await transport.send(requestMessage);
+      await jest.advanceTimersByTimeAsync(20); // Advance time to check for reconnections
+  
+      // ASSERT
+      expect(errorSpy).toHaveBeenCalledWith(expect.objectContaining({
+        message: expect.stringContaining('SSE stream disconnected: Error: Network failure'),
+      }));
+      // THE KEY ASSERTION: Fetch was only called ONCE. No reconnection was attempted.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
+    });
   });
 
   it("invalidates all credentials on InvalidClientError during auth", async () => {
