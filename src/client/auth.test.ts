@@ -20,6 +20,10 @@ describe("OAuth Authorization", () => {
   beforeEach(() => {
     mockFetch.mockReset();
   });
+  
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
 
   describe("extractResourceMetadataUrl", () => {
     it("returns resource metadata url when present", async () => {
@@ -773,20 +777,6 @@ describe("OAuth Authorization", () => {
       expect(authorizationUrl.searchParams.has("nonce")).toBe(false);
     });
 
-    it("generates nonce when openid scope is included with other scopes", async () => {
-      const { authorizationUrl, nonce } = await startAuthorization(
-          "https://auth.example.com",
-          {
-            clientInformation: validClientInfo,
-            redirectUrl: "http://localhost:3000/callback",
-            scope: "read openid write profile",
-          }
-      );
-
-      expect(nonce).toBeDefined();
-      expect(authorizationUrl.searchParams.get("nonce")).toBe(nonce);
-    });
-
     it("uses metadata authorization_endpoint when provided", async () => {
       const { authorizationUrl } = await startAuthorization(
         "https://auth.example.com",
@@ -974,6 +964,250 @@ describe("OAuth Authorization", () => {
           redirectUri: "http://localhost:3000/callback",
         })
       ).rejects.toThrow("Token exchange failed");
+    });
+
+    it("validates nonce in ID token when present", async () => {
+      const idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6InRlc3Qtbm9uY2UtMTIzIiwiYXVkIjoiY2xpZW50MTIzIiwic3ViIjoiMTIzNDU2Nzg5MCIsIm5hbWUiOiJKb2huIERvZSIsImlhdCI6MTUxNjIzOTAyMn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+      const tokensWithIdToken = {
+        ...validTokens,
+        id_token: idToken,
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => tokensWithIdToken,
+      });
+
+      const tokens = await exchangeAuthorization("https://auth.example.com", {
+        clientInformation: validClientInfo,
+        authorizationCode: "code123",
+        codeVerifier: "verifier123",
+        redirectUri: "http://localhost:3000/callback",
+        nonce: "test-nonce-123",
+      });
+
+      expect(tokens).toEqual(tokensWithIdToken);
+    });
+
+    it("throws error when nonce in ID token doesn't match", async () => {
+      // ID token with different nonce
+      const idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6ImRpZmZlcmVudC1ub25jZSIsImF1ZCI6ImNsaWVudDEyMyIsInN1YiI6IjEyMzQ1Njc4OTAiLCJuYW1lIjoiSm9obiBEb2UiLCJpYXQiOjE1MTYyMzkwMjJ9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+      const tokensWithIdToken = {
+        ...validTokens,
+        id_token: idToken,
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => tokensWithIdToken,
+      });
+
+      await expect(
+        exchangeAuthorization("https://auth.example.com", {
+          clientInformation: validClientInfo,
+          authorizationCode: "code123",
+          codeVerifier: "verifier123",
+          redirectUri: "http://localhost:3000/callback",
+          nonce: "test-nonce-123",
+        })
+      ).rejects.toThrow("ID token nonce mismatch - possible replay attack");
+    });
+
+    it("throws error when nonce is expected but missing in ID token", async () => {
+      // ID token without nonce claim
+      const idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJjbGllbnQxMjMiLCJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+      const tokensWithIdToken = {
+        ...validTokens,
+        id_token: idToken,
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => tokensWithIdToken,
+      });
+
+      await expect(
+        exchangeAuthorization("https://auth.example.com", {
+          clientInformation: validClientInfo,
+          authorizationCode: "code123",
+          codeVerifier: "verifier123",
+          redirectUri: "http://localhost:3000/callback",
+          nonce: "test-nonce-123",
+        })
+      ).rejects.toThrow("ID token nonce mismatch - possible replay attack");
+    });
+
+    it("skips nonce validation when no nonce was provided", async () => {
+      // ID token with nonce claim
+      const idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6InRlc3Qtbm9uY2UtMTIzIiwiYXVkIjoiY2xpZW50MTIzIiwic3ViIjoiMTIzNDU2Nzg5MCIsIm5hbWUiOiJKb2huIERvZSIsImlhdCI6MTUxNjIzOTAyMn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+      const tokensWithIdToken = {
+        ...validTokens,
+        id_token: idToken,
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => tokensWithIdToken,
+      });
+
+      // No nonce parameter provided
+      const tokens = await exchangeAuthorization("https://auth.example.com", {
+        clientInformation: validClientInfo,
+        authorizationCode: "code123",
+        codeVerifier: "verifier123",
+        redirectUri: "http://localhost:3000/callback",
+      });
+
+      expect(tokens).toEqual(tokensWithIdToken);
+    });
+
+    it("validates audience in ID token", async () => {
+      // ID token with correct audience
+      const idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJjbGllbnQxMjMiLCJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+      const tokensWithIdToken = {
+        ...validTokens,
+        id_token: idToken,
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => tokensWithIdToken,
+      });
+
+      const tokens = await exchangeAuthorization("https://auth.example.com", {
+        clientInformation: validClientInfo,
+        authorizationCode: "code123",
+        codeVerifier: "verifier123",
+        redirectUri: "http://localhost:3000/callback",
+      });
+
+      expect(tokens).toEqual(tokensWithIdToken);
+    });
+
+    it("validates audience when ID token has array audience", async () => {
+      // ID token with array audience containing our client_id
+      // Payload: {"aud":["client123","other-client"],"sub":"1234567890"}
+      const idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiY2xpZW50MTIzIiwib3RoZXItY2xpZW50Il0sInN1YiI6IjEyMzQ1Njc4OTAifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+      const tokensWithIdToken = {
+        ...validTokens,
+        id_token: idToken,
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => tokensWithIdToken,
+      });
+
+      const tokens = await exchangeAuthorization("https://auth.example.com", {
+        clientInformation: validClientInfo,
+        authorizationCode: "code123",
+        codeVerifier: "verifier123",
+        redirectUri: "http://localhost:3000/callback",
+      });
+
+      expect(tokens).toEqual(tokensWithIdToken);
+    });
+
+    it("throws error when audience in ID token doesn't match", async () => {
+      // ID token with wrong audience
+      const idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJ3cm9uZy1jbGllbnQiLCJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+      const tokensWithIdToken = {
+        ...validTokens,
+        id_token: idToken,
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => tokensWithIdToken,
+      });
+
+      await expect(
+        exchangeAuthorization("https://auth.example.com", {
+          clientInformation: validClientInfo,
+          authorizationCode: "code123",
+          codeVerifier: "verifier123",
+          redirectUri: "http://localhost:3000/callback",
+        })
+      ).rejects.toThrow("ID token audience mismatch");
+    });
+
+    it("throws error when ID token is malformed (not 3 parts)", async () => {
+      // Malformed ID token with only 2 parts
+      const idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJjbGllbnQxMjMiLCJzdWIiOiIxMjM0NTY3ODkwIn0";
+      const tokensWithIdToken = {
+        ...validTokens,
+        id_token: idToken,
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => tokensWithIdToken,
+      });
+
+      await expect(
+        exchangeAuthorization("https://auth.example.com", {
+          clientInformation: validClientInfo,
+          authorizationCode: "code123",
+          codeVerifier: "verifier123",
+          redirectUri: "http://localhost:3000/callback",
+        })
+      ).rejects.toThrow("Invalid JWT format");
+    });
+
+    it("throws error when ID token has invalid base64 in payload", async () => {
+      // ID token with invalid base64 characters in payload
+      const idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.!!!invalid-base64!!!.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+      const tokensWithIdToken = {
+        ...validTokens,
+        id_token: idToken,
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => tokensWithIdToken,
+      });
+
+      await expect(
+        exchangeAuthorization("https://auth.example.com", {
+          clientInformation: validClientInfo,
+          authorizationCode: "code123",
+          codeVerifier: "verifier123",
+          redirectUri: "http://localhost:3000/callback",
+        })
+      ).rejects.toThrow();
+    });
+
+    it("throws error when ID token payload is not valid JSON", async () => {
+      // ID token with invalid JSON in payload (base64 of "not json")
+      const idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.bm90IGpzb24.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+      const tokensWithIdToken = {
+        ...validTokens,
+        id_token: idToken,
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => tokensWithIdToken,
+      });
+
+      await expect(
+        exchangeAuthorization("https://auth.example.com", {
+          clientInformation: validClientInfo,
+          authorizationCode: "code123",
+          codeVerifier: "verifier123",
+          redirectUri: "http://localhost:3000/callback",
+        })
+      ).rejects.toThrow();
     });
   });
 

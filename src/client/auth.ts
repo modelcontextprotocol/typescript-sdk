@@ -74,6 +74,18 @@ export interface OAuthClientProvider {
   codeVerifier(): string | Promise<string>;
 
   /**
+   * Saves the nonce for the current session, before redirecting to
+   * the authorization flow (for OpenID Connect).
+   */
+  saveNonce?(nonce: string): void | Promise<void>;
+
+  /**
+   * Loads the nonce for the current session, necessary to validate
+   * the ID token (for OpenID Connect).
+   */
+  nonce?(): string | undefined | Promise<string | undefined>;
+
+  /**
    * Adds custom client authentication to OAuth token requests.
    *
    * This optional method allows implementations to customize how client credentials
@@ -112,6 +124,43 @@ export class UnauthorizedError extends Error {
 }
 
 type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
+
+/**
+ * Standard JWT claims that may appear in ID tokens.
+ * Based on OpenID Connect Core 1.0 specification.
+ */
+interface JwtClaims {
+  // Standard OIDC claims
+  aud?: string | string[];  // Audience - who the token is for
+  exp?: number;              // Expiration time (seconds since epoch)
+  iat?: number;              // Issued at time (seconds since epoch)
+  iss?: string;              // Issuer - who created the token
+  sub?: string;              // Subject - who the token is about
+  nonce?: string;            // Nonce for replay protection
+  
+  // Additional claims can exist
+  [key: string]: unknown;
+}
+
+/**
+ * Decodes a JWT without verifying the signature.
+ * Only extracts the payload for claim validation.
+ */
+function decodeJwt(jwt: string): JwtClaims {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) {
+    throw new Error('Invalid JWT format');
+  }
+  
+  const base64 = parts[1]
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+    
+  const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
+  
+  const decoded = atob(padded);
+  return JSON.parse(decoded);
+}
 
 /**
  * Determines the best client authentication method to use based on server support and client configuration.
@@ -278,6 +327,7 @@ export async function auth(
   // Exchange authorization code for tokens
   if (authorizationCode !== undefined) {
     const codeVerifier = await provider.codeVerifier();
+    const nonce = provider.nonce ? await provider.nonce() : undefined;
     const tokens = await exchangeAuthorization(authorizationServerUrl, {
       metadata,
       clientInformation,
@@ -285,6 +335,7 @@ export async function auth(
       codeVerifier,
       redirectUri: provider.redirectUrl,
       resource,
+      nonce,
       addClientAuthentication: provider.addClientAuthentication,
     });
 
@@ -316,7 +367,7 @@ export async function auth(
   const state = provider.state ? await provider.state() : undefined;
 
   // Start new authorization flow
-  const { authorizationUrl, codeVerifier } = await startAuthorization(authorizationServerUrl, {
+  const { authorizationUrl, codeVerifier, nonce } = await startAuthorization(authorizationServerUrl, {
     metadata,
     clientInformation,
     state,
@@ -326,6 +377,9 @@ export async function auth(
   });
 
   await provider.saveCodeVerifier(codeVerifier);
+  if (nonce && provider.saveNonce) {
+    await provider.saveNonce(nonce);
+  }
   await provider.redirectToAuthorization(authorizationUrl);
   return "REDIRECT";
 }
@@ -643,11 +697,12 @@ export async function startAuthorization(
  * Supports multiple client authentication methods as specified in OAuth 2.1:
  * - Automatically selects the best authentication method based on server support
  * - Falls back to appropriate defaults when server metadata is unavailable
+ * - Validates nonce in ID token if provided (for OpenID Connect flows)
  *
  * @param authorizationServerUrl - The authorization server's base URL
  * @param options - Configuration object containing client info, auth code, etc.
  * @returns Promise resolving to OAuth tokens
- * @throws {Error} When token exchange fails or authentication is invalid
+ * @throws {Error} When token exchange fails, authentication is invalid, or nonce doesn't match
  */
 export async function exchangeAuthorization(
   authorizationServerUrl: string | URL,
@@ -658,6 +713,7 @@ export async function exchangeAuthorization(
     codeVerifier,
     redirectUri,
     resource,
+    nonce,
     addClientAuthentication
   }: {
     metadata?: OAuthMetadata;
@@ -666,6 +722,7 @@ export async function exchangeAuthorization(
     codeVerifier: string;
     redirectUri: string | URL;
     resource?: URL;
+    nonce?: string;
     addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
   },
 ): Promise<OAuthTokens> {
@@ -719,7 +776,26 @@ export async function exchangeAuthorization(
     throw new Error(`Token exchange failed: HTTP ${response.status}`);
   }
 
-  return OAuthTokensSchema.parse(await response.json());
+  const tokens = OAuthTokensSchema.parse(await response.json());
+  
+  if (tokens.id_token) {
+    const claims = decodeJwt(tokens.id_token);
+    
+    if (nonce && claims.nonce !== nonce) {
+      throw new Error('ID token nonce mismatch - possible replay attack');
+    }
+    
+    const audience = claims.aud;
+    const validAudience = Array.isArray(audience) 
+      ? audience.includes(clientInformation.client_id)
+      : audience === clientInformation.client_id;
+    
+    if (!validAudience) {
+      throw new Error('ID token audience mismatch');
+    }
+  }
+  
+  return tokens;
 }
 
 /**
