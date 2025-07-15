@@ -366,6 +366,7 @@ async function authInternal(
       redirectUri: provider.redirectUrl,
       resource,
       addClientAuthentication: provider.addClientAuthentication,
+      fetchFn: fetchFn,
     });
 
     await provider.saveTokens(tokens);
