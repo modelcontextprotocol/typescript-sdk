@@ -855,5 +855,4 @@ describe("StreamableHTTPClientTransport", () => {
     await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
     expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
   });
-
 });
