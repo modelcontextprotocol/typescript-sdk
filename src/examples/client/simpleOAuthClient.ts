@@ -28,6 +28,7 @@ class InMemoryOAuthClientProvider implements OAuthClientProvider {
   private _clientInformation?: OAuthClientInformationFull;
   private _tokens?: OAuthTokens;
   private _codeVerifier?: string;
+  private _nonce?: string;
 
   constructor(
     private readonly _redirectUrl: string | URL,
@@ -78,6 +79,14 @@ class InMemoryOAuthClientProvider implements OAuthClientProvider {
       throw new Error('No code verifier saved');
     }
     return this._codeVerifier;
+  }
+
+  saveNonce(nonce: string): void {
+    this._nonce = nonce;
+  }
+
+  nonce(): string | undefined {
+    return this._nonce;
   }
 }
 /**

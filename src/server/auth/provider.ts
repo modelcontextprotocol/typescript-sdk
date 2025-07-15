@@ -8,6 +8,7 @@ export type AuthorizationParams = {
   scopes?: string[];
   codeChallenge: string;
   redirectUri: string;
+  nonce?: string;
   resource?: URL;
 };
 
