@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/sdk",
-  "version": "1.15.0",
+  "version": "1.15.1",
   "description": "Model Context Protocol implementation for TypeScript",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
@@ -35,6 +35,7 @@
     "dist"
   ],
   "scripts": {
+    "fetch:spec-types": "curl -o spec.types.ts https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/refs/heads/main/schema/draft/schema.ts",
     "build": "npm run build:esm && npm run build:cjs",
     "build:esm": "mkdir -p dist/esm && echo '{\"type\": \"module\"}' > dist/esm/package.json && tsc -p tsconfig.prod.json",
     "build:esm:w": "npm run build:esm -- -w",
@@ -43,7 +44,7 @@
     "examples:simple-server:w": "tsx --watch src/examples/server/simpleStreamableHttp.ts --oauth",
     "prepack": "npm run build:esm && npm run build:cjs",
     "lint": "eslint src/",
-    "test": "jest",
+    "test": "npm run fetch:spec-types && jest",
     "start": "npm run server",
     "server": "tsx watch --clear-screen=false src/cli.ts server",
     "client": "tsx src/cli.ts client"

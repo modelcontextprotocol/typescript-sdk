@@ -62,6 +62,7 @@ export const OAuthMetadataSchema = z
 export const OAuthTokensSchema = z
   .object({
     access_token: z.string(),
+    id_token: z.string().optional(), // Optional for OAuth 2.1, but necessary in OpenID Connect
     token_type: z.string(),
     expires_in: z.number().optional(),
     scope: z.string().optional(),

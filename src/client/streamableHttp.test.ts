@@ -17,6 +17,7 @@ describe("StreamableHTTPClientTransport", () => {
       redirectToAuthorization: jest.fn(),
       saveCodeVerifier: jest.fn(),
       codeVerifier: jest.fn(),
+      invalidateCredentials: jest.fn(),
     };
     transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), { authProvider: mockAuthProvider });
     jest.spyOn(global, "fetch");
@@ -592,6 +593,7 @@ describe("StreamableHTTPClientTransport", () => {
     await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
     expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
   });
+  
   describe('Reconnection Logic', () => {
     let transport: StreamableHTTPClientTransport;
   
