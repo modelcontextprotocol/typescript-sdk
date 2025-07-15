@@ -979,6 +979,46 @@ describe("OAuth Authorization", () => {
         })
       ).rejects.toThrow("Token exchange failed");
     });
+
+    it("supports overriding the fetch function used for requests", async () => {
+      const customFetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => validTokens,
+      });
+
+      const tokens = await exchangeAuthorization("https://auth.example.com", {
+        clientInformation: validClientInfo,
+        authorizationCode: "code123",
+        codeVerifier: "verifier123",
+        redirectUri: "http://localhost:3000/callback",
+        resource: new URL("https://api.example.com/mcp-server"),
+        fetchFn: customFetch,
+      });
+
+      expect(tokens).toEqual(validTokens);
+      expect(customFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch).not.toHaveBeenCalled();
+
+      const [url, options] = customFetch.mock.calls[0];
+      expect(url.toString()).toBe("https://auth.example.com/token");
+      expect(options).toEqual(
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.any(Headers),
+          body: expect.any(URLSearchParams),
+        })
+      );
+
+      const body = options.body as URLSearchParams;
+      expect(body.get("grant_type")).toBe("authorization_code");
+      expect(body.get("code")).toBe("code123");
+      expect(body.get("code_verifier")).toBe("verifier123");
+      expect(body.get("client_id")).toBe("client123");
+      expect(body.get("client_secret")).toBe("secret123");
+      expect(body.get("redirect_uri")).toBe("http://localhost:3000/callback");
+      expect(body.get("resource")).toBe("https://api.example.com/mcp-server");
+    });
   });
 
   describe("refreshAuthorization", () => {
