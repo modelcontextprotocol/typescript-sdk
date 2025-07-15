@@ -145,7 +145,11 @@ app.post('/messages', async (req: Request, res: Response) => {
 
 // Start the server
 const PORT = 3000;
-app.listen(PORT, () => {
+app.listen(PORT, (error) => {
+  if (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
   console.log(`Simple SSE Server (deprecated protocol version 2024-11-05) listening on port ${PORT}`);
 });
 

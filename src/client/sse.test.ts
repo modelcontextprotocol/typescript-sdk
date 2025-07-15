@@ -4,6 +4,7 @@ import { JSONRPCMessage } from "../types.js";
 import { SSEClientTransport } from "./sse.js";
 import { OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { OAuthTokens } from "../shared/auth.js";
+import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from "../server/auth/errors.js";
 
 describe("SSEClientTransport", () => {
   let resourceServer: Server;
@@ -363,6 +364,7 @@ describe("SSEClientTransport", () => {
         redirectToAuthorization: jest.fn(),
         saveCodeVerifier: jest.fn(),
         codeVerifier: jest.fn(),
+        invalidateCredentials: jest.fn(),
       };
     });
 
@@ -379,6 +381,29 @@ describe("SSEClientTransport", () => {
       await transport.start();
 
       expect(lastServerRequest.headers.authorization).toBe("Bearer test-token");
+      expect(mockAuthProvider.tokens).toHaveBeenCalled();
+    });
+
+    it("attaches custom header from provider on initial SSE connection", async () => {
+      mockAuthProvider.tokens.mockResolvedValue({
+        access_token: "test-token",
+        token_type: "Bearer"
+      });
+      const customHeaders = {
+        "X-Custom-Header": "custom-value",
+      };
+
+      transport = new SSEClientTransport(resourceBaseUrl, {
+        authProvider: mockAuthProvider,
+        requestInit: {
+          headers: customHeaders,
+        },
+      });
+
+      await transport.start();
+
+      expect(lastServerRequest.headers.authorization).toBe("Bearer test-token");
+      expect(lastServerRequest.headers["x-custom-header"]).toBe("custom-value");
       expect(mockAuthProvider.tokens).toHaveBeenCalled();
     });
 
@@ -910,6 +935,177 @@ describe("SSEClientTransport", () => {
 
       await expect(() => transport.start()).rejects.toThrow(UnauthorizedError);
       expect(mockAuthProvider.redirectToAuthorization).toHaveBeenCalled();
+    });
+
+    it("invalidates all credentials on InvalidClientError during token refresh", async () => {
+      // Mock tokens() to return token with refresh token
+      mockAuthProvider.tokens.mockResolvedValue({
+        access_token: "expired-token",
+        token_type: "Bearer",
+        refresh_token: "refresh-token"
+      });
+
+      let baseUrl = resourceBaseUrl;
+
+      // Create server that returns InvalidClientError on token refresh
+      const server = createServer((req, res) => {
+        lastServerRequest = req;
+
+        // Handle OAuth metadata discovery
+        if (req.url === "/.well-known/oauth-authorization-server" && req.method === "GET") {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            issuer: baseUrl.href,
+            authorization_endpoint: `${baseUrl.href}authorize`,
+            token_endpoint: `${baseUrl.href}token`,
+            response_types_supported: ["code"],
+            code_challenge_methods_supported: ["S256"],
+          }));
+          return;
+        }
+
+        if (req.url === "/token" && req.method === "POST") {
+          // Handle token refresh request - return InvalidClientError
+          const error = new InvalidClientError("Client authentication failed");
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+            .end(JSON.stringify(error.toResponseObject()));
+          return;
+        }
+
+        if (req.url !== "/") {
+          res.writeHead(404).end();
+          return;
+        }
+        res.writeHead(401).end();
+      });
+
+      await new Promise<void>(resolve => {
+        server.listen(0, "127.0.0.1", () => {
+          const addr = server.address() as AddressInfo;
+          baseUrl = new URL(`http://127.0.0.1:${addr.port}`);
+          resolve();
+        });
+      });
+
+      transport = new SSEClientTransport(baseUrl, {
+        authProvider: mockAuthProvider,
+      });
+
+      await expect(() => transport.start()).rejects.toThrow(InvalidClientError);
+      expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
+    });
+
+    it("invalidates all credentials on UnauthorizedClientError during token refresh", async () => {
+      // Mock tokens() to return token with refresh token
+      mockAuthProvider.tokens.mockResolvedValue({
+        access_token: "expired-token",
+        token_type: "Bearer",
+        refresh_token: "refresh-token"
+      });
+
+      let baseUrl = resourceBaseUrl;
+
+      const server = createServer((req, res) => {
+        lastServerRequest = req;
+
+        // Handle OAuth metadata discovery
+        if (req.url === "/.well-known/oauth-authorization-server" && req.method === "GET") {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            issuer: baseUrl.href,
+            authorization_endpoint: `${baseUrl.href}authorize`,
+            token_endpoint: `${baseUrl.href}token`,
+            response_types_supported: ["code"],
+            code_challenge_methods_supported: ["S256"],
+          }));
+          return;
+        }
+
+        if (req.url === "/token" && req.method === "POST") {
+          // Handle token refresh request - return UnauthorizedClientError
+          const error = new UnauthorizedClientError("Client not authorized");
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+            .end(JSON.stringify(error.toResponseObject()));
+          return;
+        }
+
+        if (req.url !== "/") {
+          res.writeHead(404).end();
+          return;
+        }
+        res.writeHead(401).end();
+      });
+
+      await new Promise<void>(resolve => {
+        server.listen(0, "127.0.0.1", () => {
+          const addr = server.address() as AddressInfo;
+          baseUrl = new URL(`http://127.0.0.1:${addr.port}`);
+          resolve();
+        });
+      });
+
+      transport = new SSEClientTransport(baseUrl, {
+        authProvider: mockAuthProvider,
+      });
+
+      await expect(() => transport.start()).rejects.toThrow(UnauthorizedClientError);
+      expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
+    });
+
+    it("invalidates tokens on InvalidGrantError during token refresh", async () => {
+      // Mock tokens() to return token with refresh token
+      mockAuthProvider.tokens.mockResolvedValue({
+        access_token: "expired-token",
+        token_type: "Bearer",
+        refresh_token: "refresh-token"
+      });
+      let baseUrl = resourceBaseUrl;
+
+      const server = createServer((req, res) => {
+        lastServerRequest = req;
+
+        // Handle OAuth metadata discovery
+        if (req.url === "/.well-known/oauth-authorization-server" && req.method === "GET") {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            issuer: baseUrl.href,
+            authorization_endpoint: `${baseUrl.href}authorize`,
+            token_endpoint: `${baseUrl.href}token`,
+            response_types_supported: ["code"],
+            code_challenge_methods_supported: ["S256"],
+          }));
+          return;
+        }
+
+        if (req.url === "/token" && req.method === "POST") {
+          // Handle token refresh request - return InvalidGrantError
+          const error = new InvalidGrantError("Invalid refresh token");
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+            .end(JSON.stringify(error.toResponseObject()));
+          return;
+        }
+
+        if (req.url !== "/") {
+          res.writeHead(404).end();
+          return;
+        }
+        res.writeHead(401).end();
+      });
+
+      await new Promise<void>(resolve => {
+        server.listen(0, "127.0.0.1", () => {
+          const addr = server.address() as AddressInfo;
+          baseUrl = new URL(`http://127.0.0.1:${addr.port}`);
+          resolve();
+        });
+      });
+
+      transport = new SSEClientTransport(baseUrl, {
+        authProvider: mockAuthProvider,
+      });
+
+      await expect(() => transport.start()).rejects.toThrow(InvalidGrantError);
+      expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
     });
   });
 });

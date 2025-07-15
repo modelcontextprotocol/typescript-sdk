@@ -11,6 +11,8 @@ import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from 'src/shared/auth.js';
 import { checkResourceAllowed } from 'src/shared/auth-utils.js';
 
+import cors from 'cors';
+
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
 const strictOAuth = process.argv.includes('--oauth-strict');
@@ -420,11 +422,17 @@ const getServer = () => {
   return server;
 };
 
-const MCP_PORT = 3000;
-const AUTH_PORT = 3001;
+const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 3000;
+const AUTH_PORT = process.env.MCP_AUTH_PORT ? parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
 
 const app = express();
 app.use(express.json());
+
+// Allow CORS all domains, expose the Mcp-Session-Id header
+app.use(cors({
+  origin: '*', // Allow all origins
+  exposedHeaders: ["Mcp-Session-Id"]
+}));
 
 // Set up OAuth if enabled
 let authMiddleware = null;
@@ -640,7 +648,11 @@ if (useOAuth && authMiddleware) {
   app.delete('/mcp', mcpDeleteHandler);
 }
 
-app.listen(MCP_PORT, () => {
+app.listen(MCP_PORT, (error) => {
+  if (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
   console.log(`MCP Streamable HTTP Server listening on port ${MCP_PORT}`);
 });
 
