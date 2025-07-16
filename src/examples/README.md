@@ -39,6 +39,10 @@ Example client with OAuth:
 npx tsx src/examples/client/simpleOAuthClient.js
 ```
 
+The OAuth client example supports initial access tokens for dynamic client registration (RFC 7591). You can provide the token via:
+- Environment variable: `export OAUTH_INITIAL_ACCESS_TOKEN="your-token"`
+- Transport configuration (see source code for examples)
+
 ### Backwards Compatible Client
 
 A client that implements backwards compatibility according to the [MCP specification](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility), allowing it to work with both new and legacy servers. This client demonstrates:
