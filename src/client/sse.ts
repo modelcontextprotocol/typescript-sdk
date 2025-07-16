@@ -130,9 +130,7 @@ export class SSEClientTransport implements Transport {
             headers.set("Accept", "text/event-stream");
             const response = await fetchImpl(url, {
               ...init,
-              headers: {
-                ...Object.fromEntries(headers.entries()),
-              }
+              headers,
             })
 
             if (response.status === 401 && response.headers.has('www-authenticate')) {

@@ -717,7 +717,7 @@ describe("SSEClientTransport", () => {
         eventSourceInit: {
           fetch: (url, init) => {
             return fetch(url, { ...init, headers: {
-              ...init?.headers,
+              ...(init?.headers instanceof Headers ? Object.fromEntries(init.headers.entries()) : init?.headers),
               'X-Custom-Header': 'custom-value'
             } });
           }
