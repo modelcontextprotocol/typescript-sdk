@@ -855,4 +855,73 @@ describe("StreamableHTTPClientTransport", () => {
     await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
     expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
   });
+
+  describe("initialAccessToken support", () => {
+    it("stores initialAccessToken from constructor options", () => {
+      const transport = new StreamableHTTPClientTransport(
+        new URL("http://localhost:1234/mcp"), 
+        { initialAccessToken: "test-initial-token" }
+      );
+      
+      // Access private property for testing
+      const transportInstance = transport as unknown as { _initialAccessToken?: string };
+      expect(transportInstance._initialAccessToken).toBe("test-initial-token");
+    });
+
+    it("works without initialAccessToken (backward compatibility)", async () => {
+      const transport = new StreamableHTTPClientTransport(
+        new URL("http://localhost:1234/mcp"), 
+        { authProvider: mockAuthProvider }
+      );
+      
+      const transportInstance = transport as unknown as { _initialAccessToken?: string };
+      expect(transportInstance._initialAccessToken).toBeUndefined();
+
+      // Should not throw when no initial access token provided
+      expect(() => transport).not.toThrow();
+    });
+
+    it("includes initialAccessToken in auth calls", async () => {
+      // Create a spy on the auth module
+      const authModule = await import("./auth.js");
+      const authSpy = jest.spyOn(authModule, "auth").mockResolvedValue("REDIRECT");
+
+      const transport = new StreamableHTTPClientTransport(
+        new URL("http://localhost:1234/mcp"), 
+        { 
+          authProvider: mockAuthProvider,
+          initialAccessToken: "test-initial-token" 
+        }
+      );
+
+      // Mock fetch to trigger auth flow on send (401 response)
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        headers: new Headers(),
+      });
+
+      const message = {
+        jsonrpc: "2.0" as const,
+        method: "test",
+        params: {},
+        id: "test-id"
+      };
+
+      try {
+        await transport.send(message);
+      } catch {
+        // Expected to fail due to mock setup, we're just testing auth call
+      }
+
+      expect(authSpy).toHaveBeenCalledWith(
+        mockAuthProvider,
+        expect.objectContaining({
+          initialAccessToken: "test-initial-token"
+        })
+      );
+
+      authSpy.mockRestore();
+    });
+  });
 });

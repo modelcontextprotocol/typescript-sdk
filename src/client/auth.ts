@@ -124,6 +124,17 @@ export interface OAuthClientProvider {
    * This avoids requiring the user to intervene manually.
    */
   invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier'): void | Promise<void>;
+
+  /**
+   * If implemented, provides an initial access token for OAuth 2.0 Dynamic Client Registration
+   * according to RFC 7591. This token is used to authorize the client registration request.
+   * 
+   * The initial access token allows the client to register with authorization servers that
+   * require pre-authorization for dynamic client registration.
+   * 
+   * @returns The initial access token string, or undefined if none is available
+   */
+  initialAccessToken?(): string | undefined | Promise<string | undefined>;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -281,7 +292,8 @@ export async function auth(
     serverUrl: string | URL;
     authorizationCode?: string;
     scope?: string;
-    resourceMetadataUrl?: URL }): Promise<AuthResult> {
+    resourceMetadataUrl?: URL;
+    initialAccessToken?: string; }): Promise<AuthResult> {
 
   try {
     return await authInternal(provider, options);
@@ -305,12 +317,14 @@ async function authInternal(
   { serverUrl,
     authorizationCode,
     scope,
-    resourceMetadataUrl
+    resourceMetadataUrl,
+    initialAccessToken
   }: {
     serverUrl: string | URL;
     authorizationCode?: string;
     scope?: string;
-    resourceMetadataUrl?: URL
+    resourceMetadataUrl?: URL;
+    initialAccessToken?: string;
   }): Promise<AuthResult> {
 
   let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
@@ -344,6 +358,8 @@ async function authInternal(
     const fullInformation = await registerClient(authorizationServerUrl, {
       metadata,
       clientMetadata: provider.clientMetadata,
+      initialAccessToken,
+      provider,
     });
 
     await provider.saveClientInformation(fullInformation);
@@ -877,15 +893,28 @@ export async function refreshAuthorization(
 
 /**
  * Performs OAuth 2.0 Dynamic Client Registration according to RFC 7591.
+ * 
+ * Supports initial access tokens for authorization servers that require 
+ * pre-authorization for dynamic client registration. The initial access token
+ * is resolved using a multi-level fallback approach:
+ * 
+ * 1. Explicit `initialAccessToken` parameter (highest priority)
+ * 2. Provider's `initialAccessToken()` method (if implemented)
+ * 3. `OAUTH_INITIAL_ACCESS_TOKEN` environment variable
+ * 4. None (current behavior for servers that don't require pre-authorization)
  */
 export async function registerClient(
   authorizationServerUrl: string | URL,
   {
     metadata,
     clientMetadata,
+    initialAccessToken,
+    provider,
   }: {
     metadata?: OAuthMetadata;
     clientMetadata: OAuthClientMetadata;
+    initialAccessToken?: string;
+    provider?: OAuthClientProvider;
   },
 ): Promise<OAuthClientInformationFull> {
   let registrationUrl: URL;
@@ -900,11 +929,33 @@ export async function registerClient(
     registrationUrl = new URL("/register", authorizationServerUrl);
   }
 
+  // Multi-level fallback for initial access token
+  let token = initialAccessToken; // Level 1: Explicit parameter
+
+  if (!token && provider?.initialAccessToken) {
+    // Level 2: Provider method
+    token = await Promise.resolve(provider.initialAccessToken());
+  }
+
+  // Level 3: Environment variable (Node.js environments only)
+  if (!token && typeof globalThis !== 'undefined' && (globalThis as any).process?.env) {
+    token = (globalThis as any).process.env.OAUTH_INITIAL_ACCESS_TOKEN;
+  }
+
+  // Level 4: None (current behavior) - no token needed
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  // Add initial access token if available (RFC 7591)
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const response = await fetch(registrationUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify(clientMetadata),
   });
 

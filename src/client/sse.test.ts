@@ -1107,5 +1107,80 @@ describe("SSEClientTransport", () => {
       await expect(() => transport.start()).rejects.toThrow(InvalidGrantError);
       expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
     });
+
+    describe("initialAccessToken support", () => {
+      it("stores initialAccessToken from constructor options", () => {
+        const transport = new SSEClientTransport(
+          new URL("http://localhost:1234/mcp"), 
+          { initialAccessToken: "test-initial-token" }
+        );
+        
+        // Access private property for testing
+        const transportInstance = transport as unknown as { _initialAccessToken?: string };
+        expect(transportInstance._initialAccessToken).toBe("test-initial-token");
+      });
+
+      it("works without initialAccessToken (backward compatibility)", async () => {
+        const transport = new SSEClientTransport(
+          new URL("http://localhost:1234/mcp"), 
+          { authProvider: mockAuthProvider }
+        );
+        
+        const transportInstance = transport as unknown as { _initialAccessToken?: string };
+        expect(transportInstance._initialAccessToken).toBeUndefined();
+
+        // Should not throw when no initial access token provided
+        expect(() => transport).not.toThrow();
+      });
+
+      it("includes initialAccessToken in auth calls", async () => {
+        // Create a spy on the auth module
+        const authModule = await import("./auth.js");
+        const authSpy = jest.spyOn(authModule, "auth").mockResolvedValue("REDIRECT");
+
+        const transport = new SSEClientTransport(
+          resourceBaseUrl, 
+          { 
+            authProvider: mockAuthProvider,
+            initialAccessToken: "test-initial-token" 
+          }
+        );
+
+        // Start the transport first
+        await transport.start();
+
+        // Mock fetch to return 401 and trigger auth on send
+        const originalFetch = global.fetch;
+        global.fetch = jest.fn().mockResolvedValueOnce({
+          ok: false,
+          status: 401,
+          headers: new Headers(),
+        });
+
+        const message = {
+          jsonrpc: "2.0" as const,
+          method: "test",
+          params: {},
+          id: "test-id"
+        };
+
+        try {
+          await transport.send(message);
+        } catch {
+          // Expected to fail due to mock setup, we're just testing auth call
+        }
+
+        expect(authSpy).toHaveBeenCalledWith(
+          mockAuthProvider,
+          expect.objectContaining({
+            initialAccessToken: "test-initial-token"
+          })
+        );
+
+        // Restore fetch and spy
+        global.fetch = originalFetch;
+        authSpy.mockRestore();
+      });
+    });
   });
 });

@@ -52,6 +52,16 @@ export type SSEClientTransportOptions = {
    * Custom fetch implementation used for all network requests.
    */
   fetch?: FetchLike;
+
+  /**
+   * Initial access token for OAuth 2.0 Dynamic Client Registration (RFC 7591).
+   * This token is used to authorize the client registration request with authorization servers
+   * that require pre-authorization for dynamic client registration.
+   * 
+   * If not provided, the system will fall back to the provider's `initialAccessToken()` method
+   * and then to the `OAUTH_INITIAL_ACCESS_TOKEN` environment variable.
+   */
+  initialAccessToken?: string;
 };
 
 /**
@@ -69,6 +79,7 @@ export class SSEClientTransport implements Transport {
   private _authProvider?: OAuthClientProvider;
   private _fetch?: FetchLike;
   private _protocolVersion?: string;
+  private _initialAccessToken?: string;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -84,6 +95,7 @@ export class SSEClientTransport implements Transport {
     this._requestInit = opts?.requestInit;
     this._authProvider = opts?.authProvider;
     this._fetch = opts?.fetch;
+    this._initialAccessToken = opts?.initialAccessToken;
   }
 
   private async _authThenStart(): Promise<void> {
@@ -93,7 +105,7 @@ export class SSEClientTransport implements Transport {
 
     let result: AuthResult;
     try {
-      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl });
+      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, initialAccessToken: this._initialAccessToken });
     } catch (error) {
       this.onerror?.(error as Error);
       throw error;
@@ -218,7 +230,7 @@ export class SSEClientTransport implements Transport {
       throw new UnauthorizedError("No auth provider");
     }
 
-    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl });
+    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl, initialAccessToken: this._initialAccessToken });
     if (result !== "AUTHORIZED") {
       throw new UnauthorizedError("Failed to authorize");
     }
@@ -252,7 +264,7 @@ const response = await (this._fetch ?? fetch)(this._endpoint, init);
 
           this._resourceMetadataUrl = extractResourceMetadataUrl(response);
 
-          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl });
+          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, initialAccessToken: this._initialAccessToken });
           if (result !== "AUTHORIZED") {
             throw new UnauthorizedError();
           }
