@@ -31,9 +31,6 @@
       ]
     }
   },
-  "files": [
-    "dist"
-  ],
   "scripts": {
     "fetch:spec-types": "curl -o spec.types.ts https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/refs/heads/main/schema/draft/schema.ts",
     "build": "npm run build:esm && npm run build:cjs",
