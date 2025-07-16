@@ -102,6 +102,10 @@ describe('Authorization Handler', () => {
     app.use('/authorize', handler);
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   describe('HTTP method validation', () => {
     it('rejects non-GET/POST methods', async () => {
       const response = await supertest(app)
@@ -298,6 +302,61 @@ describe('Authorization Handler', () => {
           resource: new URL('https://api.example.com/resource'),
           redirectUri: 'https://example.com/callback',
           codeChallenge: 'challenge123'
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it('propagates nonce parameter for OpenID Connect flows', async () => {
+      const mockProviderWithNonce = jest.spyOn(mockProvider, 'authorize');
+      
+      const response = await supertest(app)
+        .get('/authorize')
+        .query({
+          client_id: 'valid-client',
+          redirect_uri: 'https://example.com/callback',
+          response_type: 'code',
+          code_challenge: 'challenge123',
+          code_challenge_method: 'S256',
+          scope: 'profile email',
+          nonce: 'test-nonce-123'
+        });
+
+      expect(response.status).toBe(302);
+      expect(mockProviderWithNonce).toHaveBeenCalledWith(
+        validClient,
+        expect.objectContaining({
+          nonce: 'test-nonce-123',
+          redirectUri: 'https://example.com/callback',
+          codeChallenge: 'challenge123',
+          scopes: ['profile', 'email']
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it('handles authorization without nonce parameter', async () => {
+      const mockProviderWithoutNonce = jest.spyOn(mockProvider, 'authorize');
+      
+      const response = await supertest(app)
+        .get('/authorize')
+        .query({
+          client_id: 'valid-client',
+          redirect_uri: 'https://example.com/callback',
+          response_type: 'code',
+          code_challenge: 'challenge123',
+          code_challenge_method: 'S256',
+          scope: 'profile email'
+        });
+
+      expect(response.status).toBe(302);
+      expect(mockProviderWithoutNonce).toHaveBeenCalledWith(
+        validClient,
+        expect.objectContaining({
+          nonce: undefined,
+          redirectUri: 'https://example.com/callback',
+          codeChallenge: 'challenge123',
+          scopes: ['profile', 'email']
         }),
         expect.any(Object)
       );

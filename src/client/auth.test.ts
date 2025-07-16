@@ -727,6 +727,65 @@ describe("OAuth Authorization", () => {
       expect(authorizationUrl.searchParams.get("prompt")).toBe("consent");
     });
 
+    it("generates nonce automatically for OpenID Connect flows", async () => {
+      const { authorizationUrl, nonce } = await startAuthorization(
+          "https://auth.example.com",
+          {
+            clientInformation: validClientInfo,
+            redirectUrl: "http://localhost:3000/callback",
+            scope: "openid profile email",
+          }
+      );
+
+      expect(nonce).toBeDefined();
+      expect(authorizationUrl.searchParams.get("nonce")).toBe(nonce);
+      expect(nonce).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    });
+
+    it("uses provided nonce for OpenID Connect flows", async () => {
+      const providedNonce = "test-nonce-123";
+      const { authorizationUrl, nonce } = await startAuthorization(
+          "https://auth.example.com",
+          {
+            clientInformation: validClientInfo,
+            redirectUrl: "http://localhost:3000/callback",
+            scope: "openid profile",
+            nonce: providedNonce,
+          }
+      );
+
+      expect(nonce).toBe(providedNonce);
+      expect(authorizationUrl.searchParams.get("nonce")).toBe(providedNonce);
+    });
+
+    it("does not include nonce for non-OpenID Connect flows", async () => {
+      const { authorizationUrl, nonce } = await startAuthorization(
+          "https://auth.example.com",
+          {
+            clientInformation: validClientInfo,
+            redirectUrl: "http://localhost:3000/callback",
+            scope: "read write",
+          }
+      );
+
+      expect(nonce).toBeUndefined();
+      expect(authorizationUrl.searchParams.has("nonce")).toBe(false);
+    });
+
+    it("generates nonce when openid scope is included with other scopes", async () => {
+      const { authorizationUrl, nonce } = await startAuthorization(
+          "https://auth.example.com",
+          {
+            clientInformation: validClientInfo,
+            redirectUrl: "http://localhost:3000/callback",
+            scope: "read openid write profile",
+          }
+      );
+
+      expect(nonce).toBeDefined();
+      expect(authorizationUrl.searchParams.get("nonce")).toBe(nonce);
+    });
+
     it("uses metadata authorization_endpoint when provided", async () => {
       const { authorizationUrl } = await startAuthorization(
         "https://auth.example.com",
