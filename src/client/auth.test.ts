@@ -1158,6 +1158,140 @@ describe("OAuth Authorization", () => {
         })
       ).rejects.toThrow("Dynamic client registration failed");
     });
+
+    describe("initial access token support", () => {
+      it("includes initial access token from explicit parameter", async () => {
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => validClientInfo,
+        });
+
+        await registerClient("https://auth.example.com", {
+          clientMetadata: validClientMetadata,
+          initialAccessToken: "explicit-token",
+        });
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.objectContaining({
+            href: "https://auth.example.com/register",
+          }),
+          expect.objectContaining({
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer explicit-token",
+            },
+            body: JSON.stringify(validClientMetadata),
+          })
+        );
+      });
+
+      it("includes initial access token from provider method", async () => {
+        const mockProvider: OAuthClientProvider = {
+          get redirectUrl() { return "http://localhost:3000/callback"; },
+          get clientMetadata() { return validClientMetadata; },
+          clientInformation: jest.fn(),
+          tokens: jest.fn(),
+          saveTokens: jest.fn(),
+          redirectToAuthorization: jest.fn(),
+          saveCodeVerifier: jest.fn(),
+          codeVerifier: jest.fn(),
+          initialAccessToken: jest.fn().mockResolvedValue("provider-token"),
+        };
+
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => validClientInfo,
+        });
+
+        await registerClient("https://auth.example.com", {
+          clientMetadata: validClientMetadata,
+          provider: mockProvider,
+        });
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.objectContaining({
+            href: "https://auth.example.com/register",
+          }),
+          expect.objectContaining({
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer provider-token",
+            },
+            body: JSON.stringify(validClientMetadata),
+          })
+        );
+      });
+
+      it("prioritizes explicit parameter over provider method", async () => {
+        const mockProvider: OAuthClientProvider = {
+          get redirectUrl() { return "http://localhost:3000/callback"; },
+          get clientMetadata() { return validClientMetadata; },
+          clientInformation: jest.fn(),
+          tokens: jest.fn(),
+          saveTokens: jest.fn(),
+          redirectToAuthorization: jest.fn(),
+          saveCodeVerifier: jest.fn(),
+          codeVerifier: jest.fn(),
+          initialAccessToken: jest.fn().mockResolvedValue("provider-token"),
+        };
+
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => validClientInfo,
+        });
+
+        await registerClient("https://auth.example.com", {
+          clientMetadata: validClientMetadata,
+          initialAccessToken: "explicit-token",
+          provider: mockProvider,
+        });
+
+        expect(mockProvider.initialAccessToken).not.toHaveBeenCalled();
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.objectContaining({
+            href: "https://auth.example.com/register",
+          }),
+          expect.objectContaining({
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer explicit-token",
+            },
+            body: JSON.stringify(validClientMetadata),
+          })
+        );
+      });
+
+      it("registers without authorization header when no token available", async () => {
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => validClientInfo,
+        });
+
+        await registerClient("https://auth.example.com", {
+          clientMetadata: validClientMetadata,
+        });
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.objectContaining({
+            href: "https://auth.example.com/register",
+          }),
+          expect.objectContaining({
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(validClientMetadata),
+          })
+        );
+      });
+    });
   });
 
   describe("auth function", () => {

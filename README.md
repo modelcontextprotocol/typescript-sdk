@@ -24,6 +24,7 @@
   - [Dynamic Servers](#dynamic-servers)
   - [Low-Level Server](#low-level-server)
   - [Writing MCP Clients](#writing-mcp-clients)
+  - [OAuth Client Configuration](#oauth-client-configuration)
   - [Proxy Authorization Requests Upstream](#proxy-authorization-requests-upstream)
   - [Backwards Compatibility](#backwards-compatibility)
 - [Documentation](#documentation)
@@ -1160,6 +1161,135 @@ const result = await client.callTool({
   }
 });
 
+```
+
+### OAuth Client Configuration
+
+The MCP SDK provides comprehensive OAuth 2.0 client support with dynamic client registration and multiple authentication methods.
+
+#### Basic OAuth Client Setup
+
+```typescript
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+
+class MyOAuthProvider implements OAuthClientProvider {
+  get redirectUrl() { return "http://localhost:3000/callback"; }
+  
+  get clientMetadata() {
+    return {
+      redirect_uris: ["http://localhost:3000/callback"],
+      client_name: "My MCP Client",
+      scope: "mcp:tools mcp:resources"
+    };
+  }
+
+  async clientInformation() {
+    // Return stored client info or undefined for dynamic registration
+    return this.loadClientInfo();
+  }
+
+  async saveClientInformation(info) {
+    // Store client info after registration
+    await this.storeClientInfo(info);
+  }
+
+  async tokens() {
+    // Return stored tokens or undefined
+    return this.loadTokens();
+  }
+
+  async saveTokens(tokens) {
+    // Store OAuth tokens
+    await this.storeTokens(tokens);
+  }
+
+  async redirectToAuthorization(url) {
+    // Redirect user to authorization URL
+    window.location.href = url.toString();
+  }
+
+  async saveCodeVerifier(verifier) {
+    // Store PKCE code verifier
+    sessionStorage.setItem('code_verifier', verifier);
+  }
+
+  async codeVerifier() {
+    // Return stored code verifier
+    return sessionStorage.getItem('code_verifier');
+  }
+}
+
+const authProvider = new MyOAuthProvider();
+const transport = new StreamableHTTPClientTransport(serverUrl, {
+  authProvider
+});
+
+const client = new Client({ name: "oauth-client", version: "1.0.0" });
+await client.connect(transport);
+```
+
+#### Initial Access Token Support (RFC 7591)
+
+For authorization servers that require pre-authorization for dynamic client registration, the SDK supports initial access tokens with multi-level fallback:
+
+##### Method 1: Transport Configuration (Highest Priority)
+```typescript
+const transport = new StreamableHTTPClientTransport(serverUrl, {
+  authProvider,
+  initialAccessToken: "your-initial-access-token"
+});
+```
+
+##### Method 2: Provider Method
+```typescript
+class MyOAuthProvider implements OAuthClientProvider {
+  // ... other methods ...
+  
+  async initialAccessToken() {
+    // Load from secure storage, API call, etc.
+    return await this.loadFromSecureStorage('initial_access_token');
+  }
+}
+```
+
+##### Method 3: Environment Variable
+```bash
+export OAUTH_INITIAL_ACCESS_TOKEN="your-initial-access-token"
+```
+
+The SDK will automatically try these methods in order:
+1. Explicit `initialAccessToken` parameter (highest priority)
+2. Provider's `initialAccessToken()` method 
+3. `OAUTH_INITIAL_ACCESS_TOKEN` environment variable
+4. None (for servers that don't require pre-authorization)
+
+#### Complete OAuth Flow Example
+
+```typescript
+// After user authorization, handle the callback
+async function handleAuthCallback(authorizationCode: string) {
+  await transport.finishAuth(authorizationCode);
+  // Client is now authenticated and ready to use
+  
+  const result = await client.callTool({
+    name: "example-tool",
+    arguments: { param: "value" }
+  });
+}
+
+// Start the OAuth flow
+try {
+  await client.connect(transport);
+  console.log("Already authenticated");
+} catch (error) {
+  if (error instanceof UnauthorizedError) {
+    console.log("OAuth authorization required");
+    // User will be redirected to authorization server
+    // Handle the callback when they return
+  }
+}
 ```
 
 ### Proxy Authorization Requests Upstream
