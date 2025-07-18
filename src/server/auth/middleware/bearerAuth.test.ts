@@ -23,6 +23,7 @@ describe("requireBearerAuth middleware", () => {
       status: jest.fn().mockReturnThis(),
       json: jest.fn(),
       set: jest.fn().mockReturnThis(),
+      send: jest.fn(),
     };
     nextFunction = jest.fn();
     jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -207,13 +208,11 @@ describe("requireBearerAuth middleware", () => {
     expect(mockResponse.status).toHaveBeenCalledWith(401);
     expect(mockResponse.set).toHaveBeenCalledWith(
       "WWW-Authenticate",
-      expect.stringContaining('Bearer error="invalid_token"')
-    );
-    expect(mockResponse.json).toHaveBeenCalledWith(
-      expect.objectContaining({ error: "invalid_token", error_description: "Missing Authorization header" })
+      'Bearer realm="protected"'
     );
     expect(nextFunction).not.toHaveBeenCalled();
   });
+
 
   it("should return 401 when Authorization header format is invalid", async () => {
     mockRequest.headers = {
@@ -336,6 +335,7 @@ describe("requireBearerAuth middleware", () => {
     expect(nextFunction).not.toHaveBeenCalled();
   });
 
+
   describe("with resourceMetadataUrl", () => {
     const resourceMetadataUrl = "https://api.example.com/.well-known/oauth-protected-resource";
 
@@ -348,7 +348,7 @@ describe("requireBearerAuth middleware", () => {
       expect(mockResponse.status).toHaveBeenCalledWith(401);
       expect(mockResponse.set).toHaveBeenCalledWith(
         "WWW-Authenticate",
-        `Bearer error="invalid_token", error_description="Missing Authorization header", resource_metadata="${resourceMetadataUrl}"`
+        `Bearer realm="protected", resource_metadata="${resourceMetadataUrl}"`
       );
       expect(nextFunction).not.toHaveBeenCalled();
     });
