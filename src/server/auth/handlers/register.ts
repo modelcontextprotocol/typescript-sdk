@@ -99,12 +99,12 @@ export function clientRegistrationHandler({
       let clientInfo: Omit<OAuthClientInformationFull, "client_id"> & { client_id?: string } = {
         ...clientMetadata,
         client_secret: clientSecret,
-        client_id_issued_at: clientIdIssuedAt,
         client_secret_expires_at: clientSecretExpiresAt,
       };
 
       if (clientIdGeneration) {
         clientInfo.client_id = crypto.randomUUID();
+        clientInfo.client_id_issued_at = clientIdIssuedAt;
       }
 
       clientInfo = await clientsStore.registerClient!(clientInfo);

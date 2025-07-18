@@ -236,6 +236,7 @@ describe('Client Registration Handler', () => {
 
       expect(response.status).toBe(201);
       expect(response.body.client_id).toBeUndefined();
+      expect(response.body.client_id_issued_at).toBeUndefined();
     });
 
     it('handles client with all metadata fields', async () => {

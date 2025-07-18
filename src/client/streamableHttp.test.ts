@@ -1,4 +1,4 @@
-import { StreamableHTTPClientTransport, StreamableHTTPReconnectionOptions, StartSSEOptions } from "./streamableHttp.js";
+import { StartSSEOptions, StreamableHTTPClientTransport, StreamableHTTPReconnectionOptions } from "./streamableHttp.js";
 import { OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { JSONRPCMessage, JSONRPCRequest } from "../types.js";
 import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from "../server/auth/errors.js";
@@ -445,35 +445,30 @@ describe("StreamableHTTPClientTransport", () => {
     expect(errorSpy).toHaveBeenCalled();
   });
 
-  it("uses custom fetch implementation", async () => {
-    const authToken = "Bearer custom-token";
-
-    const fetchWithAuth = jest.fn((url: string | URL, init?: RequestInit) => {
-      const headers = new Headers(init?.headers);
-      headers.set("Authorization", authToken);
-      return (global.fetch as jest.Mock)(url, { ...init, headers });
-    });
-
-    (global.fetch as jest.Mock)
+  it("uses custom fetch implementation if provided", async () => {
+    // Create custom fetch
+    const customFetch = jest.fn()
       .mockResolvedValueOnce(
         new Response(null, { status: 200, headers: { "content-type": "text/event-stream" } })
       )
       .mockResolvedValueOnce(new Response(null, { status: 202 }));
 
-    transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), { fetch: fetchWithAuth });
+    // Create transport instance
+    transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+      fetch: customFetch
+    });
 
     await transport.start();
     await (transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> })._startOrAuthSse({});
 
     await transport.send({ jsonrpc: "2.0", method: "test", params: {}, id: "1" } as JSONRPCMessage);
 
-    expect(fetchWithAuth).toHaveBeenCalled();
-    for (const call of (global.fetch as jest.Mock).mock.calls) {
-      const headers = call[1].headers as Headers;
-      expect(headers.get("Authorization")).toBe(authToken);
-    }
+    // Verify custom fetch was used
+    expect(customFetch).toHaveBeenCalled();
+    
+    // Global fetch should never have been called
+    expect(global.fetch).not.toHaveBeenCalled();
   });
-
 
   it("should always send specified custom headers", async () => {
     const requestInit = {
@@ -854,5 +849,150 @@ describe("StreamableHTTPClientTransport", () => {
 
     await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
     expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+  });
+
+  describe("custom fetch in auth code paths", () => {
+    it("uses custom fetch during auth flow on 401 - no global fetch fallback", async () => {
+      const unauthedResponse = {
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        headers: new Headers()
+      };
+
+      // Create custom fetch
+      const customFetch = jest.fn()
+        // Initial connection
+        .mockResolvedValueOnce(unauthedResponse)
+        // Resource discovery
+        .mockResolvedValueOnce(unauthedResponse)
+        // OAuth metadata discovery
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            issuer: "http://localhost:1234",
+            authorization_endpoint: "http://localhost:1234/authorize",
+            token_endpoint: "http://localhost:1234/token",
+            response_types_supported: ["code"],
+            code_challenge_methods_supported: ["S256"],
+          }),
+        })
+        // Token refresh fails with InvalidClientError
+        .mockResolvedValueOnce(Response.json(
+          new InvalidClientError("Client authentication failed").toResponseObject(),
+          { status: 400 }
+        ))
+        // Fallback should fail to complete the flow
+        .mockResolvedValue({
+          ok: false,
+          status: 404
+        });
+  
+      // Create transport instance
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        authProvider: mockAuthProvider,
+        fetch: customFetch
+      });
+
+      // Attempt to start - should trigger auth flow and eventually fail with UnauthorizedError
+      await transport.start();
+      await expect((transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> })._startOrAuthSse({})).rejects.toThrow(UnauthorizedError);
+
+      // Verify custom fetch was used
+      expect(customFetch).toHaveBeenCalled();
+      
+      // Verify specific OAuth endpoints were called with custom fetch
+      const customFetchCalls = customFetch.mock.calls;
+      const callUrls = customFetchCalls.map(([url]) => url.toString());
+      
+      // Should have called resource metadata discovery
+      expect(callUrls.some(url => url.includes('/.well-known/oauth-protected-resource'))).toBe(true);
+      
+      // Should have called OAuth authorization server metadata discovery
+      expect(callUrls.some(url => url.includes('/.well-known/oauth-authorization-server'))).toBe(true);
+
+      // Verify auth provider was called to redirect to authorization
+      expect(mockAuthProvider.redirectToAuthorization).toHaveBeenCalled();
+
+      // Global fetch should never have been called
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it("uses custom fetch in finishAuth method - no global fetch fallback", async () => {
+      // Create custom fetch
+      const customFetch = jest.fn()
+        // Protected resource metadata discovery
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            authorization_servers: ["http://localhost:1234"],
+            resource: "http://localhost:1234/mcp"
+          }),
+        })
+        // OAuth metadata discovery
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            issuer: "http://localhost:1234",
+            authorization_endpoint: "http://localhost:1234/authorize",
+            token_endpoint: "http://localhost:1234/token",
+            response_types_supported: ["code"],
+            code_challenge_methods_supported: ["S256"],
+          }),
+        })
+        // Code exchange
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            access_token: "new-access-token",
+            refresh_token: "new-refresh-token",
+            token_type: "Bearer",
+            expires_in: 3600,
+          }),
+        });
+
+      // Create transport instance
+      transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+        authProvider: mockAuthProvider,
+        fetch: customFetch
+      });
+
+      // Call finishAuth with authorization code
+      await transport.finishAuth("test-auth-code");
+
+      // Verify custom fetch was used
+      expect(customFetch).toHaveBeenCalled();
+      
+      // Verify specific OAuth endpoints were called with custom fetch
+      const customFetchCalls = customFetch.mock.calls;
+      const callUrls = customFetchCalls.map(([url]) => url.toString());
+      
+      // Should have called resource metadata discovery
+      expect(callUrls.some(url => url.includes('/.well-known/oauth-protected-resource'))).toBe(true);
+      
+      // Should have called OAuth authorization server metadata discovery
+      expect(callUrls.some(url => url.includes('/.well-known/oauth-authorization-server'))).toBe(true);
+
+      // Should have called token endpoint for authorization code exchange
+      const tokenCalls = customFetchCalls.filter(([url, options]) => 
+        url.toString().includes('/token') && options?.method === "POST"
+      );
+      expect(tokenCalls.length).toBeGreaterThan(0);
+
+      // Verify tokens were saved
+      expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
+        access_token: "new-access-token",
+        token_type: "Bearer",
+        expires_in: 3600,
+        refresh_token: "new-refresh-token"
+      });
+
+      // Global fetch should never have been called
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
   });
 });
