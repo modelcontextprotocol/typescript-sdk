@@ -217,7 +217,10 @@ export abstract class Protocol<
   /**
    * A handler to invoke for any request types that do not have their own handler installed.
    */
-  fallbackRequestHandler?: (request: Request) => Promise<SendResultT>;
+  fallbackRequestHandler?: (
+    request: JSONRPCRequest,
+    extra: RequestHandlerExtra<SendRequestT, SendNotificationT>
+  ) => Promise<SendResultT>;
 
   /**
    * A handler to invoke for any notification types that do not have their own handler installed.
