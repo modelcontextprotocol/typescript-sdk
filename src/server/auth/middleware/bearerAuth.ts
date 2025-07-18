@@ -1,5 +1,5 @@
 import { RequestHandler } from "express";
-import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from "../errors.js";
+import { InsufficientScopeError, InvalidTokenError, MissingAuthenticationError, OAuthError, ServerError } from "../errors.js";
 import { OAuthTokenVerifier } from "../provider.js";
 import { AuthInfo } from "../types.js";
 
@@ -42,7 +42,7 @@ export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetad
     try {
       const authHeader = req.headers.authorization;
       if (!authHeader) {
-        throw new InvalidTokenError("Missing Authorization header");
+        throw new MissingAuthenticationError("Missing Authorization header");
       }
 
       const [type, token] = authHeader.split(' ');
@@ -73,7 +73,14 @@ export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetad
       req.auth = authInfo;
       next();
     } catch (error) {
-      if (error instanceof InvalidTokenError) {
+      if (error instanceof MissingAuthenticationError) {
+        // RFC 6750 Section 3.1: Missing authentication should not include error codes
+        const wwwAuthValue = resourceMetadataUrl
+          ? `Bearer realm="protected", resource_metadata="${resourceMetadataUrl}"`
+          : `Bearer realm="protected"`;
+        res.set("WWW-Authenticate", wwwAuthValue);
+        res.status(401).send();
+      } else if (error instanceof InvalidTokenError) {
         const wwwAuthValue = resourceMetadataUrl
           ? `Bearer error="${error.errorCode}", error_description="${error.message}", resource_metadata="${resourceMetadataUrl}"`
           : `Bearer error="${error.errorCode}", error_description="${error.message}"`;
