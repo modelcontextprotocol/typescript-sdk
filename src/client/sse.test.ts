@@ -2,7 +2,7 @@ import { createServer, ServerResponse, type IncomingMessage, type Server } from 
 import { AddressInfo } from "net";
 import { JSONRPCMessage } from "../types.js";
 import { SSEClientTransport } from "./sse.js";
-import { OAuthClientProvider, UnauthorizedError } from "./auth.js";
+import { DelegatedAuthClientProvider, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { OAuthTokens } from "../shared/auth.js";
 import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from "../server/auth/errors.js";
 
@@ -1140,11 +1140,11 @@ describe("SSEClientTransport", () => {
 
       return {
         get redirectUrl() { return "http://localhost/callback"; },
-        get clientMetadata() { 
-          return { 
+        get clientMetadata() {
+          return {
             redirect_uris: ["http://localhost/callback"],
             client_name: "Test Client"
-          }; 
+          };
         },
         clientInformation: jest.fn().mockResolvedValue(clientInfo),
         tokens: jest.fn().mockResolvedValue(tokens),
@@ -1170,7 +1170,7 @@ describe("SSEClientTransport", () => {
           }));
           return;
         }
-  
+
         if (req.url === "/token" && req.method === "POST") {
           // Handle token exchange request
           let body = "";
@@ -1193,7 +1193,7 @@ describe("SSEClientTransport", () => {
           });
           return;
         }
-  
+
         res.writeHead(404).end();
       });
 
@@ -1297,14 +1297,14 @@ describe("SSEClientTransport", () => {
 
       // Verify custom fetch was used
       expect(customFetch).toHaveBeenCalled();
-      
+
       // Verify specific OAuth endpoints were called with custom fetch
       const customFetchCalls = customFetch.mock.calls;
       const callUrls = customFetchCalls.map(([url]) => url.toString());
-      
+
       // Should have called resource metadata discovery
       expect(callUrls.some(url => url.includes('/.well-known/oauth-protected-resource'))).toBe(true);
-      
+
       // Should have called OAuth authorization server metadata discovery
       expect(callUrls.some(url => url.includes('/.well-known/oauth-authorization-server'))).toBe(true);
 
@@ -1370,19 +1370,19 @@ describe("SSEClientTransport", () => {
 
       // Verify custom fetch was used
       expect(customFetch).toHaveBeenCalled();
-      
+
       // Verify specific OAuth endpoints were called with custom fetch
       const customFetchCalls = customFetch.mock.calls;
       const callUrls = customFetchCalls.map(([url]) => url.toString());
-      
+
       // Should have called resource metadata discovery
       expect(callUrls.some(url => url.includes('/.well-known/oauth-protected-resource'))).toBe(true);
-      
+
       // Should have called OAuth authorization server metadata discovery
       expect(callUrls.some(url => url.includes('/.well-known/oauth-authorization-server'))).toBe(true);
 
       // Should have attempted the POST request that triggered the 401
-      const postCalls = customFetchCalls.filter(([url, options]) => 
+      const postCalls = customFetchCalls.filter(([url, options]) =>
         url.toString() === resourceBaseUrl.href && options?.method === "POST"
       );
       expect(postCalls.length).toBeGreaterThan(0);
@@ -1412,19 +1412,19 @@ describe("SSEClientTransport", () => {
 
       // Verify custom fetch was used
       expect(customFetch).toHaveBeenCalled();
-      
+
       // Verify specific OAuth endpoints were called with custom fetch
       const customFetchCalls = customFetch.mock.calls;
       const callUrls = customFetchCalls.map(([url]) => url.toString());
-      
+
       // Should have called resource metadata discovery
       expect(callUrls.some(url => url.includes('/.well-known/oauth-protected-resource'))).toBe(true);
-      
+
       // Should have called OAuth authorization server metadata discovery
       expect(callUrls.some(url => url.includes('/.well-known/oauth-authorization-server'))).toBe(true);
 
       // Should have called token endpoint for authorization code exchange
-      const tokenCalls = customFetchCalls.filter(([url, options]) => 
+      const tokenCalls = customFetchCalls.filter(([url, options]) =>
         url.toString().includes('/token') && options?.method === "POST"
       );
       expect(tokenCalls.length).toBeGreaterThan(0);
@@ -1439,6 +1439,208 @@ describe("SSEClientTransport", () => {
 
       // Global fetch should never have been called
       expect(globalFetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("delegated authentication", () => {
+    let mockDelegatedAuthProvider: jest.Mocked<DelegatedAuthClientProvider>;
+
+    beforeEach(() => {
+      mockDelegatedAuthProvider = {
+        headers: jest.fn(),
+        authorize: jest.fn(),
+      };
+    });
+
+    it("includes delegated auth headers in requests", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token",
+        "X-API-Key": "api-key-123"
+      });
+
+      transport = new SSEClientTransport(resourceBaseUrl, {
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      await transport.start();
+
+      expect(lastServerRequest.headers.authorization).toBe("Bearer delegated-token");
+      expect(lastServerRequest.headers["x-api-key"]).toBe("api-key-123");
+    });
+
+    it("takes precedence over OAuth provider", async () => {
+      const mockOAuthProvider = {
+        get redirectUrl() { return "http://localhost/callback"; },
+        get clientMetadata() { return { redirect_uris: ["http://localhost/callback"] }; },
+        clientInformation: jest.fn(() => ({ client_id: "oauth-client", client_secret: "oauth-secret" })),
+        tokens: jest.fn(() => Promise.resolve({ access_token: "oauth-token", token_type: "Bearer" })),
+        saveTokens: jest.fn(),
+        redirectToAuthorization: jest.fn(),
+        saveCodeVerifier: jest.fn(),
+        codeVerifier: jest.fn(),
+      };
+
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token"
+      });
+
+      transport = new SSEClientTransport(resourceBaseUrl, {
+        authProvider: mockOAuthProvider,
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      await transport.start();
+
+      expect(lastServerRequest.headers.authorization).toBe("Bearer delegated-token");
+      expect(mockOAuthProvider.tokens).not.toHaveBeenCalled();
+    });
+
+    it("handles 401 during SSE connection with successful reauth", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValueOnce(undefined);
+      mockDelegatedAuthProvider.authorize.mockResolvedValue(true);
+      mockDelegatedAuthProvider.headers.mockResolvedValueOnce({
+        "Authorization": "Bearer new-delegated-token"
+      });
+
+      // Create server that returns 401 on first attempt, 200 on second
+      resourceServer.close();
+
+      let attemptCount = 0;
+      resourceServer = createServer((req, res) => {
+        lastServerRequest = req;
+        attemptCount++;
+
+        if (attemptCount === 1) {
+          res.writeHead(401).end();
+          return;
+        }
+
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+        });
+        res.write("event: endpoint\n");
+        res.write(`data: ${resourceBaseUrl.href}\n\n`);
+      });
+
+      await new Promise<void>((resolve) => {
+        resourceServer.listen(0, "127.0.0.1", () => {
+          const addr = resourceServer.address() as AddressInfo;
+          resourceBaseUrl = new URL(`http://127.0.0.1:${addr.port}`);
+          resolve();
+        });
+      });
+
+      transport = new SSEClientTransport(resourceBaseUrl, {
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      await transport.start();
+
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledTimes(1);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledWith({
+        serverUrl: resourceBaseUrl,
+        resourceMetadataUrl: undefined
+      });
+      expect(attemptCount).toBe(2);
+    });
+
+    it("throws UnauthorizedError when reauth fails", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue(undefined);
+      mockDelegatedAuthProvider.authorize.mockResolvedValue(false);
+
+      // Create server that always returns 401
+      resourceServer.close();
+
+      resourceServer = createServer((req, res) => {
+        res.writeHead(401).end();
+      });
+
+      await new Promise<void>((resolve) => {
+        resourceServer.listen(0, "127.0.0.1", () => {
+          const addr = resourceServer.address() as AddressInfo;
+          resourceBaseUrl = new URL(`http://127.0.0.1:${addr.port}`);
+          resolve();
+        });
+      });
+
+      transport = new SSEClientTransport(resourceBaseUrl, {
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      await expect(transport.start()).rejects.toThrow(UnauthorizedError);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledTimes(1);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledWith({
+        serverUrl: resourceBaseUrl,
+        resourceMetadataUrl: undefined
+      });
+    });
+
+    it("handles 401 during POST request with successful reauth", async () => {
+      mockDelegatedAuthProvider.headers.mockResolvedValue({
+        "Authorization": "Bearer delegated-token"
+      });
+      mockDelegatedAuthProvider.authorize.mockResolvedValue(true);
+
+      // Create server that accepts SSE but returns 401 on first POST, 200 on second
+      resourceServer.close();
+
+      let postAttempts = 0;
+      resourceServer = createServer((req, res) => {
+        lastServerRequest = req;
+
+        switch (req.method) {
+          case "GET":
+            res.writeHead(200, {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache, no-transform",
+              Connection: "keep-alive",
+            });
+            res.write("event: endpoint\n");
+            res.write(`data: ${resourceBaseUrl.href}\n\n`);
+            break;
+
+          case "POST":
+            postAttempts++;
+            if (postAttempts === 1) {
+              res.writeHead(401).end();
+            } else {
+              res.writeHead(200).end();
+            }
+            break;
+        }
+      });
+
+      await new Promise<void>((resolve) => {
+        resourceServer.listen(0, "127.0.0.1", () => {
+          const addr = resourceServer.address() as AddressInfo;
+          resourceBaseUrl = new URL(`http://127.0.0.1:${addr.port}`);
+          resolve();
+        });
+      });
+
+      transport = new SSEClientTransport(resourceBaseUrl, {
+        delegatedAuthProvider: mockDelegatedAuthProvider,
+      });
+
+      await transport.start();
+
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        id: "1",
+        method: "test",
+        params: {},
+      };
+
+      await transport.send(message);
+
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledTimes(1);
+      expect(mockDelegatedAuthProvider.authorize).toHaveBeenCalledWith({
+        serverUrl: resourceBaseUrl,
+        resourceMetadataUrl: undefined
+      });
+      expect(postAttempts).toBe(2);
     });
   });
 });
