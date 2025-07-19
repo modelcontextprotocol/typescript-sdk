@@ -1,6 +1,7 @@
 import { LATEST_PROTOCOL_VERSION } from '../types.js';
 import {
   discoverOAuthMetadata,
+  discoverAuthorizationServerMetadata,
   startAuthorization,
   exchangeAuthorization,
   refreshAuthorization,
@@ -11,7 +12,7 @@ import {
   type OAuthClientProvider,
 } from "./auth.js";
 import {ServerError} from "../server/auth/errors.js";
-import { OAuthMetadata } from '../shared/auth.js';
+import { AuthorizationServerMetadata } from '../shared/auth.js';
 
 // Mock fetch globally
 const mockFetch = jest.fn();
@@ -683,6 +684,302 @@ describe("OAuth Authorization", () => {
     });
   });
 
+  describe("discoverAuthorizationServerMetadata", () => {
+    const validOAuthMetadata = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      registration_endpoint: "https://auth.example.com/register",
+      response_types_supported: ["code"],
+      code_challenge_methods_supported: ["S256"],
+    };
+
+    const validOpenIdMetadata = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      jwks_uri: "https://auth.example.com/jwks",
+      subject_types_supported: ["public"],
+      id_token_signing_alg_values_supported: ["RS256"],
+      response_types_supported: ["code"],
+      code_challenge_methods_supported: ["S256"],
+    };
+
+    it("returns OAuth metadata when authorizationServerUrl is provided and OAuth discovery succeeds", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validOAuthMetadata,
+      });
+
+      const metadata = await discoverAuthorizationServerMetadata(
+        "https://mcp.example.com",
+        "https://auth.example.com"
+      );
+
+      expect(metadata).toEqual(validOAuthMetadata);
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(1);
+      const [url, options] = calls[0];
+      expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+      expect(options.headers).toEqual({
+        "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
+      });
+    });
+
+    it("falls back to OpenID Connect discovery when OAuth discovery fails", async () => {
+      // First call (OAuth) returns 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // Second call (OpenID Connect) succeeds
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validOpenIdMetadata,
+      });
+
+      const metadata = await discoverAuthorizationServerMetadata(
+        "https://mcp.example.com",
+        "https://auth.example.com"
+      );
+
+      expect(metadata).toEqual(validOpenIdMetadata);
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(2);
+      
+      // First call should be OAuth discovery
+      expect(calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+      
+      // Second call should be OpenID Connect discovery
+      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration");
+    });
+
+    it("returns undefined when authorizationServerUrl is provided but both discoveries fail", async () => {
+      // Both calls return 404
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
+
+      const metadata = await discoverAuthorizationServerMetadata(
+        "https://mcp.example.com",
+        "https://auth.example.com"
+      );
+
+      expect(metadata).toBeUndefined();
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(2);
+    });
+
+    it("handles authorization server URL with path in OAuth discovery", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validOAuthMetadata,
+      });
+
+      const metadata = await discoverAuthorizationServerMetadata(
+        "https://mcp.example.com",
+        "https://auth.example.com/tenant1"
+      );
+
+      expect(metadata).toEqual(validOAuthMetadata);
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(1);
+      const [url] = calls[0];
+      expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
+    });
+
+    it("handles authorization server URL with path in OpenID Connect discovery", async () => {
+      // OAuth discovery fails
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // OpenID Connect discovery succeeds with path insertion
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validOpenIdMetadata,
+      });
+
+      const metadata = await discoverAuthorizationServerMetadata(
+        "https://mcp.example.com",
+        "https://auth.example.com/tenant1"
+      );
+
+      expect(metadata).toEqual(validOpenIdMetadata);
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(2);
+      
+      // First call should be OAuth with path
+      expect(calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
+      
+      // Second call should be OpenID Connect with path insertion
+      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration/tenant1");
+    });
+
+    it("tries multiple OpenID Connect endpoints when path is present", async () => {
+      // OAuth discovery fails
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // First OpenID Connect attempt (path insertion) fails
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // Second OpenID Connect attempt (path prepending) succeeds
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validOpenIdMetadata,
+      });
+
+      const metadata = await discoverAuthorizationServerMetadata(
+        "https://mcp.example.com",
+        "https://auth.example.com/tenant1"
+      );
+
+      expect(metadata).toEqual(validOpenIdMetadata);
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(3);
+      
+      // First call should be OAuth with path
+      expect(calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
+      
+      // Second call should be OpenID Connect with path insertion
+      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration/tenant1");
+      
+      // Third call should be OpenID Connect with path prepending
+      expect(calls[2][0].toString()).toBe("https://auth.example.com/tenant1/.well-known/openid-configuration");
+    });
+
+    it("falls back to legacy MCP server when authorizationServerUrl is undefined", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validOAuthMetadata,
+      });
+
+      const metadata = await discoverAuthorizationServerMetadata(
+        "https://mcp.example.com",
+        undefined
+      );
+
+      expect(metadata).toEqual(validOAuthMetadata);
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(1);
+      const [url] = calls[0];
+      expect(url.toString()).toBe("https://mcp.example.com/.well-known/oauth-authorization-server");
+    });
+
+    it("returns fallback metadata when legacy MCP server returns 404", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      const metadata = await discoverAuthorizationServerMetadata(
+        "https://mcp.example.com",
+        undefined
+      );
+
+      expect(metadata).toEqual({
+        issuer: "https://mcp.example.com",
+        authorization_endpoint: "https://mcp.example.com/authorize",
+        token_endpoint: "https://mcp.example.com/token",
+        registration_endpoint: "https://mcp.example.com/register",
+        response_types_supported: ["code"],
+        code_challenge_methods_supported: ["S256"],
+      });
+    });
+
+    it("throws on non-404 errors in legacy mode", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+      });
+
+      await expect(
+        discoverAuthorizationServerMetadata("https://mcp.example.com", undefined)
+      ).rejects.toThrow("HTTP 500");
+    });
+
+    it("handles CORS errors with retry", async () => {
+      // First call fails with CORS
+      mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError("CORS error")));
+      
+      // Retry without headers succeeds
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validOAuthMetadata,
+      });
+
+      const metadata = await discoverAuthorizationServerMetadata(
+        "https://mcp.example.com",
+        "https://auth.example.com"
+      );
+
+      expect(metadata).toEqual(validOAuthMetadata);
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(2);
+      
+      // First call should have headers
+      expect(calls[0][1]?.headers).toHaveProperty("MCP-Protocol-Version");
+      
+      // Second call should not have headers (CORS retry)
+      expect(calls[1][1]?.headers).toBeUndefined();
+    });
+
+    it("supports custom fetch function", async () => {
+      const customFetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => validOAuthMetadata,
+      });
+
+      const metadata = await discoverAuthorizationServerMetadata(
+        "https://mcp.example.com",
+        "https://auth.example.com",
+        { fetchFn: customFetch }
+      );
+
+      expect(metadata).toEqual(validOAuthMetadata);
+      expect(customFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("supports custom protocol version", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validOAuthMetadata,
+      });
+
+      const metadata = await discoverAuthorizationServerMetadata(
+        "https://mcp.example.com",
+        "https://auth.example.com",
+        { protocolVersion: "2025-01-01" }
+      );
+
+      expect(metadata).toEqual(validOAuthMetadata);
+      const calls = mockFetch.mock.calls;
+      const [, options] = calls[0];
+      expect(options.headers).toEqual({
+        "MCP-Protocol-Version": "2025-01-01"
+      });
+    });
+  });
+
   describe("startAuthorization", () => {
     const validMetadata = {
       issuer: "https://auth.example.com",
@@ -909,7 +1206,7 @@ describe("OAuth Authorization", () => {
         authorizationCode: "code123",
         codeVerifier: "verifier123",
         redirectUri: "http://localhost:3000/callback",
-        addClientAuthentication: (headers: Headers, params: URLSearchParams, url: string | URL, metadata: OAuthMetadata) => {
+        addClientAuthentication: (headers: Headers, params: URLSearchParams, url: string | URL, metadata: AuthorizationServerMetadata) => {
           headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
           params.set("example_url", typeof url === 'string' ? url : url.toString());
           params.set("example_metadata", metadata.authorization_endpoint);
@@ -1091,7 +1388,7 @@ describe("OAuth Authorization", () => {
         metadata: validMetadata,
         clientInformation: validClientInfo,
         refreshToken: "refresh123",
-        addClientAuthentication: (headers: Headers, params: URLSearchParams, url: string | URL, metadata?: OAuthMetadata) => {
+        addClientAuthentication: (headers: Headers, params: URLSearchParams, url: string | URL, metadata?: AuthorizationServerMetadata) => {
           headers.set("Authorization", "Basic " + btoa(validClientInfo.client_id + ":" + validClientInfo.client_secret));
           params.set("example_url", typeof url === 'string' ? url : url.toString());
           params.set("example_metadata", metadata?.authorization_endpoint ?? '?');
