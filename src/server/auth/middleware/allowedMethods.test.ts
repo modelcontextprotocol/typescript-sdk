@@ -30,7 +30,7 @@ describe("allowedMethods", () => {
   test("returns 405 for unspecified HTTP methods", async () => {
     const methods = ["post", "put", "delete", "patch"];
 
-    for (const method of methods) {
+    for await (const method of methods) {
       // @ts-expect-error - dynamic method call
       const response = await request(app)[method]("/test");
       expect(response.status).toBe(405);

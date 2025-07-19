@@ -1285,7 +1285,7 @@ describe("StreamableHTTPServerTransport with resumability", () => {
       const streamId = lastEventId.split('_')[0];
       // Extract stream ID from the event ID
       // For test simplicity, just return all events with matching streamId that aren't the lastEventId
-      for (const [eventId, { message }] of storedEvents.entries()) {
+      for await (const [eventId, { message }] of storedEvents.entries()) {
         if (eventId.startsWith(streamId) && eventId !== lastEventId) {
           await send(eventId, message);
         }

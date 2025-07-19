@@ -56,7 +56,7 @@ export class InMemoryEventStore implements EventStore {
     // Sort events by eventId for chronological ordering
     const sortedEvents = [...this.events.entries()].sort((a, b) => a[0].localeCompare(b[0]));
 
-    for (const [eventId, { streamId: eventStreamId, message }] of sortedEvents) {
+    for await (const [eventId, { streamId: eventStreamId, message }] of sortedEvents) {
       // Only include events from the same stream
       if (eventStreamId !== streamId) {
         continue;
