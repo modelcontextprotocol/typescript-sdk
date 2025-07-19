@@ -365,7 +365,7 @@ export class McpServer {
         );
 
         const templateResources: Resource[] = [];
-        for (const template of Object.values(
+        for await (const template of Object.values(
           this._registeredResourceTemplates,
         )) {
           if (!template.resourceTemplate.listCallback) {
