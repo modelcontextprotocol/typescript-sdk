@@ -458,11 +458,31 @@ export const TextResourceContentsSchema = ResourceContentsSchema.extend({
   text: z.string(),
 });
 
+
+/**
+ * A Zod schema for validating Base64 strings that is more performant and
+ * robust for very large inputs than the default regex-based check. It avoids
+ * stack overflows by using the native `atob` function for validation.
+ */
+const Base64Schema = z.string().refine(
+    (val) => {
+        try {
+            // atob throws a DOMException if the string contains characters
+            // that are not part of the Base64 character set.
+            atob(val);
+            return true;
+        } catch {
+            return false;
+        }
+    },
+    { message: "Invalid Base64 string" },
+);
+
 export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
   /**
    * A base64-encoded string representing the binary data of the item.
    */
-  blob: z.string().base64(),
+  blob: Base64Schema,
 });
 
 /**
@@ -718,7 +738,7 @@ export const ImageContentSchema = z
     /**
      * The base64-encoded image data.
      */
-    data: z.string().base64(),
+    data: Base64Schema,
     /**
      * The MIME type of the image. Different providers may support different image types.
      */
@@ -741,7 +761,7 @@ export const AudioContentSchema = z
     /**
      * The base64-encoded audio data.
      */
-    data: z.string().base64(),
+    data: Base64Schema,
     /**
      * The MIME type of the audio. Different providers may support different audio types.
      */
@@ -894,7 +914,7 @@ export const ToolSchema = BaseMetadataSchema.extend({
     })
     .passthrough(),
   /**
-   * An optional JSON Schema object defining the structure of the tool's output returned in 
+   * An optional JSON Schema object defining the structure of the tool's output returned in
    * the structuredContent field of a CallToolResult.
    */
   outputSchema: z.optional(
