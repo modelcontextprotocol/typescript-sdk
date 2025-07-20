@@ -571,7 +571,6 @@ app.listen(3000);
 
 > [!TIP]
 > When using this in a remote environment, make sure to allow the header parameter `mcp-session-id` in CORS. Otherwise, it may result in a `Bad Request: No valid session ID provided` error. Read the following section for examples.
-> ```
 
 
 #### CORS Configuration for Browser-Based Clients
