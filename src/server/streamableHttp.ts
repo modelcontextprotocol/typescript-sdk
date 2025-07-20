@@ -33,6 +33,12 @@ export interface EventStore {
  */
 export interface StreamableHTTPServerTransportOptions {
   /**
+   * For any pre-existing sessions that we need new transport for
+   * If provided then the tranport will be considered _initialized
+   */
+  sessionId?: string;
+
+  /**
    * Function that generates a session ID for the transport.
    * The session ID SHOULD be globally unique and cryptographically secure (e.g., a securely generated UUID, a JWT, or a cryptographic hash)
    * 
@@ -158,6 +164,10 @@ export class StreamableHTTPServerTransport implements Transport {
     this._allowedHosts = options.allowedHosts;
     this._allowedOrigins = options.allowedOrigins;
     this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
+    if (options.sessionId) {
+      this.sessionId = options.sessionId;
+      this._initialized = true; // Assume initialized if session ID is provided
+    }
   }
 
   /**
@@ -459,7 +469,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
         // If we have a session ID and an onsessioninitialized handler, call it immediately
         // This is needed in cases where the server needs to keep track of multiple sessions
-        if (this.sessionId && this._onsessioninitialized) {
+        if (this.sessionId&& this._onsessioninitialized) {
           await Promise.resolve(this._onsessioninitialized(this.sessionId));
         }
 
