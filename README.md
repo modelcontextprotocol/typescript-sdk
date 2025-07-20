@@ -950,6 +950,69 @@ server.registerTool("tool3", ...).disable();
 // Only one 'notifications/tools/list_changed' is sent.
 ```
 
+### Type Safety
+
+The SDK provides type-safe definitions that validate schemas while maintaining protocol compatibility.
+
+```typescript
+// Recommended: Use safe types that strip unknown fields
+import { ToolSchema } from "@modelcontextprotocol/sdk/strictTypes.js";
+
+// ⚠️ Deprecated: Extensible types will be removed in a future version
+import { ToolSchema } from "@modelcontextprotocol/sdk/types.js";
+```
+
+**Safe types with .strip():**
+```typescript
+import { ToolSchema } from "@modelcontextprotocol/sdk/strictTypes.js";
+
+// Unknown fields are automatically removed, not rejected
+const tool = ToolSchema.parse({
+  name: "get-weather",
+  description: "Get weather",
+  inputSchema: { type: "object", properties: {} },
+  customField: "this will be stripped" // ✓ No error, field is removed
+});
+
+console.log(tool.customField); // undefined - field was stripped
+console.log(tool.name); // "get-weather" - known fields are preserved
+```
+
+**Benefits:**
+- **Type safety**: Only known fields are included in results
+- **Protocol compatibility**: Works seamlessly with extended servers/clients
+- **No runtime errors**: Unknown fields are silently removed
+- **Forward compatibility**: Your code won't break when servers add new fields
+
+**Migration Guide:**
+
+If you're currently using types.js and need extensibility:
+1. Switch to importing from `strictTypes.js`
+2. Add any additional fields you need explicitly to your schemas
+3. For true extensibility needs, create wrapper schemas that extend the base types
+
+Example migration:
+```typescript
+// Before (deprecated)
+import { ToolSchema } from "@modelcontextprotocol/sdk/types.js";
+const tool = { ...baseFields, customField: "value" };
+
+// After (recommended)
+import { ToolSchema } from "@modelcontextprotocol/sdk/strictTypes.js";
+import { z } from "zod";
+
+// Create your own extended schema
+const ExtendedToolSchema = ToolSchema.extend({
+  customField: z.string()
+});
+const tool = ExtendedToolSchema.parse({ ...baseFields, customField: "value" });
+```
+
+Note: The following fields remain extensible for protocol compatibility:
+- `experimental`: For protocol extensions
+- `_meta`: For arbitrary metadata  
+- `properties`: For JSON Schema objects
+
 ### Low-Level Server
 
 For more control, you can use the low-level Server class directly:
