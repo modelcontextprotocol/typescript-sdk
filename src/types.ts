@@ -1623,3 +1623,11 @@ export type ClientResult = Infer<typeof ClientResultSchema>;
 export type ServerRequest = Infer<typeof ServerRequestSchema>;
 export type ServerNotification = Infer<typeof ServerNotificationSchema>;
 export type ServerResult = Infer<typeof ServerResultSchema>;
+
+/* Server events */
+export type ServerEvents = {
+  responseSse: [{ sessionId?: string, message: JSONRPCMessage, eventId?: string }];
+  sse: [{ sessionId?: string, message: JSONRPCMessage, eventId?: string }];
+}
+
+export type EventListener<K extends any[]> = (...args: K) => void;
