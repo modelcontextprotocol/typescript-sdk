@@ -26,10 +26,12 @@ const extensibleTool = ExtensibleToolSchema.parse(toolData);
 
 console.log("Extensible tool keeps ALL properties:");
 console.log("- name:", extensibleTool.name);
-console.log("- customField:", (extensibleTool as any).customField); // "This is an extension"
+// Type assertion to access the extra field
+console.log("- customField:", (extensibleTool as Record<string, unknown>).customField); // "This is an extension"
 
 // With safe types - unknown fields are silently stripped
 const safeTool = ToolSchema.parse(toolData);
 
 console.log("\nSafe tool strips unknown properties:");
-console.log("- customField:", (safeTool as any).customField); // undefined (stripped)
+// Type assertion to check the field was removed
+console.log("- customField:", (safeTool as Record<string, unknown>).customField); // undefined (stripped)
