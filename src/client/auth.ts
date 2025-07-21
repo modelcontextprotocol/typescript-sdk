@@ -563,27 +563,54 @@ async function discoverMetadataWithFallback(
   serverUrl: string | URL,
   wellKnownType: 'oauth-authorization-server' | 'oauth-protected-resource',
   fetchFn: FetchLike,
-  opts?: { protocolVersion?: string; metadataUrl?: string | URL, metadataServerUrl?: string | URL },
+  opts?: { protocolVersion?: string; metadataUrl?: string | URL, metadataServerUrl?: string | URL, originalIssuer?: URL },
 ): Promise<Response | undefined> {
   const issuer = new URL(serverUrl);
   const protocolVersion = opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
 
   let url: URL;
+  let response: Response | undefined;
+
   if (opts?.metadataUrl) {
     url = new URL(opts.metadataUrl);
+    response = await tryMetadataDiscovery(url, protocolVersion, fetchFn);
   } else {
-    // Try path-aware discovery first
-    const wellKnownPath = buildWellKnownPath(wellKnownType, issuer.pathname);
-    url = new URL(wellKnownPath, opts?.metadataServerUrl ?? issuer);
-    url.search = issuer.search;
-  }
+    const metadataServerUrl = opts?.metadataServerUrl ? new URL(opts.metadataServerUrl) : issuer;
+    const originalIssuer = opts?.originalIssuer ?? issuer;
 
-  let response = await tryMetadataDiscovery(url, protocolVersion, fetchFn);
+    // Check if we have a custom authorization server URL with a path (like Okta/Keycloak)
+    // Only apply the exact URL logic when the auth server is on the same origin as the original issuer
+    const hasCustomAuthServerWithPath = opts?.metadataServerUrl && 
+      metadataServerUrl.href !== originalIssuer.href && 
+      metadataServerUrl.origin === originalIssuer.origin &&
+      metadataServerUrl.pathname !== '/' && 
+      metadataServerUrl.pathname !== '';
 
-  // If path-aware discovery fails with 404 and we're not already at root, try fallback to root discovery
-  if (!opts?.metadataUrl && shouldAttemptFallback(response, issuer.pathname)) {
-    const rootUrl = new URL(`/.well-known/${wellKnownType}`, issuer);
-    response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
+    if (hasCustomAuthServerWithPath) {
+      // Step 1: Try exact authorization server URL + /.well-known/{wellKnownType}
+      // This handles cases like Okta: https://my-org.okta.com/oauth2/abc123/.well-known/oauth-authorization-server
+      const exactUrl = new URL(metadataServerUrl);
+      exactUrl.pathname = exactUrl.pathname.replace(/\/$/, '') + `/.well-known/${wellKnownType}`;
+      exactUrl.search = originalIssuer.search;
+      response = await tryMetadataDiscovery(exactUrl, protocolVersion, fetchFn);
+    }
+
+    // Step 2: If exact URL failed or wasn't tried, try RFC 8414 path-aware discovery
+    // This constructs URLs like: https://my-org.okta.com/.well-known/oauth-authorization-server/oauth2/abc123
+    if (!response || response.status === 404) {
+      // Use the authorization server's path for path-aware discovery when available
+      const pathForDiscovery = hasCustomAuthServerWithPath ? metadataServerUrl.pathname : issuer.pathname;
+      const wellKnownPath = buildWellKnownPath(wellKnownType, pathForDiscovery);
+      const pathAwareUrl = new URL(wellKnownPath, hasCustomAuthServerWithPath ? originalIssuer : metadataServerUrl);
+      pathAwareUrl.search = originalIssuer.search;
+      response = await tryMetadataDiscovery(pathAwareUrl, protocolVersion, fetchFn);
+
+      // Step 3: If path-aware discovery fails with 404 and we're not already at root, try root discovery
+      if (shouldAttemptFallback(response, pathForDiscovery)) {
+        const rootUrl = new URL(`/.well-known/${wellKnownType}`, hasCustomAuthServerWithPath ? originalIssuer : (opts?.metadataServerUrl ?? issuer));
+        response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
+      }
+    }
   }
 
   return response;
@@ -624,6 +651,7 @@ export async function discoverOAuthMetadata(
     {
       protocolVersion,
       metadataServerUrl: authorizationServerUrl,
+      originalIssuer: issuer,
     },
   );
 
