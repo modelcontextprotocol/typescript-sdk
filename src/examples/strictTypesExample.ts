@@ -1,12 +1,14 @@
 /**
- * Example showing the difference between regular types and strict types
+ * Example showing the difference between extensible types and safe types
+ * 
+ * - Extensible types (types.js): Use .passthrough() - keep all fields
+ * - Safe types (strictTypes.js): Use .strip() - remove unknown fields
  */
 
-import { ToolSchema as OpenToolSchema } from "../types.js";
-import { ToolSchema as StrictToolSchema } from "../strictTypes.js";
+import { ToolSchema as ExtensibleToolSchema } from "../types.js";
+import { ToolSchema } from "../strictTypes.js";
 
-// With regular (open) types - this is valid
-const openTool = OpenToolSchema.parse({
+const toolData = {
   name: "get-weather",
   description: "Get weather for a location",
   inputSchema: {
@@ -15,43 +17,19 @@ const openTool = OpenToolSchema.parse({
       location: { type: "string" }
     }
   },
-  // Extra properties are allowed
-  customField: "This is allowed in open types",
-  anotherExtra: 123
-});
+  // Extra properties that aren't in the schema
+  customField: "This is an extension",
+};
 
-console.log("Open tool accepts extra properties:", openTool);
+// With extensible types - ALL fields are preserved
+const extensibleTool = ExtensibleToolSchema.parse(toolData);
 
-// With strict types - this would throw an error
-try {
-  StrictToolSchema.parse({
-    name: "get-weather",
-    description: "Get weather for a location",
-    inputSchema: {
-      type: "object",
-      properties: {
-        location: { type: "string" }
-      }
-    },
-    // Extra properties cause validation to fail
-    customField: "This is NOT allowed in strict types",
-    anotherExtra: 123
-  });
-} catch (error) {
-  console.log("Strict tool rejects extra properties:", error instanceof Error ? error.message : String(error));
-}
+console.log("Extensible tool keeps ALL properties:");
+console.log("- name:", extensibleTool.name);
+console.log("- customField:", (extensibleTool as any).customField); // "This is an extension"
 
-// Correct usage with strict types
-const strictToolCorrect = StrictToolSchema.parse({
-  name: "get-weather",
-  description: "Get weather for a location",
-  inputSchema: {
-    type: "object",
-    properties: {
-      location: { type: "string" }
-    }
-  }
-  // No extra properties
-});
+// With safe types - unknown fields are silently stripped
+const safeTool = ToolSchema.parse(toolData);
 
-console.log("Strict tool with no extra properties:", strictToolCorrect);
+console.log("\nSafe tool strips unknown properties:");
+console.log("- customField:", (safeTool as any).customField); // undefined (stripped)
