@@ -36,6 +36,16 @@ const patternsToKeepOpen = [
   /_meta: z\.optional\(z\.object\(\{\}\)\.strip\(\)\)/g,
   // Keep JSON Schema properties open as they can have arbitrary fields
   /properties: z\.optional\(z\.object\(\{\}\)\.strip\(\)\)/g,
+  // Keep BaseRequestParamsSchema passthrough for JSON-RPC param compatibility
+  /const BaseRequestParamsSchema = z\s*\n\s*\.object\([\s\S]*?\)\s*\n\s*\.strip\(\)/g,
+  // Keep BaseNotificationParamsSchema passthrough for JSON-RPC param compatibility  
+  /const BaseNotificationParamsSchema = z\s*\n\s*\.object\([\s\S]*?\)\s*\n\s*\.strip\(\)/g,
+  // Keep RequestMetaSchema passthrough for extensibility
+  /const RequestMetaSchema = z\s*\n\s*\.object\([\s\S]*?\)\s*\n\s*\.strip\(\)/g,
+  // Keep structuredContent passthrough for tool-specific output
+  /structuredContent: z\.object\(\{\}\)\.strip\(\)\.optional\(\)/g,
+  // Keep metadata passthrough for provider-specific data in sampling
+  /metadata: z\.optional\(z\.object\(\{\}\)\.strip\(\)\)/g,
 ];
 
 // Revert strip back to passthrough for these special cases
@@ -48,10 +58,15 @@ patternsToKeepOpen.forEach(pattern => {
 // Add a comment explaining the difference
 const explanation = `
 /**
- * Note: The following fields remain open (using .passthrough()):
+ * Note: The following remain open (using .passthrough()):
  * - experimental: Designed for protocol extensions
  * - _meta: Designed for arbitrary metadata
  * - properties: JSON Schema properties that can have arbitrary fields
+ * - BaseRequestParamsSchema: Required for JSON-RPC param compatibility
+ * - BaseNotificationParamsSchema: Required for JSON-RPC param compatibility
+ * - RequestMetaSchema: Required for protocol extensibility
+ * - structuredContent: Tool-specific output that can have arbitrary fields
+ * - metadata: Provider-specific metadata in sampling requests
  * 
  * All other objects use .strip() to remove unknown properties while
  * maintaining compatibility with extended protocols.

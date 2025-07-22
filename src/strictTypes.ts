@@ -29,10 +29,15 @@ import { z, ZodTypeAny } from "zod";
 import { AuthInfo } from "./server/auth/types.js";
 
 /**
- * Note: The following fields remain open (using .passthrough()):
+ * Note: The following remain open (using .passthrough()):
  * - experimental: Designed for protocol extensions
  * - _meta: Designed for arbitrary metadata
  * - properties: JSON Schema properties that can have arbitrary fields
+ * - BaseRequestParamsSchema: Required for JSON-RPC param compatibility
+ * - BaseNotificationParamsSchema: Required for JSON-RPC param compatibility
+ * - RequestMetaSchema: Required for protocol extensibility
+ * - structuredContent: Tool-specific output that can have arbitrary fields
+ * - metadata: Provider-specific metadata in sampling requests
  * 
  * All other objects use .strip() to remove unknown properties while
  * maintaining compatibility with extended protocols.
@@ -67,13 +72,13 @@ const RequestMetaSchema = z
      */
     progressToken: z.optional(ProgressTokenSchema),
   })
-  .strip();
+  .passthrough();
 
 const BaseRequestParamsSchema = z
   .object({
     _meta: z.optional(RequestMetaSchema),
   })
-  .strip();
+  .passthrough();
 
 export const RequestSchema = z.object({
   method: z.string(),
@@ -88,7 +93,7 @@ const BaseNotificationParamsSchema = z
      */
     _meta: z.optional(z.object({}).passthrough()),
   })
-  .strip();
+  .passthrough();
 
 export const NotificationSchema = z.object({
   method: z.string(),
@@ -1005,7 +1010,7 @@ export const CallToolResultSchema = ResultSchema.extend({
    *
    * If the Tool defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
    */
-  structuredContent: z.object({}).strip().optional(),
+  structuredContent: z.object({}).passthrough().optional(),
 
   /**
    * Whether the tool call ended in an error.
@@ -1171,7 +1176,7 @@ export const CreateMessageRequestSchema = RequestSchema.extend({
     /**
      * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
      */
-    metadata: z.optional(z.object({}).strip()),
+    metadata: z.optional(z.object({}).passthrough()),
     /**
      * The server's preferences for which model to select.
      */
