@@ -31,7 +31,11 @@ export class ReadBuffer {
 }
 
 export function deserializeMessage(line: string): JSONRPCMessage {
-  return JSONRPCMessageSchema.parse(JSON.parse(line));
+  try {
+    return JSONRPCMessageSchema.parse(JSON.parse(line));
+  } catch (error) {
+    throw new Error(`Failed to parse JSON-RPC message: ${line}: ${error}`);
+  }
 }
 
 export function serializeMessage(message: JSONRPCMessage): string {
