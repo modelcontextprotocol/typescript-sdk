@@ -776,6 +776,22 @@ describe("OAuth Authorization", () => {
             "https://auth.example.com/.well-known/openid-configuration/tenant1",
             "https://auth.example.com/tenant1/.well-known/openid-configuration"
           ]
+        },
+        {
+          description: "with path - all fails, returns undefined",
+          serverUrl: "https://auth.example.com/tenant1",
+          responses: [
+            { success: false, status: 404 }, // OAuth path
+            { success: false, status: 404 }, // OAuth root
+            { success: false, status: 404 }, // OIDC path insertion
+            { success: false, status: 404 }, // OIDC path appending
+          ],
+          expectedPaths: [
+            "https://auth.example.com/.well-known/oauth-authorization-server/tenant1",
+            "https://auth.example.com/.well-known/oauth-authorization-server",
+            "https://auth.example.com/.well-known/openid-configuration/tenant1",
+            "https://auth.example.com/tenant1/.well-known/openid-configuration"
+          ]
         }
       ];
 
@@ -798,7 +814,6 @@ describe("OAuth Authorization", () => {
           });
 
           const metadata = await discoverAuthorizationServerMetadata(
-            "https://mcp.example.com",
             serverUrl
           );
 
@@ -843,43 +858,9 @@ describe("OAuth Authorization", () => {
 
       await expect(
         discoverAuthorizationServerMetadata(
-          "https://mcp.example.com",
           "https://auth.example.com"
         )
       ).rejects.toThrow("does not support S256 code challenge method required by MCP specification");
-    });
-
-    it("falls back to legacy MCP server when authorizationServerUrl is undefined", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => validOAuthMetadata,
-      });
-
-      const metadata = await discoverAuthorizationServerMetadata(
-        "https://mcp.example.com",
-        undefined
-      );
-
-      expect(metadata).toEqual(validOAuthMetadata);
-      const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(1);
-      const [url] = calls[0];
-      expect(url.toString()).toBe("https://mcp.example.com/.well-known/oauth-authorization-server");
-    });
-
-    it("returns undefined when legacy MCP server returns 404", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
-
-      const metadata = await discoverAuthorizationServerMetadata(
-        "https://mcp.example.com",
-        undefined
-      );
-
-      expect(metadata).toBeUndefined();
     });
 
     it("throws on non-404 errors in legacy mode", async () => {
@@ -905,7 +886,6 @@ describe("OAuth Authorization", () => {
       });
 
       const metadata = await discoverAuthorizationServerMetadata(
-        "https://mcp.example.com",
         "https://auth.example.com"
       );
 
@@ -928,7 +908,6 @@ describe("OAuth Authorization", () => {
       });
 
       const metadata = await discoverAuthorizationServerMetadata(
-        "https://mcp.example.com",
         "https://auth.example.com",
         { fetchFn: customFetch }
       );
@@ -946,7 +925,6 @@ describe("OAuth Authorization", () => {
       });
 
       const metadata = await discoverAuthorizationServerMetadata(
-        "https://mcp.example.com",
         "https://auth.example.com",
         { protocolVersion: "2025-01-01" }
       );

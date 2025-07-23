@@ -332,12 +332,6 @@ async function authInternal(
     // Ignore errors and fall back to /.well-known/oauth-authorization-server
   }
 
-  const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
-
-  const metadata = await discoverAuthorizationServerMetadata(serverUrl, authorizationServerUrl, {
-    fetchFn,
-  });
-
   /**
    * If we don't get a valid authorization server metadata from protected resource metadata,
    * fallback to the legacy MCP spec's implementation (version 2025-03-26): MCP server acts as the Authorization server.
@@ -345,6 +339,12 @@ async function authInternal(
   if (!authorizationServerUrl) {
     authorizationServerUrl = serverUrl;
   }
+
+  const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
+
+  const metadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
+    fetchFn,
+  });
 
   // Handle client registration if needed
   let clientInformation = await Promise.resolve(provider.clientInformation());
@@ -664,24 +664,19 @@ export async function discoverOAuthMetadata(
  * and OpenID Connect Discovery 1.0 specifications.
  *
  * This function implements a fallback strategy for authorization server discovery:
- * 1. If `authorizationServerUrl` is provided, attempts RFC 8414 OAuth metadata discovery first
+ * 1. Attempts RFC 8414 OAuth metadata discovery first
  * 2. If OAuth discovery fails, falls back to OpenID Connect Discovery
- * 3. If `authorizationServerUrl` is not provided, uses legacy MCP specification behavior
  *
- * @param serverUrl - The MCP Server URL, used for legacy specification support where the MCP server
- *                    acts as both the resource server and authorization server
  * @param authorizationServerUrl - The authorization server URL obtained from the MCP Server's
- *                                 protected resource metadata. If this parameter is `undefined`,
- *                                 it indicates that protected resource metadata was not successfully
- *                                 retrieved, triggering legacy fallback behavior
+ *                                 protected resource metadata, or the MCP server's URL if the
+ *                                 metadata was not found.
  * @param options - Configuration options
  * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
  * @param options.protocolVersion - MCP protocol version to use, defaults to LATEST_PROTOCOL_VERSION
  * @returns Promise resolving to authorization server metadata, or undefined if discovery fails
  */
 export async function discoverAuthorizationServerMetadata(
-  serverUrl: string | URL,
-  authorizationServerUrl?: string | URL,
+  authorizationServerUrl: string | URL,
   {
     fetchFn = fetch,
     protocolVersion = LATEST_PROTOCOL_VERSION,
@@ -690,18 +685,10 @@ export async function discoverAuthorizationServerMetadata(
     protocolVersion?: string;
   } = {}
 ): Promise<AuthorizationServerMetadata | undefined> {
-  if (!authorizationServerUrl) {
-    // Legacy support: MCP servers act as the Auth server.
-    return retrieveOAuthMetadataFromMcpServer(serverUrl, {
-      fetchFn,
-      protocolVersion,
-    });
-  }
-
   const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
   const hasPath = url.pathname !== '/';
 
-  const oauthMetadata = await retrieveOAuthMetadataFromAuthorizationServer(authorizationServerUrl, {
+  const oauthMetadata = await fetchOAuthMetadata(authorizationServerUrl, {
     fetchFn,
     protocolVersion,
   });
@@ -712,7 +699,7 @@ export async function discoverAuthorizationServerMetadata(
 
   if (hasPath) {
     const rootUrl = new URL(url.origin);
-    const rootOauthMetadata = await retrieveOAuthMetadataFromAuthorizationServer(rootUrl, {
+    const rootOauthMetadata = await fetchOAuthMetadata(rootUrl, {
       fetchFn,
       protocolVersion,
     });
@@ -731,49 +718,8 @@ export async function discoverAuthorizationServerMetadata(
 }
 
 /**
- * Legacy implementation where the MCP server acts as the Auth server.
- * According to MCP spec version 2025-03-26.
- *
- * @param serverUrl - The MCP Server URL
- * @param options - Configuration options
- * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
- * @param options.protocolVersion - MCP protocol version to use (required)
- * @returns Promise resolving to OAuth metadata, or undefined if discovery fails
- */
-async function retrieveOAuthMetadataFromMcpServer(
-  serverUrl: string | URL,
-  {
-    fetchFn = fetch,
-    protocolVersion,
-  }: {
-    fetchFn?: FetchLike;
-    protocolVersion: string;
-  }
-): Promise<OAuthMetadata | undefined> {
-  const serverOrigin = typeof serverUrl === 'string' ? new URL(serverUrl).origin : serverUrl.origin;
-
-  const metadataEndpoint = new URL(buildWellKnownPath('oauth-authorization-server'), serverOrigin);
-
-  const response = await fetchWithCorsRetry(metadataEndpoint, getProtocolVersionHeader(protocolVersion), fetchFn);
-
-  if (!response) {
-    throw new Error(`CORS error trying to load OAuth metadata from ${metadataEndpoint}`);
-  }
-
-  if (!response.ok) {
-    if (response.status === 404) {
-      return undefined;
-    }
-
-    throw new Error(`HTTP ${response.status} trying to load OAuth metadata from ${metadataEndpoint}`);
-  }
-
-  return OAuthMetadataSchema.parse(await response.json());
-}
-
-/**
  * Retrieves RFC 8414 OAuth 2.0 Authorization Server Metadata from the authorization server.
- * 
+ *
  * Per RFC 8414 Section 3.1, when the issuer identifier contains path components,
  * the well-known URI is constructed by inserting "/.well-known/oauth-authorization-server"
  * before the path component.
@@ -784,7 +730,7 @@ async function retrieveOAuthMetadataFromMcpServer(
  * @param options.protocolVersion - MCP protocol version to use (required)
  * @returns Promise resolving to OAuth metadata, or undefined if discovery fails
  */
-async function retrieveOAuthMetadataFromAuthorizationServer(
+async function fetchOAuthMetadata(
   authorizationServerUrl: string | URL,
   {
     fetchFn = fetch,
@@ -821,7 +767,7 @@ async function retrieveOAuthMetadataFromAuthorizationServer(
 
 /**
  * Retrieves OpenID Connect Discovery 1.0 metadata from the authorization server.
- * 
+ *
  * Per RFC 8414 Section 5 compatibility notes and OpenID Connect Discovery 1.0 Section 4.1,
  * when the issuer identifier contains path components, discovery endpoints are tried in order:
  * 1. RFC 8414 style: Insert /.well-known/openid-configuration before the path
