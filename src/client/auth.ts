@@ -721,7 +721,7 @@ export async function discoverAuthorizationServerMetadata(
  * @param options - Configuration options
  * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
  * @param options.protocolVersion - MCP protocol version to use (required)
- * @returns Promise resolving to OAuth metadata
+ * @returns Promise resolving to OAuth metadata, or undefined if discovery fails
  */
 async function retrieveOAuthMetadataFromMcpServer(
   serverUrl: string | URL,
@@ -732,7 +732,7 @@ async function retrieveOAuthMetadataFromMcpServer(
     fetchFn?: FetchLike;
     protocolVersion: string;
   }
-): Promise<OAuthMetadata> {
+): Promise<OAuthMetadata | undefined> {
   const serverOrigin = typeof serverUrl === 'string' ? new URL(serverUrl).origin : serverUrl.origin;
 
   const metadataEndpoint = new URL(buildWellKnownPath('oauth-authorization-server'), serverOrigin);
@@ -745,19 +745,7 @@ async function retrieveOAuthMetadataFromMcpServer(
 
   if (!response.ok) {
     if (response.status === 404) {
-      /**
-       * The MCP server does not implement OAuth 2.0 Authorization Server Metadata
-       *
-       * Return fallback OAuth 2.0 Authorization Server Metadata
-       */
-      return {
-        issuer: serverOrigin,
-        authorization_endpoint: new URL('/authorize', serverOrigin).href,
-        token_endpoint: new URL('/token', serverOrigin).href,
-        registration_endpoint: new URL('/register', serverOrigin).href,
-        response_types_supported: ['code'],
-        code_challenge_methods_supported: ['S256'],
-      };
+      return undefined;
     }
 
     throw new Error(`HTTP ${response.status} trying to load OAuth metadata from ${metadataEndpoint}`);

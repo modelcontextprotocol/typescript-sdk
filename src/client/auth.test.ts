@@ -908,7 +908,7 @@ describe("OAuth Authorization", () => {
       expect(url.toString()).toBe("https://mcp.example.com/.well-known/oauth-authorization-server");
     });
 
-    it("returns fallback metadata when legacy MCP server returns 404", async () => {
+    it("returns undefined when legacy MCP server returns 404", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 404,
@@ -919,14 +919,7 @@ describe("OAuth Authorization", () => {
         undefined
       );
 
-      expect(metadata).toEqual({
-        issuer: "https://mcp.example.com",
-        authorization_endpoint: "https://mcp.example.com/authorize",
-        token_endpoint: "https://mcp.example.com/token",
-        registration_endpoint: "https://mcp.example.com/register",
-        response_types_supported: ["code"],
-        code_challenge_methods_supported: ["S256"],
-      });
+      expect(metadata).toBeUndefined();
     });
 
     it("throws on non-404 errors in legacy mode", async () => {
