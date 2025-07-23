@@ -1,7 +1,7 @@
 # TypeScript SDK Code Owners
 
 # Default owners for everything in the repo
-* @modelcontextprotocol/typescript-sdk-maintainers
+* @modelcontextprotocol/typescript-sdk
 
 # Auth team owns all auth-related code
 /src/server/auth/ @modelcontextprotocol/typescript-sdk-auth
