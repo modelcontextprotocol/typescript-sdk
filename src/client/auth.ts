@@ -710,26 +710,24 @@ export async function discoverAuthorizationServerMetadata(
     return oauthMetadata;
   }
 
+  if (hasPath) {
+    const rootUrl = new URL(url.origin);
+    const rootOauthMetadata = await retrieveOAuthMetadataFromAuthorizationServer(rootUrl, {
+      fetchFn,
+      protocolVersion,
+    });
+
+    if (rootOauthMetadata) {
+      return rootOauthMetadata;
+    }
+  }
+
   const oidcMetadata = await retrieveOpenIdProviderMetadataFromAuthorizationServer(authorizationServerUrl, {
     fetchFn,
     protocolVersion,
   });
 
-  if (oidcMetadata) {
-    return oidcMetadata;
-  }
-
-  // If both path-aware discoveries failed and the issuer has a path component,
-  // try OAuth discovery at the root as a final fallback for compatibility
-  if (hasPath) {
-    const rootUrl = new URL(url.origin);
-    return retrieveOAuthMetadataFromAuthorizationServer(rootUrl, {
-      fetchFn,
-      protocolVersion,
-    });
-  }
-
-  return undefined;
+  return oidcMetadata;
 }
 
 /**

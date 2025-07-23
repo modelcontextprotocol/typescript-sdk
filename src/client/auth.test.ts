@@ -727,7 +727,7 @@ describe("OAuth Authorization", () => {
       });
     });
 
-    it("falls back to OpenID Connect discovery when OAuth discovery fails", async () => {
+    it("falls back to OpenID Connect discovery when OAuth discovery fails (no path component)", async () => {
       // First call (OAuth) returns 404
       mockFetch.mockResolvedValueOnce({
         ok: false,
@@ -781,19 +781,7 @@ describe("OAuth Authorization", () => {
         status: 404,
       });
 
-      // Second call (OIDC with path insertion) returns 404
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
-
-      // Third call (OIDC with path appending) returns 404
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
-
-      // Fourth call should be OAuth root fallback
+      // Second call should be OAuth root fallback
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -807,17 +795,50 @@ describe("OAuth Authorization", () => {
 
       expect(metadata).toEqual(validOAuthMetadata);
       const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(4);
-      
+      expect(calls.length).toBe(2);
+
       // Should try OAuth with path first
       expect(calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
-      
-      // Should try OIDC discoveries next
-      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration/tenant1");
-      expect(calls[2][0].toString()).toBe("https://auth.example.com/tenant1/.well-known/openid-configuration");
-      
-      // Should finally fall back to OAuth root discovery  
-      expect(calls[3][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+
+      // Should fall back to OAuth root discovery
+      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+    });
+
+    it("should try OIDC discovery after OAuth attempts fail", async () => {
+      // First call (OAuth with path) returns 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // Second call (OAuth root) returns 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // Third call (OIDC with path insertion) succeeds
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validOpenIdMetadata,
+      });
+
+      const metadata = await discoverAuthorizationServerMetadata(
+        "https://mcp.example.com",
+        "https://auth.example.com/tenant1"
+      );
+
+      expect(metadata).toEqual(validOpenIdMetadata);
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(3);
+
+      // Should try OAuth attempts first
+      expect(calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
+      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+
+      // Then try OIDC discovery
+      expect(calls[2][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration/tenant1");
     });
 
     it("handles authorization server URL with path in OAuth discovery", async () => {
@@ -840,7 +861,13 @@ describe("OAuth Authorization", () => {
     });
 
     it("handles authorization server URL with path in OpenID Connect discovery", async () => {
-      // OAuth discovery fails
+      // OAuth discovery with path fails
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // OAuth discovery at root fails
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 404,
@@ -860,17 +887,26 @@ describe("OAuth Authorization", () => {
 
       expect(metadata).toEqual(validOpenIdMetadata);
       const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(2);
+      expect(calls.length).toBe(3);
 
       // First call should be OAuth with path
       expect(calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
 
-      // Second call should be OpenID Connect with path insertion
-      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration/tenant1");
+      // Second call should be OAuth at root
+      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+
+      // Third call should be OpenID Connect with path insertion
+      expect(calls[2][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration/tenant1");
     });
 
     it("tries multiple OpenID Connect endpoints when path is present", async () => {
-      // OAuth discovery fails
+      // OAuth discovery with path fails
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // OAuth discovery at root fails
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 404,
@@ -896,16 +932,19 @@ describe("OAuth Authorization", () => {
 
       expect(metadata).toEqual(validOpenIdMetadata);
       const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(3);
+      expect(calls.length).toBe(4);
 
       // First call should be OAuth with path
       expect(calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
 
-      // Second call should be OpenID Connect with path insertion
-      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration/tenant1");
+      // Second call should be OAuth at root
+      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
 
-      // Third call should be OpenID Connect with path prepending
-      expect(calls[2][0].toString()).toBe("https://auth.example.com/tenant1/.well-known/openid-configuration");
+      // Third call should be OpenID Connect with path insertion
+      expect(calls[2][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration/tenant1");
+
+      // Fourth call should be OpenID Connect with path prepending
+      expect(calls[3][0].toString()).toBe("https://auth.example.com/tenant1/.well-known/openid-configuration");
     });
 
     it("throws error when OIDC provider does not support S256 PKCE", async () => {
