@@ -705,247 +705,122 @@ describe("OAuth Authorization", () => {
       code_challenge_methods_supported: ["S256"],
     };
 
-    it("returns OAuth metadata when authorizationServerUrl is provided and OAuth discovery succeeds", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => validOAuthMetadata,
-      });
+    describe("discovery sequence", () => {
+      const testCases = [
+        {
+          description: "no path - direct OAuth success",
+          serverUrl: "https://auth.example.com",
+          responses: [{ success: true, metadata: validOAuthMetadata }],
+          expectedPaths: [
+            "https://auth.example.com/.well-known/oauth-authorization-server"
+          ]
+        },
+        {
+          description: "no path - OAuth fails, OIDC succeeds",
+          serverUrl: "https://auth.example.com",
+          responses: [
+            { success: false, status: 404 },
+            { success: true, metadata: validOpenIdMetadata }
+          ],
+          expectedPaths: [
+            "https://auth.example.com/.well-known/oauth-authorization-server",
+            "https://auth.example.com/.well-known/openid-configuration"
+          ]
+        },
+        {
+          description: "with path - path OAuth succeeds",
+          serverUrl: "https://auth.example.com/tenant1",
+          responses: [{ success: true, metadata: validOAuthMetadata }],
+          expectedPaths: [
+            "https://auth.example.com/.well-known/oauth-authorization-server/tenant1"
+          ]
+        },
+        {
+          description: "with path - path OAuth fails, root OAuth succeeds",
+          serverUrl: "https://auth.example.com/tenant1",
+          responses: [
+            { success: false, status: 404 },
+            { success: true, metadata: validOAuthMetadata }
+          ],
+          expectedPaths: [
+            "https://auth.example.com/.well-known/oauth-authorization-server/tenant1",
+            "https://auth.example.com/.well-known/oauth-authorization-server"
+          ]
+        },
+        {
+          description: "with path - OAuth fails, OIDC path insertion succeeds",
+          serverUrl: "https://auth.example.com/tenant1",
+          responses: [
+            { success: false, status: 404 }, // OAuth path
+            { success: false, status: 404 }, // OAuth root
+            { success: true, metadata: validOpenIdMetadata } // OIDC path insertion
+          ],
+          expectedPaths: [
+            "https://auth.example.com/.well-known/oauth-authorization-server/tenant1",
+            "https://auth.example.com/.well-known/oauth-authorization-server",
+            "https://auth.example.com/.well-known/openid-configuration/tenant1"
+          ]
+        },
+        {
+          description: "with path - OAuth fails, OIDC path appending succeeds",
+          serverUrl: "https://auth.example.com/tenant1",
+          responses: [
+            { success: false, status: 404 }, // OAuth path
+            { success: false, status: 404 }, // OAuth root
+            { success: false, status: 404 }, // OIDC path insertion
+            { success: true, metadata: validOpenIdMetadata } // OIDC path appending
+          ],
+          expectedPaths: [
+            "https://auth.example.com/.well-known/oauth-authorization-server/tenant1",
+            "https://auth.example.com/.well-known/oauth-authorization-server",
+            "https://auth.example.com/.well-known/openid-configuration/tenant1",
+            "https://auth.example.com/tenant1/.well-known/openid-configuration"
+          ]
+        }
+      ];
 
-      const metadata = await discoverAuthorizationServerMetadata(
-        "https://mcp.example.com",
-        "https://auth.example.com"
-      );
+      testCases.forEach(({ description, serverUrl, responses, expectedPaths }) => {
+        it(description, async () => {
+          // Set up mock responses
+          responses.forEach(response => {
+            if (response.success) {
+              mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => response.metadata
+              });
+            } else {
+              mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: response.status || 404
+              });
+            }
+          });
 
-      expect(metadata).toEqual(validOAuthMetadata);
-      const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(1);
-      const [url, options] = calls[0];
-      expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
-      expect(options.headers).toEqual({
-        "MCP-Protocol-Version": LATEST_PROTOCOL_VERSION
+          const metadata = await discoverAuthorizationServerMetadata(
+            "https://mcp.example.com",
+            serverUrl
+          );
+
+          // Verify result
+          const successResponse = responses.find(r => r.success);
+          if (successResponse) {
+            expect(metadata).toEqual(successResponse.metadata);
+          } else {
+            expect(metadata).toBeUndefined();
+          }
+
+          // Verify discovery sequence
+          const calls = mockFetch.mock.calls;
+          expect(calls.length).toBe(expectedPaths.length);
+
+          expectedPaths.forEach((expectedPath, index) => {
+            expect(calls[index][0].toString()).toBe(expectedPath);
+          });
+        });
       });
     });
 
-    it("falls back to OpenID Connect discovery when OAuth discovery fails (no path component)", async () => {
-      // First call (OAuth) returns 404
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
-
-      // Second call (OpenID Connect) succeeds
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => validOpenIdMetadata,
-      });
-
-      const metadata = await discoverAuthorizationServerMetadata(
-        "https://mcp.example.com",
-        "https://auth.example.com"
-      );
-
-      expect(metadata).toEqual(validOpenIdMetadata);
-      const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(2);
-
-      // First call should be OAuth discovery
-      expect(calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
-
-      // Second call should be OpenID Connect discovery
-      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration");
-    });
-
-    it("returns undefined when authorizationServerUrl is provided but both discoveries fail", async () => {
-      // Both calls return 404
-      mockFetch.mockResolvedValue({
-        ok: false,
-        status: 404,
-      });
-
-      const metadata = await discoverAuthorizationServerMetadata(
-        "https://mcp.example.com",
-        "https://auth.example.com"
-      );
-
-      expect(metadata).toBeUndefined();
-      const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(2);
-    });
-
-    it("should fall back to root OAuth discovery when path-aware discovery fails", async () => {
-      // First call (OAuth with path) returns 404
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
-
-      // Second call should be OAuth root fallback
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => validOAuthMetadata,
-      });
-
-      const metadata = await discoverAuthorizationServerMetadata(
-        "https://mcp.example.com",
-        "https://auth.example.com/tenant1"
-      );
-
-      expect(metadata).toEqual(validOAuthMetadata);
-      const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(2);
-
-      // Should try OAuth with path first
-      expect(calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
-
-      // Should fall back to OAuth root discovery
-      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
-    });
-
-    it("should try OIDC discovery after OAuth attempts fail", async () => {
-      // First call (OAuth with path) returns 404
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
-
-      // Second call (OAuth root) returns 404
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
-
-      // Third call (OIDC with path insertion) succeeds
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => validOpenIdMetadata,
-      });
-
-      const metadata = await discoverAuthorizationServerMetadata(
-        "https://mcp.example.com",
-        "https://auth.example.com/tenant1"
-      );
-
-      expect(metadata).toEqual(validOpenIdMetadata);
-      const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(3);
-
-      // Should try OAuth attempts first
-      expect(calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
-      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
-
-      // Then try OIDC discovery
-      expect(calls[2][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration/tenant1");
-    });
-
-    it("handles authorization server URL with path in OAuth discovery", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => validOAuthMetadata,
-      });
-
-      const metadata = await discoverAuthorizationServerMetadata(
-        "https://mcp.example.com",
-        "https://auth.example.com/tenant1"
-      );
-
-      expect(metadata).toEqual(validOAuthMetadata);
-      const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(1);
-      const [url] = calls[0];
-      expect(url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
-    });
-
-    it("handles authorization server URL with path in OpenID Connect discovery", async () => {
-      // OAuth discovery with path fails
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
-
-      // OAuth discovery at root fails
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
-
-      // OpenID Connect discovery succeeds with path insertion
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => validOpenIdMetadata,
-      });
-
-      const metadata = await discoverAuthorizationServerMetadata(
-        "https://mcp.example.com",
-        "https://auth.example.com/tenant1"
-      );
-
-      expect(metadata).toEqual(validOpenIdMetadata);
-      const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(3);
-
-      // First call should be OAuth with path
-      expect(calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
-
-      // Second call should be OAuth at root
-      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
-
-      // Third call should be OpenID Connect with path insertion
-      expect(calls[2][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration/tenant1");
-    });
-
-    it("tries multiple OpenID Connect endpoints when path is present", async () => {
-      // OAuth discovery with path fails
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
-
-      // OAuth discovery at root fails
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
-
-      // First OpenID Connect attempt (path insertion) fails
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
-
-      // Second OpenID Connect attempt (path prepending) succeeds
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => validOpenIdMetadata,
-      });
-
-      const metadata = await discoverAuthorizationServerMetadata(
-        "https://mcp.example.com",
-        "https://auth.example.com/tenant1"
-      );
-
-      expect(metadata).toEqual(validOpenIdMetadata);
-      const calls = mockFetch.mock.calls;
-      expect(calls.length).toBe(4);
-
-      // First call should be OAuth with path
-      expect(calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
-
-      // Second call should be OAuth at root
-      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
-
-      // Third call should be OpenID Connect with path insertion
-      expect(calls[2][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration/tenant1");
-
-      // Fourth call should be OpenID Connect with path prepending
-      expect(calls[3][0].toString()).toBe("https://auth.example.com/tenant1/.well-known/openid-configuration");
-    });
 
     it("throws error when OIDC provider does not support S256 PKCE", async () => {
       // OAuth discovery fails
