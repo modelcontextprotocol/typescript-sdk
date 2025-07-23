@@ -698,6 +698,9 @@ export async function discoverAuthorizationServerMetadata(
     });
   }
 
+  const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
+  const hasPath = url.pathname !== '/';
+
   const oauthMetadata = await retrieveOAuthMetadataFromAuthorizationServer(authorizationServerUrl, {
     fetchFn,
     protocolVersion,
@@ -707,10 +710,26 @@ export async function discoverAuthorizationServerMetadata(
     return oauthMetadata;
   }
 
-  return retrieveOpenIdProviderMetadataFromAuthorizationServer(authorizationServerUrl, {
+  const oidcMetadata = await retrieveOpenIdProviderMetadataFromAuthorizationServer(authorizationServerUrl, {
     fetchFn,
     protocolVersion,
   });
+
+  if (oidcMetadata) {
+    return oidcMetadata;
+  }
+
+  // If both path-aware discoveries failed and the issuer has a path component,
+  // try OAuth discovery at the root as a final fallback for compatibility
+  if (hasPath) {
+    const rootUrl = new URL(url.origin);
+    return retrieveOAuthMetadataFromAuthorizationServer(rootUrl, {
+      fetchFn,
+      protocolVersion,
+    });
+  }
+
+  return undefined;
 }
 
 /**
@@ -756,8 +775,12 @@ async function retrieveOAuthMetadataFromMcpServer(
 
 /**
  * Retrieves RFC 8414 OAuth 2.0 Authorization Server Metadata from the authorization server.
+ * 
+ * Per RFC 8414 Section 3.1, when the issuer identifier contains path components,
+ * the well-known URI is constructed by inserting "/.well-known/oauth-authorization-server"
+ * before the path component.
  *
- * @param authorizationServerUrl - The authorization server URL
+ * @param authorizationServerUrl - The authorization server URL (issuer identifier)
  * @param options - Configuration options
  * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
  * @param options.protocolVersion - MCP protocol version to use (required)
@@ -774,7 +797,6 @@ async function retrieveOAuthMetadataFromAuthorizationServer(
   }
 ): Promise<OAuthMetadata | undefined> {
   const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
-
   const hasPath = url.pathname !== '/';
 
   const metadataEndpoint = new URL(
@@ -801,8 +823,13 @@ async function retrieveOAuthMetadataFromAuthorizationServer(
 
 /**
  * Retrieves OpenID Connect Discovery 1.0 metadata from the authorization server.
+ * 
+ * Per RFC 8414 Section 5 compatibility notes and OpenID Connect Discovery 1.0 Section 4.1,
+ * when the issuer identifier contains path components, discovery endpoints are tried in order:
+ * 1. RFC 8414 style: Insert /.well-known/openid-configuration before the path
+ * 2. OIDC Discovery 1.0 style: Append /.well-known/openid-configuration after the path
  *
- * @param authorizationServerUrl - The authorization server URL
+ * @param authorizationServerUrl - The authorization server URL (issuer identifier)
  * @param options - Configuration options
  * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
  * @param options.protocolVersion - MCP protocol version to use (required)

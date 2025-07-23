@@ -774,6 +774,52 @@ describe("OAuth Authorization", () => {
       expect(calls.length).toBe(2);
     });
 
+    it("should fall back to root OAuth discovery when path-aware discovery fails", async () => {
+      // First call (OAuth with path) returns 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // Second call (OIDC with path insertion) returns 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // Third call (OIDC with path appending) returns 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // Fourth call should be OAuth root fallback
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validOAuthMetadata,
+      });
+
+      const metadata = await discoverAuthorizationServerMetadata(
+        "https://mcp.example.com",
+        "https://auth.example.com/tenant1"
+      );
+
+      expect(metadata).toEqual(validOAuthMetadata);
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(4);
+      
+      // Should try OAuth with path first
+      expect(calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
+      
+      // Should try OIDC discoveries next
+      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/openid-configuration/tenant1");
+      expect(calls[2][0].toString()).toBe("https://auth.example.com/tenant1/.well-known/openid-configuration");
+      
+      // Should finally fall back to OAuth root discovery  
+      expect(calls[3][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+    });
+
     it("handles authorization server URL with path in OAuth discovery", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
