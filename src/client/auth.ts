@@ -774,6 +774,7 @@ export async function exchangeAuthorization(
   // Exchange code for tokens
   const headers = new Headers({
     "Content-Type": "application/x-www-form-urlencoded",
+    "Accept": "application/json",
   });
   const params = new URLSearchParams({
     grant_type: grantType,
