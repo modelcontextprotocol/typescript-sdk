@@ -860,7 +860,16 @@ async function retrieveOpenIdProviderMetadataFromAuthorizationServer(
       throw new Error(`HTTP ${response.status} trying to load OpenID provider metadata from ${endpoint}`);
     }
 
-    return OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
+    const metadata = OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
+
+    // MCP spec requires OIDC providers to support S256 PKCE
+    if (!metadata.code_challenge_methods_supported?.includes('S256')) {
+      throw new Error(
+        `Incompatible OIDC provider at ${endpoint}: does not support S256 code challenge method required by MCP specification`
+      );
+    }
+
+    return metadata;
   }
 
   return undefined;
