@@ -682,7 +682,7 @@ export async function discoverOAuthMetadata(
  * 2. OAuth metadata at root (if URL has path)
  * 3. OIDC metadata endpoints
  */
-function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url: URL; type: 'oauth' | 'oidc' }[] {
+export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url: URL; type: 'oauth' | 'oidc' }[] {
   const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
   const hasPath = url.pathname !== '/';
   const urlsToTry: { url: URL; type: 'oauth' | 'oidc' }[] = [];

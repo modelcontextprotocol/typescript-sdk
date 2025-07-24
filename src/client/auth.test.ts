@@ -2,6 +2,7 @@ import { LATEST_PROTOCOL_VERSION } from '../types.js';
 import {
   discoverOAuthMetadata,
   discoverAuthorizationServerMetadata,
+  buildDiscoveryUrls,
   startAuthorization,
   exchangeAuthorization,
   refreshAuthorization,
@@ -684,6 +685,55 @@ describe("OAuth Authorization", () => {
     });
   });
 
+  describe("buildDiscoveryUrls", () => {
+    it("generates correct URLs for server without path", () => {
+      const urls = buildDiscoveryUrls("https://auth.example.com");
+      
+      expect(urls).toHaveLength(2);
+      expect(urls.map(u => ({ url: u.url.toString(), type: u.type }))).toEqual([
+        {
+          url: "https://auth.example.com/.well-known/oauth-authorization-server",
+          type: "oauth"
+        },
+        {
+          url: "https://auth.example.com/.well-known/openid-configuration",
+          type: "oidc"
+        }
+      ]);
+    });
+
+    it("generates correct URLs for server with path", () => {
+      const urls = buildDiscoveryUrls("https://auth.example.com/tenant1");
+      
+      expect(urls).toHaveLength(4);
+      expect(urls.map(u => ({ url: u.url.toString(), type: u.type }))).toEqual([
+        {
+          url: "https://auth.example.com/.well-known/oauth-authorization-server/tenant1",
+          type: "oauth"
+        },
+        {
+          url: "https://auth.example.com/.well-known/oauth-authorization-server",
+          type: "oauth"
+        },
+        {
+          url: "https://auth.example.com/.well-known/openid-configuration/tenant1",
+          type: "oidc"
+        },
+        {
+          url: "https://auth.example.com/tenant1/.well-known/openid-configuration",
+          type: "oidc"
+        }
+      ]);
+    });
+
+    it("handles URL object input", () => {
+      const urls = buildDiscoveryUrls(new URL("https://auth.example.com/tenant1"));
+      
+      expect(urls).toHaveLength(4);
+      expect(urls[0].url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
+    });
+  });
+
   describe("discoverAuthorizationServerMetadata", () => {
     const validOAuthMetadata = {
       issuer: "https://auth.example.com",
@@ -705,137 +755,32 @@ describe("OAuth Authorization", () => {
       code_challenge_methods_supported: ["S256"],
     };
 
-    describe("discovery sequence", () => {
-      const testCases = [
-        {
-          description: "no path - direct OAuth success",
-          serverUrl: "https://auth.example.com",
-          responses: [{ success: true, metadata: validOAuthMetadata }],
-          expectedPaths: [
-            "https://auth.example.com/.well-known/oauth-authorization-server"
-          ]
-        },
-        {
-          description: "no path - OAuth fails, OIDC succeeds",
-          serverUrl: "https://auth.example.com",
-          responses: [
-            { success: false, status: 404 },
-            { success: true, metadata: validOpenIdMetadata }
-          ],
-          expectedPaths: [
-            "https://auth.example.com/.well-known/oauth-authorization-server",
-            "https://auth.example.com/.well-known/openid-configuration"
-          ]
-        },
-        {
-          description: "with path - path OAuth succeeds",
-          serverUrl: "https://auth.example.com/tenant1",
-          responses: [{ success: true, metadata: validOAuthMetadata }],
-          expectedPaths: [
-            "https://auth.example.com/.well-known/oauth-authorization-server/tenant1"
-          ]
-        },
-        {
-          description: "with path - path OAuth fails, root OAuth succeeds",
-          serverUrl: "https://auth.example.com/tenant1",
-          responses: [
-            { success: false, status: 404 },
-            { success: true, metadata: validOAuthMetadata }
-          ],
-          expectedPaths: [
-            "https://auth.example.com/.well-known/oauth-authorization-server/tenant1",
-            "https://auth.example.com/.well-known/oauth-authorization-server"
-          ]
-        },
-        {
-          description: "with path - OAuth fails, OIDC path insertion succeeds",
-          serverUrl: "https://auth.example.com/tenant1",
-          responses: [
-            { success: false, status: 404 }, // OAuth path
-            { success: false, status: 404 }, // OAuth root
-            { success: true, metadata: validOpenIdMetadata } // OIDC path insertion
-          ],
-          expectedPaths: [
-            "https://auth.example.com/.well-known/oauth-authorization-server/tenant1",
-            "https://auth.example.com/.well-known/oauth-authorization-server",
-            "https://auth.example.com/.well-known/openid-configuration/tenant1"
-          ]
-        },
-        {
-          description: "with path - OAuth fails, OIDC path appending succeeds",
-          serverUrl: "https://auth.example.com/tenant1",
-          responses: [
-            { success: false, status: 404 }, // OAuth path
-            { success: false, status: 404 }, // OAuth root
-            { success: false, status: 404 }, // OIDC path insertion
-            { success: true, metadata: validOpenIdMetadata } // OIDC path appending
-          ],
-          expectedPaths: [
-            "https://auth.example.com/.well-known/oauth-authorization-server/tenant1",
-            "https://auth.example.com/.well-known/oauth-authorization-server",
-            "https://auth.example.com/.well-known/openid-configuration/tenant1",
-            "https://auth.example.com/tenant1/.well-known/openid-configuration"
-          ]
-        },
-        {
-          description: "with path - all fails, returns undefined",
-          serverUrl: "https://auth.example.com/tenant1",
-          responses: [
-            { success: false, status: 404 }, // OAuth path
-            { success: false, status: 404 }, // OAuth root
-            { success: false, status: 404 }, // OIDC path insertion
-            { success: false, status: 404 }, // OIDC path appending
-          ],
-          expectedPaths: [
-            "https://auth.example.com/.well-known/oauth-authorization-server/tenant1",
-            "https://auth.example.com/.well-known/oauth-authorization-server",
-            "https://auth.example.com/.well-known/openid-configuration/tenant1",
-            "https://auth.example.com/tenant1/.well-known/openid-configuration"
-          ]
-        }
-      ];
-
-      testCases.forEach(({ description, serverUrl, responses, expectedPaths }) => {
-        it(description, async () => {
-          // Set up mock responses
-          responses.forEach(response => {
-            if (response.success) {
-              mockFetch.mockResolvedValueOnce({
-                ok: true,
-                status: 200,
-                json: async () => response.metadata
-              });
-            } else {
-              mockFetch.mockResolvedValueOnce({
-                ok: false,
-                status: response.status || 404
-              });
-            }
-          });
-
-          const metadata = await discoverAuthorizationServerMetadata(
-            serverUrl
-          );
-
-          // Verify result
-          const successResponse = responses.find(r => r.success);
-          if (successResponse) {
-            expect(metadata).toEqual(successResponse.metadata);
-          } else {
-            expect(metadata).toBeUndefined();
-          }
-
-          // Verify discovery sequence
-          const calls = mockFetch.mock.calls;
-          expect(calls.length).toBe(expectedPaths.length);
-
-          expectedPaths.forEach((expectedPath, index) => {
-            expect(calls[index][0].toString()).toBe(expectedPath);
-          });
-        });
+    it("tries URLs in order and returns first successful metadata", async () => {
+      // First OAuth URL fails with 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
       });
-    });
+      
+      // Second OAuth URL (root) succeeds
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validOAuthMetadata,
+      });
 
+      const metadata = await discoverAuthorizationServerMetadata(
+        "https://auth.example.com/tenant1"
+      );
+
+      expect(metadata).toEqual(validOAuthMetadata);
+      
+      // Verify it tried the URLs in the correct order
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(2);
+      expect(calls[0][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
+      expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
+    });
 
     it("throws error when OIDC provider does not support S256 PKCE", async () => {
       // OAuth discovery fails
