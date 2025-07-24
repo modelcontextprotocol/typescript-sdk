@@ -634,7 +634,7 @@ export async function discoverOAuthMetadata(
   if (typeof authorizationServerUrl === 'string') {
     authorizationServerUrl = new URL(authorizationServerUrl);
   }
-  protocolVersion ??= LATEST_PROTOCOL_VERSION;
+  protocolVersion ??= LATEST_PROTOCOL_VERSION ;
 
   const response = await discoverMetadataWithFallback(
     authorizationServerUrl,
@@ -675,6 +675,57 @@ export async function discoverOAuthMetadata(
  * @param options.protocolVersion - MCP protocol version to use, defaults to LATEST_PROTOCOL_VERSION
  * @returns Promise resolving to authorization server metadata, or undefined if discovery fails
  */
+/**
+ * Builds a list of discovery URLs to try for authorization server metadata.
+ * URLs are returned in priority order:
+ * 1. OAuth metadata at the given URL
+ * 2. OAuth metadata at root (if URL has path)
+ * 3. OIDC metadata endpoints
+ */
+function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url: URL; type: 'oauth' | 'oidc' }[] {
+  const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
+  const hasPath = url.pathname !== '/';
+  const urlsToTry: { url: URL; type: 'oauth' | 'oidc' }[] = [];
+  
+  // 1. OAuth metadata at the given URL
+  urlsToTry.push({
+    url: new URL(
+      buildWellKnownPath('oauth-authorization-server', hasPath ? url.pathname : ''),
+      url.origin
+    ),
+    type: 'oauth'
+  });
+  
+  // 2. OAuth metadata at root (if URL has path)
+  if (hasPath) {
+    urlsToTry.push({
+      url: new URL(buildWellKnownPath('oauth-authorization-server'), url.origin),
+      type: 'oauth'
+    });
+  }
+  
+  // 3. OIDC metadata endpoints
+  if (hasPath) {
+    // RFC 8414 style: Insert /.well-known/openid-configuration before the path
+    urlsToTry.push({
+      url: new URL(buildWellKnownPath('openid-configuration', url.pathname), url.origin),
+      type: 'oidc'
+    });
+    // OIDC Discovery 1.0 style: Append /.well-known/openid-configuration after the path
+    urlsToTry.push({
+      url: new URL(buildWellKnownPath('openid-configuration', url.pathname, { prependPathname: true }), url.origin),
+      type: 'oidc'
+    });
+  } else {
+    urlsToTry.push({
+      url: new URL(buildWellKnownPath('openid-configuration'), url.origin),
+      type: 'oidc'
+    });
+  }
+  
+  return urlsToTry;
+}
+
 export async function discoverAuthorizationServerMetadata(
   authorizationServerUrl: string | URL,
   {
@@ -685,152 +736,43 @@ export async function discoverAuthorizationServerMetadata(
     protocolVersion?: string;
   } = {}
 ): Promise<AuthorizationServerMetadata | undefined> {
-  const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
-  const hasPath = url.pathname !== '/';
-
-  const oauthMetadata = await fetchOAuthMetadata(authorizationServerUrl, {
-    fetchFn,
-    protocolVersion,
-  });
-
-  if (oauthMetadata) {
-    return oauthMetadata;
-  }
-
-  if (hasPath) {
-    const rootUrl = new URL(url.origin);
-    const rootOauthMetadata = await fetchOAuthMetadata(rootUrl, {
-      fetchFn,
-      protocolVersion,
-    });
-
-    if (rootOauthMetadata) {
-      return rootOauthMetadata;
-    }
-  }
-
-  const oidcMetadata = await retrieveOpenIdProviderMetadataFromAuthorizationServer(authorizationServerUrl, {
-    fetchFn,
-    protocolVersion,
-  });
-
-  return oidcMetadata;
-}
-
-/**
- * Retrieves RFC 8414 OAuth 2.0 Authorization Server Metadata from the authorization server.
- *
- * Per RFC 8414 Section 3.1, when the issuer identifier contains path components,
- * the well-known URI is constructed by inserting "/.well-known/oauth-authorization-server"
- * before the path component.
- *
- * @param authorizationServerUrl - The authorization server URL (issuer identifier)
- * @param options - Configuration options
- * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
- * @param options.protocolVersion - MCP protocol version to use (required)
- * @returns Promise resolving to OAuth metadata, or undefined if discovery fails
- */
-async function fetchOAuthMetadata(
-  authorizationServerUrl: string | URL,
-  {
-    fetchFn = fetch,
-    protocolVersion,
-  }: {
-    fetchFn?: FetchLike;
-    protocolVersion: string;
-  }
-): Promise<OAuthMetadata | undefined> {
-  const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
-  const hasPath = url.pathname !== '/';
-
-  const metadataEndpoint = new URL(
-    buildWellKnownPath('oauth-authorization-server', hasPath ? url.pathname : ''),
-    url.origin
-  );
-
-  const response = await fetchWithCorsRetry(metadataEndpoint, getProtocolVersionHeader(protocolVersion), fetchFn);
-
-  if (!response) {
-    throw new Error(`CORS error trying to load OAuth metadata from ${metadataEndpoint}`);
-  }
-
-  if (!response.ok) {
-    if (response.status === 404) {
-      return undefined;
-    }
-
-    throw new Error(`HTTP ${response.status} trying to load OAuth metadata from ${metadataEndpoint}`);
-  }
-
-  return OAuthMetadataSchema.parse(await response.json());
-}
-
-/**
- * Retrieves OpenID Connect Discovery 1.0 metadata from the authorization server.
- *
- * Per RFC 8414 Section 5 compatibility notes and OpenID Connect Discovery 1.0 Section 4.1,
- * when the issuer identifier contains path components, discovery endpoints are tried in order:
- * 1. RFC 8414 style: Insert /.well-known/openid-configuration before the path
- * 2. OIDC Discovery 1.0 style: Append /.well-known/openid-configuration after the path
- *
- * @param authorizationServerUrl - The authorization server URL (issuer identifier)
- * @param options - Configuration options
- * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
- * @param options.protocolVersion - MCP protocol version to use (required)
- * @returns Promise resolving to OpenID provider metadata, or undefined if discovery fails
- */
-async function retrieveOpenIdProviderMetadataFromAuthorizationServer(
-  authorizationServerUrl: string | URL,
-  {
-    fetchFn = fetch,
-    protocolVersion,
-  }: {
-    fetchFn?: FetchLike;
-    protocolVersion: string;
-  }
-): Promise<OpenIdProviderDiscoveryMetadata | undefined> {
-  const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
-  const hasPath = url.pathname !== '/';
-
-  const potentialMetadataEndpoints = hasPath
-    ? [
-        // https://example.com/.well-known/openid-configuration/tenant1
-        new URL(buildWellKnownPath('openid-configuration', url.pathname), url.origin),
-        // https://example.com/tenant1/.well-known/openid-configuration
-        new URL(buildWellKnownPath('openid-configuration', url.pathname, { prependPathname: true }), `${url.origin}`),
-      ]
-    : [
-        // https://example.com/.well-known/openid-configuration
-        new URL(buildWellKnownPath('openid-configuration'), url.origin),
-      ];
-
-  for (const endpoint of potentialMetadataEndpoints) {
-    const response = await fetchWithCorsRetry(endpoint, getProtocolVersionHeader(protocolVersion), fetchFn);
-
+  const headers = { 'MCP-Protocol-Version': protocolVersion };
+  
+  // Get the list of URLs to try
+  const urlsToTry = buildDiscoveryUrls(authorizationServerUrl);
+  
+  // Try each URL in order
+  for (const { url: endpointUrl, type } of urlsToTry) {
+    const response = await fetchWithCorsRetry(endpointUrl, headers, fetchFn);
+    
     if (!response) {
-      throw new Error(`CORS error trying to load OpenID provider metadata from ${endpoint}`);
+      throw new Error(`CORS error trying to load ${type === 'oauth' ? 'OAuth' : 'OpenID provider'} metadata from ${endpointUrl}`);
     }
-
+    
     if (!response.ok) {
       if (response.status === 404) {
-        continue;
+        continue; // Try next URL
       }
-
-      throw new Error(`HTTP ${response.status} trying to load OpenID provider metadata from ${endpoint}`);
+      throw new Error(`HTTP ${response.status} trying to load ${type === 'oauth' ? 'OAuth' : 'OpenID provider'} metadata from ${endpointUrl}`);
     }
-
-    const metadata = OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
-
-    // MCP spec requires OIDC providers to support S256 PKCE
-    if (!metadata.code_challenge_methods_supported?.includes('S256')) {
-      throw new Error(
-        `Incompatible OIDC provider at ${endpoint}: does not support S256 code challenge method required by MCP specification`
-      );
+    
+    // Parse and validate based on type
+    if (type === 'oauth') {
+      return OAuthMetadataSchema.parse(await response.json());
+    } else {
+      const metadata = OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
+      
+      // MCP spec requires OIDC providers to support S256 PKCE
+      if (!metadata.code_challenge_methods_supported?.includes('S256')) {
+        throw new Error(
+          `Incompatible OIDC provider at ${endpointUrl}: does not support S256 code challenge method required by MCP specification`
+        );
+      }
+      
+      return metadata;
     }
-
-    return metadata;
   }
-
+  
   return undefined;
 }
 

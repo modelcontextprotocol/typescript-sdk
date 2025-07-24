@@ -863,7 +863,7 @@ describe("OAuth Authorization", () => {
       ).rejects.toThrow("does not support S256 code challenge method required by MCP specification");
     });
 
-    it("throws on non-404 errors in legacy mode", async () => {
+    it("throws on non-404 errors", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 500,
