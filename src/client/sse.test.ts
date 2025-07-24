@@ -1108,77 +1108,76 @@ describe("SSEClientTransport", () => {
       expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
     });
 
-    describe("initialAccessToken support", () => {
-      it("stores initialAccessToken from constructor options", () => {
-        const transport = new SSEClientTransport(
-          new URL("http://localhost:1234/mcp"), 
-          { initialAccessToken: "test-initial-token" }
-        );
-        
-        // Access private property for testing
-        const transportInstance = transport as unknown as { _initialAccessToken?: string };
-        expect(transportInstance._initialAccessToken).toBe("test-initial-token");
-      });
-
-      it("works without initialAccessToken (backward compatibility)", async () => {
-        const transport = new SSEClientTransport(
-          new URL("http://localhost:1234/mcp"), 
-          { authProvider: mockAuthProvider }
-        );
-        
-        const transportInstance = transport as unknown as { _initialAccessToken?: string };
-        expect(transportInstance._initialAccessToken).toBeUndefined();
-
-        // Should not throw when no initial access token provided
-        expect(() => transport).not.toThrow();
-      });
-
-      it("includes initialAccessToken in auth calls", async () => {
-        // Create a spy on the auth module
-        const authModule = await import("./auth.js");
-        const authSpy = jest.spyOn(authModule, "auth").mockResolvedValue("REDIRECT");
-
-        const transport = new SSEClientTransport(
-          resourceBaseUrl, 
-          { 
-            authProvider: mockAuthProvider,
-            initialAccessToken: "test-initial-token" 
-          }
-        );
-
-        // Start the transport first
-        await transport.start();
-
-        // Mock fetch to return 401 and trigger auth on send
-        const originalFetch = global.fetch;
-        global.fetch = jest.fn().mockResolvedValueOnce({
-          ok: false,
-          status: 401,
-          headers: new Headers(),
-        });
-
-        const message = {
-          jsonrpc: "2.0" as const,
-          method: "test",
-          params: {},
-          id: "test-id"
+    describe("DCR registration access token support via provider", () => {
+      it("calls auth without initialAccessToken parameter when using provider with DCR method", async () => {
+        // Create a mock provider with DCR token method
+        const providerWithDcr = {
+          ...mockAuthProvider,
+          dcrRegistrationAccessToken: jest.fn().mockResolvedValue("provider-dcr-token")
         };
 
-        try {
-          await transport.send(message);
-        } catch {
-          // Expected to fail due to mock setup, we're just testing auth call
-        }
+        // Create a spy on the auth module
+        const authModule = await import("./auth.js");
+        const authSpy = jest.spyOn(authModule, "auth").mockResolvedValue("AUTHORIZED");
 
+        transport = new SSEClientTransport(
+          resourceBaseUrl, 
+          { authProvider: providerWithDcr }
+        );
+
+        // Test finishAuth method which calls auth directly
+        await transport.finishAuth("test-auth-code");
+
+        // Verify auth was called without initialAccessToken parameter
         expect(authSpy).toHaveBeenCalledWith(
-          mockAuthProvider,
+          providerWithDcr,
           expect.objectContaining({
-            initialAccessToken: "test-initial-token"
+            serverUrl: resourceBaseUrl,
+            authorizationCode: "test-auth-code"
           })
         );
 
-        // Restore fetch and spy
-        global.fetch = originalFetch;
+        // Verify the deprecated parameter is NOT included
+        expect(authSpy).not.toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            initialAccessToken: expect.anything()
+          })
+        );
+
+        authSpy.mockRestore();
+      });
+
+      it("calls auth without initialAccessToken parameter when using provider without DCR method", async () => {
+        // Use the regular mock provider (no DCR method)
+        const authModule = await import("./auth.js");
+        const authSpy = jest.spyOn(authModule, "auth").mockResolvedValue("AUTHORIZED");
+
+        transport = new SSEClientTransport(
+          resourceBaseUrl, 
+          { authProvider: mockAuthProvider }
+        );
+
+        // Test finishAuth method which calls auth directly
+        await transport.finishAuth("test-auth-code");
+
+        // Verify auth was called correctly without the deprecated parameter
+        expect(authSpy).toHaveBeenCalledWith(
+          mockAuthProvider,
+          expect.objectContaining({
+            serverUrl: resourceBaseUrl,
+            authorizationCode: "test-auth-code"
+          })
+        );
+
+        // Verify no initialAccessToken parameter
+        expect(authSpy).not.toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            initialAccessToken: expect.anything()
+          })
+        );
+
         authSpy.mockRestore();
       });
     });

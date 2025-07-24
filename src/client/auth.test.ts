@@ -1159,35 +1159,8 @@ describe("OAuth Authorization", () => {
       ).rejects.toThrow("Dynamic client registration failed");
     });
 
-    describe("initial access token support", () => {
-      it("includes initial access token from explicit parameter", async () => {
-        mockFetch.mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => validClientInfo,
-        });
-
-        await registerClient("https://auth.example.com", {
-          clientMetadata: validClientMetadata,
-          initialAccessToken: "explicit-token",
-        });
-
-        expect(mockFetch).toHaveBeenCalledWith(
-          expect.objectContaining({
-            href: "https://auth.example.com/register",
-          }),
-          expect.objectContaining({
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": "Bearer explicit-token",
-            },
-            body: JSON.stringify(validClientMetadata),
-          })
-        );
-      });
-
-      it("includes initial access token from provider method", async () => {
+    describe("DCR registration access token support", () => {
+      it("includes DCR token from provider method", async () => {
         const mockProvider: OAuthClientProvider = {
           get redirectUrl() { return "http://localhost:3000/callback"; },
           get clientMetadata() { return validClientMetadata; },
@@ -1197,7 +1170,7 @@ describe("OAuth Authorization", () => {
           redirectToAuthorization: jest.fn(),
           saveCodeVerifier: jest.fn(),
           codeVerifier: jest.fn(),
-          initialAccessToken: jest.fn().mockResolvedValue("provider-token"),
+          dcrRegistrationAccessToken: jest.fn().mockResolvedValue("provider-dcr-token"),
         };
 
         mockFetch.mockResolvedValueOnce({
@@ -1211,6 +1184,7 @@ describe("OAuth Authorization", () => {
           provider: mockProvider,
         });
 
+        expect(mockProvider.dcrRegistrationAccessToken).toHaveBeenCalled();
         expect(mockFetch).toHaveBeenCalledWith(
           expect.objectContaining({
             href: "https://auth.example.com/register",
@@ -1219,52 +1193,151 @@ describe("OAuth Authorization", () => {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": "Bearer provider-token",
+              "Authorization": "Bearer provider-dcr-token",
             },
             body: JSON.stringify(validClientMetadata),
           })
         );
       });
 
-      it("prioritizes explicit parameter over provider method", async () => {
-        const mockProvider: OAuthClientProvider = {
-          get redirectUrl() { return "http://localhost:3000/callback"; },
-          get clientMetadata() { return validClientMetadata; },
-          clientInformation: jest.fn(),
-          tokens: jest.fn(),
-          saveTokens: jest.fn(),
-          redirectToAuthorization: jest.fn(),
-          saveCodeVerifier: jest.fn(),
-          codeVerifier: jest.fn(),
-          initialAccessToken: jest.fn().mockResolvedValue("provider-token"),
-        };
+      it("falls back to environment variable when provider method not implemented", async () => {
+        const originalEnv = process.env.DCR_REGISTRATION_ACCESS_TOKEN;
+        process.env.DCR_REGISTRATION_ACCESS_TOKEN = "env-dcr-token";
 
-        mockFetch.mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => validClientInfo,
-        });
+        try {
+          mockFetch.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: async () => validClientInfo,
+          });
 
-        await registerClient("https://auth.example.com", {
-          clientMetadata: validClientMetadata,
-          initialAccessToken: "explicit-token",
-          provider: mockProvider,
-        });
+          await registerClient("https://auth.example.com", {
+            clientMetadata: validClientMetadata,
+            // No provider passed
+          });
 
-        expect(mockProvider.initialAccessToken).not.toHaveBeenCalled();
-        expect(mockFetch).toHaveBeenCalledWith(
-          expect.objectContaining({
-            href: "https://auth.example.com/register",
-          }),
-          expect.objectContaining({
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": "Bearer explicit-token",
-            },
-            body: JSON.stringify(validClientMetadata),
-          })
-        );
+          expect(mockFetch).toHaveBeenCalledWith(
+            expect.objectContaining({
+              href: "https://auth.example.com/register",
+            }),
+            expect.objectContaining({
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer env-dcr-token",
+              },
+              body: JSON.stringify(validClientMetadata),
+            })
+          );
+        } finally {
+          if (originalEnv !== undefined) {
+            process.env.DCR_REGISTRATION_ACCESS_TOKEN = originalEnv;
+          } else {
+            delete process.env.DCR_REGISTRATION_ACCESS_TOKEN;
+          }
+        }
+      });
+
+      it("prioritizes provider method over environment variable", async () => {
+        const originalEnv = process.env.DCR_REGISTRATION_ACCESS_TOKEN;
+        process.env.DCR_REGISTRATION_ACCESS_TOKEN = "env-dcr-token";
+
+        try {
+          const mockProvider: OAuthClientProvider = {
+            get redirectUrl() { return "http://localhost:3000/callback"; },
+            get clientMetadata() { return validClientMetadata; },
+            clientInformation: jest.fn(),
+            tokens: jest.fn(),
+            saveTokens: jest.fn(),
+            redirectToAuthorization: jest.fn(),
+            saveCodeVerifier: jest.fn(),
+            codeVerifier: jest.fn(),
+            dcrRegistrationAccessToken: jest.fn().mockResolvedValue("provider-dcr-token"),
+          };
+
+          mockFetch.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: async () => validClientInfo,
+          });
+
+          await registerClient("https://auth.example.com", {
+            clientMetadata: validClientMetadata,
+            provider: mockProvider,
+          });
+
+          expect(mockProvider.dcrRegistrationAccessToken).toHaveBeenCalled();
+          expect(mockFetch).toHaveBeenCalledWith(
+            expect.objectContaining({
+              href: "https://auth.example.com/register",
+            }),
+            expect.objectContaining({
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer provider-dcr-token",
+              },
+              body: JSON.stringify(validClientMetadata),
+            })
+          );
+        } finally {
+          if (originalEnv !== undefined) {
+            process.env.DCR_REGISTRATION_ACCESS_TOKEN = originalEnv;
+          } else {
+            delete process.env.DCR_REGISTRATION_ACCESS_TOKEN;
+          }
+        }
+      });
+
+      it("handles provider method returning undefined and falls back to env var", async () => {
+        const originalEnv = process.env.DCR_REGISTRATION_ACCESS_TOKEN;
+        process.env.DCR_REGISTRATION_ACCESS_TOKEN = "env-dcr-token";
+
+        try {
+          const mockProvider: OAuthClientProvider = {
+            get redirectUrl() { return "http://localhost:3000/callback"; },
+            get clientMetadata() { return validClientMetadata; },
+            clientInformation: jest.fn(),
+            tokens: jest.fn(),
+            saveTokens: jest.fn(),
+            redirectToAuthorization: jest.fn(),
+            saveCodeVerifier: jest.fn(),
+            codeVerifier: jest.fn(),
+            dcrRegistrationAccessToken: jest.fn().mockResolvedValue(undefined),
+          };
+
+          mockFetch.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: async () => validClientInfo,
+          });
+
+          await registerClient("https://auth.example.com", {
+            clientMetadata: validClientMetadata,
+            provider: mockProvider,
+          });
+
+          expect(mockProvider.dcrRegistrationAccessToken).toHaveBeenCalled();
+          expect(mockFetch).toHaveBeenCalledWith(
+            expect.objectContaining({
+              href: "https://auth.example.com/register",
+            }),
+            expect.objectContaining({
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer env-dcr-token",
+              },
+              body: JSON.stringify(validClientMetadata),
+            })
+          );
+        } finally {
+          if (originalEnv !== undefined) {
+            process.env.DCR_REGISTRATION_ACCESS_TOKEN = originalEnv;
+          } else {
+            delete process.env.DCR_REGISTRATION_ACCESS_TOKEN;
+          }
+        }
       });
 
       it("registers without authorization header when no token available", async () => {

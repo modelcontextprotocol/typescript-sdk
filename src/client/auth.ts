@@ -292,8 +292,7 @@ export async function auth(
     serverUrl: string | URL;
     authorizationCode?: string;
     scope?: string;
-    resourceMetadataUrl?: URL;
-    initialAccessToken?: string; }): Promise<AuthResult> {
+    resourceMetadataUrl?: URL }): Promise<AuthResult> {
 
   try {
     return await authInternal(provider, options);
@@ -317,14 +316,12 @@ async function authInternal(
   { serverUrl,
     authorizationCode,
     scope,
-    resourceMetadataUrl,
-    initialAccessToken
+    resourceMetadataUrl
   }: {
     serverUrl: string | URL;
     authorizationCode?: string;
     scope?: string;
-    resourceMetadataUrl?: URL;
-    initialAccessToken?: string;
+    resourceMetadataUrl?: URL
   }): Promise<AuthResult> {
 
   let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
@@ -358,7 +355,6 @@ async function authInternal(
     const fullInformation = await registerClient(authorizationServerUrl, {
       metadata,
       clientMetadata: provider.clientMetadata,
-      initialAccessToken,
       provider,
     });
 
@@ -896,24 +892,21 @@ export async function refreshAuthorization(
  * 
  * Supports DCR registration access tokens (called "initial access token" in RFC 7591) for authorization servers that require 
  * pre-authorization for dynamic client registration. The DCR registration access token
- * is resolved using a multi-level fallback approach:
+ * is resolved using a clean 2-level fallback approach:
  * 
- * 1. Explicit `initialAccessToken` parameter (highest priority)
- * 2. Provider's `dcrRegistrationAccessToken()` method (if implemented)
- * 3. `DCR_REGISTRATION_ACCESS_TOKEN` environment variable
- * 4. None (current behavior for servers that don't require pre-authorization)
+ * 1. Provider's `dcrRegistrationAccessToken()` method (if implemented)
+ * 2. `DCR_REGISTRATION_ACCESS_TOKEN` environment variable (automatic fallback)
+ * 3. None (for servers that don't require pre-authorization)
  */
 export async function registerClient(
   authorizationServerUrl: string | URL,
   {
     metadata,
     clientMetadata,
-    initialAccessToken,
     provider,
   }: {
     metadata?: OAuthMetadata;
     clientMetadata: OAuthClientMetadata;
-    initialAccessToken?: string;
     provider?: OAuthClientProvider;
   },
 ): Promise<OAuthClientInformationFull> {
@@ -929,26 +922,12 @@ export async function registerClient(
     registrationUrl = new URL("/register", authorizationServerUrl);
   }
 
-  // Multi-level fallback for DCR registration access token (RFC 7591 "initial access token")
-  let token = initialAccessToken; // Level 1: Explicit parameter
-
-  if (!token && provider?.dcrRegistrationAccessToken) {
-    // Level 2: Provider method
-    token = await Promise.resolve(provider.dcrRegistrationAccessToken());
-  }
-
-  // Level 3: Environment variable (Node.js environments only)
-  if (!token && typeof globalThis !== 'undefined' && (globalThis as any).process?.env) {
-    token = (globalThis as any).process.env.DCR_REGISTRATION_ACCESS_TOKEN;
-  }
-
-  // Level 4: None (current behavior) - no token needed
-
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
 
   // Add DCR registration access token (RFC 7591 "initial access token") if available
+  const token = await resolveDcrToken(provider);
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
@@ -964,4 +943,23 @@ export async function registerClient(
   }
 
   return OAuthClientInformationFullSchema.parse(await response.json());
+}
+
+/**
+ * Internal helper to resolve DCR registration access token from provider and environment.
+ * Implements a clean 2-level fallback: provider method → environment variable.
+ */
+async function resolveDcrToken(provider?: OAuthClientProvider): Promise<string | undefined> {
+  // Level 1: Provider method
+  if (provider?.dcrRegistrationAccessToken) {
+    const token = await Promise.resolve(provider.dcrRegistrationAccessToken());
+    if (token) return token;
+  }
+
+  // Level 2: Environment variable  
+  if (typeof process !== 'undefined' && process.env?.DCR_REGISTRATION_ACCESS_TOKEN) {
+    return process.env.DCR_REGISTRATION_ACCESS_TOKEN;
+  }
+
+  return undefined;
 }

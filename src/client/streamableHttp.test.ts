@@ -856,42 +856,21 @@ describe("StreamableHTTPClientTransport", () => {
     expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
   });
 
-  describe("initialAccessToken support", () => {
-    it("stores initialAccessToken from constructor options", () => {
-      const transport = new StreamableHTTPClientTransport(
-        new URL("http://localhost:1234/mcp"), 
-        { initialAccessToken: "test-initial-token" }
-      );
-      
-      // Access private property for testing
-      const transportInstance = transport as unknown as { _initialAccessToken?: string };
-      expect(transportInstance._initialAccessToken).toBe("test-initial-token");
-    });
+  describe("DCR registration access token support via provider", () => {
+    it("works with provider that implements dcrRegistrationAccessToken method", async () => {
+      // Create a mock provider with DCR token method
+      const providerWithDcr = {
+        ...mockAuthProvider,
+        dcrRegistrationAccessToken: jest.fn().mockResolvedValue("provider-dcr-token")
+      };
 
-    it("works without initialAccessToken (backward compatibility)", async () => {
-      const transport = new StreamableHTTPClientTransport(
-        new URL("http://localhost:1234/mcp"), 
-        { authProvider: mockAuthProvider }
-      );
-      
-      const transportInstance = transport as unknown as { _initialAccessToken?: string };
-      expect(transportInstance._initialAccessToken).toBeUndefined();
-
-      // Should not throw when no initial access token provided
-      expect(() => transport).not.toThrow();
-    });
-
-    it("includes initialAccessToken in auth calls", async () => {
       // Create a spy on the auth module
       const authModule = await import("./auth.js");
       const authSpy = jest.spyOn(authModule, "auth").mockResolvedValue("REDIRECT");
 
       const transport = new StreamableHTTPClientTransport(
         new URL("http://localhost:1234/mcp"), 
-        { 
-          authProvider: mockAuthProvider,
-          initialAccessToken: "test-initial-token" 
-        }
+        { authProvider: providerWithDcr }
       );
 
       // Mock fetch to trigger auth flow on send (401 response)
@@ -914,10 +893,104 @@ describe("StreamableHTTPClientTransport", () => {
         // Expected to fail due to mock setup, we're just testing auth call
       }
 
+      // Verify auth was called with the provider (no initialAccessToken parameter)
+      expect(authSpy).toHaveBeenCalledWith(
+        providerWithDcr,
+        expect.objectContaining({
+          serverUrl: new URL("http://localhost:1234/mcp")
+        })
+      );
+
+      // Verify the initialAccessToken parameter is NOT included
+      expect(authSpy).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          initialAccessToken: expect.anything()
+        })
+      );
+
+      authSpy.mockRestore();
+    });
+
+    it("works with provider without dcrRegistrationAccessToken method", async () => {
+      // Use the regular mock provider (no DCR method)
+      const authModule = await import("./auth.js");
+      const authSpy = jest.spyOn(authModule, "auth").mockResolvedValue("REDIRECT");
+
+      const transport = new StreamableHTTPClientTransport(
+        new URL("http://localhost:1234/mcp"), 
+        { authProvider: mockAuthProvider }
+      );
+
+      // Mock fetch to trigger auth flow on send (401 response)
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        headers: new Headers(),
+      });
+
+      const message = {
+        jsonrpc: "2.0" as const,
+        method: "test",
+        params: {},
+        id: "test-id"
+      };
+
+      try {
+        await transport.send(message);
+      } catch {
+        // Expected to fail due to mock setup, we're just testing auth call
+      }
+
+      // Verify auth was called correctly without initialAccessToken parameter
       expect(authSpy).toHaveBeenCalledWith(
         mockAuthProvider,
         expect.objectContaining({
-          initialAccessToken: "test-initial-token"
+          serverUrl: new URL("http://localhost:1234/mcp")
+        })
+      );
+
+      // Verify no initialAccessToken parameter
+      expect(authSpy).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          initialAccessToken: expect.anything()
+        })
+      );
+
+      authSpy.mockRestore();
+    });
+
+    it("handles DCR token during finishAuth flow", async () => {
+      const providerWithDcr = {
+        ...mockAuthProvider,
+        dcrRegistrationAccessToken: jest.fn().mockResolvedValue("provider-dcr-token")
+      };
+
+      const authModule = await import("./auth.js");
+      const authSpy = jest.spyOn(authModule, "auth").mockResolvedValue("AUTHORIZED");
+
+      const transport = new StreamableHTTPClientTransport(
+        new URL("http://localhost:1234/mcp"), 
+        { authProvider: providerWithDcr }
+      );
+
+      // Test the finishAuth flow which also calls auth()
+      await transport.finishAuth("test-auth-code");
+
+      expect(authSpy).toHaveBeenCalledWith(
+        providerWithDcr,
+        expect.objectContaining({
+          serverUrl: new URL("http://localhost:1234/mcp"),
+          authorizationCode: "test-auth-code"
+        })
+      );
+
+      // Verify no initialAccessToken parameter
+      expect(authSpy).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          initialAccessToken: expect.anything()
         })
       );
 

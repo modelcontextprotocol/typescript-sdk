@@ -39,9 +39,9 @@ Example client with OAuth:
 npx tsx src/examples/client/simpleOAuthClient.js
 ```
 
-The OAuth client example supports DCR registration access tokens (called "initial access token" in RFC 7591) for dynamic client registration. You can provide the token via:
+The OAuth client example supports DCR registration access tokens (called "initial access token" in RFC 7591) for dynamic client registration. The SDK automatically checks for the `DCR_REGISTRATION_ACCESS_TOKEN` environment variable:
 - Environment variable: `export DCR_REGISTRATION_ACCESS_TOKEN="your-token"`
-- Transport configuration (see source code for examples)
+- Custom provider implementation (see source code for examples)
 
 ### Backwards Compatible Client
 

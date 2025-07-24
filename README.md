@@ -1232,38 +1232,33 @@ await client.connect(transport);
 
 #### DCR Registration Access Token Support (RFC 7591)
 
-For authorization servers that require pre-authorization for dynamic client registration, the SDK supports DCR registration access tokens (called "initial access token" in RFC 7591) with multi-level fallback:
+For authorization servers that require pre-authorization for dynamic client registration, the SDK supports DCR registration access tokens (called "initial access token" in RFC 7591).
 
-##### Method 1: Transport Configuration (Highest Priority)
-```typescript
-const transport = new StreamableHTTPClientTransport(serverUrl, {
-  authProvider,
-  initialAccessToken: "your-dcr-registration-access-token"
-});
+The SDK automatically checks for a `DCR_REGISTRATION_ACCESS_TOKEN` environment variable. For custom logic, implement the `dcrRegistrationAccessToken()` method in your OAuth provider:
+
+##### Method 1: Environment Variable (Default)
+```bash
+export DCR_REGISTRATION_ACCESS_TOKEN="your-dcr-registration-access-token"
 ```
 
-##### Method 2: Provider Method
+##### Method 2: Custom Provider Method
 ```typescript
 class MyOAuthProvider implements OAuthClientProvider {
   // ... other methods ...
   
   async dcrRegistrationAccessToken() {
-    // Load from secure storage, API call, etc.
-    return await this.loadFromSecureStorage('dcr_registration_access_token');
+    // Custom fallback logic: check parameter, then env var, then storage
+    return this.explicitToken 
+      || process.env.DCR_REGISTRATION_ACCESS_TOKEN
+      || await this.loadFromSecureStorage('dcr_registration_access_token');
   }
 }
 ```
 
-##### Method 3: Environment Variable
-```bash
-export DCR_REGISTRATION_ACCESS_TOKEN="your-dcr-registration-access-token"
-```
-
-The SDK will automatically try these methods in order:
-1. Explicit `initialAccessToken` parameter (highest priority)
-2. Provider's `dcrRegistrationAccessToken()` method 
-3. `DCR_REGISTRATION_ACCESS_TOKEN` environment variable
-4. None (for servers that don't require pre-authorization)
+The SDK will:
+1. Call your `dcrRegistrationAccessToken()` method (if implemented)
+2. Fall back to `DCR_REGISTRATION_ACCESS_TOKEN` environment variable
+3. Proceed without token (for servers that don't require pre-authorization)
 
 #### Complete OAuth Flow Example
 
