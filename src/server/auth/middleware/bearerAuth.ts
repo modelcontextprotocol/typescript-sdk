@@ -42,7 +42,7 @@ export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetad
     try {
       const authHeader = req.headers.authorization;
       if (!authHeader) {
-        throw new MissingAuthenticationError("Missing Authorization header");
+        throw new MissingAuthorizationError("Missing Authorization header");
       }
 
       const [type, token] = authHeader.split(' ');
