@@ -207,7 +207,7 @@ export class StreamableHTTPClientTransport implements Transport {
         headers.set("last-event-id", resumptionToken);
       }
 
-const response = await (this._fetch ?? fetch)(this._url, {
+      const response = await (this._fetch ?? fetch)(this._url, {
         method: "GET",
         headers,
         signal: this._abortController?.signal,
@@ -427,7 +427,7 @@ const response = await (this._fetch ?? fetch)(this._url, {
         signal: this._abortController?.signal,
       };
 
-const response = await (this._fetch ?? fetch)(this._url, init);
+      const response = await (this._fetch ?? fetch)(this._url, init);
 
       // Handle session ID received during initialization
       const sessionId = response.headers.get("mcp-session-id");
@@ -533,7 +533,7 @@ const response = await (this._fetch ?? fetch)(this._url, init);
         signal: this._abortController?.signal,
       };
 
-const response = await (this._fetch ?? fetch)(this._url, init);
+      const response = await (this._fetch ?? fetch)(this._url, init);
 
       // We specifically handle 405 as a valid response according to the spec,
       // meaning the server does not support explicit session termination
