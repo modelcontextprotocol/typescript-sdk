@@ -1,5 +1,5 @@
 import { RequestHandler } from "express";
-import { InsufficientScopeError, InvalidTokenError, MissingAuthenticationError, OAuthError, ServerError } from "../errors.js";
+import { InsufficientScopeError, InvalidTokenError, MissingAuthorizationError, OAuthError, ServerError } from "../errors.js";
 import { OAuthTokenVerifier } from "../provider.js";
 import { AuthInfo } from "../types.js";
 
@@ -73,7 +73,7 @@ export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetad
       req.auth = authInfo;
       next();
     } catch (error) {
-      if (error instanceof MissingAuthenticationError) {
+      if (error instanceof MissingAuthorizationError) {
         // RFC 6750 Section 3.1: Missing authentication should not include error codes
         const wwwAuthValue = resourceMetadataUrl
           ? `Bearer resource_metadata="${resourceMetadataUrl}"`

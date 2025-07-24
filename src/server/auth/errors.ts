@@ -164,10 +164,10 @@ export class InsufficientScopeError extends OAuthError {
 }
 
 /**
- * Missing authentication error - The request lack required authentication information.
+ * Missing authorization error - The request lacks the required Authorization header.
  */
-export class MissingAuthenticationError extends OAuthError {
-  static errorCode = "missing_authentication";
+export class MissingAuthorizationError extends OAuthError {
+  static errorCode = "missing_authorization";
 }
 
 /**
@@ -203,5 +203,5 @@ export const OAUTH_ERRORS = {
   [TooManyRequestsError.errorCode]: TooManyRequestsError,
   [InvalidClientMetadataError.errorCode]: InvalidClientMetadataError,
   [InsufficientScopeError.errorCode]: InsufficientScopeError,
-  [MissingAuthenticationError.errorCode]: MissingAuthenticationError,
+  [MissingAuthorizationError.errorCode]: MissingAuthorizationError,
 } as const;
