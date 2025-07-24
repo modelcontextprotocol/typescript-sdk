@@ -1,5 +1,6 @@
 import pkceChallenge from "pkce-challenge";
 import { LATEST_PROTOCOL_VERSION } from "../types.js";
+import { FetchLike } from "../shared/transport.js";
 import {
   OAuthClientMetadata,
   OAuthClientInformation,
@@ -19,7 +20,6 @@ import {
   ServerError,
   UnauthorizedClientError
 } from "../server/auth/errors.js";
-import { FetchLike } from "../shared/transport.js";
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
@@ -128,39 +128,79 @@ export interface OAuthClientProvider {
 }
 
 /**
- * A provider that delegates authentication to an external system.
- *
- * This interface allows for custom authentication mechanisms that are
- * either already implemented on a specific platform or handled outside the
- * standard OAuth flow, such as API keys, custom tokens, or integration with external
- * authentication services.
+ * Context provided to authentication handlers
  */
-export interface DelegatedAuthClientProvider {
+export interface AuthContext {
+  serverUrl: string | URL;
+  resourceMetadataUrl?: URL;
+}
+
+/**
+ * A handler for managing authentication in MCP clients.
+ *
+ * This interface provides a unified way to handle authentication,
+ * whether through OAuth, API keys, custom tokens, or other mechanisms.
+ * Implementations can examine the full response to extract authentication
+ * challenges and handle them appropriately.
+ */
+export interface AuthenticationHandler {
   /**
-   * Returns authentication headers to be included in requests.
+   * Adds authentication headers to outgoing requests.
    *
-   * These headers will be added to all HTTP requests made by the transport.
-   * Common examples include Authorization headers, API keys, or custom
-   * authentication tokens.
+   * Called before each request to add any required authentication headers.
+   * Common examples include Authorization headers, API keys, or custom tokens.
    *
    * @returns Headers to include in requests, or undefined if no authentication is available
    */
-  headers(): HeadersInit | undefined | Promise<HeadersInit | undefined>;
+  addHeaders(): HeadersInit | undefined | Promise<HeadersInit | undefined>;
 
   /**
-   * Performs authentication when a 401 Unauthorized response is received.
+   * Handles 401 Unauthorized responses.
    *
-   * This method is called when the server responds with a 401 status code,
-   * indicating that the current authentication is invalid or expired.
-   * The implementation should attempt to refresh or re-establish authentication.
+   * This method is called when the server responds with a 401 status code.
+   * The implementation receives the full response object, allowing it to
+   * examine headers (e.g., WWW-Authenticate), status codes, and body content
+   * to determine the appropriate authentication action.
    *
-   * @param context Authentication context providing server and resource information
-   * @param context.serverUrl The URL of the MCP server being authenticated against
-   * @param context.resourceMetadataUrl Optional URL for resource metadata, if available
-   * @returns Promise that resolves to true if authentication was successful,
-   *          false if authentication failed
+   * @param response The full 401 response object from the server
+   * @param context Authentication context with server and resource information
+   * @returns Promise resolving to true if authentication was refreshed and the request should be retried,
+   *          or false if authentication failed and an UnauthorizedError should be thrown
    */
-  authorize(context: { serverUrl: string | URL; resourceMetadataUrl?: URL }): boolean | Promise<boolean>;
+  handle401Response(response: Response, context: AuthContext): boolean | Promise<boolean>;
+}
+
+/**
+ * Implementation of AuthenticationHandler that wraps the OAuth flow.
+ * This is used internally to provide a consistent interface for authentication.
+ */
+export class OAuthAuthenticationHandler implements AuthenticationHandler {
+  constructor(
+    private oauthProvider: OAuthClientProvider,
+    private fetchFn?: FetchLike
+  ) {}
+
+  async addHeaders(): Promise<HeadersInit | undefined> {
+    const tokens = await this.oauthProvider.tokens();
+    if (tokens) {
+      return {
+        Authorization: `Bearer ${tokens.access_token}`
+      };
+    }
+    return undefined;
+  }
+
+  async handle401Response(response: Response, context: AuthContext): Promise<boolean> {
+    const resourceMetadataUrl = extractResourceMetadataUrl(response);
+    const authContext = {
+      serverUrl: context.serverUrl,
+      resourceMetadataUrl: resourceMetadataUrl || context.resourceMetadataUrl,
+      fetchFn: this.fetchFn
+    };
+
+    const result = await auth(this.oauthProvider, authContext);
+    return result === "AUTHORIZED";
+  }
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
