@@ -671,41 +671,53 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
   const hasPath = url.pathname !== '/';
   const urlsToTry: { url: URL; type: 'oauth' | 'oidc' }[] = [];
 
+
+  if (!hasPath) {
+    // Root path: https://example.com/.well-known/oauth-authorization-server
+    urlsToTry.push({
+      url: new URL('/.well-known/oauth-authorization-server', url.origin),
+      type: 'oauth'
+    });
+
+    // OIDC: https://example.com/.well-known/openid-configuration
+    urlsToTry.push({
+      url: new URL(`/.well-known/openid-configuration`, url.origin),
+      type: 'oidc'
+    });
+
+    return urlsToTry;
+  }
+
+  // Strip trailing slash from pathname to avoid double slashes
+  let pathname = url.pathname;
+  if (pathname.endsWith('/')) {
+    pathname = pathname.slice(0, -1);
+  }
+
   // 1. OAuth metadata at the given URL
+  // Insert well-known before the path: https://example.com/.well-known/oauth-authorization-server/tenant1
   urlsToTry.push({
-    url: new URL(
-      buildWellKnownPath('oauth-authorization-server', hasPath ? url.pathname : ''),
-      url.origin
-    ),
+    url: new URL(`/.well-known/oauth-authorization-server${pathname}`, url.origin),
     type: 'oauth'
   });
 
-  // 2. OAuth metadata at root (if URL has path)
-  if (hasPath) {
-    urlsToTry.push({
-      url: new URL(buildWellKnownPath('oauth-authorization-server'), url.origin),
-      type: 'oauth'
-    });
-  }
+  // Root path: https://example.com/.well-known/oauth-authorization-server
+  urlsToTry.push({
+    url: new URL('/.well-known/oauth-authorization-server', url.origin),
+    type: 'oauth'
+  });
 
   // 3. OIDC metadata endpoints
-  if (hasPath) {
-    // RFC 8414 style: Insert /.well-known/openid-configuration before the path
-    urlsToTry.push({
-      url: new URL(buildWellKnownPath('openid-configuration', url.pathname), url.origin),
-      type: 'oidc'
-    });
-    // OIDC Discovery 1.0 style: Append /.well-known/openid-configuration after the path
-    urlsToTry.push({
-      url: new URL(buildWellKnownPath('openid-configuration', url.pathname, { prependPathname: true }), url.origin),
-      type: 'oidc'
-    });
-  } else {
-    urlsToTry.push({
-      url: new URL(buildWellKnownPath('openid-configuration'), url.origin),
-      type: 'oidc'
-    });
-  }
+  // RFC 8414 style: Insert /.well-known/openid-configuration before the path
+  urlsToTry.push({
+    url: new URL(`/.well-known/openid-configuration${pathname}`, url.origin),
+    type: 'oidc'
+  });
+  // OIDC Discovery 1.0 style: Append /.well-known/openid-configuration after the path
+  urlsToTry.push({
+    url: new URL(`${pathname}/.well-known/openid-configuration`, url.origin),
+    type: 'oidc'
+  });
 
   return urlsToTry;
 }
