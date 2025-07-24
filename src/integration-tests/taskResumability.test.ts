@@ -149,15 +149,14 @@ describe('Transport resumability', () => {
   // This test demonstrates the capability to resume long-running tools
   // across client disconnection/reconnection
   it('should resume long-running notifications with lastEventId', async () => {
-    // Create unique client ID for this test
-    const clientId = 'test-client-long-running';
+    // Create unique client name for this test
+    const clientName = 'test-client-long-running';
     const notifications = [];
     let lastEventId: string | undefined;
 
     // Create first client
     const client1 = new Client({
-      id: clientId,
-      name: 'test-client',
+      name: clientName,
       version: '1.0.0'
     });
 
@@ -225,10 +224,9 @@ describe('Transport resumability', () => {
     await catchPromise;
 
 
-    // Create second client with same client ID
+    // Create second client with same client name
     const client2 = new Client({
-      id: clientId,
-      name: 'test-client',
+      name: clientName,
       version: '1.0.0'
     });
 
