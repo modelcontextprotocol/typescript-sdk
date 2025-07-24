@@ -688,7 +688,7 @@ describe("OAuth Authorization", () => {
   describe("buildDiscoveryUrls", () => {
     it("generates correct URLs for server without path", () => {
       const urls = buildDiscoveryUrls("https://auth.example.com");
-      
+
       expect(urls).toHaveLength(2);
       expect(urls.map(u => ({ url: u.url.toString(), type: u.type }))).toEqual([
         {
@@ -704,7 +704,7 @@ describe("OAuth Authorization", () => {
 
     it("generates correct URLs for server with path", () => {
       const urls = buildDiscoveryUrls("https://auth.example.com/tenant1");
-      
+
       expect(urls).toHaveLength(4);
       expect(urls.map(u => ({ url: u.url.toString(), type: u.type }))).toEqual([
         {
@@ -728,7 +728,7 @@ describe("OAuth Authorization", () => {
 
     it("handles URL object input", () => {
       const urls = buildDiscoveryUrls(new URL("https://auth.example.com/tenant1"));
-      
+
       expect(urls).toHaveLength(4);
       expect(urls[0].url.toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server/tenant1");
     });
@@ -761,7 +761,7 @@ describe("OAuth Authorization", () => {
         ok: false,
         status: 404,
       });
-      
+
       // Second OAuth URL (root) succeeds
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -774,7 +774,7 @@ describe("OAuth Authorization", () => {
       );
 
       expect(metadata).toEqual(validOAuthMetadata);
-      
+
       // Verify it tried the URLs in the correct order
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(2);
@@ -808,14 +808,32 @@ describe("OAuth Authorization", () => {
       ).rejects.toThrow("does not support S256 code challenge method required by MCP specification");
     });
 
-    it("throws on non-404 errors", async () => {
+    it("continues on 4xx errors", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+      });
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => validOpenIdMetadata,
+      });
+
+      const metadata = await discoverAuthorizationServerMetadata("https://mcp.example.com");
+
+      expect(metadata).toEqual(validOpenIdMetadata);
+
+    });
+
+    it("throws on non-4xx errors", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 500,
       });
 
       await expect(
-        discoverAuthorizationServerMetadata("https://mcp.example.com", undefined)
+        discoverAuthorizationServerMetadata("https://mcp.example.com")
       ).rejects.toThrow("HTTP 500");
     });
 

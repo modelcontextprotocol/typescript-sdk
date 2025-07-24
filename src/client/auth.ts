@@ -762,7 +762,8 @@ export async function discoverAuthorizationServerMetadata(
     }
 
     if (!response.ok) {
-      if (response.status === 404) {
+      // Continue looking for any 4xx response code.
+      if (response.status >= 400 && response.status < 500) {
         continue; // Try next URL
       }
       throw new Error(`HTTP ${response.status} trying to load ${type === 'oauth' ? 'OAuth' : 'OpenID provider'} metadata from ${endpointUrl}`);
