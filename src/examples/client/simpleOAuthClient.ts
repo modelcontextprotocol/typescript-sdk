@@ -32,7 +32,8 @@ class InMemoryOAuthClientProvider implements OAuthClientProvider {
   constructor(
     private readonly _redirectUrl: string | URL,
     private readonly _clientMetadata: OAuthClientMetadata,
-    onRedirect?: (url: URL) => void
+    onRedirect?: (url: URL) => void,
+    private readonly _dcrToken?: string
   ) {
     this._onRedirect = onRedirect || ((url) => {
       console.log(`Redirect to: ${url.toString()}`);
@@ -79,6 +80,55 @@ class InMemoryOAuthClientProvider implements OAuthClientProvider {
     }
     return this._codeVerifier;
   }
+
+  /**
+   * DCR registration access token provider (RFC 7591)
+   * Provides "initial access token" as defined in RFC 7591 for Dynamic Client Registration
+   * This demonstrates custom DCR token logic with fallback strategies
+   */
+  async dcrRegistrationAccessToken(): Promise<string | undefined> {
+    // Strategy 1: Use explicit token provided to constructor
+    if (this._dcrToken) {
+      console.log('🔑 Using DCR token from constructor parameter');
+      return this._dcrToken;
+    }
+
+    // Strategy 2: Check for command line argument
+    const args = process.argv;
+    const dcrArgIndex = args.findIndex(arg => arg === '--dcr-token');
+    if (dcrArgIndex !== -1 && args[dcrArgIndex + 1]) {
+      console.log('🔑 Using DCR token from command line argument');
+      return args[dcrArgIndex + 1];
+    }
+
+    // Strategy 3: Check environment variable (this is also the SDK's automatic fallback)
+    if (process.env.DCR_REGISTRATION_ACCESS_TOKEN) {
+      console.log('🔑 Using DCR token from DCR_REGISTRATION_ACCESS_TOKEN environment variable');
+      console.log('   (RFC 7591 "initial access token")');
+      return process.env.DCR_REGISTRATION_ACCESS_TOKEN;
+    }
+
+    // Strategy 4: Could load from secure storage (e.g., keychain, vault)
+    // const tokenFromStorage = await this.loadDcrTokenFromSecureStorage();
+    // if (tokenFromStorage) {
+    //   console.log('🔑 Using DCR token from secure storage');
+    //   return tokenFromStorage;
+    // }
+
+    console.log('ℹ️  No DCR registration access token available - proceeding without pre-authorization');
+    return undefined;
+  }
+
+  // Example method for secure storage (not implemented in this demo)
+  // private async loadDcrTokenFromSecureStorage(): Promise<string | undefined> {
+  //   // In production, you might load from:
+  //   // - OS keychain/keyring
+  //   // - HashiCorp Vault
+  //   // - AWS Secrets Manager
+  //   // - Azure Key Vault
+  //   // - etc.
+  //   return undefined;
+  // }
 }
 /**
  * Interactive MCP client with OAuth authentication
@@ -224,6 +274,23 @@ class InteractiveOAuthClient {
     };
 
     console.log('🔐 Creating OAuth provider...');
+    
+    // Check for DCR token from command line (--dcr-token <token>)
+    const args = process.argv;
+    const dcrArgIndex = args.findIndex(arg => arg === '--dcr-token');
+    const explicitDcrToken = dcrArgIndex !== -1 && args[dcrArgIndex + 1] ? args[dcrArgIndex + 1] : undefined;
+    
+    if (explicitDcrToken) {
+      console.log('🔑 DCR registration access token provided via command line');
+      console.log('   This will be used for pre-authorized dynamic client registration (RFC 7591)');
+    } else if (process.env.DCR_REGISTRATION_ACCESS_TOKEN) {
+      console.log('🔑 DCR registration access token available via environment variable');
+      console.log('   This will be used for pre-authorized dynamic client registration (RFC 7591)');
+    } else {
+      console.log('ℹ️  No DCR registration access token provided (proceeding without pre-authorization)');
+      console.log('   Client registration will proceed normally (if the auth server supports it)');
+    }
+    
     const oauthProvider = new InMemoryOAuthClientProvider(
       CALLBACK_URL,
       clientMetadata,
@@ -231,7 +298,8 @@ class InteractiveOAuthClient {
         console.log(`📌 OAuth redirect handler called - opening browser`);
         console.log(`Opening browser to: ${redirectUrl.toString()}`);
         this.openBrowser(redirectUrl.toString());
-      }
+      },
+      explicitDcrToken // Pass DCR token to provider
     );
     console.log('🔐 OAuth provider created');
 

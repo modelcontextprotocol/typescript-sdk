@@ -1238,7 +1238,7 @@ The SDK automatically checks for a `DCR_REGISTRATION_ACCESS_TOKEN` environment v
 
 ##### Method 1: Environment Variable (Default)
 ```bash
-export DCR_REGISTRATION_ACCESS_TOKEN="your-dcr-registration-access-token"
+export DCR_REGISTRATION_ACCESS_TOKEN="your-initial-access-token"
 ```
 
 ##### Method 2: Custom Provider Method
@@ -1286,6 +1286,10 @@ try {
   }
 }
 ```
+
+For complete working examples of OAuth with DCR token support, see:
+- [`src/examples/client/simpleOAuthClient.ts`](src/examples/client/simpleOAuthClient.ts) - Basic OAuth client with DCR support
+- [`src/examples/client/advancedDcrOAuthClient.ts`](src/examples/client/advancedDcrOAuthClient.ts) - Advanced DCR strategies for production
 
 ### Proxy Authorization Requests Upstream
 

@@ -36,12 +36,68 @@ npx tsx src/examples/client/simpleStreamableHttp.ts
 Example client with OAuth:
 
 ```bash
-npx tsx src/examples/client/simpleOAuthClient.js
+npx tsx src/examples/client/simpleOAuthClient.ts
 ```
 
-The OAuth client example supports DCR registration access tokens (called "initial access token" in RFC 7591) for dynamic client registration. The SDK automatically checks for the `DCR_REGISTRATION_ACCESS_TOKEN` environment variable:
-- Environment variable: `export DCR_REGISTRATION_ACCESS_TOKEN="your-token"`
-- Custom provider implementation (see source code for examples)
+#### OAuth DCR Registration Access Token Support (RFC 7591)
+
+The OAuth client example demonstrates comprehensive support for DCR (Dynamic Client Registration) registration access tokens (called "initial access token" in RFC 7591) for authorization servers that require pre-authorization. The example shows multiple ways to provide DCR tokens:
+
+##### Method 1: Environment Variable (Automatic SDK Fallback)
+```bash
+export DCR_REGISTRATION_ACCESS_TOKEN="your-initial-access-token"
+npx tsx src/examples/client/simpleOAuthClient.ts
+```
+
+##### Method 2: Command Line Argument
+```bash
+npx tsx src/examples/client/simpleOAuthClient.ts --dcr-token "your-initial-access-token"
+```
+
+##### Method 3: Custom Provider Implementation
+The example shows how to implement custom DCR token logic in your OAuth provider:
+
+```typescript
+class MyOAuthProvider implements OAuthClientProvider {
+  // ... other methods ...
+  
+  async dcrRegistrationAccessToken(): Promise<string | undefined> {
+    // Custom fallback logic:
+    // 1. Check explicit parameter
+    // 2. Check command line arguments
+    // 3. Check environment variables
+    // 4. Check secure storage (keychain, vault, etc.)
+    return this.getTokenFromCustomSource();
+  }
+}
+```
+
+The SDK implements a clean 2-level fallback:
+1. **Provider method**: Custom `dcrRegistrationAccessToken()` implementation (if provided) 
+2. **Environment variable**: `DCR_REGISTRATION_ACCESS_TOKEN` (automatic fallback for RFC 7591 "initial access token")
+3. **None**: Proceed without pre-authorization (for servers that don't require it)
+
+#### Advanced DCR Strategies Example
+
+For production environments requiring sophisticated DCR token management (called "initial access token" in RFC 7591), see the advanced example:
+
+```bash
+# Demonstrate all DCR strategies
+npx tsx src/examples/client/advancedDcrOAuthClient.ts
+
+# Demo strategies only (no connection attempt)
+npx tsx src/examples/client/advancedDcrOAuthClient.ts --demo-only
+
+# Attempt real connection with DCR support  
+npx tsx src/examples/client/advancedDcrOAuthClient.ts --connect --dcr-token "your-initial-access-token"
+```
+
+This example demonstrates:
+- **Token exchange**: Dynamic DCR initial access token acquisition via client credentials
+- **Secure storage**: Integration with OS keychain, HashiCorp Vault, AWS Secrets Manager  
+- **Multiple environment variables**: Support for various DCR token env var names (RFC 7591 "initial access token")
+- **Fallback strategies**: Comprehensive 6-level fallback approach
+- **Production patterns**: Real-world deployment scenarios and security practices
 
 ### Backwards Compatible Client
 
