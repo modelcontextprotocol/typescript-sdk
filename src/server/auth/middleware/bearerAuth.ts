@@ -77,7 +77,7 @@ export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetad
         // RFC 6750 Section 3.1: Missing authentication should not include error codes
         const wwwAuthValue = resourceMetadataUrl
           ? `Bearer resource_metadata="${resourceMetadataUrl}"`
-          : `Bearer realm="protected"`;
+          : `Bearer`;
         res.set("WWW-Authenticate", wwwAuthValue);
         res.status(401).send();
       } else if (error instanceof InvalidTokenError) {
