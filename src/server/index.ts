@@ -1,3 +1,4 @@
+import { CreateMessageResult, EmptyResult } from "spec.types.js";
 import {
   mergeCapabilities,
   Protocol,
@@ -32,6 +33,7 @@ import {
   ServerRequest,
   ServerResult,
   SUPPORTED_PROTOCOL_VERSIONS,
+  ListRootsResult,
 } from "../types.js";
 import Ajv from "ajv";
 
@@ -206,14 +208,6 @@ export class Server<
 
   protected assertRequestHandlerCapability(method: string): void {
     switch (method) {
-      case "sampling/createMessage":
-        if (!this._capabilities.sampling) {
-          throw new Error(
-            `Server does not support sampling (required for ${method})`,
-          );
-        }
-        break;
-
       case "logging/setLevel":
         if (!this._capabilities.logging) {
           throw new Error(
@@ -295,14 +289,14 @@ export class Server<
     return this._capabilities;
   }
 
-  async ping() {
+  async ping(): Promise<EmptyResult> {
     return this.request({ method: "ping" }, EmptyResultSchema);
   }
 
   async createMessage(
     params: CreateMessageRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<CreateMessageResult> {
     return this.request(
       { method: "sampling/createMessage", params },
       CreateMessageResultSchema,
@@ -351,7 +345,7 @@ export class Server<
   async listRoots(
     params?: ListRootsRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<ListRootsResult> {
     return this.request(
       { method: "roots/list", params },
       ListRootsResultSchema,
@@ -359,28 +353,28 @@ export class Server<
     );
   }
 
-  async sendLoggingMessage(params: LoggingMessageNotification["params"]) {
+  async sendLoggingMessage(params: LoggingMessageNotification["params"]): Promise<void> {
     return this.notification({ method: "notifications/message", params });
   }
 
-  async sendResourceUpdated(params: ResourceUpdatedNotification["params"]) {
+  async sendResourceUpdated(params: ResourceUpdatedNotification["params"]): Promise<void> {
     return this.notification({
       method: "notifications/resources/updated",
       params,
     });
   }
 
-  async sendResourceListChanged() {
+  async sendResourceListChanged(): Promise<void> {
     return this.notification({
       method: "notifications/resources/list_changed",
     });
   }
 
-  async sendToolListChanged() {
+  async sendToolListChanged(): Promise<void> {
     return this.notification({ method: "notifications/tools/list_changed" });
   }
 
-  async sendPromptListChanged() {
+  async sendPromptListChanged(): Promise<void> {
     return this.notification({ method: "notifications/prompts/list_changed" });
   }
 }

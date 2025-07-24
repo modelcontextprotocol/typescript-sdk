@@ -38,6 +38,7 @@
     "fetch:spec-types": "curl -o spec.types.ts https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/refs/heads/main/schema/draft/schema.ts",
     "generate:strict-types": "tsx scripts/generateStrictTypes.ts",
     "check:strict-types": "npm run generate:strict-types && git diff --exit-code src/strictTypes.ts || (echo 'Error: strictTypes.ts is out of date. Run npm run generate:strict-types' && exit 1)",
+    "test:strict-types": "node scripts/test-strict-types.js",
     "build": "npm run build:esm && npm run build:cjs",
     "build:esm": "mkdir -p dist/esm && echo '{\"type\": \"module\"}' > dist/esm/package.json && tsc -p tsconfig.prod.json",
     "build:esm:w": "npm run build:esm -- -w",
@@ -46,7 +47,7 @@
     "examples:simple-server:w": "tsx --watch src/examples/server/simpleStreamableHttp.ts --oauth",
     "prepack": "npm run build:esm && npm run build:cjs",
     "lint": "eslint src/",
-    "test": "npm run fetch:spec-types && jest",
+    "test": "npm run fetch:spec-types && jest && npm run test:strict-types",
     "start": "npm run server",
     "server": "tsx watch --clear-screen=false src/cli.ts server",
     "client": "tsx src/cli.ts client"
