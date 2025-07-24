@@ -11,6 +11,10 @@ const strictTypesPath = join(__dirname, '../src/strictTypes.ts');
 
 let content = readFileSync(typesPath, 'utf-8');
 
+// Remove the @deprecated comment block
+const deprecatedCommentPattern = /\/\*\*\s*\n\s*\*\s*@deprecated[\s\S]*?\*\/\s*\n/;
+content = content.replace(deprecatedCommentPattern, '');
+
 // Add header comment
 const header = `/**
  * Types remove unknown
@@ -24,36 +28,39 @@ const header = `/**
 
 `;
 
-// Replace all .passthrough() with .strip()
-content = content.replace(/\.passthrough\(\)/g, '.strip()');
+// Replace all .passthrough() with a temporary marker
+content = content.replace(/\.passthrough\(\)/g, '.__TEMP_MARKED_FOR_REMOVAL__()');
 
 // Special handling for experimental and capabilities that should remain open
 // These are explicitly designed to be extensible
 const patternsToKeepOpen = [
   // Keep experimental fields open as they're meant for extensions
-  /experimental: z\.optional\(z\.object\(\{\}\)\.strip\(\)\)/g,
+  /experimental: z\.optional\(z\.object\(\{\}\)\.__TEMP_MARKED_FOR_REMOVAL__\(\)\)/g,
   // Keep _meta fields open as they're meant for arbitrary metadata
-  /_meta: z\.optional\(z\.object\(\{\}\)\.strip\(\)\)/g,
+  /_meta: z\.optional\(z\.object\(\{\}\)\.__TEMP_MARKED_FOR_REMOVAL__\(\)\)/g,
   // Keep JSON Schema properties open as they can have arbitrary fields
-  /properties: z\.optional\(z\.object\(\{\}\)\.strip\(\)\)/g,
+  /properties: z\.optional\(z\.object\(\{\}\)\.__TEMP_MARKED_FOR_REMOVAL__\(\)\)/g,
   // Keep BaseRequestParamsSchema passthrough for JSON-RPC param compatibility
-  /const BaseRequestParamsSchema = z\s*\n\s*\.object\([\s\S]*?\)\s*\n\s*\.strip\(\)/g,
+  /const BaseRequestParamsSchema = z\s*\n\s*\.object\([\s\S]*?\)\s*\n\s*\.__TEMP_MARKED_FOR_REMOVAL__\(\)/g,
   // Keep BaseNotificationParamsSchema passthrough for JSON-RPC param compatibility  
-  /const BaseNotificationParamsSchema = z\s*\n\s*\.object\([\s\S]*?\)\s*\n\s*\.strip\(\)/g,
+  /const BaseNotificationParamsSchema = z\s*\n\s*\.object\([\s\S]*?\)\s*\n\s*\.__TEMP_MARKED_FOR_REMOVAL__\(\)/g,
   // Keep RequestMetaSchema passthrough for extensibility
-  /const RequestMetaSchema = z\s*\n\s*\.object\([\s\S]*?\)\s*\n\s*\.strip\(\)/g,
+  /const RequestMetaSchema = z\s*\n\s*\.object\([\s\S]*?\)\s*\n\s*\.__TEMP_MARKED_FOR_REMOVAL__\(\)/g,
   // Keep structuredContent passthrough for tool-specific output
-  /structuredContent: z\.object\(\{\}\)\.strip\(\)\.optional\(\)/g,
+  /structuredContent: z\.object\(\{\}\)\.__TEMP_MARKED_FOR_REMOVAL__\(\)\.optional\(\)/g,
   // Keep metadata passthrough for provider-specific data in sampling
-  /metadata: z\.optional\(z\.object\(\{\}\)\.strip\(\)\)/g,
+  /metadata: z\.optional\(z\.object\(\{\}\)\.__TEMP_MARKED_FOR_REMOVAL__\(\)\)/g,
 ];
 
-// Revert strip back to passthrough for these special cases
+// Revert marker back to passthrough for these special cases
 patternsToKeepOpen.forEach(pattern => {
   content = content.replace(pattern, (match) =>
-    match.replace('.strip()', '.passthrough()')
+    match.replace('.__TEMP_MARKED_FOR_REMOVAL__()', '.passthrough()')
   );
 });
+
+// Remove the temporary marker from all remaining locations (these become no modifier)
+content = content.replace(/\.__TEMP_MARKED_FOR_REMOVAL__\(\)/g, '');
 
 // Add a comment explaining the difference
 const explanation = `
@@ -68,7 +75,7 @@ const explanation = `
  * - structuredContent: Tool-specific output that can have arbitrary fields
  * - metadata: Provider-specific metadata in sampling requests
  * 
- * All other objects use .strip() to remove unknown properties while
+ * All other objects use default behavior (no modifier) to remove unknown properties while
  * maintaining compatibility with extended protocols.
  */
 `;

@@ -3626,11 +3626,10 @@ describe("prompt()", () => {
         }),
       }),
       {
-        name: "Template Name",
         description: "Template description",
         mimeType: "application/json",
       },
-      async (uri) => ({
+      async (uri: URL) => ({
         contents: [
           {
             uri: uri.href,
@@ -4210,10 +4209,15 @@ describe("elicitInput()", () => {
 
     expect(checkAvailability).toHaveBeenCalledWith("ABC Restaurant", "2024-12-25", 2);
     expect(findAlternatives).toHaveBeenCalledWith("ABC Restaurant", "2024-12-25", 2, "same_week");
-    expect(result.content).toEqual([{
-      type: "text",
-      text: "Found these alternatives: 2024-12-26, 2024-12-27, 2024-12-28"
-    }]);
+    
+    // Type narrowing for union type
+    expect('content' in result).toBe(true);
+    if ('content' in result) {
+      expect(result.content).toEqual([{
+        type: "text",
+        text: "Found these alternatives: 2024-12-26, 2024-12-27, 2024-12-28"
+      }]);
+    }
   });
 
   test("should handle user declining to elicitation request", async () => {
@@ -4249,10 +4253,14 @@ describe("elicitInput()", () => {
 
     expect(checkAvailability).toHaveBeenCalledWith("ABC Restaurant", "2024-12-25", 2);
     expect(findAlternatives).not.toHaveBeenCalled();
-    expect(result.content).toEqual([{
+    // Type narrowing for union type
+    expect('content' in result).toBe(true);
+    if ('content' in result) {
+      expect(result.content).toEqual([{
       type: "text",
       text: "No booking made. Original date not available."
     }]);
+    }
   });
 
   test("should handle user cancelling the elicitation", async () => {
@@ -4285,9 +4293,13 @@ describe("elicitInput()", () => {
 
     expect(checkAvailability).toHaveBeenCalledWith("ABC Restaurant", "2024-12-25", 2);
     expect(findAlternatives).not.toHaveBeenCalled();
-    expect(result.content).toEqual([{
+    // Type narrowing for union type
+    expect('content' in result).toBe(true);
+    if ('content' in result) {
+      expect(result.content).toEqual([{
       type: "text",
       text: "No booking made. Original date not available."
     }]);
+    }
   });
 });

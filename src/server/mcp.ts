@@ -313,7 +313,7 @@ export class McpServer {
 
       throw new McpError(
         ErrorCode.InvalidParams,
-        `Resource template ${request.params.ref.uri} not found`,
+        `Resource template ${'uri' in request.params.ref ? request.params.ref.uri : 'unknown'} not found`,
       );
     }
 
