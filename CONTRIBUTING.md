@@ -14,9 +14,10 @@ We welcome contributions to the Model Context Protocol TypeScript SDK! This docu
 
 1. Create a new branch for your changes
 2. Make your changes
-3. Run `npm run lint` to ensure code style compliance
-4. Run `npm test` to verify all tests pass
-5. Submit a pull request
+3. If you modify `src/types.ts`, run `npm run generate:strict-types` to update strict types
+4. Run `npm run lint` to ensure code style compliance
+5. Run `npm test` to verify all tests pass
+6. Submit a pull request
 
 ## Pull Request Guidelines
 

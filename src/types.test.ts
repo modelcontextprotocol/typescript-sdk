@@ -5,8 +5,10 @@ import {
     ContentBlockSchema,
     PromptMessageSchema,
     CallToolResultSchema,
-    CompleteRequestSchema
-} from "./types.js";
+    CompleteRequestSchema,
+    JSONRPCRequestSchema,
+    ReadResourceRequestSchema
+} from "./strictTypes.js";
 
 describe("Types", () => {
 
@@ -310,6 +312,41 @@ describe("Types", () => {
                     "{resource}": "users"
                 });
             }
+        });
+    });
+
+    describe("JSONRPCRequest validation", () => {
+        test("should preserve method-specific params for later validation", () => {
+            // This test verifies that JSONRPCRequestSchema preserves method-specific
+            // parameters (like 'uri' for resources/read) so they can be validated
+            // by the specific request schema later in the processing pipeline.
+            
+            const jsonRpcRequest = {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "resources/read",
+                params: {
+                    uri: "file:///test.txt",
+                    _meta: { progressToken: "token" }
+                }
+            };
+
+            // Step 1: Validate as a generic JSON-RPC request
+            const jsonRpcResult = JSONRPCRequestSchema.safeParse(jsonRpcRequest);
+            expect(jsonRpcResult.success).toBe(true);
+            
+            if (jsonRpcResult.success) {
+                // The params should still contain method-specific fields like 'uri'
+                // even though they're not defined in the base schema
+                expect(jsonRpcResult.data.params).toBeDefined();
+                const params = jsonRpcResult.data.params as { uri: string; _meta?: { progressToken?: string } };
+                expect(params.uri).toBe("file:///test.txt");
+                expect(params._meta?.progressToken).toBe("token");
+            }
+
+            // Step 2: The same request should also validate as ReadResourceRequest
+            const readResourceResult = ReadResourceRequestSchema.safeParse(jsonRpcRequest);
+            expect(readResourceResult.success).toBe(true);
         });
     });
 });

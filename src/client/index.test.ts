@@ -217,11 +217,11 @@ test("should connect new client to old, supported server version", async () => {
   const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
 
+  // Client initialization automatically uses LATEST_PROTOCOL_VERSION in the current SDK
   const client = new Client(
       {
         name: "new client",
         version: "1.0",
-        protocolVersion: LATEST_PROTOCOL_VERSION,
       },
       {
         capabilities: {
@@ -287,7 +287,6 @@ test("should negotiate version when client is old, and newer server supports its
       {
         name: "old client",
         version: "1.0",
-        protocolVersion: OLD_VERSION,
       },
       {
         capabilities: {
@@ -296,6 +295,17 @@ test("should negotiate version when client is old, and newer server supports its
         enforceStrictCapabilities: true,
       },
   );
+
+  // Mock the request method to simulate an old client sending OLD_VERSION
+  const originalRequest = client.request.bind(client);
+  client.request = jest.fn(async (request, schema, options) => {
+    // If this is the initialize request, modify the protocol version to simulate old client
+    if (request.method === "initialize" && request.params) {
+      request.params.protocolVersion = OLD_VERSION;
+    }
+    // Call the original request method with the potentially modified request
+    return originalRequest(request, schema, options);
+  });
 
   await Promise.all([
     client.connect(clientTransport),
@@ -350,11 +360,13 @@ test("should throw when client is old, and server doesn't support its version", 
   const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
 
+  // Client uses LATEST_PROTOCOL_VERSION by default, which is sufficient for this test
+  // The error occurs because the server returns FUTURE_VERSION (unsupported),
+  // not because of the client's version. Any client version would fail here.
   const client = new Client(
       {
         name: "old client",
         version: "1.0",
-        protocolVersion: OLD_VERSION,
       },
       {
         capabilities: {
@@ -880,6 +892,7 @@ describe('outputSchema validation', () => {
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (request.params.name === 'test-tool') {
         return {
+          content: [],  // Required field for CallToolResult
           structuredContent: { result: 'success', count: 42 },
         };
       }
@@ -903,7 +916,11 @@ describe('outputSchema validation', () => {
 
     // Call the tool - should validate successfully
     const result = await client.callTool({ name: 'test-tool' });
-    expect(result.structuredContent).toEqual({ result: 'success', count: 42 });
+    // Type narrowing: check if structuredContent exists before accessing
+    expect('structuredContent' in result).toBe(true);
+    if ('structuredContent' in result) {
+      expect(result.structuredContent).toEqual({ result: 'success', count: 42 });
+    }
   });
 
   /***
@@ -955,6 +972,7 @@ describe('outputSchema validation', () => {
       if (request.params.name === 'test-tool') {
         // Return invalid structured content (count is string instead of number)
         return {
+          content: [],  // Required field for CallToolResult
           structuredContent: { result: 'success', count: 'not a number' },
         };
       }
@@ -1120,7 +1138,11 @@ describe('outputSchema validation', () => {
 
     // Call the tool - should work normally without validation
     const result = await client.callTool({ name: 'test-tool' });
-    expect(result.content).toEqual([{ type: 'text', text: 'Normal response' }]);
+    // Type narrowing: check if content exists before accessing
+    expect('content' in result).toBe(true);
+    if ('content' in result) {
+      expect(result.content).toEqual([{ type: 'text', text: 'Normal response' }]);
+    }
   });
 
   /***
@@ -1184,6 +1206,7 @@ describe('outputSchema validation', () => {
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (request.params.name === 'complex-tool') {
         return {
+          content: [],  // Required field for CallToolResult
           structuredContent: {
             name: 'John Doe',
             age: 30,
@@ -1215,10 +1238,14 @@ describe('outputSchema validation', () => {
 
     // Call the tool - should validate successfully
     const result = await client.callTool({ name: 'complex-tool' });
-    expect(result.structuredContent).toBeDefined();
-    const structuredContent = result.structuredContent as { name: string; age: number };
-    expect(structuredContent.name).toBe('John Doe');
-    expect(structuredContent.age).toBe(30);
+    // Type narrowing: check if structuredContent exists before accessing
+    expect('structuredContent' in result).toBe(true);
+    if ('structuredContent' in result) {
+      expect(result.structuredContent).toBeDefined();
+      const structuredContent = result.structuredContent as { name: string; age: number };
+      expect(structuredContent.name).toBe('John Doe');
+      expect(structuredContent.age).toBe(30);
+    }
   });
 
   /***
@@ -1269,6 +1296,7 @@ describe('outputSchema validation', () => {
       if (request.params.name === 'strict-tool') {
         // Return structured content with extra property
         return {
+          content: [],  // Required field for CallToolResult
           structuredContent: {
             name: 'John',
             extraField: 'not allowed',
