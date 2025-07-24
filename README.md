@@ -1230,15 +1230,15 @@ const client = new Client({ name: "oauth-client", version: "1.0.0" });
 await client.connect(transport);
 ```
 
-#### Initial Access Token Support (RFC 7591)
+#### DCR Registration Access Token Support (RFC 7591)
 
-For authorization servers that require pre-authorization for dynamic client registration, the SDK supports initial access tokens with multi-level fallback:
+For authorization servers that require pre-authorization for dynamic client registration, the SDK supports DCR registration access tokens (called "initial access token" in RFC 7591) with multi-level fallback:
 
 ##### Method 1: Transport Configuration (Highest Priority)
 ```typescript
 const transport = new StreamableHTTPClientTransport(serverUrl, {
   authProvider,
-  initialAccessToken: "your-initial-access-token"
+  initialAccessToken: "your-dcr-registration-access-token"
 });
 ```
 
@@ -1247,22 +1247,22 @@ const transport = new StreamableHTTPClientTransport(serverUrl, {
 class MyOAuthProvider implements OAuthClientProvider {
   // ... other methods ...
   
-  async initialAccessToken() {
+  async dcrRegistrationAccessToken() {
     // Load from secure storage, API call, etc.
-    return await this.loadFromSecureStorage('initial_access_token');
+    return await this.loadFromSecureStorage('dcr_registration_access_token');
   }
 }
 ```
 
 ##### Method 3: Environment Variable
 ```bash
-export OAUTH_INITIAL_ACCESS_TOKEN="your-initial-access-token"
+export DCR_REGISTRATION_ACCESS_TOKEN="your-dcr-registration-access-token"
 ```
 
 The SDK will automatically try these methods in order:
 1. Explicit `initialAccessToken` parameter (highest priority)
-2. Provider's `initialAccessToken()` method 
-3. `OAUTH_INITIAL_ACCESS_TOKEN` environment variable
+2. Provider's `dcrRegistrationAccessToken()` method 
+3. `DCR_REGISTRATION_ACCESS_TOKEN` environment variable
 4. None (for servers that don't require pre-authorization)
 
 #### Complete OAuth Flow Example

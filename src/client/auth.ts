@@ -126,15 +126,15 @@ export interface OAuthClientProvider {
   invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier'): void | Promise<void>;
 
   /**
-   * If implemented, provides an initial access token for OAuth 2.0 Dynamic Client Registration
+   * If implemented, provides a DCR registration access token (called "initial access token" in RFC 7591) for OAuth 2.0 Dynamic Client Registration
    * according to RFC 7591. This token is used to authorize the client registration request.
    * 
-   * The initial access token allows the client to register with authorization servers that
+   * The DCR registration access token allows the client to register with authorization servers that
    * require pre-authorization for dynamic client registration.
    * 
-   * @returns The initial access token string, or undefined if none is available
+   * @returns The DCR registration access token string, or undefined if none is available
    */
-  initialAccessToken?(): string | undefined | Promise<string | undefined>;
+  dcrRegistrationAccessToken?(): string | undefined | Promise<string | undefined>;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -894,13 +894,13 @@ export async function refreshAuthorization(
 /**
  * Performs OAuth 2.0 Dynamic Client Registration according to RFC 7591.
  * 
- * Supports initial access tokens for authorization servers that require 
- * pre-authorization for dynamic client registration. The initial access token
+ * Supports DCR registration access tokens (called "initial access token" in RFC 7591) for authorization servers that require 
+ * pre-authorization for dynamic client registration. The DCR registration access token
  * is resolved using a multi-level fallback approach:
  * 
  * 1. Explicit `initialAccessToken` parameter (highest priority)
- * 2. Provider's `initialAccessToken()` method (if implemented)
- * 3. `OAUTH_INITIAL_ACCESS_TOKEN` environment variable
+ * 2. Provider's `dcrRegistrationAccessToken()` method (if implemented)
+ * 3. `DCR_REGISTRATION_ACCESS_TOKEN` environment variable
  * 4. None (current behavior for servers that don't require pre-authorization)
  */
 export async function registerClient(
@@ -929,17 +929,17 @@ export async function registerClient(
     registrationUrl = new URL("/register", authorizationServerUrl);
   }
 
-  // Multi-level fallback for initial access token
+  // Multi-level fallback for DCR registration access token (RFC 7591 "initial access token")
   let token = initialAccessToken; // Level 1: Explicit parameter
 
-  if (!token && provider?.initialAccessToken) {
+  if (!token && provider?.dcrRegistrationAccessToken) {
     // Level 2: Provider method
-    token = await Promise.resolve(provider.initialAccessToken());
+    token = await Promise.resolve(provider.dcrRegistrationAccessToken());
   }
 
   // Level 3: Environment variable (Node.js environments only)
   if (!token && typeof globalThis !== 'undefined' && (globalThis as any).process?.env) {
-    token = (globalThis as any).process.env.OAUTH_INITIAL_ACCESS_TOKEN;
+    token = (globalThis as any).process.env.DCR_REGISTRATION_ACCESS_TOKEN;
   }
 
   // Level 4: None (current behavior) - no token needed
@@ -948,7 +948,7 @@ export async function registerClient(
     "Content-Type": "application/json",
   };
 
-  // Add initial access token if available (RFC 7591)
+  // Add DCR registration access token (RFC 7591 "initial access token") if available
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
