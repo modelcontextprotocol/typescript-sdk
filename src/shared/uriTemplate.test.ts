@@ -273,4 +273,52 @@ describe("UriTemplate", () => {
       expect(() => template.expand(vars)).not.toThrow();
     });
   });
+
+  describe("variable classification", () => {
+    it("should identify path variables", () => {
+      const template = new UriTemplate(
+        "/users/{id}/posts/{postId}{?limit,offset}"
+      );
+      expect(template.pathVariableNames).toEqual(["id", "postId"]);
+    });
+
+    it("should identify query variables", () => {
+      const template = new UriTemplate(
+        "/users/{id}/posts/{postId}{?limit,offset}"
+      );
+      expect(template.queryVariableNames).toEqual(["limit", "offset"]);
+    });
+
+    it("should classify different operators correctly", () => {
+      const template = new UriTemplate(
+        "{base}{+path}{#fragment}{.ext}{/segments}{?query}{&more}"
+      );
+      expect(template.pathVariableNames).toEqual([
+        "base",
+        "path",
+        "fragment",
+        "ext",
+        "segments",
+      ]);
+      expect(template.queryVariableNames).toEqual(["query", "more"]);
+    });
+
+    it("should handle templates with only path variables", () => {
+      const template = new UriTemplate("/users/{id}/profile");
+      expect(template.pathVariableNames).toEqual(["id"]);
+      expect(template.queryVariableNames).toEqual([]);
+    });
+
+    it("should handle templates with only query variables", () => {
+      const template = new UriTemplate("/search{?q,limit,offset}");
+      expect(template.pathVariableNames).toEqual([]);
+      expect(template.queryVariableNames).toEqual(["q", "limit", "offset"]);
+    });
+
+    it("should handle templates with no variables", () => {
+      const template = new UriTemplate("/static/path");
+      expect(template.pathVariableNames).toEqual([]);
+      expect(template.queryVariableNames).toEqual([]);
+    });
+  });
 });
