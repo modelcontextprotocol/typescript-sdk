@@ -88,7 +88,6 @@ describe("SSEClientTransport", () => {
 
     jest.clearAllMocks();
   });
-  
 
   describe("connection handling", () => {
     it("establishes SSE connection and receives endpoint", async () => {
