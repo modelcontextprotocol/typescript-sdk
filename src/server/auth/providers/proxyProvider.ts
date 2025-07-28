@@ -10,6 +10,7 @@ import {
 import { AuthInfo } from "../types.js";
 import { AuthorizationParams, OAuthServerProvider } from "../provider.js";
 import { ServerError } from "../errors.js";
+import { FetchLike } from "../../../shared/transport.js";
 
 export type ProxyEndpoints = {
   authorizationUrl: string;
@@ -34,6 +35,10 @@ export type ProxyOptions = {
   */
   getClient: (clientId: string) => Promise<OAuthClientInformationFull | undefined>;
 
+  /**
+   * Custom fetch implementation used for all network requests.
+   */
+  fetch?: FetchLike;
 };
 
 /**
@@ -43,6 +48,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
   protected readonly _endpoints: ProxyEndpoints;
   protected readonly _verifyAccessToken: (token: string) => Promise<AuthInfo>;
   protected readonly _getClient: (clientId: string) => Promise<OAuthClientInformationFull | undefined>;
+  protected readonly _fetch?: FetchLike;
   
   skipLocalPkceValidation = true;
 
@@ -55,6 +61,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
     this._endpoints = options.endpoints;
     this._verifyAccessToken = options.verifyAccessToken;
     this._getClient = options.getClient;
+    this._fetch = options.fetch;
     if (options.endpoints?.revocationUrl) {
       this.revokeToken = async (
         client: OAuthClientInformationFull,
@@ -76,7 +83,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
           params.set("token_type_hint", request.token_type_hint);
         }
 
-        const response = await fetch(revocationUrl, {
+        const response = await (this._fetch ?? fetch)(revocationUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/x-www-form-urlencoded",
@@ -97,7 +104,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
       getClient: this._getClient,
       ...(registrationUrl && {
         registerClient: async (client: OAuthClientInformationFull) => {
-          const response = await fetch(registrationUrl, {
+          const response = await (this._fetch ?? fetch)(registrationUrl, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -178,7 +185,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
       params.append("resource", resource.href);
     }
 
-    const response = await fetch(this._endpoints.tokenUrl, {
+    const response = await (this._fetch ?? fetch)(this._endpoints.tokenUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -220,7 +227,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
       params.set("resource", resource.href);
     }
 
-    const response = await fetch(this._endpoints.tokenUrl, {
+    const response = await (this._fetch ?? fetch)(this._endpoints.tokenUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",

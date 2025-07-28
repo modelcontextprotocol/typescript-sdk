@@ -218,6 +218,27 @@ describe('Client Registration Handler', () => {
       expect(response.body.client_secret_expires_at).toBe(0);
     });
 
+    it('sets no client_id when clientIdGeneration=false', async () => {
+      // Create handler with no expiry
+      const customApp = express();
+      const options: ClientRegistrationHandlerOptions = {
+        clientsStore: mockClientStoreWithRegistration,
+        clientIdGeneration: false
+      };
+
+      customApp.use('/register', clientRegistrationHandler(options));
+
+      const response = await supertest(customApp)
+        .post('/register')
+        .send({
+          redirect_uris: ['https://example.com/callback']
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.client_id).toBeUndefined();
+      expect(response.body.client_id_issued_at).toBeUndefined();
+    });
+
     it('handles client with all metadata fields', async () => {
       const fullClientMetadata: OAuthClientMetadata = {
         redirect_uris: ['https://example.com/callback'],

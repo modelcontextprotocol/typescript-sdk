@@ -156,7 +156,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
     let result: AuthResult;
     try {
-      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl });
+      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
     } catch (error) {
       this.onerror?.(error as Error);
       throw error;
@@ -207,7 +207,7 @@ export class StreamableHTTPClientTransport implements Transport {
         headers.set("last-event-id", resumptionToken);
       }
 
-const response = await (this._fetch ?? fetch)(this._url, {
+      const response = await (this._fetch ?? fetch)(this._url, {
         method: "GET",
         headers,
         signal: this._abortController?.signal,
@@ -231,7 +231,7 @@ const response = await (this._fetch ?? fetch)(this._url, {
         );
       }
 
-      this._handleSseStream(response.body, options);
+      this._handleSseStream(response.body, options, true);
     } catch (error) {
       this.onerror?.(error as Error);
       throw error;
@@ -300,7 +300,11 @@ const response = await (this._fetch ?? fetch)(this._url, {
     }, delay);
   }
 
-  private _handleSseStream(stream: ReadableStream<Uint8Array> | null, options: StartSSEOptions): void {
+  private _handleSseStream(
+    stream: ReadableStream<Uint8Array> | null, 
+    options: StartSSEOptions,
+    isReconnectable: boolean,
+  ): void {
     if (!stream) {
       return;
     }
@@ -347,20 +351,22 @@ const response = await (this._fetch ?? fetch)(this._url, {
         this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
 
         // Attempt to reconnect if the stream disconnects unexpectedly and we aren't closing
-        if (this._abortController && !this._abortController.signal.aborted) {
+        if (
+          isReconnectable && 
+          this._abortController && 
+          !this._abortController.signal.aborted
+        ) {
           // Use the exponential backoff reconnection strategy
-          if (lastEventId !== undefined) {
-            try {
-              this._scheduleReconnection({
-                resumptionToken: lastEventId,
-                onresumptiontoken,
-                replayMessageId
-              }, 0);
-            }
-            catch (error) {
-              this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
+          try {
+            this._scheduleReconnection({
+              resumptionToken: lastEventId,
+              onresumptiontoken,
+              replayMessageId
+            }, 0);
+          }
+          catch (error) {
+            this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
 
-            }
           }
         }
       }
@@ -386,7 +392,7 @@ const response = await (this._fetch ?? fetch)(this._url, {
       throw new UnauthorizedError("No auth provider");
     }
 
-    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl });
+    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
     if (result !== "AUTHORIZED") {
       throw new UnauthorizedError("Failed to authorize");
     }
@@ -421,7 +427,7 @@ const response = await (this._fetch ?? fetch)(this._url, {
         signal: this._abortController?.signal,
       };
 
-const response = await (this._fetch ?? fetch)(this._url, init);
+      const response = await (this._fetch ?? fetch)(this._url, init);
 
       // Handle session ID received during initialization
       const sessionId = response.headers.get("mcp-session-id");
@@ -434,7 +440,7 @@ const response = await (this._fetch ?? fetch)(this._url, init);
 
           this._resourceMetadataUrl = extractResourceMetadataUrl(response);
 
-          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl });
+          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
           if (result !== "AUTHORIZED") {
             throw new UnauthorizedError();
           }
@@ -473,7 +479,7 @@ const response = await (this._fetch ?? fetch)(this._url, init);
           // Handle SSE stream responses for requests
           // We use the same handler as standalone streams, which now supports
           // reconnection with the last event ID
-          this._handleSseStream(response.body, { onresumptiontoken });
+          this._handleSseStream(response.body, { onresumptiontoken }, false);
         } else if (contentType?.includes("application/json")) {
           // For non-streaming servers, we might get direct JSON responses
           const data = await response.json();
@@ -527,7 +533,7 @@ const response = await (this._fetch ?? fetch)(this._url, init);
         signal: this._abortController?.signal,
       };
 
-const response = await (this._fetch ?? fetch)(this._url, init);
+      const response = await (this._fetch ?? fetch)(this._url, init);
 
       // We specifically handle 405 as a valid response according to the spec,
       // meaning the server does not support explicit session termination

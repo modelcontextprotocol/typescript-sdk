@@ -1,8 +1,27 @@
 import pkceChallenge from "pkce-challenge";
 import { LATEST_PROTOCOL_VERSION } from "../types.js";
-import type { OAuthClientMetadata, OAuthClientInformation, OAuthTokens, OAuthMetadata, OAuthClientInformationFull, OAuthProtectedResourceMetadata } from "../shared/auth.js";
+import {
+  OAuthClientMetadata,
+  OAuthClientInformation,
+  OAuthTokens,
+  OAuthMetadata,
+  OAuthClientInformationFull,
+  OAuthProtectedResourceMetadata,
+  OAuthErrorResponseSchema,
+  AuthorizationServerMetadata,
+  OpenIdProviderDiscoveryMetadataSchema
+} from "../shared/auth.js";
 import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthProtectedResourceMetadataSchema, OAuthTokensSchema } from "../shared/auth.js";
 import { checkResourceAllowed, resourceUrlFromServerUrl } from "../shared/auth-utils.js";
+import {
+  InvalidClientError,
+  InvalidGrantError,
+  OAUTH_ERRORS,
+  OAuthError,
+  ServerError,
+  UnauthorizedClientError
+} from "../server/auth/errors.js";
+import { FetchLike } from "../shared/transport.js";
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
@@ -91,7 +110,7 @@ export interface OAuthClientProvider {
    * @param url - The token endpoint URL being called
    * @param metadata - Optional OAuth metadata for the server, which may include supported authentication methods
    */
-  addClientAuthentication?(headers: Headers, params: URLSearchParams, url: string | URL, metadata?: OAuthMetadata): void | Promise<void>;
+  addClientAuthentication?(headers: Headers, params: URLSearchParams, url: string | URL, metadata?: AuthorizationServerMetadata): void | Promise<void>;
 
   /**
    * If defined, overrides the selection and validation of the
@@ -101,6 +120,13 @@ export interface OAuthClientProvider {
    * Implementations must verify the returned resource matches the MCP server.
    */
   validateResourceURL?(serverUrl: string | URL, resource?: string): Promise<URL | undefined>;
+
+  /**
+   * If implemented, provides a way for the client to invalidate (e.g. delete) the specified
+   * credentials, in the case where the server has indicated that they are no longer valid.
+   * This avoids requiring the user to intervene manually.
+   */
+  invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier'): void | Promise<void>;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -220,6 +246,33 @@ function applyPublicAuth(clientId: string, params: URLSearchParams): void {
 }
 
 /**
+ * Parses an OAuth error response from a string or Response object.
+ *
+ * If the input is a standard OAuth2.0 error response, it will be parsed according to the spec
+ * and an instance of the appropriate OAuthError subclass will be returned.
+ * If parsing fails, it falls back to a generic ServerError that includes
+ * the response status (if available) and original content.
+ *
+ * @param input - A Response object or string containing the error response
+ * @returns A Promise that resolves to an OAuthError instance
+ */
+export async function parseErrorResponse(input: Response | string): Promise<OAuthError> {
+  const statusCode = input instanceof Response ? input.status : undefined;
+  const body = input instanceof Response ? await input.text() : input;
+
+  try {
+    const result = OAuthErrorResponseSchema.parse(JSON.parse(body));
+    const { error, error_description, error_uri } = result;
+    const errorClass = OAUTH_ERRORS[error] || ServerError;
+    return new errorClass(error_description || '', error_uri);
+  } catch (error) {
+    // Not a valid OAuth error response, but try to inform the user of the raw data anyway
+    const errorMessage = `${statusCode ? `HTTP ${statusCode}: ` : ''}Invalid OAuth error response: ${error}. Raw body: ${body}`;
+    return new ServerError(errorMessage);
+  }
+}
+
+/**
  * Orchestrates the full auth flow with a server.
  *
  * This can be used as a single entry point for all authorization functionality,
@@ -227,21 +280,50 @@ function applyPublicAuth(clientId: string, params: URLSearchParams): void {
  */
 export async function auth(
   provider: OAuthClientProvider,
+  options: {
+    serverUrl: string | URL;
+    authorizationCode?: string;
+    scope?: string;
+    resourceMetadataUrl?: URL;
+    fetchFn?: FetchLike;
+}): Promise<AuthResult> {
+  try {
+    return await authInternal(provider, options);
+  } catch (error) {
+    // Handle recoverable error types by invalidating credentials and retrying
+    if (error instanceof InvalidClientError || error instanceof UnauthorizedClientError) {
+      await provider.invalidateCredentials?.('all');
+      return await authInternal(provider, options);
+    } else if (error instanceof InvalidGrantError) {
+      await provider.invalidateCredentials?.('tokens');
+      return await authInternal(provider, options);
+    }
+
+    // Throw otherwise
+    throw error
+  }
+}
+
+async function authInternal(
+  provider: OAuthClientProvider,
   { serverUrl,
     authorizationCode,
     scope,
-    resourceMetadataUrl
+    resourceMetadataUrl,
+    fetchFn,
   }: {
     serverUrl: string | URL;
     authorizationCode?: string;
     scope?: string;
-    resourceMetadataUrl?: URL
-  }): Promise<AuthResult> {
+    resourceMetadataUrl?: URL;
+    fetchFn?: FetchLike;
+  },
+): Promise<AuthResult> {
 
   let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
-  let authorizationServerUrl = serverUrl;
+  let authorizationServerUrl: string | URL | undefined;
   try {
-    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl });
+    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl }, fetchFn);
     if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
       authorizationServerUrl = resourceMetadata.authorization_servers[0];
     }
@@ -249,10 +331,18 @@ export async function auth(
     // Ignore errors and fall back to /.well-known/oauth-authorization-server
   }
 
+  /**
+   * If we don't get a valid authorization server metadata from protected resource metadata,
+   * fallback to the legacy MCP spec's implementation (version 2025-03-26): MCP server acts as the Authorization server.
+   */
+  if (!authorizationServerUrl) {
+    authorizationServerUrl = serverUrl;
+  }
+
   const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
 
-  const metadata = await discoverOAuthMetadata(serverUrl, {
-    authorizationServerUrl
+  const metadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
+    fetchFn,
   });
 
   // Handle client registration if needed
@@ -286,10 +376,11 @@ export async function auth(
       redirectUri: provider.redirectUrl,
       resource,
       addClientAuthentication: provider.addClientAuthentication,
+      fetchFn: fetchFn,
     });
 
     await provider.saveTokens(tokens);
-    return "AUTHORIZED";
+    return "AUTHORIZED"
   }
 
   const tokens = await provider.tokens();
@@ -307,9 +398,15 @@ export async function auth(
       });
 
       await provider.saveTokens(newTokens);
-      return "AUTHORIZED";
-    } catch {
-      // Could not refresh OAuth tokens
+      return "AUTHORIZED"
+    } catch (error) {
+      // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
+      if (!(error instanceof OAuthError) || error instanceof ServerError) {
+        // Could not refresh OAuth tokens
+      } else {
+        // Refresh failed for another reason, re-throw
+        throw error;
+      }
     }
   }
 
@@ -327,7 +424,7 @@ export async function auth(
 
   await provider.saveCodeVerifier(codeVerifier);
   await provider.redirectToAuthorization(authorizationUrl);
-  return "REDIRECT";
+  return "REDIRECT"
 }
 
 export async function selectResourceURL(serverUrl: string | URL, provider: OAuthClientProvider, resourceMetadata?: OAuthProtectedResourceMetadata): Promise<URL | undefined> {
@@ -388,10 +485,12 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
 export async function discoverOAuthProtectedResourceMetadata(
   serverUrl: string | URL,
   opts?: { protocolVersion?: string, resourceMetadataUrl?: string | URL },
+  fetchFn: FetchLike = fetch,
 ): Promise<OAuthProtectedResourceMetadata> {
   const response = await discoverMetadataWithFallback(
     serverUrl,
     'oauth-protected-resource',
+    fetchFn,
     {
       protocolVersion: opts?.protocolVersion,
       metadataUrl: opts?.resourceMetadataUrl,
@@ -416,14 +515,15 @@ export async function discoverOAuthProtectedResourceMetadata(
 async function fetchWithCorsRetry(
   url: URL,
   headers?: Record<string, string>,
+  fetchFn: FetchLike = fetch,
 ): Promise<Response | undefined> {
   try {
-    return await fetch(url, { headers });
+    return await fetchFn(url, { headers });
   } catch (error) {
     if (error instanceof TypeError) {
       if (headers) {
         // CORS errors come back as TypeError, retry without headers
-        return fetchWithCorsRetry(url)
+        return fetchWithCorsRetry(url, undefined, fetchFn)
       } else {
         // We're getting CORS errors on retry too, return undefined
         return undefined
@@ -434,15 +534,21 @@ async function fetchWithCorsRetry(
 }
 
 /**
- * Constructs the well-known path for OAuth metadata discovery
+ * Constructs the well-known path for auth-related metadata discovery
  */
-function buildWellKnownPath(wellKnownPrefix: string, pathname: string): string {
-  let wellKnownPath = `/.well-known/${wellKnownPrefix}${pathname}`;
+function buildWellKnownPath(
+  wellKnownPrefix: 'oauth-authorization-server' | 'oauth-protected-resource' | 'openid-configuration',
+  pathname: string = '',
+  options: { prependPathname?: boolean } = {}
+): string {
+  // Strip trailing slash from pathname to avoid double slashes
   if (pathname.endsWith('/')) {
-    // Strip trailing slash from pathname to avoid double slashes
-    wellKnownPath = wellKnownPath.slice(0, -1);
+    pathname = pathname.slice(0, -1);
   }
-  return wellKnownPath;
+
+  return options.prependPathname
+    ? `${pathname}/.well-known/${wellKnownPrefix}`
+    : `/.well-known/${wellKnownPrefix}${pathname}`;
 }
 
 /**
@@ -451,11 +557,12 @@ function buildWellKnownPath(wellKnownPrefix: string, pathname: string): string {
 async function tryMetadataDiscovery(
   url: URL,
   protocolVersion: string,
+  fetchFn: FetchLike = fetch,
 ): Promise<Response | undefined> {
   const headers = {
     "MCP-Protocol-Version": protocolVersion
   };
-  return await fetchWithCorsRetry(url, headers);
+  return await fetchWithCorsRetry(url, headers, fetchFn);
 }
 
 /**
@@ -471,6 +578,7 @@ function shouldAttemptFallback(response: Response | undefined, pathname: string)
 async function discoverMetadataWithFallback(
   serverUrl: string | URL,
   wellKnownType: 'oauth-authorization-server' | 'oauth-protected-resource',
+  fetchFn: FetchLike,
   opts?: { protocolVersion?: string; metadataUrl?: string | URL, metadataServerUrl?: string | URL },
 ): Promise<Response | undefined> {
   const issuer = new URL(serverUrl);
@@ -486,12 +594,12 @@ async function discoverMetadataWithFallback(
     url.search = issuer.search;
   }
 
-  let response = await tryMetadataDiscovery(url, protocolVersion);
+  let response = await tryMetadataDiscovery(url, protocolVersion, fetchFn);
 
   // If path-aware discovery fails with 404 and we're not already at root, try fallback to root discovery
   if (!opts?.metadataUrl && shouldAttemptFallback(response, issuer.pathname)) {
     const rootUrl = new URL(`/.well-known/${wellKnownType}`, issuer);
-    response = await tryMetadataDiscovery(rootUrl, protocolVersion);
+    response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
   }
 
   return response;
@@ -502,6 +610,8 @@ async function discoverMetadataWithFallback(
  *
  * If the server returns a 404 for the well-known endpoint, this function will
  * return `undefined`. Any other errors will be thrown as exceptions.
+ *
+ * @deprecated This function is deprecated in favor of `discoverAuthorizationServerMetadata`.
  */
 export async function discoverOAuthMetadata(
   issuer: string | URL,
@@ -512,6 +622,7 @@ export async function discoverOAuthMetadata(
     authorizationServerUrl?: string | URL,
     protocolVersion?: string,
   } = {},
+  fetchFn: FetchLike = fetch,
 ): Promise<OAuthMetadata | undefined> {
   if (typeof issuer === 'string') {
     issuer = new URL(issuer);
@@ -522,11 +633,12 @@ export async function discoverOAuthMetadata(
   if (typeof authorizationServerUrl === 'string') {
     authorizationServerUrl = new URL(authorizationServerUrl);
   }
-  protocolVersion ??= LATEST_PROTOCOL_VERSION;
+  protocolVersion ??= LATEST_PROTOCOL_VERSION ;
 
   const response = await discoverMetadataWithFallback(
-    issuer,
+    authorizationServerUrl,
     'oauth-authorization-server',
+    fetchFn,
     {
       protocolVersion,
       metadataServerUrl: authorizationServerUrl,
@@ -546,6 +658,137 @@ export async function discoverOAuthMetadata(
   return OAuthMetadataSchema.parse(await response.json());
 }
 
+
+/**
+ * Builds a list of discovery URLs to try for authorization server metadata.
+ * URLs are returned in priority order:
+ * 1. OAuth metadata at the given URL
+ * 2. OAuth metadata at root (if URL has path)
+ * 3. OIDC metadata endpoints
+ */
+export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url: URL; type: 'oauth' | 'oidc' }[] {
+  const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
+  const hasPath = url.pathname !== '/';
+  const urlsToTry: { url: URL; type: 'oauth' | 'oidc' }[] = [];
+
+
+  if (!hasPath) {
+    // Root path: https://example.com/.well-known/oauth-authorization-server
+    urlsToTry.push({
+      url: new URL('/.well-known/oauth-authorization-server', url.origin),
+      type: 'oauth'
+    });
+
+    // OIDC: https://example.com/.well-known/openid-configuration
+    urlsToTry.push({
+      url: new URL(`/.well-known/openid-configuration`, url.origin),
+      type: 'oidc'
+    });
+
+    return urlsToTry;
+  }
+
+  // Strip trailing slash from pathname to avoid double slashes
+  let pathname = url.pathname;
+  if (pathname.endsWith('/')) {
+    pathname = pathname.slice(0, -1);
+  }
+
+  // 1. OAuth metadata at the given URL
+  // Insert well-known before the path: https://example.com/.well-known/oauth-authorization-server/tenant1
+  urlsToTry.push({
+    url: new URL(`/.well-known/oauth-authorization-server${pathname}`, url.origin),
+    type: 'oauth'
+  });
+
+  // Root path: https://example.com/.well-known/oauth-authorization-server
+  urlsToTry.push({
+    url: new URL('/.well-known/oauth-authorization-server', url.origin),
+    type: 'oauth'
+  });
+
+  // 3. OIDC metadata endpoints
+  // RFC 8414 style: Insert /.well-known/openid-configuration before the path
+  urlsToTry.push({
+    url: new URL(`/.well-known/openid-configuration${pathname}`, url.origin),
+    type: 'oidc'
+  });
+  // OIDC Discovery 1.0 style: Append /.well-known/openid-configuration after the path
+  urlsToTry.push({
+    url: new URL(`${pathname}/.well-known/openid-configuration`, url.origin),
+    type: 'oidc'
+  });
+
+  return urlsToTry;
+}
+
+/**
+ * Discovers authorization server metadata with support for RFC 8414 OAuth 2.0 Authorization Server Metadata
+ * and OpenID Connect Discovery 1.0 specifications.
+ *
+ * This function implements a fallback strategy for authorization server discovery:
+ * 1. Attempts RFC 8414 OAuth metadata discovery first
+ * 2. If OAuth discovery fails, falls back to OpenID Connect Discovery
+ *
+ * @param authorizationServerUrl - The authorization server URL obtained from the MCP Server's
+ *                                 protected resource metadata, or the MCP server's URL if the
+ *                                 metadata was not found.
+ * @param options - Configuration options
+ * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
+ * @param options.protocolVersion - MCP protocol version to use, defaults to LATEST_PROTOCOL_VERSION
+ * @returns Promise resolving to authorization server metadata, or undefined if discovery fails
+ */
+export async function discoverAuthorizationServerMetadata(
+  authorizationServerUrl: string | URL,
+  {
+    fetchFn = fetch,
+    protocolVersion = LATEST_PROTOCOL_VERSION,
+  }: {
+    fetchFn?: FetchLike;
+    protocolVersion?: string;
+  } = {}
+): Promise<AuthorizationServerMetadata | undefined> {
+  const headers = { 'MCP-Protocol-Version': protocolVersion };
+
+  // Get the list of URLs to try
+  const urlsToTry = buildDiscoveryUrls(authorizationServerUrl);
+
+  // Try each URL in order
+  for (const { url: endpointUrl, type } of urlsToTry) {
+    const response = await fetchWithCorsRetry(endpointUrl, headers, fetchFn);
+
+    if (!response) {
+      throw new Error(`CORS error trying to load ${type === 'oauth' ? 'OAuth' : 'OpenID provider'} metadata from ${endpointUrl}`);
+    }
+
+    if (!response.ok) {
+      // Continue looking for any 4xx response code.
+      if (response.status >= 400 && response.status < 500) {
+        continue; // Try next URL
+      }
+      throw new Error(`HTTP ${response.status} trying to load ${type === 'oauth' ? 'OAuth' : 'OpenID provider'} metadata from ${endpointUrl}`);
+    }
+
+    // Parse and validate based on type
+    if (type === 'oauth') {
+      return OAuthMetadataSchema.parse(await response.json());
+    } else {
+      const metadata = OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
+
+      // MCP spec requires OIDC providers to support S256 PKCE
+      if (!metadata.code_challenge_methods_supported?.includes('S256')) {
+        throw new Error(
+          `Incompatible OIDC provider at ${endpointUrl}: does not support S256 code challenge method required by MCP specification`
+        );
+      }
+
+      return metadata;
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Begins the authorization flow with the given server, by generating a PKCE challenge and constructing the authorization URL.
  */
@@ -559,7 +802,7 @@ export async function startAuthorization(
     state,
     resource,
   }: {
-    metadata?: OAuthMetadata;
+    metadata?: AuthorizationServerMetadata;
     clientInformation: OAuthClientInformation;
     redirectUrl: string | URL;
     scope?: string;
@@ -614,6 +857,13 @@ export async function startAuthorization(
     authorizationUrl.searchParams.set("scope", scope);
   }
 
+  if (scope?.includes("offline_access")) {
+    // if the request includes the OIDC-only "offline_access" scope,
+    // we need to set the prompt to "consent" to ensure the user is prompted to grant offline access
+    // https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
+    authorizationUrl.searchParams.append("prompt", "consent");
+  }
+
   if (resource) {
     authorizationUrl.searchParams.set("resource", resource.href);
   }
@@ -642,15 +892,17 @@ export async function exchangeAuthorization(
     codeVerifier,
     redirectUri,
     resource,
-    addClientAuthentication
+    addClientAuthentication,
+    fetchFn,
   }: {
-    metadata?: OAuthMetadata;
+    metadata?: AuthorizationServerMetadata;
     clientInformation: OAuthClientInformation;
     authorizationCode: string;
     codeVerifier: string;
     redirectUri: string | URL;
     resource?: URL;
     addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
+    fetchFn?: FetchLike;
   },
 ): Promise<OAuthTokens> {
   const grantType = "authorization_code";
@@ -671,6 +923,7 @@ export async function exchangeAuthorization(
   // Exchange code for tokens
   const headers = new Headers({
     "Content-Type": "application/x-www-form-urlencoded",
+    "Accept": "application/json",
   });
   const params = new URLSearchParams({
     grant_type: grantType,
@@ -693,14 +946,14 @@ export async function exchangeAuthorization(
     params.set("resource", resource.href);
   }
 
-  const response = await fetch(tokenUrl, {
+  const response = await (fetchFn ?? fetch)(tokenUrl, {
     method: "POST",
     headers,
     body: params,
   });
 
   if (!response.ok) {
-    throw new Error(`Token exchange failed: HTTP ${response.status}`);
+    throw await parseErrorResponse(response);
   }
 
   return OAuthTokensSchema.parse(await response.json());
@@ -726,12 +979,14 @@ export async function refreshAuthorization(
     refreshToken,
     resource,
     addClientAuthentication,
+    fetchFn,
   }: {
-    metadata?: OAuthMetadata;
+    metadata?: AuthorizationServerMetadata;
     clientInformation: OAuthClientInformation;
     refreshToken: string;
     resource?: URL;
     addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
+    fetchFn?: FetchLike;
   }
 ): Promise<OAuthTokens> {
   const grantType = "refresh_token";
@@ -775,13 +1030,13 @@ export async function refreshAuthorization(
     params.set("resource", resource.href);
   }
 
-  const response = await fetch(tokenUrl, {
+  const response = await (fetchFn ?? fetch)(tokenUrl, {
     method: "POST",
     headers,
     body: params,
   });
   if (!response.ok) {
-    throw new Error(`Token refresh failed: HTTP ${response.status}`);
+    throw await parseErrorResponse(response);
   }
 
   return OAuthTokensSchema.parse({ refresh_token: refreshToken, ...(await response.json()) });
@@ -795,9 +1050,11 @@ export async function registerClient(
   {
     metadata,
     clientMetadata,
+    fetchFn,
   }: {
-    metadata?: OAuthMetadata;
+    metadata?: AuthorizationServerMetadata;
     clientMetadata: OAuthClientMetadata;
+    fetchFn?: FetchLike;
   },
 ): Promise<OAuthClientInformationFull> {
   let registrationUrl: URL;
@@ -812,7 +1069,7 @@ export async function registerClient(
     registrationUrl = new URL("/register", authorizationServerUrl);
   }
 
-  const response = await fetch(registrationUrl, {
+  const response = await (fetchFn ?? fetch)(registrationUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -821,7 +1078,7 @@ export async function registerClient(
   });
 
   if (!response.ok) {
-    throw new Error(`Dynamic client registration failed: HTTP ${response.status}`);
+    throw await parseErrorResponse(response);
   }
 
   return OAuthClientInformationFullSchema.parse(await response.json());

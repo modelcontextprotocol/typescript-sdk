@@ -45,7 +45,7 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 npm install @modelcontextprotocol/sdk
 ```
 
-> ⚠️ MCP requires Node v18.x up to work fine.
+> ⚠️ MCP requires Node.js v18.x or higher to work fine.
 
 ## Quick Start
 
@@ -571,7 +571,6 @@ app.listen(3000);
 
 > [!TIP]
 > When using this in a remote environment, make sure to allow the header parameter `mcp-session-id` in CORS. Otherwise, it may result in a `Bad Request: No valid session ID provided` error. Read the following section for examples.
-> ```
 
 
 #### CORS Configuration for Browser-Based Clients
@@ -584,8 +583,8 @@ import cors from 'cors';
 // Add CORS middleware before your MCP routes
 app.use(cors({
   origin: '*', // Configure appropriately for production, for example:
-  // origin: ['https://your-remote-domain.com, https://your-other-remote-domain.com'],
-  exposedHeaders: ['Mcp-Session-Id']
+  // origin: ['https://your-remote-domain.com', 'https://your-other-remote-domain.com'],
+  exposedHeaders: ['Mcp-Session-Id'],
   allowedHeaders: ['Content-Type', 'mcp-session-id'],
 }));
 ```
@@ -876,7 +875,7 @@ const putMessageTool = server.tool(
   "putMessage",
   { channel: z.string(), message: z.string() },
   async ({ channel, message }) => ({
-    content: [{ type: "text", text: await putMessage(channel, string) }]
+    content: [{ type: "text", text: await putMessage(channel, message) }]
   })
 );
 // Until we upgrade auth, `putMessage` is disabled (won't show up in listTools)
@@ -884,7 +883,7 @@ putMessageTool.disable()
 
 const upgradeAuthTool = server.tool(
   "upgradeAuth",
-  { permission: z.enum(["write', admin"])},
+  { permission: z.enum(["write", "admin"])},
   // Any mutations here will automatically emit `listChanged` notifications
   async ({ permission }) => {
     const { ok, err, previous } = await upgradeAuthAndStoreToken(permission)
@@ -911,6 +910,43 @@ const upgradeAuthTool = server.tool(
 // Connect as normal
 const transport = new StdioServerTransport();
 await server.connect(transport);
+```
+
+### Improving Network Efficiency with Notification Debouncing
+
+When performing bulk updates that trigger notifications (e.g., enabling or disabling multiple tools in a loop), the SDK can send a large number of messages in a short period. To improve performance and reduce network traffic, you can enable notification debouncing.
+
+This feature coalesces multiple, rapid calls for the same notification type into a single message. For example, if you disable five tools in a row, only one `notifications/tools/list_changed` message will be sent instead of five.
+
+> [!IMPORTANT]
+> This feature is designed for "simple" notifications that do not carry unique data in their parameters. To prevent silent data loss, debouncing is **automatically bypassed** for any notification that contains a `params` object or a `relatedRequestId`. Such notifications will always be sent immediately.
+
+This is an opt-in feature configured during server initialization.
+
+```typescript
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+
+const server = new McpServer(
+  {
+    name: "efficient-server",
+    version: "1.0.0"
+  },
+  {
+    // Enable notification debouncing for specific methods
+    debouncedNotificationMethods: [
+      'notifications/tools/list_changed',
+      'notifications/resources/list_changed',
+      'notifications/prompts/list_changed'
+    ]
+  }
+);
+
+// Now, any rapid changes to tools, resources, or prompts will result
+// in a single, consolidated notification for each type.
+server.registerTool("tool1", ...).disable();
+server.registerTool("tool2", ...).disable();
+server.registerTool("tool3", ...).disable();
+// Only one 'notifications/tools/list_changed' is sent.
 ```
 
 ### Low-Level Server
@@ -1175,7 +1211,7 @@ This setup allows you to:
 
 ### Backwards Compatibility
 
-Clients and servers with StreamableHttp tranport can maintain [backwards compatibility](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility) with the deprecated HTTP+SSE transport (from protocol version 2024-11-05) as follows
+Clients and servers with StreamableHttp transport can maintain [backwards compatibility](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility) with the deprecated HTTP+SSE transport (from protocol version 2024-11-05) as follows
 
 #### Client-Side Compatibility
 
