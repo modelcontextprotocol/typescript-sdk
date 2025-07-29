@@ -75,3 +75,34 @@ test("should return child process pid", async () => {
   await client.close();
   expect(client.pid).toBeNull();
 });
+
+test("should handle process exit gracefully", async () => {
+  const server = `
+    setTimeout(() => {}, 100000); // stubborn process doesnt exit gracefully
+    process.stdin.resume();
+    process.stdin.on('close', () => {
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "stdin closed" }) + "\\n");
+    });
+    process.on('SIGTERM', () => {
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "received sigterm" }) + "\\n");
+    });
+  `;
+
+  const client = new StdioClientTransport({
+    command: process.execPath,
+    args: ["-e", server],
+  });
+  client.onerror = (error) => {
+    throw error;
+  };
+  const messages: JSONRPCMessage[] = []
+  client.onmessage = (message) => messages.push(message);
+
+  await client.start();
+  await client.close();
+
+  expect(messages).toEqual([
+    { jsonrpc: "2.0", method: "stdin closed" },
+    { jsonrpc: "2.0", method: "received sigterm" },
+  ]);
+});
