@@ -224,7 +224,10 @@ export abstract class Protocol<
   /**
    * A handler to invoke for any request types that do not have their own handler installed.
    */
-  fallbackRequestHandler?: (request: Request) => Promise<SendResultT>;
+  fallbackRequestHandler?: (
+    request: JSONRPCRequest,
+    extra: RequestHandlerExtra<SendRequestT, SendNotificationT>
+  ) => Promise<SendResultT>;
 
   /**
    * A handler to invoke for any notification types that do not have their own handler installed.
@@ -374,8 +377,11 @@ export abstract class Protocol<
     const handler =
       this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
 
+    // Capture the current transport at request time to ensure responses go to the correct client
+    const capturedTransport = this._transport;
+
     if (handler === undefined) {
-      this._transport
+      capturedTransport
         ?.send({
           jsonrpc: "2.0",
           id: request.id,
@@ -397,7 +403,7 @@ export abstract class Protocol<
 
     const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
       signal: abortController.signal,
-      sessionId: this._transport?.sessionId,
+      sessionId: capturedTransport?.sessionId,
       _meta: request.params?._meta,
       sendNotification:
         (notification) =>
@@ -419,7 +425,7 @@ export abstract class Protocol<
             return;
           }
 
-          return this._transport?.send({
+          return capturedTransport?.send({
             result,
             jsonrpc: "2.0",
             id: request.id,
@@ -430,7 +436,7 @@ export abstract class Protocol<
             return;
           }
 
-          return this._transport?.send({
+          return capturedTransport?.send({
             jsonrpc: "2.0",
             id: request.id,
             error: {
