@@ -255,6 +255,26 @@ server.registerTool(
 );
 ```
 
+#### Tool Enabled State
+
+Tools can be conditionally enabled during registration using the `enabled` parameter:
+
+```typescript
+// Environment-based enabling
+server.registerTool("debug-tool", {
+  description: "Debug utilities",
+  enabled: process.env.NODE_ENV === "development"
+}, handler);
+
+// Permission-based enabling  
+server.registerTool("admin-tool", {
+  description: "Admin operations",
+  enabled: user.hasRole("admin")
+}, handler);
+```
+
+When `enabled: false`, tools don't appear in listings and cannot be called. Tools default to `enabled: true`.
+
 #### ResourceLinks
 
 Tools can return `ResourceLink` objects to reference resources without embedding their full content. This is essential for performance when dealing with large files or many resources - clients can then selectively read only the resources they need using the provided URIs.
