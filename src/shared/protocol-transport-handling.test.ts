@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, jest } from "@jest/globals";
+import { describe, expect, test, beforeEach } from "@jest/globals";
 import { Protocol } from "./protocol.js";
 import { Transport } from "./transport.js";
 import { Request, Notification, Result, JSONRPCMessage } from "../types.js";
@@ -45,7 +45,7 @@ describe("Protocol transport handling bug", () => {
 
   test("should send response to the correct transport when multiple clients are connected", async () => {
     // Set up a request handler that simulates processing time
-    let resolveHandler: any;
+    let resolveHandler: (value: Result) => void;
     const handlerPromise = new Promise<Result>((resolve) => {
       resolveHandler = resolve;
     });
@@ -102,29 +102,28 @@ describe("Protocol transport handling bug", () => {
     console.log("Transport A received:", transportA.sentMessages);
     console.log("Transport B received:", transportB.sentMessages);
     
-    // BUG: The response for client A's request will be sent to transport B
-    // because the protocol's transport reference was overwritten
+    // FIXED: Each transport now receives its own response
     
-    // What happens (bug):
-    // - Transport A should have received the response for request ID 1, but it's empty
-    expect(transportA.sentMessages.length).toBe(0);
-    
-    // - Transport B incorrectly receives BOTH responses
-    expect(transportB.sentMessages.length).toBe(2);
-    expect(transportB.sentMessages[0]).toMatchObject({
+    // Transport A should receive response for request ID 1
+    expect(transportA.sentMessages.length).toBe(1);
+    expect(transportA.sentMessages[0]).toMatchObject({
       jsonrpc: "2.0",
-      id: 1, // This is A's request ID!
+      id: 1,
       result: { data: "responseForA" }
     });
     
-    // What SHOULD happen (after fix):
-    // - Transport A should receive response for request ID 1
-    // - Transport B should receive response for request ID 2
+    // Transport B should only receive its own response (when implemented)
+    expect(transportB.sentMessages.length).toBe(1);
+    expect(transportB.sentMessages[0]).toMatchObject({
+      jsonrpc: "2.0",
+      id: 2,
+      result: { data: "responseForA" } // Same handler result in this test
+    });
   });
 
   test("demonstrates the timing issue with multiple rapid connections", async () => {
     const delays: number[] = [];
-    const results: { transport: string; response: any }[] = [];
+    const results: { transport: string; response: JSONRPCMessage[] }[] = [];
     
     const DelayedRequestSchema = z.object({
       method: z.literal("test/delayed"),
@@ -183,8 +182,8 @@ describe("Protocol transport handling bug", () => {
 
     console.log("Timing test results:", results);
     
-    // BUG: All responses go to transport B
-    expect(transportA.sentMessages.length).toBe(0);
-    expect(transportB.sentMessages.length).toBe(2); // Gets both responses
+    // FIXED: Each transport receives its own responses
+    expect(transportA.sentMessages.length).toBe(1);
+    expect(transportB.sentMessages.length).toBe(1);
   });
 });
