@@ -210,8 +210,30 @@ export class StdioClientTransport implements Transport {
     }
 
     async close(): Promise<void> {
-        this._abortController.abort();
-        this._process = undefined;
+        if (this._process) {
+            const processToClose = this._process;
+            this._process = undefined;
+
+            const closePromise = new Promise<void>(resolve => {
+                processToClose.once('close', () => {
+                    resolve();
+                });
+            });
+
+            this._abortController.abort();
+
+            // waits the underlying process to exit cleanly otherwise after 1s kills it
+            await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 1_000).unref())]);
+
+            if (processToClose.exitCode === null) {
+                try {
+                    processToClose.kill('SIGKILL');
+                } catch {
+                    // we did our best
+                }
+            }
+        }
+
         this._readBuffer.clear();
     }
 
