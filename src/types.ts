@@ -1512,6 +1512,13 @@ export interface MessageExtraInfo {
    * The authentication information.
    */
   authInfo?: AuthInfo;
+
+  /**
+   * Custom context data that can be passed through the message handling pipeline.
+   * This allows transport implementations to attach arbitrary data that will be
+   * available to request handlers.
+   */
+  customContext?: Record<string, unknown>;
 }
 
 /* JSON-RPC types */

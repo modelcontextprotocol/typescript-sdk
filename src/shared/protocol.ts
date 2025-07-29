@@ -142,6 +142,13 @@ export type RequestHandlerExtra<SendRequestT extends Request,
     requestInfo?: RequestInfo;
 
     /**
+     * Custom context data passed from the transport layer.
+     * This allows transport implementations to attach arbitrary data that will be
+     * available to request handlers.
+     */
+    customContext?: Record<string, unknown>;
+
+    /**
      * Sends a notification that relates to the current request being handled.
      * 
      * This is used by certain transports to correctly associate related messages.
@@ -399,7 +406,8 @@ export abstract class Protocol<
         this.request(r, resultSchema, { ...options, relatedRequestId: request.id }),
       authInfo: extra?.authInfo,
       requestId: request.id,
-      requestInfo: extra?.requestInfo
+      requestInfo: extra?.requestInfo,
+      customContext: extra?.customContext
     };
 
     // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
