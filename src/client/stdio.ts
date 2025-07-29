@@ -138,7 +138,6 @@ export class StdioClientTransport implements Transport {
       this._process.on("error", (error) => {
         if (error.name === "AbortError") {
           // Expected when close() is called.
-          this.onclose?.();
           return;
         }
 
