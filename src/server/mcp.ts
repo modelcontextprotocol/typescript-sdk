@@ -162,10 +162,15 @@ export class McpServer {
             request.params.arguments,
           );
           if (!parseResult.success) {
-            throw new McpError(
-              ErrorCode.InvalidParams,
-              `Invalid arguments for tool ${request.params.name}: ${parseResult.error.message}`,
-            );
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Invalid arguments for tool ${request.params.name}: ${parseResult.error.message}`,
+                },
+              ],
+              isError: true,
+            };
           }
 
           const args = parseResult.data;
