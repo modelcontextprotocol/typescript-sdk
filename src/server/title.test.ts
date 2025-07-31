@@ -208,7 +208,13 @@ describe("Title field backwards compatibility", () => {
     // Test reading the resource
     const readResult = await client.readResource({ uri: "users://123/profile" });
     expect(readResult.contents).toHaveLength(1);
-    expect(readResult.contents[0].text).toBe("Profile data for user 123");
+    
+    // Type narrowing for union type (text vs blob content)
+    const content = readResult.contents[0];
+    expect('text' in content).toBe(true);
+    if ('text' in content) {
+      expect(content.text).toBe("Profile data for user 123");
+    }
   });
 
   it("should support serverInfo with title", async () => {

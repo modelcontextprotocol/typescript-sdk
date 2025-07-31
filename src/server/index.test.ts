@@ -730,11 +730,6 @@ test("should handle server cancelling a request", async () => {
       name: "test server",
       version: "1.0",
     },
-    {
-      capabilities: {
-        sampling: {},
-      },
-    },
   );
 
   const client = new Client(
@@ -797,11 +792,6 @@ test("should handle request timeout", async () => {
     {
       name: "test server",
       version: "1.0",
-    },
-    {
-      capabilities: {
-        sampling: {},
-      },
     },
   );
 
