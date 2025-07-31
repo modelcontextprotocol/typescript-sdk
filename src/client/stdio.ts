@@ -2,6 +2,7 @@ import { ChildProcess, IOType } from "node:child_process";
 import spawn from "cross-spawn";
 import process from "node:process";
 import { Stream, PassThrough } from "node:stream";
+import timers from "node:timers/promises";
 import { ReadBuffer, serializeMessage } from "../shared/stdio.js";
 import { Transport } from "../shared/transport.js";
 import { JSONRPCMessage } from "../types.js";
@@ -91,7 +92,6 @@ export function getDefaultEnvironment(): Record<string, string> {
  */
 export class StdioClientTransport implements Transport {
   private _process?: ChildProcess;
-  private _abortController: AbortController = new AbortController();
   private _readBuffer: ReadBuffer = new ReadBuffer();
   private _serverParams: StdioServerParameters;
   private _stderrStream: PassThrough | null = null;
@@ -129,19 +129,12 @@ export class StdioClientTransport implements Transport {
           },
           stdio: ["pipe", "pipe", this._serverParams.stderr ?? "inherit"],
           shell: false,
-          signal: this._abortController.signal,
           windowsHide: process.platform === "win32" && isElectron(),
           cwd: this._serverParams.cwd,
         }
       );
 
       this._process.on("error", (error) => {
-        if (error.name === "AbortError") {
-          // Expected when close() is called.
-          this.onclose?.();
-          return;
-        }
-
         reject(error);
         this.onerror?.(error);
       });
@@ -214,9 +207,42 @@ export class StdioClientTransport implements Transport {
   }
 
   async close(): Promise<void> {
-    this._abortController.abort();
+    await this._shutdownGracefully();
     this._process = undefined;
     this._readBuffer.clear();
+  }
+
+  // https://modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle#stdio
+  private async _shutdownGracefully() {
+    if (!this._process) {
+      return;
+    }
+
+    const closed = new Promise<'closed'>(resolve => this._process!.once('close', () => resolve('closed')));
+
+    this._process.stdin?.end();
+    let success = await Promise.race([
+      closed,
+      timers.setTimeout(100, undefined, { ref: false })
+    ]);
+    if (success)
+      return;
+
+    // Attempt to gracefully terminate the process.
+    process.kill(this._process.pid!, "SIGTERM");
+    success = await Promise.race([
+      closed,
+      timers.setTimeout(1000, undefined, { ref: false })
+    ]);
+    if (success)
+      return;
+
+    // Kill the process group forcefully if it didn't shut down in time.
+    process.kill(this._process.pid!, "SIGKILL");
+    await Promise.race([
+      closed,
+      timers.setTimeout(5000, undefined, { ref: false }).then(() => { throw new Error("Process did not exit after SIGKILL, something is horribly wrong.") })
+    ]);
   }
 
   send(message: JSONRPCMessage): Promise<void> {
