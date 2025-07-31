@@ -899,6 +899,18 @@ describe("OAuth Authorization", () => {
         "MCP-Protocol-Version": "2025-01-01"
       });
     });
+
+    it("returns undefined when all URLs fail with CORS errors", async () => {
+      // All fetch attempts fail with CORS errors (TypeError)
+      mockFetch.mockImplementation(() => Promise.reject(new TypeError("CORS error")));
+
+      const metadata = await discoverAuthorizationServerMetadata("https://auth.example.com/tenant1");
+
+      expect(metadata).toBeUndefined();
+      
+      // Verify that all discovery URLs were attempted
+      expect(mockFetch).toHaveBeenCalledTimes(8); // 4 URLs × 2 attempts each (with and without headers)
+    });
   });
 
   describe("startAuthorization", () => {
