@@ -93,7 +93,7 @@ export class SSEClientTransport implements Transport {
 
     let result: AuthResult;
     try {
-      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
+      result = await auth(this._authProvider, { serverUrl: this._url.href, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
     } catch (error) {
       this.onerror?.(error as Error);
       throw error;
@@ -218,7 +218,7 @@ export class SSEClientTransport implements Transport {
       throw new UnauthorizedError("No auth provider");
     }
 
-    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
+    const result = await auth(this._authProvider, { serverUrl: this._url.href, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
     if (result !== "AUTHORIZED") {
       throw new UnauthorizedError("Failed to authorize");
     }
@@ -252,7 +252,7 @@ export class SSEClientTransport implements Transport {
 
           this._resourceMetadataUrl = extractResourceMetadataUrl(response);
 
-          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
+          const result = await auth(this._authProvider, { serverUrl: this._url.href, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
           if (result !== "AUTHORIZED") {
             throw new UnauthorizedError();
           }
