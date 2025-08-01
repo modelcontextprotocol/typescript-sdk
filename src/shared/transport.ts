@@ -82,4 +82,10 @@ export interface Transport {
    * Sets the protocol version used for the connection (called when the initialize response is received).
    */
   setProtocolVersion?: (version: string) => void;
+
+  /**
+   * Sets custom context data that will be passed to all message handlers.
+   * This context will be included in the MessageExtraInfo passed to handlers.
+   */
+  setCustomContext?: (context: Record<string, unknown>) => void;
 }
