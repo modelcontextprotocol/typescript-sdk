@@ -758,7 +758,11 @@ export async function discoverAuthorizationServerMetadata(
     const response = await fetchWithCorsRetry(endpointUrl, headers, fetchFn);
 
     if (!response) {
-      throw new Error(`CORS error trying to load ${type === 'oauth' ? 'OAuth' : 'OpenID provider'} metadata from ${endpointUrl}`);
+      /**
+       * CORS error occurred - don't throw as the endpoint may not allow CORS,
+       * continue trying other possible endpoints
+       */
+      continue;
     }
 
     if (!response.ok) {
