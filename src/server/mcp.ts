@@ -12,34 +12,40 @@ import {
   ZodOptional,
 } from "zod";
 import {
-  Implementation,
-  Tool,
-  ListToolsResult,
-  CallToolResult,
-  McpError,
-  ErrorCode,
-  CompleteRequest,
-  CompleteResult,
-  PromptReference,
-  ResourceTemplateReference,
   BaseMetadata,
-  Resource,
+  CallToolRequestSchema,
+  CallToolResult,
+  CompleteRequest,
+  CompleteRequestSchema,
+  CompleteResult,
+  ErrorCode,
+  GetPromptRequestSchema,
+  GetPromptResult,
+  Group,
+  Implementation,
+  ListGroupsRequestSchema,
+  ListGroupsResult,
+  ListPromptsRequestSchema,
+  ListPromptsResult,
+  ListResourcesRequestSchema,
   ListResourcesResult,
   ListResourceTemplatesRequestSchema,
-  ReadResourceRequestSchema,
+  ListTagsRequestSchema,
+  ListTagsResult,
   ListToolsRequestSchema,
-  CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ListPromptsRequestSchema,
-  GetPromptRequestSchema,
-  CompleteRequestSchema,
-  ListPromptsResult,
+  ListToolsResult,
+  McpError,
   Prompt,
   PromptArgument,
-  GetPromptResult,
+  PromptReference,
+  ReadResourceRequestSchema,
   ReadResourceResult,
-  ServerRequest,
+  Resource,
+  ResourceTemplateReference,
   ServerNotification,
+  ServerRequest,
+  Tag,
+  Tool,
   ToolAnnotations,
 } from "../types.js";
 import { Completable, CompletableDef } from "./completable.js";
@@ -64,9 +70,23 @@ export class McpServer {
   } = {};
   private _registeredTools: { [name: string]: RegisteredTool } = {};
   private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+  private _registeredGroups: { [name: string]: Group } = {};
+  private _registeredTags: { [name: string]: Tag } = {};
 
   constructor(serverInfo: Implementation, options?: ServerOptions) {
     this.server = new Server(serverInfo, options);
+
+    // Register filtering capability
+    this.server.registerCapabilities({
+      filtering: {
+        groups: {
+          listChanged: true
+        },
+        tags: {
+          listChanged: true
+        }
+      }
+    });
   }
 
   /**
@@ -86,6 +106,46 @@ export class McpServer {
   }
 
   private _toolHandlersInitialized = false;
+  private _groupHandlersInitialized = false;
+  private _tagHandlersInitialized = false;
+
+  private setGroupRequestHandlers() {
+    if (this._groupHandlersInitialized) {
+      return;
+    }
+
+    this.server.assertCanSetRequestHandler(
+      ListGroupsRequestSchema.shape.method.value,
+    );
+
+    this.server.setRequestHandler(
+      ListGroupsRequestSchema,
+      (): ListGroupsResult => ({
+        groups: Object.values(this._registeredGroups),
+      }),
+    );
+
+    this._groupHandlersInitialized = true;
+  }
+
+  private setTagRequestHandlers() {
+    if (this._tagHandlersInitialized) {
+      return;
+    }
+
+    this.server.assertCanSetRequestHandler(
+      ListTagsRequestSchema.shape.method.value,
+    );
+
+    this.server.setRequestHandler(
+      ListTagsRequestSchema,
+      (): ListTagsResult => ({
+        tags: Object.values(this._registeredTags),
+      }),
+    );
+
+    this._tagHandlersInitialized = true;
+  }
 
   private setToolRequestHandlers() {
     if (this._toolHandlersInitialized) {
@@ -107,34 +167,62 @@ export class McpServer {
 
     this.server.setRequestHandler(
       ListToolsRequestSchema,
-      (): ListToolsResult => ({
-        tools: Object.entries(this._registeredTools).filter(
-          ([, tool]) => tool.enabled,
-        ).map(
-          ([name, tool]): Tool => {
-            const toolDefinition: Tool = {
-              name,
-              title: tool.title,
-              description: tool.description,
-              inputSchema: tool.inputSchema
-                ? (zodToJsonSchema(tool.inputSchema, {
-                  strictUnions: true,
-                }) as Tool["inputSchema"])
-                : EMPTY_OBJECT_JSON_SCHEMA,
-              annotations: tool.annotations,
-            };
+      (request): ListToolsResult => {
+        // Get filter from request params
+        const filter = request.params?.filter;
 
-            if (tool.outputSchema) {
-              toolDefinition.outputSchema = zodToJsonSchema(
-                tool.outputSchema,
-                { strictUnions: true }
-              ) as Tool["outputSchema"];
-            }
+        // Start with all enabled tools
+        let tools = Object.entries(this._registeredTools)
+          .filter(([, tool]) => tool.enabled)
+          .map(
+            ([name, tool]): Tool => {
+              const toolDefinition: Tool = {
+                name,
+                title: tool.title,
+                description: tool.description,
+                inputSchema: tool.inputSchema
+                  ? (zodToJsonSchema(tool.inputSchema, {
+                    strictUnions: true,
+                  }) as Tool["inputSchema"])
+                  : EMPTY_OBJECT_JSON_SCHEMA,
+                annotations: tool.annotations,
+                // Add groups and tags from the registered tool if they exist
+                groups: tool.groups,
+                tags: tool.tags,
+              };
 
-            return toolDefinition;
-          },
-        ),
-      }),
+              if (tool.outputSchema) {
+                toolDefinition.outputSchema = zodToJsonSchema(
+                  tool.outputSchema,
+                  { strictUnions: true }
+                ) as Tool["outputSchema"];
+              }
+
+              return toolDefinition;
+            },
+          );
+
+        // Apply filtering if provided
+        if (filter) {
+          // Filter by groups if specified
+          if (filter.groups && filter.groups.length > 0) {
+            tools = tools.filter(tool =>
+              tool.groups && tool.groups.length > 0 &&
+              filter.groups && filter.groups.some(group => tool.groups && tool.groups.includes(group))
+            );
+          }
+
+          // Filter by tags if specified
+          if (filter.tags && filter.tags.length > 0) {
+            tools = tools.filter(tool =>
+              tool.tags && tool.tags.length > 0 &&
+              filter.tags && filter.tags.every(tag => tool.tags && tool.tags.includes(tag))
+            );
+          }
+        }
+
+        return { tools };
+      },
     );
 
     this.server.setRequestHandler(
@@ -772,7 +860,9 @@ export class McpServer {
     inputSchema: ZodRawShape | undefined,
     outputSchema: ZodRawShape | undefined,
     annotations: ToolAnnotations | undefined,
-    callback: ToolCallback<ZodRawShape | undefined>
+    callback: ToolCallback<ZodRawShape | undefined>,
+    groups?: string[],
+    tags?: string[]
   ): RegisteredTool {
     const registeredTool: RegisteredTool = {
       title,
@@ -783,6 +873,8 @@ export class McpServer {
         outputSchema === undefined ? undefined : z.object(outputSchema),
       annotations,
       callback,
+      groups,
+      tags,
       enabled: true,
       disable: () => registeredTool.update({ enabled: false }),
       enable: () => registeredTool.update({ enabled: true }),
@@ -797,6 +889,8 @@ export class McpServer {
         if (typeof updates.paramsSchema !== "undefined") registeredTool.inputSchema = z.object(updates.paramsSchema)
         if (typeof updates.callback !== "undefined") registeredTool.callback = updates.callback
         if (typeof updates.annotations !== "undefined") registeredTool.annotations = updates.annotations
+        if (typeof updates.groups !== "undefined") registeredTool.groups = updates.groups
+        if (typeof updates.tags !== "undefined") registeredTool.tags = updates.tags
         if (typeof updates.enabled !== "undefined") registeredTool.enabled = updates.enabled
         this.sendToolListChanged()
       },
@@ -822,7 +916,7 @@ export class McpServer {
   /**
    * Registers a tool taking either a parameter schema for validation or annotations for additional metadata.
    * This unified overload handles both `tool(name, paramsSchema, cb)` and `tool(name, annotations, cb)` cases.
-   * 
+   *
    * Note: We use a union type for the second parameter because TypeScript cannot reliably disambiguate
    * between ToolAnnotations and ZodRawShape during overload resolution, as both are plain object types.
    */
@@ -834,9 +928,9 @@ export class McpServer {
 
   /**
    * Registers a tool `name` (with a description) taking either parameter schema or annotations.
-   * This unified overload handles both `tool(name, description, paramsSchema, cb)` and 
+   * This unified overload handles both `tool(name, description, paramsSchema, cb)` and
    * `tool(name, description, annotations, cb)` cases.
-   * 
+   *
    * Note: We use a union type for the third parameter because TypeScript cannot reliably disambiguate
    * between ToolAnnotations and ZodRawShape during overload resolution, as both are plain object types.
    */
@@ -928,6 +1022,8 @@ export class McpServer {
       inputSchema?: InputArgs;
       outputSchema?: OutputArgs;
       annotations?: ToolAnnotations;
+      groups?: string[];
+      tags?: string[];
     },
     cb: ToolCallback<InputArgs>
   ): RegisteredTool {
@@ -935,7 +1031,7 @@ export class McpServer {
       throw new Error(`Tool ${name} is already registered`);
     }
 
-    const { title, description, inputSchema, outputSchema, annotations } = config;
+    const { title, description, inputSchema, outputSchema, annotations, groups, tags } = config;
 
     return this._createRegisteredTool(
       name,
@@ -944,7 +1040,9 @@ export class McpServer {
       inputSchema,
       outputSchema,
       annotations,
-      cb as ToolCallback<ZodRawShape | undefined>
+      cb as ToolCallback<ZodRawShape | undefined>,
+      groups,
+      tags
     );
   }
 
@@ -1073,6 +1171,121 @@ export class McpServer {
       this.server.sendPromptListChanged();
     }
   }
+
+  /**
+   * Sends a group list changed event to the client, if connected.
+   */
+  sendGroupListChanged() {
+    if (this.isConnected()) {
+      this.server.notification({
+        method: "notifications/groups/list_changed"
+      });
+    }
+  }
+
+  /**
+   * Sends a tag list changed event to the client, if connected.
+   */
+  sendTagListChanged() {
+    if (this.isConnected()) {
+      this.server.notification({
+        method: "notifications/tags/list_changed"
+      });
+    }
+  }
+
+  /**
+   * Registers a group with the server.
+   *
+   * @param name The name of the group
+   * @param options Configuration for the group
+   */
+  registerGroup(
+    name: string,
+    options: {
+      title: string;
+      description: string;
+    }
+  ) {
+    // Initialize group handlers if not already done
+    this.setGroupRequestHandlers();
+
+    // Create the group
+    const group: Group = {
+      name,
+      title: options.title,
+      description: options.description,
+    };
+
+    // Store the group
+    this._registeredGroups[name] = group;
+
+    // Notify clients if connected
+    this.sendGroupListChanged();
+
+    return {
+      remove: () => {
+        delete this._registeredGroups[name];
+        this.sendGroupListChanged();
+      },
+      update: (updates: Partial<Omit<Group, "name">>) => {
+        const group = this._registeredGroups[name];
+        if (group) {
+          if (updates.title !== undefined) {
+            // Ensure title is a string or undefined
+            group.title = typeof updates.title === 'string' ? updates.title : undefined;
+          }
+          if (updates.description !== undefined) {
+            // Ensure description is a string
+            group.description = typeof updates.description === 'string' ? updates.description : '';
+          }
+          this.sendGroupListChanged();
+        }
+      }
+    };
+  }
+
+  /**
+   * Registers a tag with the server.
+   *
+   * @param name The name of the tag
+   * @param options Configuration for the tag
+   */
+  registerTag(
+    name: string,
+    options: {
+      description: string;
+    }
+  ) {
+    // Initialize tag handlers if not already done
+    this.setTagRequestHandlers();
+
+    // Create the tag
+    const tag: Tag = {
+      name,
+      description: options.description,
+    };
+
+    // Store the tag
+    this._registeredTags[name] = tag;
+
+    // Notify clients if connected
+    this.sendTagListChanged();
+
+    return {
+      remove: () => {
+        delete this._registeredTags[name];
+        this.sendTagListChanged();
+      },
+      update: (updates: Partial<Omit<Tag, "name">>) => {
+        const tag = this._registeredTags[name];
+        if (tag) {
+          if (updates.description !== undefined) tag.description = updates.description;
+          this.sendTagListChanged();
+        }
+      }
+    };
+  }
 }
 
 /**
@@ -1162,6 +1375,8 @@ export type RegisteredTool = {
   inputSchema?: AnyZodObject;
   outputSchema?: AnyZodObject;
   annotations?: ToolAnnotations;
+  groups?: string[];
+  tags?: string[];
   callback: ToolCallback<undefined | ZodRawShape>;
   enabled: boolean;
   enable(): void;
@@ -1174,6 +1389,8 @@ export type RegisteredTool = {
       paramsSchema?: InputArgs,
       outputSchema?: OutputArgs,
       annotations?: ToolAnnotations,
+      groups?: string[],
+      tags?: string[],
       callback?: ToolCallback<InputArgs>,
       enabled?: boolean
     }): void
