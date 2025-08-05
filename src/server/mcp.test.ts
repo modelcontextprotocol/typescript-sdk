@@ -4085,4 +4085,44 @@ describe('elicitInput()', () => {
             }
         ]);
     });
+
+    test('should fail: tool with incorrect parameter capitalization is not rejected', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        mcpServer.registerTool(
+            'test-strict',
+            {
+                inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() }
+            },
+            async ({ userName, itemCount }) => ({
+                content: [{ type: 'text', text: `${userName || 'none'}: ${itemCount || 0}` }]
+            })
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+        const result = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'test-strict',
+                    arguments: { username: 'test', itemcount: 42 }
+                }
+            },
+            CallToolResultSchema
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.content[0].text).toContain('Invalid arguments');
+    });
 });
