@@ -803,9 +803,6 @@ export class McpServer {
     };
     this._registeredTools[name] = registeredTool;
 
-    this.setToolRequestHandlers();
-    this.sendToolListChanged()
-
     return registeredTool
   }
 
@@ -914,7 +911,12 @@ export class McpServer {
     }
     const callback = rest[0] as ToolCallback<ZodRawShape | undefined>;
 
-    return this._createRegisteredTool(name, undefined, description, inputSchema, outputSchema, annotations, callback)
+    const result = this._createRegisteredTool(name, undefined, description, inputSchema, outputSchema, annotations, callback);
+    
+    this.setToolRequestHandlers();
+    this.sendToolListChanged();
+
+    return result;
   }
 
   /**
@@ -937,7 +939,7 @@ export class McpServer {
 
     const { title, description, inputSchema, outputSchema, annotations } = config;
 
-    return this._createRegisteredTool(
+    const result = this._createRegisteredTool(
       name,
       title,
       description,
@@ -946,6 +948,11 @@ export class McpServer {
       annotations,
       cb as ToolCallback<ZodRawShape | undefined>
     );
+
+    this.setToolRequestHandlers();
+    this.sendToolListChanged();
+
+    return result;
   }
 
   /**

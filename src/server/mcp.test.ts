@@ -4290,4 +4290,120 @@ describe("elicitInput()", () => {
       text: "No booking made. Original date not available."
     }]);
   });
+
+  /***
+   * Test: Bulk Tool Registration - Memory Leak Prevention
+   */
+  test("should handle multiple tool registrations without memory leak", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    // Register first tool before connection (should work fine)
+    mcpServer.tool("tool1", async () => ({
+      content: [{ type: "text", text: "Tool 1" }]
+    }));
+
+    const notifications: Notification[] = []
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Clear any initial notifications
+    notifications.length = 0;
+
+    // This should work since capabilities were already registered during first tool
+    mcpServer.tool("tool2", async () => ({
+      content: [{ type: "text", text: "Tool 2" }]
+    }));
+
+    // Yield event loop to let notifications process
+    await new Promise(process.nextTick);
+
+    // Should have sent exactly one notification for the second tool
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      method: "notifications/tools/list_changed",
+    });
+
+    // Verify both tools are registered
+    const toolsResult = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+    expect(toolsResult.tools).toHaveLength(2);
+    expect(toolsResult.tools.map(t => t.name).sort()).toEqual(["tool1", "tool2"]);
+  });
+
+  /***
+   * Test: registerTool() should work after connection (fixed behavior)
+   */
+  test("registerTool() should work after connection", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    // Register first tool before connection to establish capabilities
+    mcpServer.tool("tool1", async () => ({
+      content: [{ type: "text", text: "Tool 1" }]
+    }));
+
+    const notifications: Notification[] = []
+    const client = new Client({
+      name: "test client", 
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Clear any initial notifications
+    notifications.length = 0;
+
+    // This should now work after the fix
+    mcpServer.registerTool("test2", {
+      description: "Test tool 2"
+    }, async () => ({
+      content: [{ type: "text", text: "Test 2" }]
+    }));
+
+    // Yield event loop to let notifications process
+    await new Promise(process.nextTick);
+
+    // Should have sent exactly one notification
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      method: "notifications/tools/list_changed",
+    });
+
+    // Verify both tools are registered
+    const toolsResult = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+    expect(toolsResult.tools).toHaveLength(2);
+    expect(toolsResult.tools.map(t => t.name).sort()).toEqual(["test2", "tool1"]);
+  });
 });
