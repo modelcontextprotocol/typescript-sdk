@@ -4125,4 +4125,44 @@ describe('elicitInput()', () => {
         expect(result.isError).toBe(true);
         expect(result.content[0].text).toContain('Invalid arguments');
     });
+
+    test('should reject unknown parameters when strict validation is enabled', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        mcpServer.registerTool(
+            'test-strict',
+            {
+                inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() },
+                strict: true
+            },
+            async ({ userName, itemCount }) => ({
+                content: [{ type: 'text', text: `${userName || 'none'}: ${itemCount || 0}` }]
+            })
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+        await expect(
+            client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'test-strict',
+                        arguments: { username: 'test', itemcount: 42 }
+                    }
+                },
+                CallToolResultSchema
+            )
+        ).rejects.toThrow('Invalid arguments');
+    });
 });
