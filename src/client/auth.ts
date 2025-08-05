@@ -12,7 +12,7 @@ import {
   OpenIdProviderDiscoveryMetadataSchema
 } from "../shared/auth.js";
 import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthProtectedResourceMetadataSchema, OAuthTokensSchema } from "../shared/auth.js";
-import { checkResourceAllowed, resourceUrlFromServerUrl, isValidOAuthScheme } from "../shared/auth-utils.js";
+import { checkResourceAllowed, resourceUrlFromServerUrl, isAuthorizationEndpointSafe } from "../shared/auth-utils.js";
 import {
   InvalidClientError,
   InvalidGrantError,
@@ -774,10 +774,19 @@ export async function discoverAuthorizationServerMetadata(
     }
 
     // Parse and validate based on type
+    const responseData = await response.json();
+    
     if (type === 'oauth') {
-      return OAuthMetadataSchema.parse(await response.json());
+      const metadata = OAuthMetadataSchema.parse(responseData);
+      if (!isAuthorizationEndpointSafe(metadata)) {
+        throw new Error(`Invalid OAuth metadata from ${endpointUrl}: authorization_endpoint uses javascript: scheme which is not allowed for security reasons.`);
+      }
+      return metadata;
     } else {
-      const metadata = OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
+      const metadata = OpenIdProviderDiscoveryMetadataSchema.parse(responseData);
+      if (!isAuthorizationEndpointSafe(metadata)) {
+        throw new Error(`Invalid OIDC metadata from ${endpointUrl}: authorization_endpoint uses javascript: scheme which is not allowed for security reasons.`);
+      }
 
       // MCP spec requires OIDC providers to support S256 PKCE
       if (!metadata.code_challenge_methods_supported?.includes('S256')) {
@@ -820,9 +829,6 @@ export async function startAuthorization(
   let authorizationUrl: URL;
   if (metadata) {
     authorizationUrl = new URL(metadata.authorization_endpoint);
-    if (!isValidOAuthScheme(authorizationUrl)) {
-      throw new Error(`Invalid authorization_endpoint URL scheme: ${authorizationUrl.protocol}. Only http: and https: are allowed.`);
-    }
 
     if (!metadata.response_types_supported.includes(responseType)) {
       throw new Error(
@@ -914,15 +920,9 @@ export async function exchangeAuthorization(
 ): Promise<OAuthTokens> {
   const grantType = "authorization_code";
 
-  let tokenUrl: URL;
-  if (metadata?.token_endpoint) {
-    tokenUrl = new URL(metadata.token_endpoint);
-    if (!isValidOAuthScheme(tokenUrl)) {
-      throw new Error(`Invalid token_endpoint URL scheme: ${tokenUrl.protocol}. Only http: and https: are allowed.`);
-    }
-  } else {
-    tokenUrl = new URL("/token", authorizationServerUrl);
-  }
+  const tokenUrl = metadata?.token_endpoint
+      ? new URL(metadata.token_endpoint)
+      : new URL("/token", authorizationServerUrl);
 
   if (
       metadata?.grant_types_supported &&
@@ -1007,9 +1007,6 @@ export async function refreshAuthorization(
   let tokenUrl: URL;
   if (metadata) {
     tokenUrl = new URL(metadata.token_endpoint);
-    if (!isValidOAuthScheme(tokenUrl)) {
-      throw new Error(`Invalid token_endpoint URL scheme: ${tokenUrl.protocol}. Only http: and https: are allowed.`);
-    }
 
     if (
       metadata.grant_types_supported &&
@@ -1081,9 +1078,6 @@ export async function registerClient(
     }
 
     registrationUrl = new URL(metadata.registration_endpoint);
-    if (!isValidOAuthScheme(registrationUrl)) {
-      throw new Error(`Invalid registration_endpoint URL scheme: ${registrationUrl.protocol}. Only http: and https: are allowed.`);
-    }
   } else {
     registrationUrl = new URL("/register", authorizationServerUrl);
   }

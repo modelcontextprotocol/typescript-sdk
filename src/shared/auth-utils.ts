@@ -54,16 +54,20 @@ export function resourceUrlFromServerUrl(url: URL | string ): URL {
  }
 
  /**
- * Validates that a URL uses a safe scheme for OAuth endpoints (http or https only).
+ * Validates OAuth authorization endpoint to prevent JavaScript URL injection attacks.
  * 
- * This prevents XSS (Cross-Site Scripting) and RCE (Remote Code Execution) attacks 
- * where malicious authorization servers could return endpoints with dangerous schemes 
- * like javascript:, data:, file:, etc. that could lead to code execution when 
- * processed by OAuth clients.
+ * Checks that the authorization_endpoint doesn't use the javascript: scheme, 
+ * which could lead to code execution when the client redirects users to it.
  * 
- * @param url - The URL to validate
- * @returns true if the URL scheme is safe (http: or https:), false otherwise
+ * @param metadata - The OAuth authorization server metadata to validate
+ * @returns true if authorization endpoint is safe (no javascript: scheme), false otherwise
  */
-export function isValidOAuthScheme(url: URL): boolean {
-  return ['https:', 'http:'].includes(url.protocol);
+export function isAuthorizationEndpointSafe(metadata: { authorization_endpoint: string }): boolean {
+  try {
+    const url = new URL(metadata.authorization_endpoint);
+    return url.protocol !== 'javascript:';
+  } catch {
+    // Invalid URL format - let other validation handle this
+    return true;
+  }
 }

