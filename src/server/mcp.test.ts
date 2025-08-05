@@ -4119,8 +4119,11 @@ describe("elicitInput()", () => {
                   type: "string",
                   title: "Date flexibility",
                   description: "How flexible are your dates?",
-                  enum: ["next_day", "same_week", "next_week"],
-                  enumNames: ["Next day", "Same week", "Next week"]
+                  oneOf: [
+                    { const: "next_day", title: "Next day" },
+                    { const: "same_week", title: "Same week" },
+                    { const: "next_week", title: "Next week" }
+                  ],
                 }
               },
               required: ["checkAlternatives"]
