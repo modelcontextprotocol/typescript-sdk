@@ -4290,4 +4290,58 @@ describe("elicitInput()", () => {
       text: "No booking made. Original date not available."
     }]);
   });
+
+  /**
+   * Test: Tool parameter validation with incorrect capitalization
+   * This test demonstrates that tools currently silently ignore unknown parameters,
+   * including those with incorrect capitalization. This should fail to show the issue exists.
+   */
+  test("should fail: tool with incorrect parameter capitalization is not rejected", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    // Register a tool that expects optional 'userName' and 'itemCount'
+    mcpServer.registerTool(
+      "test-strict",
+      {
+        inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() },
+      },
+      async ({ userName, itemCount }) => ({
+        content: [{ type: "text", text: `${userName || 'none'}: ${itemCount || 0}` }],
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Call the tool with unknown parameters (incorrect capitalization)
+    // These should be rejected but currently aren't - they're silently ignored
+    const result = await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "test-strict",
+          arguments: { username: "test", itemcount: 42 }, // Should be rejected as unknown parameters
+        },
+      },
+      CallToolResultSchema,
+    );
+
+    // This expectation should fail because the tool currently accepts the call
+    // and silently ignores unknown parameters, returning success instead of error
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Invalid arguments");
+  });
 });
