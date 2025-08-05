@@ -4515,4 +4515,113 @@ describe("elicitInput()", () => {
       text: "Bulk 1"
     });
   });
+
+  /***
+   * Test: registerResources() bulk method
+   */
+  test("should register multiple resources with single notification using registerResources()", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    // Register first resource to establish capabilities
+    mcpServer.resource("initial", "initial://resource", async () => ({
+      contents: [{
+        uri: "initial://resource",
+        text: "Initial resource"
+      }]
+    }));
+
+    const notifications: Notification[] = []
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Clear initial notifications
+    notifications.length = 0;
+
+    // Register multiple resources at once using the bulk method
+    const resources = mcpServer.registerResources([
+      {
+        name: "bulk1",
+        uriOrTemplate: "bulk://resource1",
+        config: {
+          title: "Bulk Resource 1",
+          description: "First bulk resource"
+        },
+        callback: async () => ({
+          contents: [{
+            uri: "bulk://resource1",
+            text: "Bulk resource 1 content"
+          }]
+        })
+      },
+      {
+        name: "bulk2",
+        uriOrTemplate: "bulk://resource2", 
+        config: {
+          title: "Bulk Resource 2",
+          description: "Second bulk resource"
+        },
+        callback: async () => ({
+          contents: [{
+            uri: "bulk://resource2",
+            text: "Bulk resource 2 content"
+          }]
+        })
+      }
+    ]);
+
+    // Yield event loop to let notifications process
+    await new Promise(process.nextTick);
+
+    // Should have sent exactly ONE notification for all resources
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      method: "notifications/resources/list_changed",
+    });
+
+    // Should return array of registered resources
+    expect(resources).toHaveLength(2);
+    expect(resources[0].title).toBe("Bulk Resource 1");
+    expect(resources[1].title).toBe("Bulk Resource 2");
+
+    // Verify all resources are registered and functional
+    const resourcesResult = await client.request(
+      { method: "resources/list" },
+      ListResourcesResultSchema,
+    );
+    expect(resourcesResult.resources).toHaveLength(3); // initial + 2 bulk resources
+    
+    const resourceNames = resourcesResult.resources.map(r => r.name).sort();
+    expect(resourceNames).toEqual(["bulk1", "bulk2", "initial"]);
+
+    // Test that a resource actually works
+    const readResult = await client.request(
+      {
+        method: "resources/read",
+        params: {
+          uri: "bulk://resource1"
+        }
+      },
+      ReadResourceResultSchema,
+    );
+    expect(readResult.contents[0]).toMatchObject({
+      uri: "bulk://resource1",
+      text: "Bulk resource 1 content"
+    });
+  });
 });

@@ -666,6 +666,62 @@ export class McpServer {
     }
   }
 
+  /**
+   * Registers multiple resources at once with a single notification.
+   * This is more efficient than calling registerResource() multiple times,
+   * especially when registering many resources, as it sends only one list_changed notification.
+   */
+  registerResources<T extends Array<{
+    name: string;
+    uriOrTemplate: string | ResourceTemplate;
+    config: ResourceMetadata;
+    callback: ReadResourceCallback | ReadResourceTemplateCallback;
+  }>>(resources: T): (RegisteredResource | RegisteredResourceTemplate)[] {
+    const results: (RegisteredResource | RegisteredResourceTemplate)[] = [];
+
+    // First, validate that none of the resources are already registered
+    for (const { name, uriOrTemplate } of resources) {
+      if (typeof uriOrTemplate === "string") {
+        if (this._registeredResources[uriOrTemplate]) {
+          throw new Error(`Resource ${uriOrTemplate} is already registered`);
+        }
+      } else {
+        if (this._registeredResourceTemplates[name]) {
+          throw new Error(`Resource template ${name} is already registered`);
+        }
+      }
+    }
+
+    // Register all resources without sending notifications
+    for (const { name, uriOrTemplate, config, callback } of resources) {
+      if (typeof uriOrTemplate === "string") {
+        const result = this._createRegisteredResource(
+          name,
+          (config as BaseMetadata).title,
+          uriOrTemplate,
+          config,
+          callback as ReadResourceCallback
+        );
+        results.push(result);
+      } else {
+        const result = this._createRegisteredResourceTemplate(
+          name,
+          (config as BaseMetadata).title,
+          uriOrTemplate,
+          config,
+          callback as ReadResourceTemplateCallback
+        );
+        results.push(result);
+      }
+    }
+
+    // Set up handlers and send single notification at the end
+    this.setResourceRequestHandlers();
+    this.sendResourceListChanged();
+
+    return results;
+  }
+
   private _createRegisteredResource(
     name: string,
     title: string | undefined,
