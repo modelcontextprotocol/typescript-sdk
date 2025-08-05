@@ -722,6 +722,49 @@ export class McpServer {
     return results;
   }
 
+  /**
+   * Register multiple prompts in a single operation with a single notification.
+   * This is more efficient than calling registerPrompt() multiple times when registering many prompts,
+   * especially when registering many prompts, as it sends only one list_changed notification.
+   */
+  registerPrompts<T extends Array<{
+    name: string;
+    config: {
+      title?: string;
+      description?: string;
+      argsSchema?: PromptArgsRawShape;
+    };
+    callback: PromptCallback<PromptArgsRawShape | undefined>;
+  }>>(prompts: T): RegisteredPrompt[] {
+    const results: RegisteredPrompt[] = [];
+
+    // First, validate that none of the prompts are already registered
+    for (const { name } of prompts) {
+      if (this._registeredPrompts[name]) {
+        throw new Error(`Prompt ${name} is already registered`);
+      }
+    }
+
+    // Register all prompts without sending notifications
+    for (const { name, config, callback } of prompts) {
+      const { title, description, argsSchema } = config;
+      const result = this._createRegisteredPrompt(
+        name,
+        title,
+        description,
+        argsSchema,
+        callback
+      );
+      results.push(result);
+    }
+
+    // Set up handlers and send single notification at the end
+    this.setPromptRequestHandlers();
+    this.sendPromptListChanged();
+
+    return results;
+  }
+
   private _createRegisteredResource(
     name: string,
     title: string | undefined,

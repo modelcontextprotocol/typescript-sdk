@@ -4624,4 +4624,120 @@ describe("elicitInput()", () => {
       text: "Bulk resource 1 content"
     });
   });
+
+  test("registerPrompts() should register multiple prompts with single notification", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = []
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
+
+    // Register a single prompt first to test notification behavior
+    mcpServer.registerPrompt(
+      "initial", 
+      {
+        title: "Initial Prompt",
+        description: "An initial prompt",
+        argsSchema: { input: z.string() }
+      },
+      ({ input }) => ({
+        messages: [{
+          role: "user" as const,
+          content: { type: "text" as const, text: `Initial: ${input}` }
+        }]
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Clear any initial notifications
+    notifications.length = 0;
+
+    // Register multiple prompts in bulk
+    const registeredPrompts = mcpServer.registerPrompts([
+      {
+        name: "bulk1",
+        config: {
+          title: "Bulk Prompt One", 
+          description: "First bulk prompt",
+          argsSchema: { input: z.string() }
+        },
+        callback: (args, _extra) => ({
+          messages: [{
+            role: "user" as const,
+            content: { type: "text" as const, text: `Bulk 1: ${args.input}` }
+          }]
+        })
+      },
+      {
+        name: "bulk2",
+        config: {
+          title: "Bulk Prompt Two",
+          description: "Second bulk prompt", 
+          argsSchema: { value: z.string() }
+        },
+        callback: (args, _extra) => ({
+          messages: [{
+            role: "assistant" as const,
+            content: { type: "text" as const, text: `Bulk 2: ${args.value}` }
+          }]
+        })
+      }
+    ]);
+
+    // Yield event loop to let notifications process
+    await new Promise(process.nextTick);
+
+    // Should return array of registered prompts
+    expect(registeredPrompts).toHaveLength(2);
+    expect(registeredPrompts[0].title).toBe("Bulk Prompt One");
+    expect(registeredPrompts[1].title).toBe("Bulk Prompt Two");
+
+    // Should have sent exactly ONE notification for all prompts
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      method: "notifications/prompts/list_changed",
+    });
+
+    // Test list prompts shows all prompts
+    const promptsResult = await client.request(
+      {
+        method: "prompts/list",
+        params: {}
+      },
+      ListPromptsResultSchema,
+    );
+
+    const promptNames = promptsResult.prompts.map(p => p.name).sort();
+    expect(promptNames).toEqual(["bulk1", "bulk2", "initial"]);
+
+    // Test that a prompt actually works
+    const getResult = await client.request(
+      {
+        method: "prompts/get",
+        params: {
+          name: "bulk1",
+          arguments: { input: "test" }
+        }
+      },
+      GetPromptResultSchema,
+    );
+    expect(getResult.messages[0]).toMatchObject({
+      role: "user",
+      content: { type: "text", text: "Bulk 1: test" }
+    });
+  });
 });
