@@ -956,6 +956,55 @@ export class McpServer {
   }
 
   /**
+   * Registers multiple tools at once with a single notification.
+   * This is more efficient than calling registerTool() multiple times,
+   * especially when registering many tools, as it sends only one list_changed notification.
+   */
+  registerTools<T extends Array<{
+    name: string;
+    config: {
+      title?: string;
+      description?: string;
+      inputSchema?: ZodRawShape;
+      outputSchema?: ZodRawShape;
+      annotations?: ToolAnnotations;
+    };
+    callback: ToolCallback<ZodRawShape | undefined>;
+  }>>(tools: T): RegisteredTool[] {
+    const results: RegisteredTool[] = [];
+
+    // First, validate that none of the tools are already registered
+    for (const { name } of tools) {
+      if (this._registeredTools[name]) {
+        throw new Error(`Tool ${name} is already registered`);
+      }
+    }
+
+    // Register all tools without sending notifications
+    for (const { name, config, callback } of tools) {
+      const { title, description, inputSchema, outputSchema, annotations } = config;
+      
+      const result = this._createRegisteredTool(
+        name,
+        title,
+        description,
+        inputSchema,
+        outputSchema,
+        annotations,
+        callback as ToolCallback<ZodRawShape | undefined>
+      );
+      
+      results.push(result);
+    }
+
+    // Set up handlers and send single notification at the end
+    this.setToolRequestHandlers();
+    this.sendToolListChanged();
+
+    return results;
+  }
+
+  /**
    * Registers a zero-argument prompt `name`, which will run the given function when the client calls it.
    */
   prompt(name: string, cb: PromptCallback): RegisteredPrompt;

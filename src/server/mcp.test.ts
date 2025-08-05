@@ -4406,4 +4406,113 @@ describe("elicitInput()", () => {
     expect(toolsResult.tools).toHaveLength(2);
     expect(toolsResult.tools.map(t => t.name).sort()).toEqual(["test2", "tool1"]);
   });
+
+  /***
+   * Test: registerTools() bulk method
+   */
+  test("should register multiple tools with single notification using registerTools()", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    // Register first tool to establish capabilities
+    mcpServer.tool("initial", async () => ({
+      content: [{ type: "text", text: "Initial" }]
+    }));
+
+    const notifications: Notification[] = []
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Clear initial notifications
+    notifications.length = 0;
+
+    // Register multiple tools at once using the bulk method
+    const tools = mcpServer.registerTools([
+      {
+        name: "bulk1",
+        config: { 
+          title: "Bulk Tool 1",
+          description: "First bulk tool"
+        },
+        callback: async () => ({
+          content: [{ type: "text" as const, text: "Bulk 1" }]
+        })
+      },
+      {
+        name: "bulk2", 
+        config: {
+          title: "Bulk Tool 2",
+          description: "Second bulk tool"
+        },
+        callback: async () => ({
+          content: [{ type: "text" as const, text: "Bulk 2" }]
+        })
+      },
+      {
+        name: "bulk3",
+        config: {
+          description: "Third bulk tool"
+        },
+        callback: async () => ({
+          content: [{ type: "text" as const, text: "Bulk 3" }]
+        })
+      }
+    ]);
+
+    // Yield event loop to let notifications process
+    await new Promise(process.nextTick);
+
+    // Should have sent exactly ONE notification for all three tools
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      method: "notifications/tools/list_changed",
+    });
+
+    // Should return array of registered tools
+    expect(tools).toHaveLength(3);
+    expect(tools[0].title).toBe("Bulk Tool 1");
+    expect(tools[1].title).toBe("Bulk Tool 2");
+    expect(tools[2].title).toBeUndefined(); // No title provided
+
+    // Verify all tools are registered and functional
+    const toolsResult = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+    expect(toolsResult.tools).toHaveLength(4); // initial + 3 bulk tools
+    
+    const toolNames = toolsResult.tools.map(t => t.name).sort();
+    expect(toolNames).toEqual(["bulk1", "bulk2", "bulk3", "initial"]);
+
+    // Test that the tools actually work
+    const callResult = await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "bulk1",
+          arguments: {}
+        }
+      },
+      CallToolResultSchema,
+    );
+    expect(callResult.content[0]).toMatchObject({
+      type: "text",
+      text: "Bulk 1"
+    });
+  });
 });
