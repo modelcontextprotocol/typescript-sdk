@@ -4292,11 +4292,11 @@ describe("elicitInput()", () => {
   });
 
   /**
-   * Test: Tool parameter validation with incorrect capitalization
-   * This test demonstrates that tools currently silently ignore unknown parameters,
-   * including those with incorrect capitalization. This should fail to show the issue exists.
+   * Test: Tool parameter validation with strict mode
+   * This test verifies that tools with strict: true reject unknown parameters,
+   * including those with incorrect capitalization.
    */
-  test("should fail: tool with incorrect parameter capitalization is not rejected", async () => {
+  test("should reject unknown parameters when strict validation is enabled", async () => {
     const mcpServer = new McpServer({
       name: "test server",
       version: "1.0",
@@ -4307,11 +4307,12 @@ describe("elicitInput()", () => {
       version: "1.0",
     });
 
-    // Register a tool that expects optional 'userName' and 'itemCount'
+    // Register a tool with strict validation enabled
     mcpServer.registerTool(
       "test-strict",
       {
         inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() },
+        strict: true,
       },
       async ({ userName, itemCount }) => ({
         content: [{ type: "text", text: `${userName || 'none'}: ${itemCount || 0}` }],
@@ -4326,22 +4327,17 @@ describe("elicitInput()", () => {
       mcpServer.server.connect(serverTransport),
     ]);
 
-    // Call the tool with unknown parameters (incorrect capitalization)
-    // These should be rejected but currently aren't - they're silently ignored
-    const result = await client.request(
+    // Call the tool with unknown parameters (incorrect capitalization)  
+    // With strict: true, these should now be rejected
+    await expect(client.request(
       {
         method: "tools/call",
         params: {
           name: "test-strict",
-          arguments: { username: "test", itemcount: 42 }, // Should be rejected as unknown parameters
+          arguments: { username: "test", itemcount: 42 }, // Unknown parameters should cause error
         },
       },
       CallToolResultSchema,
-    );
-
-    // This expectation should fail because the tool currently accepts the call
-    // and silently ignores unknown parameters, returning success instead of error
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("Invalid arguments");
+    )).rejects.toThrow("Invalid arguments");
   });
 });
