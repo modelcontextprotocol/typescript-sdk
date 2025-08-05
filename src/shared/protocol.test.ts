@@ -65,6 +65,22 @@ describe("protocol tests", () => {
     expect(oncloseMock).toHaveBeenCalled();
   });
 
+  test("should not overwrite existing hooks when connecting transports", async () => {
+    const oncloseMock = jest.fn();
+    const onerrorMock = jest.fn();
+    const onmessageMock = jest.fn();
+    transport.onclose = oncloseMock;
+    transport.onerror = onerrorMock;
+    transport.onmessage = onmessageMock;
+    await protocol.connect(transport);
+    transport.onclose();
+    transport.onerror(new Error());
+    transport.onmessage("");
+    expect(oncloseMock).toHaveBeenCalled();
+    expect(onerrorMock).toHaveBeenCalled();
+    expect(onmessageMock).toHaveBeenCalled();
+  });
+
   describe("_meta preservation with onprogress", () => {
     test("should preserve existing _meta when adding progressToken", async () => {
       await protocol.connect(transport);
@@ -450,6 +466,189 @@ describe("protocol tests", () => {
       await expect(requestPromise).resolves.toEqual({ result: "success" });
     });
   });
+
+  describe("Debounced Notifications", () => {
+    // We need to flush the microtask queue to test the debouncing logic.
+    // This helper function does that.
+    const flushMicrotasks = () => new Promise(resolve => setImmediate(resolve));
+
+      it("should NOT debounce a notification that has parameters", async () => {
+      // ARRANGE
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })({ debouncedNotificationMethods: ['test/debounced_with_params'] });
+      await protocol.connect(transport);
+
+      // ACT
+      // These notifications are configured for debouncing but contain params, so they should be sent immediately.
+      await protocol.notification({ method: 'test/debounced_with_params', params: { data: 1 } });
+      await protocol.notification({ method: 'test/debounced_with_params', params: { data: 2 } });
+
+      // ASSERT
+      // Both should have been sent immediately to avoid data loss.
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+      expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ params: { data: 1 } }), undefined);
+      expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ params: { data: 2 } }), undefined);
+    });
+
+    it("should NOT debounce a notification that has a relatedRequestId", async () => {
+      // ARRANGE
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })({ debouncedNotificationMethods: ['test/debounced_with_options'] });
+      await protocol.connect(transport);
+
+      // ACT
+      await protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 'req-1' });
+      await protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 'req-2' });
+
+      // ASSERT
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+      expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 'req-1' });
+      expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 'req-2' });
+    });
+
+    it("should clear pending debounced notifications on connection close", async () => {
+      // ARRANGE
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })({ debouncedNotificationMethods: ['test/debounced'] });
+      await protocol.connect(transport);
+
+      // ACT
+      // Schedule a notification but don't flush the microtask queue.
+      protocol.notification({ method: 'test/debounced' });
+
+      // Close the connection. This should clear the pending set.
+      await protocol.close();
+
+      // Now, flush the microtask queue.
+      await flushMicrotasks();
+
+      // ASSERT
+      // The send should never have happened because the transport was cleared.
+      expect(sendSpy).not.toHaveBeenCalled();
+    });
+
+    it("should debounce multiple synchronous calls when params property is omitted", async () => {
+      // ARRANGE
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })({ debouncedNotificationMethods: ['test/debounced'] });
+      await protocol.connect(transport);
+
+      // ACT
+      // This is the more idiomatic way to write a notification with no params.
+      protocol.notification({ method: 'test/debounced' });
+      protocol.notification({ method: 'test/debounced' });
+      protocol.notification({ method: 'test/debounced' });
+
+      expect(sendSpy).not.toHaveBeenCalled();
+      await flushMicrotasks();
+
+      // ASSERT
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+      // The final sent object might not even have the `params` key, which is fine.
+      // We can check that it was called and that the params are "falsy".
+      const sentNotification = sendSpy.mock.calls[0][0];
+      expect(sentNotification.method).toBe('test/debounced');
+      expect(sentNotification.params).toBeUndefined();
+    });
+
+    it("should debounce calls when params is explicitly undefined", async () => {
+      // ARRANGE
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })({ debouncedNotificationMethods: ['test/debounced'] });
+      await protocol.connect(transport);
+
+      // ACT
+      protocol.notification({ method: 'test/debounced', params: undefined });
+      protocol.notification({ method: 'test/debounced', params: undefined });
+      await flushMicrotasks();
+
+      // ASSERT
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+      expect(sendSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'test/debounced',
+          params: undefined
+        }),
+        undefined
+      );
+    });
+
+    it("should send non-debounced notifications immediately and multiple times", async () => {
+      // ARRANGE
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })({ debouncedNotificationMethods: ['test/debounced'] }); // Configure for a different method
+      await protocol.connect(transport);
+
+      // ACT
+      // Call a non-debounced notification method multiple times.
+      await protocol.notification({ method: 'test/immediate' });
+      await protocol.notification({ method: 'test/immediate' });
+
+      // ASSERT
+      // Since this method is not in the debounce list, it should be sent every time.
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("should not debounce any notifications if the option is not provided", async () => {
+      // ARRANGE
+      // Use the default protocol from beforeEach, which has no debounce options.
+      await protocol.connect(transport);
+
+      // ACT
+      await protocol.notification({ method: 'any/method' });
+      await protocol.notification({ method: 'any/method' });
+
+      // ASSERT
+      // Without the config, behavior should be immediate sending.
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("should handle sequential batches of debounced notifications correctly", async () => {
+      // ARRANGE
+      protocol = new (class extends Protocol<Request, Notification, Result> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+      })({ debouncedNotificationMethods: ['test/debounced'] });
+      await protocol.connect(transport);
+
+      // ACT (Batch 1)
+      protocol.notification({ method: 'test/debounced' });
+      protocol.notification({ method: 'test/debounced' });
+      await flushMicrotasks();
+
+      // ASSERT (Batch 1)
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+
+      // ACT (Batch 2)
+      // After the first batch has been sent, a new batch should be possible.
+      protocol.notification({ method: 'test/debounced' });
+      protocol.notification({ method: 'test/debounced' });
+      await flushMicrotasks();
+
+      // ASSERT (Batch 2)
+      // The total number of sends should now be 2.
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+    });
+  });
 });
 
 describe("mergeCapabilities", () => {
@@ -465,6 +664,7 @@ describe("mergeCapabilities", () => {
       experimental: {
         feature: true,
       },
+      elicitation: {},
       roots: {
         newProp: true,
       },
@@ -473,6 +673,7 @@ describe("mergeCapabilities", () => {
     const merged = mergeCapabilities(base, additional);
     expect(merged).toEqual({
       sampling: {},
+      elicitation: {},
       roots: {
         listChanged: true,
         newProp: true,

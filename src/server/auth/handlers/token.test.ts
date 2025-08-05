@@ -16,6 +16,18 @@ jest.mock('pkce-challenge', () => ({
   })
 }));
 
+const mockTokens = {
+    access_token: 'mock_access_token',
+    token_type: 'bearer',
+    expires_in: 3600,
+    refresh_token: 'mock_refresh_token'
+};
+
+const mockTokensWithIdToken = {
+    ...mockTokens,
+    id_token: 'mock_id_token'
+}
+
 describe('Token Handler', () => {
   // Mock client data
   const validClient: OAuthClientInformationFull = {
@@ -58,12 +70,7 @@ describe('Token Handler', () => {
 
       async exchangeAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<OAuthTokens> {
         if (authorizationCode === 'valid_code') {
-          return {
-            access_token: 'mock_access_token',
-            token_type: 'bearer',
-            expires_in: 3600,
-            refresh_token: 'mock_refresh_token'
-          };
+          return mockTokens;
         }
         throw new InvalidGrantError('The authorization code is invalid or has expired');
       },
@@ -264,12 +271,14 @@ describe('Token Handler', () => {
     });
 
     it('returns tokens for valid code exchange', async () => {
+      const mockExchangeCode = jest.spyOn(mockProvider, 'exchangeAuthorizationCode');
       const response = await supertest(app)
         .post('/token')
         .type('form')
         .send({
           client_id: 'valid-client',
           client_secret: 'valid-secret',
+          resource: 'https://api.example.com/resource',
           grant_type: 'authorization_code',
           code: 'valid_code',
           code_verifier: 'valid_verifier'
@@ -280,7 +289,37 @@ describe('Token Handler', () => {
       expect(response.body.token_type).toBe('bearer');
       expect(response.body.expires_in).toBe(3600);
       expect(response.body.refresh_token).toBe('mock_refresh_token');
+      expect(mockExchangeCode).toHaveBeenCalledWith(
+        validClient,
+        'valid_code',
+        undefined, // code_verifier is undefined after PKCE validation
+        undefined, // redirect_uri
+        new URL('https://api.example.com/resource') // resource parameter
+      );
     });
+
+      it('returns id token in code exchange if provided', async () => {
+          mockProvider.exchangeAuthorizationCode = async (client: OAuthClientInformationFull, authorizationCode: string): Promise<OAuthTokens> => {
+              if (authorizationCode === 'valid_code') {
+                  return mockTokensWithIdToken;
+              }
+              throw new InvalidGrantError('The authorization code is invalid or has expired');
+          };
+
+          const response = await supertest(app)
+              .post('/token')
+              .type('form')
+              .send({
+                  client_id: 'valid-client',
+                  client_secret: 'valid-secret',
+                  grant_type: 'authorization_code',
+                  code: 'valid_code',
+                  code_verifier: 'valid_verifier'
+              });
+
+          expect(response.status).toBe(200);
+          expect(response.body.id_token).toBe('mock_id_token');
+      });
 
     it('passes through code verifier when using proxy provider', async () => {
       const originalFetch = global.fetch;
@@ -288,12 +327,7 @@ describe('Token Handler', () => {
       try {
         global.fetch = jest.fn().mockResolvedValue({
           ok: true,
-          json: () => Promise.resolve({
-            access_token: 'mock_access_token',
-            token_type: 'bearer',
-            expires_in: 3600,
-            refresh_token: 'mock_refresh_token'
-          })
+          json: () => Promise.resolve(mockTokens)
         });
 
         const proxyProvider = new ProxyOAuthServerProvider({
@@ -350,12 +384,7 @@ describe('Token Handler', () => {
       try {
         global.fetch = jest.fn().mockResolvedValue({
           ok: true,
-          json: () => Promise.resolve({
-            access_token: 'mock_access_token',
-            token_type: 'bearer',
-            expires_in: 3600,
-            refresh_token: 'mock_refresh_token'
-          })
+          json: () => Promise.resolve(mockTokens)
         });
 
         const proxyProvider = new ProxyOAuthServerProvider({
@@ -440,12 +469,14 @@ describe('Token Handler', () => {
     });
 
     it('returns new tokens for valid refresh token', async () => {
+      const mockExchangeRefresh = jest.spyOn(mockProvider, 'exchangeRefreshToken');
       const response = await supertest(app)
         .post('/token')
         .type('form')
         .send({
           client_id: 'valid-client',
           client_secret: 'valid-secret',
+          resource: 'https://api.example.com/resource',
           grant_type: 'refresh_token',
           refresh_token: 'valid_refresh_token'
         });
@@ -455,6 +486,12 @@ describe('Token Handler', () => {
       expect(response.body.token_type).toBe('bearer');
       expect(response.body.expires_in).toBe(3600);
       expect(response.body.refresh_token).toBe('new_mock_refresh_token');
+      expect(mockExchangeRefresh).toHaveBeenCalledWith(
+        validClient,
+        'valid_refresh_token',
+        undefined, // scopes
+        new URL('https://api.example.com/resource') // resource parameter
+      );
     });
 
     it('respects requested scopes on refresh', async () => {

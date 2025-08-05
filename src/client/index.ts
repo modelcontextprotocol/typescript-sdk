@@ -165,6 +165,10 @@ export class Client<
 
       this._serverCapabilities = result.capabilities;
       this._serverVersion = result.serverInfo;
+      // HTTP transports must set the protocol version in each header after initialization.
+      if (transport.setProtocolVersion) {
+        transport.setProtocolVersion(result.protocolVersion);
+      }
 
       this._instructions = result.instructions;
 
@@ -299,6 +303,14 @@ export class Client<
         if (!this._capabilities.sampling) {
           throw new Error(
             `Client does not support sampling capability (required for ${method})`,
+          );
+        }
+        break;
+
+      case "elicitation/create":
+        if (!this._capabilities.elicitation) {
+          throw new Error(
+            `Client does not support elicitation capability (required for ${method})`,
           );
         }
         break;
@@ -474,8 +486,8 @@ export class Client<
         try {
           const validator = this._ajv.compile(tool.outputSchema);
           this._cachedToolOutputValidators.set(tool.name, validator);
-        } catch (error) {
-          console.warn(`Failed to compile output schema for tool ${tool.name}: ${error}`);
+        } catch {
+          // Ignore schema compilation errors
         }
       }
     }

@@ -1,6 +1,6 @@
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Transport } from "../shared/transport.js";
-import { isInitializeRequest, isJSONRPCError, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema, RequestId } from "../types.js";
+import { MessageExtraInfo, RequestInfo, isInitializeRequest, isJSONRPCError, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema, RequestId, SUPPORTED_PROTOCOL_VERSIONS, DEFAULT_NEGOTIATED_PROTOCOL_VERSION } from "../types.js";
 import getRawBody from "raw-body";
 import contentType from "content-type";
 import { randomUUID } from "node:crypto";
@@ -47,7 +47,19 @@ export interface StreamableHTTPServerTransportOptions {
    * and need to keep track of them.
    * @param sessionId The generated session ID
    */
-  onsessioninitialized?: (sessionId: string) => void;
+  onsessioninitialized?: (sessionId: string) => void | Promise<void>;
+
+  /**
+   * A callback for session close events
+   * This is called when the server closes a session due to a DELETE request.
+   * Useful in cases when you need to clean up resources associated with the session.
+   * Note that this is different from the transport closing, if you are handling 
+   * HTTP requests from multiple nodes you might want to close each 
+   * StreamableHTTPServerTransport after a request is completed while still keeping the 
+   * session open/running.
+   * @param sessionId The session ID that was closed
+  */
+  onsessionclosed?: (sessionId: string) => void | Promise<void>;
 
   /**
    * If true, the server will return JSON responses instead of starting an SSE stream.
@@ -61,6 +73,24 @@ export interface StreamableHTTPServerTransportOptions {
    * If provided, resumability will be enabled, allowing clients to reconnect and resume messages
    */
   eventStore?: EventStore;
+
+  /**
+   * List of allowed host header values for DNS rebinding protection.
+   * If not specified, host validation is disabled.
+   */
+  allowedHosts?: string[];
+  
+  /**
+   * List of allowed origin header values for DNS rebinding protection.
+   * If not specified, origin validation is disabled.
+   */
+  allowedOrigins?: string[];
+  
+  /**
+   * Enable DNS rebinding protection (requires allowedHosts and/or allowedOrigins to be configured).
+   * Default is false for backwards compatibility.
+   */
+  enableDnsRebindingProtection?: boolean;
 }
 
 /**
@@ -108,18 +138,26 @@ export class StreamableHTTPServerTransport implements Transport {
   private _enableJsonResponse: boolean = false;
   private _standaloneSseStreamId: string = '_GET_stream';
   private _eventStore?: EventStore;
-  private _onsessioninitialized?: (sessionId: string) => void;
+  private _onsessioninitialized?: (sessionId: string) => void | Promise<void>;
+  private _onsessionclosed?: (sessionId: string) => void | Promise<void>;
+  private _allowedHosts?: string[];
+  private _allowedOrigins?: string[];
+  private _enableDnsRebindingProtection: boolean;
 
-  sessionId?: string | undefined;
+  sessionId?: string;
   onclose?: () => void;
   onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
+  onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
 
   constructor(options: StreamableHTTPServerTransportOptions) {
     this.sessionIdGenerator = options.sessionIdGenerator;
     this._enableJsonResponse = options.enableJsonResponse ?? false;
     this._eventStore = options.eventStore;
     this._onsessioninitialized = options.onsessioninitialized;
+    this._onsessionclosed = options.onsessionclosed;
+    this._allowedHosts = options.allowedHosts;
+    this._allowedOrigins = options.allowedOrigins;
+    this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
   }
 
   /**
@@ -134,9 +172,53 @@ export class StreamableHTTPServerTransport implements Transport {
   }
 
   /**
+   * Validates request headers for DNS rebinding protection.
+   * @returns Error message if validation fails, undefined if validation passes.
+   */
+  private validateRequestHeaders(req: IncomingMessage): string | undefined {
+    // Skip validation if protection is not enabled
+    if (!this._enableDnsRebindingProtection) {
+      return undefined;
+    }
+
+    // Validate Host header if allowedHosts is configured
+    if (this._allowedHosts && this._allowedHosts.length > 0) {
+      const hostHeader = req.headers.host;
+      if (!hostHeader || !this._allowedHosts.includes(hostHeader)) {
+        return `Invalid Host header: ${hostHeader}`;
+      }
+    }
+
+    // Validate Origin header if allowedOrigins is configured
+    if (this._allowedOrigins && this._allowedOrigins.length > 0) {
+      const originHeader = req.headers.origin;
+      if (!originHeader || !this._allowedOrigins.includes(originHeader)) {
+        return `Invalid Origin header: ${originHeader}`;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
    * Handles an incoming HTTP request, whether GET or POST
    */
   async handleRequest(req: IncomingMessage & { auth?: AuthInfo }, res: ServerResponse, parsedBody?: unknown): Promise<void> {
+    // Validate request headers for DNS rebinding protection
+    const validationError = this.validateRequestHeaders(req);
+    if (validationError) {
+      res.writeHead(403).end(JSON.stringify({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: validationError
+        },
+        id: null
+      }));
+      this.onerror?.(new Error(validationError));
+      return;
+    }
+
     if (req.method === "POST") {
       await this.handlePostRequest(req, res, parsedBody);
     } else if (req.method === "GET") {
@@ -170,6 +252,9 @@ export class StreamableHTTPServerTransport implements Transport {
     // clients using the Streamable HTTP transport MUST include it
     // in the Mcp-Session-Id header on all of their subsequent HTTP requests.
     if (!this.validateSession(req, res)) {
+      return;
+    }
+    if (!this.validateProtocolVersion(req, res)) {
       return;
     }
     // Handle resumability: check for Last-Event-ID header
@@ -318,6 +403,7 @@ export class StreamableHTTPServerTransport implements Transport {
       }
 
       const authInfo: AuthInfo | undefined = req.auth;
+      const requestInfo: RequestInfo = { headers: req.headers };
 
       let rawMessage;
       if (parsedBody !== undefined) {
@@ -374,15 +460,21 @@ export class StreamableHTTPServerTransport implements Transport {
         // If we have a session ID and an onsessioninitialized handler, call it immediately
         // This is needed in cases where the server needs to keep track of multiple sessions
         if (this.sessionId && this._onsessioninitialized) {
-          this._onsessioninitialized(this.sessionId);
+          await Promise.resolve(this._onsessioninitialized(this.sessionId));
         }
 
       }
-      // If an Mcp-Session-Id is returned by the server during initialization,
-      // clients using the Streamable HTTP transport MUST include it 
-      // in the Mcp-Session-Id header on all of their subsequent HTTP requests.
-      if (!isInitializationRequest && !this.validateSession(req, res)) {
-        return;
+      if (!isInitializationRequest) {
+        // If an Mcp-Session-Id is returned by the server during initialization,
+        // clients using the Streamable HTTP transport MUST include it 
+        // in the Mcp-Session-Id header on all of their subsequent HTTP requests.
+        if (!this.validateSession(req, res)) {
+          return;
+        }
+        // Mcp-Protocol-Version header is required for all requests after initialization.
+        if (!this.validateProtocolVersion(req, res)) {
+          return;
+        }
       }
 
 
@@ -395,7 +487,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
         // handle each message
         for (const message of messages) {
-          this.onmessage?.(message, { authInfo });
+          this.onmessage?.(message, { authInfo, requestInfo });
         }
       } else if (hasRequests) {
         // The default behavior is to use SSE streaming
@@ -430,7 +522,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
         // handle each message
         for (const message of messages) {
-          this.onmessage?.(message, { authInfo });
+          this.onmessage?.(message, { authInfo, requestInfo });
         }
         // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
         // This will be handled by the send() method when responses are ready
@@ -457,6 +549,10 @@ export class StreamableHTTPServerTransport implements Transport {
     if (!this.validateSession(req, res)) {
       return;
     }
+    if (!this.validateProtocolVersion(req, res)) {
+      return;
+    }
+    await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
     await this.close();
     res.writeHead(200).end();
   }
@@ -524,6 +620,25 @@ export class StreamableHTTPServerTransport implements Transport {
     return true;
   }
 
+  private validateProtocolVersion(req: IncomingMessage, res: ServerResponse): boolean {
+    let protocolVersion = req.headers["mcp-protocol-version"] ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION;
+    if (Array.isArray(protocolVersion)) {
+      protocolVersion = protocolVersion[protocolVersion.length - 1];
+    }
+
+    if (!SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)) {
+      res.writeHead(400).end(JSON.stringify({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: `Bad Request: Unsupported protocol version (supported versions: ${SUPPORTED_PROTOCOL_VERSIONS.join(", ")})`
+        },
+        id: null
+      }));
+      return false;
+    }
+    return true;
+  }
 
   async close(): Promise<void> {
     // Close all SSE connections

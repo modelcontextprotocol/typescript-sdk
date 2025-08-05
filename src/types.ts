@@ -1,8 +1,11 @@
 import { z, ZodTypeAny } from "zod";
+import { AuthInfo } from "./server/auth/types.js";
 
-export const LATEST_PROTOCOL_VERSION = "2025-03-26";
+export const LATEST_PROTOCOL_VERSION = "2025-06-18";
+export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = "2025-03-26";
 export const SUPPORTED_PROTOCOL_VERSIONS = [
   LATEST_PROTOCOL_VERSION,
+  "2025-03-26",
   "2024-11-05",
   "2024-10-07",
 ];
@@ -43,7 +46,8 @@ export const RequestSchema = z.object({
 const BaseNotificationParamsSchema = z
   .object({
     /**
-     * This parameter name is reserved by MCP to allow clients and servers to attach additional metadata to their notifications.
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on _meta usage.
      */
     _meta: z.optional(z.object({}).passthrough()),
   })
@@ -57,7 +61,8 @@ export const NotificationSchema = z.object({
 export const ResultSchema = z
   .object({
     /**
-     * This result property is reserved by the protocol to allow clients and servers to attach additional metadata to their responses.
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on _meta usage.
      */
     _meta: z.optional(z.object({}).passthrough()),
   })
@@ -194,16 +199,33 @@ export const CancelledNotificationSchema = NotificationSchema.extend({
   }),
 });
 
+/* Base Metadata */
+/**
+ * Base metadata interface for common properties across resources, tools, prompts, and implementations.
+ */
+export const BaseMetadataSchema = z
+  .object({
+    /** Intended for programmatic or logical use, but used as a display name in past specs or fallback */
+    name: z.string(),
+    /**
+    * Intended for UI and end-user contexts — optimized to be human-readable and easily understood,
+    * even by those unfamiliar with domain-specific terminology.
+    *
+    * If not provided, the name should be used for display (except for Tool,
+    * where `annotations.title` should be given precedence over using `name`,
+    * if present).
+    */
+    title: z.optional(z.string()),
+  })
+  .passthrough();
+
 /* Initialization */
 /**
  * Describes the name and version of an MCP implementation.
  */
-export const ImplementationSchema = z
-  .object({
-    name: z.string(),
-    version: z.string(),
-  })
-  .passthrough();
+export const ImplementationSchema = BaseMetadataSchema.extend({
+  version: z.string(),
+});
 
 /**
  * Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
@@ -218,6 +240,10 @@ export const ClientCapabilitiesSchema = z
      * Present if the client supports sampling from an LLM.
      */
     sampling: z.optional(z.object({}).passthrough()),
+    /**
+     * Present if the client supports eliciting user input.
+     */
+    elicitation: z.optional(z.object({}).passthrough()),
     /**
      * Present if the client supports listing roots.
      */
@@ -417,6 +443,11 @@ export const ResourceContentsSchema = z
      * The MIME type of this resource, if known.
      */
     mimeType: z.optional(z.string()),
+    /**
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on _meta usage.
+     */
+    _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
 
@@ -427,74 +458,88 @@ export const TextResourceContentsSchema = ResourceContentsSchema.extend({
   text: z.string(),
 });
 
+
+/**
+ * A Zod schema for validating Base64 strings that is more performant and
+ * robust for very large inputs than the default regex-based check. It avoids
+ * stack overflows by using the native `atob` function for validation.
+ */
+const Base64Schema = z.string().refine(
+    (val) => {
+        try {
+            // atob throws a DOMException if the string contains characters
+            // that are not part of the Base64 character set.
+            atob(val);
+            return true;
+        } catch {
+            return false;
+        }
+    },
+    { message: "Invalid Base64 string" },
+);
+
 export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
   /**
    * A base64-encoded string representing the binary data of the item.
    */
-  blob: z.string().base64(),
+  blob: Base64Schema,
 });
 
 /**
  * A known resource that the server is capable of reading.
  */
-export const ResourceSchema = z
-  .object({
-    /**
-     * The URI of this resource.
-     */
-    uri: z.string(),
+export const ResourceSchema = BaseMetadataSchema.extend({
+  /**
+   * The URI of this resource.
+   */
+  uri: z.string(),
 
-    /**
-     * A human-readable name for this resource.
-     *
-     * This can be used by clients to populate UI elements.
-     */
-    name: z.string(),
+  /**
+   * A description of what this resource represents.
+   *
+   * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
+   */
+  description: z.optional(z.string()),
 
-    /**
-     * A description of what this resource represents.
-     *
-     * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
-     */
-    description: z.optional(z.string()),
+  /**
+   * The MIME type of this resource, if known.
+   */
+  mimeType: z.optional(z.string()),
 
-    /**
-     * The MIME type of this resource, if known.
-     */
-    mimeType: z.optional(z.string()),
-  })
-  .passthrough();
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
+  _meta: z.optional(z.object({}).passthrough()),
+});
 
 /**
  * A template description for resources available on the server.
  */
-export const ResourceTemplateSchema = z
-  .object({
-    /**
-     * A URI template (according to RFC 6570) that can be used to construct resource URIs.
-     */
-    uriTemplate: z.string(),
+export const ResourceTemplateSchema = BaseMetadataSchema.extend({
+  /**
+   * A URI template (according to RFC 6570) that can be used to construct resource URIs.
+   */
+  uriTemplate: z.string(),
 
-    /**
-     * A human-readable name for the type of resource this template refers to.
-     *
-     * This can be used by clients to populate UI elements.
-     */
-    name: z.string(),
+  /**
+   * A description of what this template is for.
+   *
+   * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
+   */
+  description: z.optional(z.string()),
 
-    /**
-     * A description of what this template is for.
-     *
-     * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
-     */
-    description: z.optional(z.string()),
+  /**
+   * The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
+   */
+  mimeType: z.optional(z.string()),
 
-    /**
-     * The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
-     */
-    mimeType: z.optional(z.string()),
-  })
-  .passthrough();
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
+  _meta: z.optional(z.object({}).passthrough()),
+});
 
 /**
  * Sent from the client to request a list of resources the server has.
@@ -618,22 +663,21 @@ export const PromptArgumentSchema = z
 /**
  * A prompt or prompt template that the server offers.
  */
-export const PromptSchema = z
-  .object({
-    /**
-     * The name of the prompt or prompt template.
-     */
-    name: z.string(),
-    /**
-     * An optional description of what this prompt provides
-     */
-    description: z.optional(z.string()),
-    /**
-     * A list of arguments to use for templating the prompt.
-     */
-    arguments: z.optional(z.array(PromptArgumentSchema)),
-  })
-  .passthrough();
+export const PromptSchema = BaseMetadataSchema.extend({
+  /**
+   * An optional description of what this prompt provides
+   */
+  description: z.optional(z.string()),
+  /**
+   * A list of arguments to use for templating the prompt.
+   */
+  arguments: z.optional(z.array(PromptArgumentSchema)),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
+  _meta: z.optional(z.object({}).passthrough()),
+});
 
 /**
  * Sent from the client to request a list of prompts and prompt templates the server has.
@@ -676,6 +720,12 @@ export const TextContentSchema = z
      * The text content of the message.
      */
     text: z.string(),
+
+    /**
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on _meta usage.
+     */
+    _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
 
@@ -688,11 +738,17 @@ export const ImageContentSchema = z
     /**
      * The base64-encoded image data.
      */
-    data: z.string().base64(),
+    data: Base64Schema,
     /**
      * The MIME type of the image. Different providers may support different image types.
      */
     mimeType: z.string(),
+
+    /**
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on _meta usage.
+     */
+    _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
 
@@ -705,11 +761,17 @@ export const AudioContentSchema = z
     /**
      * The base64-encoded audio data.
      */
-    data: z.string().base64(),
+    data: Base64Schema,
     /**
      * The MIME type of the audio. Different providers may support different audio types.
      */
     mimeType: z.string(),
+
+    /**
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on _meta usage.
+     */
+    _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
 
@@ -720,8 +782,33 @@ export const EmbeddedResourceSchema = z
   .object({
     type: z.literal("resource"),
     resource: z.union([TextResourceContentsSchema, BlobResourceContentsSchema]),
+    /**
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on _meta usage.
+     */
+    _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
+
+/**
+ * A resource that the server is capable of reading, included in a prompt or tool call result.
+ *
+ * Note: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.
+ */
+export const ResourceLinkSchema = ResourceSchema.extend({
+  type: z.literal("resource_link"),
+});
+
+/**
+ * A content block that can be used in prompts and tool results.
+ */
+export const ContentBlockSchema = z.union([
+  TextContentSchema,
+  ImageContentSchema,
+  AudioContentSchema,
+  ResourceLinkSchema,
+  EmbeddedResourceSchema,
+]);
 
 /**
  * Describes a message returned as part of a prompt.
@@ -729,12 +816,7 @@ export const EmbeddedResourceSchema = z
 export const PromptMessageSchema = z
   .object({
     role: z.enum(["user", "assistant"]),
-    content: z.union([
-      TextContentSchema,
-      ImageContentSchema,
-      AudioContentSchema,
-      EmbeddedResourceSchema,
-    ]),
+    content: ContentBlockSchema,
   })
   .passthrough();
 
@@ -816,44 +898,44 @@ export const ToolAnnotationsSchema = z
 /**
  * Definition for a tool the client can call.
  */
-export const ToolSchema = z
-  .object({
-    /**
-     * The name of the tool.
-     */
-    name: z.string(),
-    /**
-     * A human-readable description of the tool.
-     */
-    description: z.optional(z.string()),
-    /**
-     * A JSON Schema object defining the expected parameters for the tool.
-     */
-    inputSchema: z
-      .object({
-        type: z.literal("object"),
-        properties: z.optional(z.object({}).passthrough()),
-        required: z.optional(z.array(z.string())),
-      })
-      .passthrough(),
-    /**
-     * An optional JSON Schema object defining the structure of the tool's output returned in 
-     * the structuredContent field of a CallToolResult.
-     */
-    outputSchema: z.optional(
-      z.object({
-        type: z.literal("object"),
-        properties: z.optional(z.object({}).passthrough()),
-        required: z.optional(z.array(z.string())),
-      })
+export const ToolSchema = BaseMetadataSchema.extend({
+  /**
+   * A human-readable description of the tool.
+   */
+  description: z.optional(z.string()),
+  /**
+   * A JSON Schema object defining the expected parameters for the tool.
+   */
+  inputSchema: z
+    .object({
+      type: z.literal("object"),
+      properties: z.optional(z.object({}).passthrough()),
+      required: z.optional(z.array(z.string())),
+    })
+    .passthrough(),
+  /**
+   * An optional JSON Schema object defining the structure of the tool's output returned in
+   * the structuredContent field of a CallToolResult.
+   */
+  outputSchema: z.optional(
+    z.object({
+      type: z.literal("object"),
+      properties: z.optional(z.object({}).passthrough()),
+      required: z.optional(z.array(z.string())),
+    })
       .passthrough()
-    ),
-    /**
-     * Optional additional tool information.
-     */
-    annotations: z.optional(ToolAnnotationsSchema),
-  })
-  .passthrough();
+  ),
+  /**
+   * Optional additional tool information.
+   */
+  annotations: z.optional(ToolAnnotationsSchema),
+
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
+  _meta: z.optional(z.object({}).passthrough()),
+});
 
 /**
  * Sent from the client to request a list of tools the server has.
@@ -879,13 +961,7 @@ export const CallToolResultSchema = ResultSchema.extend({
    * If the Tool does not define an outputSchema, this field MUST be present in the result.
    * For backwards compatibility, this field is always present, but it may be empty.
    */
-  content: z.array(
-    z.union([
-      TextContentSchema,
-      ImageContentSchema,
-      AudioContentSchema,
-      EmbeddedResourceSchema,
-    ])).default([]),
+  content: z.array(ContentBlockSchema).default([]),
 
   /**
    * An object containing structured tool output.
@@ -1088,11 +1164,112 @@ export const CreateMessageResultSchema = ResultSchema.extend({
   ]),
 });
 
+/* Elicitation */
+/**
+ * Primitive schema definition for boolean fields.
+ */
+export const BooleanSchemaSchema = z
+  .object({
+    type: z.literal("boolean"),
+    title: z.optional(z.string()),
+    description: z.optional(z.string()),
+    default: z.optional(z.boolean()),
+  })
+  .passthrough();
+
+/**
+ * Primitive schema definition for string fields.
+ */
+export const StringSchemaSchema = z
+  .object({
+    type: z.literal("string"),
+    title: z.optional(z.string()),
+    description: z.optional(z.string()),
+    minLength: z.optional(z.number()),
+    maxLength: z.optional(z.number()),
+    format: z.optional(z.enum(["email", "uri", "date", "date-time"])),
+  })
+  .passthrough();
+
+/**
+ * Primitive schema definition for number fields.
+ */
+export const NumberSchemaSchema = z
+  .object({
+    type: z.enum(["number", "integer"]),
+    title: z.optional(z.string()),
+    description: z.optional(z.string()),
+    minimum: z.optional(z.number()),
+    maximum: z.optional(z.number()),
+  })
+  .passthrough();
+
+/**
+ * Primitive schema definition for enum fields.
+ */
+export const EnumSchemaSchema = z
+  .object({
+    type: z.literal("string"),
+    title: z.optional(z.string()),
+    description: z.optional(z.string()),
+    enum: z.array(z.string()),
+    enumNames: z.optional(z.array(z.string())),
+  })
+  .passthrough();
+
+/**
+ * Union of all primitive schema definitions.
+ */
+export const PrimitiveSchemaDefinitionSchema = z.union([
+  BooleanSchemaSchema,
+  StringSchemaSchema,
+  NumberSchemaSchema,
+  EnumSchemaSchema,
+]);
+
+/**
+ * A request from the server to elicit user input via the client.
+ * The client should present the message and form fields to the user.
+ */
+export const ElicitRequestSchema = RequestSchema.extend({
+  method: z.literal("elicitation/create"),
+  params: BaseRequestParamsSchema.extend({
+    /**
+     * The message to present to the user.
+     */
+    message: z.string(),
+    /**
+     * The schema for the requested user input.
+     */
+    requestedSchema: z
+      .object({
+        type: z.literal("object"),
+        properties: z.record(z.string(), PrimitiveSchemaDefinitionSchema),
+        required: z.optional(z.array(z.string())),
+      })
+      .passthrough(),
+  }),
+});
+
+/**
+ * The client's response to an elicitation/create request from the server.
+ */
+export const ElicitResultSchema = ResultSchema.extend({
+  /**
+   * The user's response action.
+   */
+  action: z.enum(["accept", "decline", "cancel"]),
+  /**
+   * The collected user input content (only present if action is "accept").
+   */
+  content: z.optional(z.record(z.string(), z.unknown())),
+});
+
 /* Autocomplete */
 /**
  * A reference to a resource or resource template definition.
  */
-export const ResourceReferenceSchema = z
+export const ResourceTemplateReferenceSchema = z
   .object({
     type: z.literal("ref/resource"),
     /**
@@ -1101,6 +1278,11 @@ export const ResourceReferenceSchema = z
     uri: z.string(),
   })
   .passthrough();
+
+/**
+ * @deprecated Use ResourceTemplateReferenceSchema instead
+ */
+export const ResourceReferenceSchema = ResourceTemplateReferenceSchema;
 
 /**
  * Identifies a prompt.
@@ -1121,7 +1303,7 @@ export const PromptReferenceSchema = z
 export const CompleteRequestSchema = RequestSchema.extend({
   method: z.literal("completion/complete"),
   params: BaseRequestParamsSchema.extend({
-    ref: z.union([PromptReferenceSchema, ResourceReferenceSchema]),
+    ref: z.union([PromptReferenceSchema, ResourceTemplateReferenceSchema]),
     /**
      * The argument's information
      */
@@ -1137,6 +1319,14 @@ export const CompleteRequestSchema = RequestSchema.extend({
         value: z.string(),
       })
       .passthrough(),
+    context: z.optional(
+      z.object({
+        /**
+         * Previously-resolved variables in a URI template or prompt.
+         */
+        arguments: z.optional(z.record(z.string(), z.string())),
+      })
+    ),
   }),
 });
 
@@ -1176,6 +1366,12 @@ export const RootSchema = z
      * An optional name for the root.
      */
     name: z.optional(z.string()),
+
+    /**
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on _meta usage.
+     */
+    _meta: z.optional(z.object({}).passthrough()),
   })
   .passthrough();
 
@@ -1227,6 +1423,7 @@ export const ClientNotificationSchema = z.union([
 export const ClientResultSchema = z.union([
   EmptyResultSchema,
   CreateMessageResultSchema,
+  ElicitResultSchema,
   ListRootsResultSchema,
 ]);
 
@@ -1234,6 +1431,7 @@ export const ClientResultSchema = z.union([
 export const ServerRequestSchema = z.union([
   PingRequestSchema,
   CreateMessageRequestSchema,
+  ElicitRequestSchema,
   ListRootsRequestSchema,
 ]);
 
@@ -1286,6 +1484,36 @@ type Flatten<T> = T extends Primitive
 
 type Infer<Schema extends ZodTypeAny> = Flatten<z.infer<Schema>>;
 
+/**
+ * Headers that are compatible with both Node.js and the browser.
+ */
+export type IsomorphicHeaders = Record<string, string | string[] | undefined>;
+
+/**
+ * Information about the incoming request.
+ */
+export interface RequestInfo {
+  /**
+   * The headers of the request.
+   */
+  headers: IsomorphicHeaders;
+}
+
+/**
+ * Extra information about a message.
+ */
+export interface MessageExtraInfo {
+  /**
+   * The request information.
+   */
+  requestInfo?: RequestInfo;
+
+  /**
+   * The authentication information.
+   */
+  authInfo?: AuthInfo;
+}
+
 /* JSON-RPC types */
 export type ProgressToken = Infer<typeof ProgressTokenSchema>;
 export type Cursor = Infer<typeof CursorSchema>;
@@ -1305,6 +1533,9 @@ export type EmptyResult = Infer<typeof EmptyResultSchema>;
 
 /* Cancellation */
 export type CancelledNotification = Infer<typeof CancelledNotificationSchema>;
+
+/* Base Metadata */
+export type BaseMetadata = Infer<typeof BaseMetadataSchema>;
 
 /* Initialization */
 export type Implementation = Infer<typeof ImplementationSchema>;
@@ -1352,6 +1583,8 @@ export type TextContent = Infer<typeof TextContentSchema>;
 export type ImageContent = Infer<typeof ImageContentSchema>;
 export type AudioContent = Infer<typeof AudioContentSchema>;
 export type EmbeddedResource = Infer<typeof EmbeddedResourceSchema>;
+export type ResourceLink = Infer<typeof ResourceLinkSchema>;
+export type ContentBlock = Infer<typeof ContentBlockSchema>;
 export type PromptMessage = Infer<typeof PromptMessageSchema>;
 export type GetPromptResult = Infer<typeof GetPromptResultSchema>;
 export type PromptListChangedNotification = Infer<typeof PromptListChangedNotificationSchema>;
@@ -1376,8 +1609,21 @@ export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
 export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
 export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
 
+/* Elicitation */
+export type BooleanSchema = Infer<typeof BooleanSchemaSchema>;
+export type StringSchema = Infer<typeof StringSchemaSchema>;
+export type NumberSchema = Infer<typeof NumberSchemaSchema>;
+export type EnumSchema = Infer<typeof EnumSchemaSchema>;
+export type PrimitiveSchemaDefinition = Infer<typeof PrimitiveSchemaDefinitionSchema>;
+export type ElicitRequest = Infer<typeof ElicitRequestSchema>;
+export type ElicitResult = Infer<typeof ElicitResultSchema>;
+
 /* Autocomplete */
-export type ResourceReference = Infer<typeof ResourceReferenceSchema>;
+export type ResourceTemplateReference = Infer<typeof ResourceTemplateReferenceSchema>;
+/**
+ * @deprecated Use ResourceTemplateReference instead
+ */
+export type ResourceReference = ResourceTemplateReference;
 export type PromptReference = Infer<typeof PromptReferenceSchema>;
 export type CompleteRequest = Infer<typeof CompleteRequestSchema>;
 export type CompleteResult = Infer<typeof CompleteResultSchema>;

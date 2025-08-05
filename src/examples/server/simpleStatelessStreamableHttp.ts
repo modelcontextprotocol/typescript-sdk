@@ -3,6 +3,7 @@ import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { z } from 'zod';
 import { CallToolResult, GetPromptResult, ReadResourceResult } from '../../types.js';
+import cors from 'cors';
 
 const getServer = () => {
   // Create an MCP server with implementation details
@@ -96,6 +97,12 @@ const getServer = () => {
 const app = express();
 app.use(express.json());
 
+// Configure CORS to expose Mcp-Session-Id header for browser-based clients
+app.use(cors({
+  origin: '*', // Allow all origins - adjust as needed for production
+  exposedHeaders: ['Mcp-Session-Id']
+}));
+
 app.post('/mcp', async (req: Request, res: Response) => {
   const server = getServer();
   try {
@@ -151,7 +158,11 @@ app.delete('/mcp', async (req: Request, res: Response) => {
 
 // Start the server
 const PORT = 3000;
-app.listen(PORT, () => {
+app.listen(PORT, (error) => {
+  if (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
   console.log(`MCP Stateless Streamable HTTP Server listening on port ${PORT}`);
 });
 

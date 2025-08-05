@@ -1,4 +1,4 @@
-import { StdioClientTransport } from "./stdio.js";
+import { StdioClientTransport, getDefaultEnvironment } from "./stdio.js";
 import spawn from "cross-spawn";
 import { JSONRPCMessage } from "../types.js";
 import { ChildProcess } from "node:child_process";
@@ -67,12 +67,33 @@ describe("StdioClientTransport using cross-spawn", () => {
 
     await transport.start();
 
-    // verify environment variables are passed correctly
+    // verify environment variables are merged correctly
     expect(mockSpawn).toHaveBeenCalledWith(
       "test-command",
       [],
       expect.objectContaining({
-        env: customEnv
+        env: {
+          ...getDefaultEnvironment(),
+          ...customEnv
+        }
+      })
+    );
+  });
+
+  test("should use default environment when env is undefined", async () => {
+    const transport = new StdioClientTransport({
+      command: "test-command",
+      env: undefined
+    });
+
+    await transport.start();
+
+    // verify default environment is used
+    expect(mockSpawn).toHaveBeenCalledWith(
+      "test-command",
+      [],
+      expect.objectContaining({
+        env: getDefaultEnvironment()
       })
     );
   });

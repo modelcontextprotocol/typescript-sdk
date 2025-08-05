@@ -32,11 +32,13 @@ const AuthorizationCodeGrantSchema = z.object({
   code: z.string(),
   code_verifier: z.string(),
   redirect_uri: z.string().optional(),
+  resource: z.string().url().optional(),
 });
 
 const RefreshTokenGrantSchema = z.object({
   refresh_token: z.string(),
   scope: z.string().optional(),
+  resource: z.string().url().optional(),
 });
 
 export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHandlerOptions): RequestHandler {
@@ -78,7 +80,6 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
       const client = req.client;
       if (!client) {
         // This should never happen
-        console.error("Missing client information after authentication");
         throw new ServerError("Internal Server Error");
       }
 
@@ -89,7 +90,7 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
             throw new InvalidRequestError(parseResult.error.message);
           }
 
-          const { code, code_verifier, redirect_uri } = parseResult.data;
+          const { code, code_verifier, redirect_uri, resource } = parseResult.data;
 
           const skipLocalPkceValidation = provider.skipLocalPkceValidation;
 
@@ -107,7 +108,8 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
             client, 
             code, 
             skipLocalPkceValidation ? code_verifier : undefined,
-            redirect_uri
+            redirect_uri,
+            resource ? new URL(resource) : undefined
           );
           res.status(200).json(tokens);
           break;
@@ -119,10 +121,10 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
             throw new InvalidRequestError(parseResult.error.message);
           }
 
-          const { refresh_token, scope } = parseResult.data;
+          const { refresh_token, scope, resource } = parseResult.data;
 
           const scopes = scope?.split(" ");
-          const tokens = await provider.exchangeRefreshToken(client, refresh_token, scopes);
+          const tokens = await provider.exchangeRefreshToken(client, refresh_token, scopes, resource ? new URL(resource) : undefined);
           res.status(200).json(tokens);
           break;
         }
@@ -140,7 +142,6 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
         const status = error instanceof ServerError ? 500 : 400;
         res.status(status).json(error.toResponseObject());
       } else {
-        console.error("Unexpected error exchanging token:", error);
         const serverError = new ServerError("Internal Server Error");
         res.status(500).json(serverError.toResponseObject());
       }

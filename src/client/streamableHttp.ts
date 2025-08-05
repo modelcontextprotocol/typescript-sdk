@@ -1,4 +1,4 @@
-import { Transport } from "../shared/transport.js";
+import { Transport, FetchLike } from "../shared/transport.js";
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { EventSourceParserStream } from "eventsource-parser/stream";
@@ -23,7 +23,7 @@ export class StreamableHTTPError extends Error {
 /**
  * Options for starting or authenticating an SSE connection
  */
-interface StartSSEOptions {
+export interface StartSSEOptions {
   /**
    * The resumption token used to continue long-running requests that were interrupted.
    *
@@ -100,6 +100,11 @@ export type StreamableHTTPClientTransportOptions = {
   requestInit?: RequestInit;
 
   /**
+   * Custom fetch implementation used for all network requests.
+   */
+  fetch?: FetchLike;
+
+  /**
    * Options to configure the reconnection behavior.
    */
   reconnectionOptions?: StreamableHTTPReconnectionOptions;
@@ -122,8 +127,10 @@ export class StreamableHTTPClientTransport implements Transport {
   private _resourceMetadataUrl?: URL;
   private _requestInit?: RequestInit;
   private _authProvider?: OAuthClientProvider;
+  private _fetch?: FetchLike;
   private _sessionId?: string;
   private _reconnectionOptions: StreamableHTTPReconnectionOptions;
+  private _protocolVersion?: string;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -137,6 +144,7 @@ export class StreamableHTTPClientTransport implements Transport {
     this._resourceMetadataUrl = undefined;
     this._requestInit = opts?.requestInit;
     this._authProvider = opts?.authProvider;
+    this._fetch = opts?.fetch;
     this._sessionId = opts?.sessionId;
     this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
   }
@@ -148,7 +156,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
     let result: AuthResult;
     try {
-      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl });
+      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
     } catch (error) {
       this.onerror?.(error as Error);
       throw error;
@@ -162,7 +170,7 @@ export class StreamableHTTPClientTransport implements Transport {
   }
 
   private async _commonHeaders(): Promise<Headers> {
-    const headers: HeadersInit = {};
+    const headers: HeadersInit & Record<string, string> = {};
     if (this._authProvider) {
       const tokens = await this._authProvider.tokens();
       if (tokens) {
@@ -173,10 +181,16 @@ export class StreamableHTTPClientTransport implements Transport {
     if (this._sessionId) {
       headers["mcp-session-id"] = this._sessionId;
     }
+    if (this._protocolVersion) {
+      headers["mcp-protocol-version"] = this._protocolVersion;
+    }
 
-    return new Headers(
-      { ...headers, ...this._requestInit?.headers }
-    );
+    const extraHeaders = this._normalizeHeaders(this._requestInit?.headers);
+
+    return new Headers({
+      ...headers,
+      ...extraHeaders,
+    });
   }
 
 
@@ -193,7 +207,7 @@ export class StreamableHTTPClientTransport implements Transport {
         headers.set("last-event-id", resumptionToken);
       }
 
-      const response = await fetch(this._url, {
+      const response = await (this._fetch ?? fetch)(this._url, {
         method: "GET",
         headers,
         signal: this._abortController?.signal,
@@ -217,7 +231,7 @@ export class StreamableHTTPClientTransport implements Transport {
         );
       }
 
-      this._handleSseStream(response.body, options);
+      this._handleSseStream(response.body, options, true);
     } catch (error) {
       this.onerror?.(error as Error);
       throw error;
@@ -240,6 +254,20 @@ export class StreamableHTTPClientTransport implements Transport {
     // Cap at maximum delay
     return Math.min(initialDelay * Math.pow(growFactor, attempt), maxDelay);
 
+  }
+
+    private _normalizeHeaders(headers: HeadersInit | undefined): Record<string, string> {
+    if (!headers) return {};
+
+    if (headers instanceof Headers) {
+      return Object.fromEntries(headers.entries());
+    }
+
+    if (Array.isArray(headers)) {
+      return Object.fromEntries(headers);
+    }
+
+    return { ...headers as Record<string, string> };
   }
 
   /**
@@ -272,7 +300,11 @@ export class StreamableHTTPClientTransport implements Transport {
     }, delay);
   }
 
-  private _handleSseStream(stream: ReadableStream<Uint8Array> | null, options: StartSSEOptions): void {
+  private _handleSseStream(
+    stream: ReadableStream<Uint8Array> | null, 
+    options: StartSSEOptions,
+    isReconnectable: boolean,
+  ): void {
     if (!stream) {
       return;
     }
@@ -319,20 +351,22 @@ export class StreamableHTTPClientTransport implements Transport {
         this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
 
         // Attempt to reconnect if the stream disconnects unexpectedly and we aren't closing
-        if (this._abortController && !this._abortController.signal.aborted) {
+        if (
+          isReconnectable && 
+          this._abortController && 
+          !this._abortController.signal.aborted
+        ) {
           // Use the exponential backoff reconnection strategy
-          if (lastEventId !== undefined) {
-            try {
-              this._scheduleReconnection({
-                resumptionToken: lastEventId,
-                onresumptiontoken,
-                replayMessageId
-              }, 0);
-            }
-            catch (error) {
-              this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
+          try {
+            this._scheduleReconnection({
+              resumptionToken: lastEventId,
+              onresumptiontoken,
+              replayMessageId
+            }, 0);
+          }
+          catch (error) {
+            this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
 
-            }
           }
         }
       }
@@ -358,7 +392,7 @@ export class StreamableHTTPClientTransport implements Transport {
       throw new UnauthorizedError("No auth provider");
     }
 
-    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl });
+    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
     if (result !== "AUTHORIZED") {
       throw new UnauthorizedError("Failed to authorize");
     }
@@ -393,7 +427,7 @@ export class StreamableHTTPClientTransport implements Transport {
         signal: this._abortController?.signal,
       };
 
-      const response = await fetch(this._url, init);
+      const response = await (this._fetch ?? fetch)(this._url, init);
 
       // Handle session ID received during initialization
       const sessionId = response.headers.get("mcp-session-id");
@@ -406,7 +440,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
           this._resourceMetadataUrl = extractResourceMetadataUrl(response);
 
-          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl });
+          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
           if (result !== "AUTHORIZED") {
             throw new UnauthorizedError();
           }
@@ -445,7 +479,7 @@ export class StreamableHTTPClientTransport implements Transport {
           // Handle SSE stream responses for requests
           // We use the same handler as standalone streams, which now supports
           // reconnection with the last event ID
-          this._handleSseStream(response.body, { onresumptiontoken });
+          this._handleSseStream(response.body, { onresumptiontoken }, false);
         } else if (contentType?.includes("application/json")) {
           // For non-streaming servers, we might get direct JSON responses
           const data = await response.json();
@@ -499,7 +533,7 @@ export class StreamableHTTPClientTransport implements Transport {
         signal: this._abortController?.signal,
       };
 
-      const response = await fetch(this._url, init);
+      const response = await (this._fetch ?? fetch)(this._url, init);
 
       // We specifically handle 405 as a valid response according to the spec,
       // meaning the server does not support explicit session termination
@@ -515,5 +549,12 @@ export class StreamableHTTPClientTransport implements Transport {
       this.onerror?.(error as Error);
       throw error;
     }
+  }
+
+  setProtocolVersion(version: string): void {
+    this._protocolVersion = version;
+  }
+  get protocolVersion(): string | undefined {
+    return this._protocolVersion;
   }
 }

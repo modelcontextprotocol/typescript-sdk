@@ -22,6 +22,8 @@ import {
   Result,
   ServerCapabilities,
   RequestMeta,
+  MessageExtraInfo,
+  RequestInfo,
 } from "../types.js";
 import { Transport, TransportSendOptions } from "./transport.js";
 import { AuthInfo } from "../server/auth/types.js";
@@ -43,6 +45,13 @@ export type ProtocolOptions = {
    * Currently this defaults to false, for backwards compatibility with SDK versions that did not advertise capabilities correctly. In future, this will default to true.
    */
   enforceStrictCapabilities?: boolean;
+  /**
+   * An array of notification method names that should be automatically debounced.
+   * Any notifications with a method in this list will be coalesced if they
+   * occur in the same tick of the event loop.
+   * e.g., ['notifications/tools/list_changed']
+   */
+  debouncedNotificationMethods?: string[];
 };
 
 /**
@@ -128,6 +137,11 @@ export type RequestHandlerExtra<SendRequestT extends Request,
     requestId: RequestId;
 
     /**
+     * The original HTTP request.
+     */
+    requestInfo?: RequestInfo;
+
+    /**
      * Sends a notification that relates to the current request being handled.
      * 
      * This is used by certain transports to correctly associate related messages.
@@ -184,6 +198,7 @@ export abstract class Protocol<
   > = new Map();
   private _progressHandlers: Map<number, ProgressCallback> = new Map();
   private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
+  private _pendingDebouncedNotifications = new Set<string>();
 
   /**
    * Callback for when the connection is closed for any reason.
@@ -202,7 +217,10 @@ export abstract class Protocol<
   /**
    * A handler to invoke for any request types that do not have their own handler installed.
    */
-  fallbackRequestHandler?: (request: Request) => Promise<SendResultT>;
+  fallbackRequestHandler?: (
+    request: JSONRPCRequest,
+    extra: RequestHandlerExtra<SendRequestT, SendNotificationT>
+  ) => Promise<SendResultT>;
 
   /**
    * A handler to invoke for any notification types that do not have their own handler installed.
@@ -279,15 +297,21 @@ export abstract class Protocol<
    */
   async connect(transport: Transport): Promise<void> {
     this._transport = transport;
+    const _onclose = this.transport?.onclose;
     this._transport.onclose = () => {
+      _onclose?.();
       this._onclose();
     };
 
+    const _onerror = this.transport?.onerror;
     this._transport.onerror = (error: Error) => {
+      _onerror?.(error);
       this._onerror(error);
     };
 
+    const _onmessage = this._transport?.onmessage;
     this._transport.onmessage = (message, extra) => {
+      _onmessage?.(message, extra);
       if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
         this._onresponse(message);
       } else if (isJSONRPCRequest(message)) {
@@ -295,7 +319,9 @@ export abstract class Protocol<
       } else if (isJSONRPCNotification(message)) {
         this._onnotification(message);
       } else {
-        this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
+        this._onerror(
+          new Error(`Unknown message type: ${JSON.stringify(message)}`),
+        );
       }
     };
 
@@ -306,6 +332,7 @@ export abstract class Protocol<
     const responseHandlers = this._responseHandlers;
     this._responseHandlers = new Map();
     this._progressHandlers.clear();
+    this._pendingDebouncedNotifications.clear();
     this._transport = undefined;
     this.onclose?.();
 
@@ -339,12 +366,15 @@ export abstract class Protocol<
       );
   }
 
-  private _onrequest(request: JSONRPCRequest, extra?: { authInfo?: AuthInfo }): void {
+  private _onrequest(request: JSONRPCRequest, extra?: MessageExtraInfo): void {
     const handler =
       this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
 
+    // Capture the current transport at request time to ensure responses go to the correct client
+    const capturedTransport = this._transport;
+
     if (handler === undefined) {
-      this._transport
+      capturedTransport
         ?.send({
           jsonrpc: "2.0",
           id: request.id,
@@ -366,7 +396,7 @@ export abstract class Protocol<
 
     const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
       signal: abortController.signal,
-      sessionId: this._transport?.sessionId,
+      sessionId: capturedTransport?.sessionId,
       _meta: request.params?._meta,
       sendNotification:
         (notification) =>
@@ -375,6 +405,7 @@ export abstract class Protocol<
         this.request(r, resultSchema, { ...options, relatedRequestId: request.id }),
       authInfo: extra?.authInfo,
       requestId: request.id,
+      requestInfo: extra?.requestInfo
     };
 
     // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
@@ -386,7 +417,7 @@ export abstract class Protocol<
             return;
           }
 
-          return this._transport?.send({
+          return capturedTransport?.send({
             result,
             jsonrpc: "2.0",
             id: request.id,
@@ -397,7 +428,7 @@ export abstract class Protocol<
             return;
           }
 
-          return this._transport?.send({
+          return capturedTransport?.send({
             jsonrpc: "2.0",
             id: request.id,
             error: {
@@ -615,6 +646,46 @@ export abstract class Protocol<
     }
 
     this.assertNotificationCapability(notification.method);
+
+    const debouncedMethods = this._options?.debouncedNotificationMethods ?? [];
+    // A notification can only be debounced if it's in the list AND it's "simple"
+    // (i.e., has no parameters and no related request ID that could be lost).
+    const canDebounce = debouncedMethods.includes(notification.method)
+      && !notification.params
+      && !(options?.relatedRequestId);
+
+    if (canDebounce) {
+      // If a notification of this type is already scheduled, do nothing.
+      if (this._pendingDebouncedNotifications.has(notification.method)) {
+        return;
+      }
+
+      // Mark this notification type as pending.
+      this._pendingDebouncedNotifications.add(notification.method);
+
+      // Schedule the actual send to happen in the next microtask.
+      // This allows all synchronous calls in the current event loop tick to be coalesced.
+      Promise.resolve().then(() => {
+        // Un-mark the notification so the next one can be scheduled.
+        this._pendingDebouncedNotifications.delete(notification.method);
+
+        // SAFETY CHECK: If the connection was closed while this was pending, abort.
+        if (!this._transport) {
+          return;
+        }
+
+        const jsonrpcNotification: JSONRPCNotification = {
+          ...notification,
+          jsonrpc: "2.0",
+        };
+        // Send the notification, but don't await it here to avoid blocking.
+        // Handle potential errors with a .catch().
+        this._transport?.send(jsonrpcNotification, options).catch(error => this._onerror(error));
+      });
+
+      // Return immediately.
+      return;
+    }
 
     const jsonrpcNotification: JSONRPCNotification = {
       ...notification,
