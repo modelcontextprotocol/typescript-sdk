@@ -1110,6 +1110,31 @@ server.registerTool("tool3", ...).disable();
 // Only one 'notifications/tools/list_changed' is sent.
 ```
 
+### Parameter Validation and Error Handling
+
+Control how tools handle parameter validation errors and unexpected inputs:
+
+```typescript
+// Strict validation for development - catches typos immediately  
+const devTool = server.registerTool("dev-tool", {
+  inputSchema: { userName: z.string(), itemCount: z.number() },
+  strict: true  // Reject { username: "test", itemcount: 42 }
+}, handler);
+
+// Lenient validation for production - handles client variations gracefully
+const prodTool = server.registerTool("prod-tool", {
+  inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() },
+  strict: false  // Accept extra parameters (default behavior)  
+}, handler);
+```
+
+**When to use strict validation:**
+- Development and testing: Catch parameter name typos early
+- Production APIs: Ensure clients send only expected parameters  
+- Security-sensitive tools: Prevent injection of unexpected data
+
+**Note:** The `strict` parameter is only available in `registerTool()`. The legacy `tool()` method uses lenient validation for backward compatibility.
+
 ### Low-Level Server
 
 For more control, you can use the low-level Server class directly:
