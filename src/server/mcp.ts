@@ -48,6 +48,24 @@ import { RequestHandlerExtra } from "../shared/protocol.js";
 import { Transport } from "../shared/transport.js";
 
 /**
+ * Simple interface for tool registration that avoids TypeScript "Type instantiation is excessively deep" 
+ * errors when registering large numbers of tools with complex schemas.
+ * 
+ * Uses unknown types to prevent TypeScript from attempting deep type inference on complex schemas.
+ */
+export interface ToolRegistration {
+  name: string;
+  config: {
+    title?: string;
+    description?: string;
+    inputSchema?: unknown;
+    outputSchema?: unknown;
+    annotations?: ToolAnnotations;
+  };
+  callback: (args: unknown, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
+}
+
+/**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * Server instance available via the `server` property.
@@ -671,12 +689,12 @@ export class McpServer {
    * This is more efficient than calling registerResource() multiple times,
    * especially when registering many resources, as it sends only one list_changed notification.
    */
-  registerResources<T extends Array<{
+  registerResources(resources: Array<{
     name: string;
     uriOrTemplate: string | ResourceTemplate;
     config: ResourceMetadata;
     callback: ReadResourceCallback | ReadResourceTemplateCallback;
-  }>>(resources: T): (RegisteredResource | RegisteredResourceTemplate)[] {
+  }>): (RegisteredResource | RegisteredResourceTemplate)[] {
     if (resources.length === 0) {
       return [];
     }
@@ -731,7 +749,7 @@ export class McpServer {
    * This is more efficient than calling registerPrompt() multiple times when registering many prompts,
    * especially when registering many prompts, as it sends only one list_changed notification.
    */
-  registerPrompts<T extends Array<{
+  registerPrompts(prompts: Array<{
     name: string;
     config: {
       title?: string;
@@ -739,7 +757,7 @@ export class McpServer {
       argsSchema?: PromptArgsRawShape;
     };
     callback: PromptCallback<PromptArgsRawShape | undefined>;
-  }>>(prompts: T): RegisteredPrompt[] {
+  }>): RegisteredPrompt[] {
     if (prompts.length === 0) {
       return [];
     }
@@ -1066,18 +1084,10 @@ export class McpServer {
    * Registers multiple tools at once with a single notification.
    * This is more efficient than calling registerTool() multiple times,
    * especially when registering many tools, as it sends only one list_changed notification.
+   * 
+   * Uses simplified types to avoid TypeScript compilation issues with large numbers of complex tools.
    */
-  registerTools<T extends Array<{
-    name: string;
-    config: {
-      title?: string;
-      description?: string;
-      inputSchema?: ZodRawShape;
-      outputSchema?: ZodRawShape;
-      annotations?: ToolAnnotations;
-    };
-    callback: ToolCallback<ZodRawShape | undefined>;
-  }>>(tools: T): RegisteredTool[] {
+  registerTools(tools: ToolRegistration[]): RegisteredTool[] {
     if (tools.length === 0) {
       return [];
     }
@@ -1099,8 +1109,8 @@ export class McpServer {
         name,
         title,
         description,
-        inputSchema,
-        outputSchema,
+        inputSchema as ZodRawShape | undefined,
+        outputSchema as ZodRawShape | undefined,
         annotations,
         callback as ToolCallback<ZodRawShape | undefined>
       );
