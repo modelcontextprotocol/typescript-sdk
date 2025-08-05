@@ -677,6 +677,10 @@ export class McpServer {
     config: ResourceMetadata;
     callback: ReadResourceCallback | ReadResourceTemplateCallback;
   }>>(resources: T): (RegisteredResource | RegisteredResourceTemplate)[] {
+    if (resources.length === 0) {
+      return [];
+    }
+    
     const results: (RegisteredResource | RegisteredResourceTemplate)[] = [];
 
     // First, validate that none of the resources are already registered
@@ -736,6 +740,10 @@ export class McpServer {
     };
     callback: PromptCallback<PromptArgsRawShape | undefined>;
   }>>(prompts: T): RegisteredPrompt[] {
+    if (prompts.length === 0) {
+      return [];
+    }
+    
     const results: RegisteredPrompt[] = [];
 
     // First, validate that none of the prompts are already registered
@@ -1070,6 +1078,10 @@ export class McpServer {
     };
     callback: ToolCallback<ZodRawShape | undefined>;
   }>>(tools: T): RegisteredTool[] {
+    if (tools.length === 0) {
+      return [];
+    }
+    
     const results: RegisteredTool[] = [];
 
     // First, validate that none of the tools are already registered

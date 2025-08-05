@@ -4625,6 +4625,36 @@ describe("elicitInput()", () => {
     });
   });
 
+  test("registerTools() should handle empty array gracefully", () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const result = mcpServer.registerTools([]);
+    expect(result).toEqual([]);
+  });
+
+  test("registerResources() should handle empty array gracefully", () => {
+    const mcpServer = new McpServer({
+      name: "test server", 
+      version: "1.0",
+    });
+
+    const result = mcpServer.registerResources([]);
+    expect(result).toEqual([]);
+  });
+
+  test("registerPrompts() should handle empty array gracefully", () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0", 
+    });
+
+    const result = mcpServer.registerPrompts([]);
+    expect(result).toEqual([]);
+  });
+
   test("registerPrompts() should register multiple prompts with single notification", async () => {
     const mcpServer = new McpServer({
       name: "test server",
