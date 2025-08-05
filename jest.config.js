@@ -1,10 +1,6 @@
-import { createDefaultEsmPreset } from "ts-jest";
-
-const defaultEsmPreset = createDefaultEsmPreset();
-
-/** @type {import('ts-jest').JestConfigWithTsJest} **/
+/** @type {import('jest').Config} **/
 export default {
-  ...defaultEsmPreset,
+  extensionsToTreatAsEsm: ['.ts'],
   moduleNameMapper: {
     "^(\\.{1,2}/.*)\\.js$": "$1",
     "^pkce-challenge$": "<rootDir>/src/__mocks__/pkce-challenge.ts"
@@ -13,4 +9,7 @@ export default {
     "/node_modules/(?!eventsource)/"
   ],
   testPathIgnorePatterns: ["/node_modules/", "/dist/"],
+    transform: {
+    '^.+\\.(t|j)sx?$': '@swc/jest',
+  },
 };
