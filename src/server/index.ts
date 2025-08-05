@@ -33,7 +33,7 @@ import {
   ServerResult,
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "../types.js";
-import Ajv from "ajv";
+import { Ajv } from 'ajv';
 
 export type ServerOptions = ProtocolOptions & {
   /**
@@ -85,6 +85,7 @@ export class Server<
   private _clientVersion?: Implementation;
   private _capabilities: ServerCapabilities;
   private _instructions?: string;
+  private _ajv: Ajv;
 
   /**
    * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
@@ -101,6 +102,7 @@ export class Server<
     super(options);
     this._capabilities = options?.capabilities ?? {};
     this._instructions = options?.instructions;
+    this._ajv = new Ajv({ code: { source: false } });
 
     this.setRequestHandler(InitializeRequestSchema, (request) =>
       this._oninitialize(request),
@@ -323,15 +325,13 @@ export class Server<
     // Validate the response content against the requested schema if action is "accept"
     if (result.action === "accept" && result.content) {
       try {
-        const ajv = new Ajv();
-        
-        const validate = ajv.compile(params.requestedSchema);
+        const validate = this._ajv.compile(params.requestedSchema);
         const isValid = validate(result.content);
         
         if (!isValid) {
           throw new McpError(
             ErrorCode.InvalidParams,
-            `Elicitation response content does not match requested schema: ${ajv.errorsText(validate.errors)}`,
+            `Elicitation response content does not match requested schema: ${this._ajv.errorsText(validate.errors)}`,
           );
         }
       } catch (error) {
