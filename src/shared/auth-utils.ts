@@ -1,5 +1,5 @@
 /**
- * Utilities for handling OAuth resource URIs.
+ * Utilities for handling OAuth resource URIs and security validation.
  */
 
 /**
@@ -52,3 +52,18 @@ export function resourceUrlFromServerUrl(url: URL | string ): URL {
 
    return requestedPath.startsWith(configuredPath);
  }
+
+ /**
+ * Validates that a URL uses a safe scheme for OAuth endpoints (http or https only).
+ * 
+ * This prevents XSS (Cross-Site Scripting) and RCE (Remote Code Execution) attacks 
+ * where malicious authorization servers could return endpoints with dangerous schemes 
+ * like javascript:, data:, file:, etc. that could lead to code execution when 
+ * processed by OAuth clients.
+ * 
+ * @param url - The URL to validate
+ * @returns true if the URL scheme is safe (http: or https:), false otherwise
+ */
+export function isValidOAuthScheme(url: URL): boolean {
+  return ['https:', 'http:'].includes(url.protocol);
+}

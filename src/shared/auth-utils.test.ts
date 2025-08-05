@@ -1,4 +1,4 @@
-import { resourceUrlFromServerUrl, checkResourceAllowed } from './auth-utils.js';
+import { resourceUrlFromServerUrl, checkResourceAllowed, isValidOAuthScheme } from './auth-utils.js';
 
 describe('auth-utils', () => {
   describe('resourceUrlFromServerUrl', () => {
@@ -56,6 +56,20 @@ describe('auth-utils', () => {
     it('should handle trailing slashes vs no trailing slashes', () => {
       expect(checkResourceAllowed({ requestedResource: 'https://example.com/mcp/', configuredResource: 'https://example.com/mcp' })).toBe(true);
       expect(checkResourceAllowed({ requestedResource: 'https://example.com/folder', configuredResource: 'https://example.com/folder/' })).toBe(false);
+    });
+  });
+
+  describe('isValidOAuthScheme', () => {
+    it('should accept http and https URLs', () => {
+      expect(isValidOAuthScheme(new URL('https://auth.example.com/oauth'))).toBe(true);
+      expect(isValidOAuthScheme(new URL('http://localhost:8080/token'))).toBe(true);
+    });
+
+    it('should reject dangerous schemes', () => {
+      expect(isValidOAuthScheme(new URL('javascript:alert("XSS")'))).toBe(false);
+      expect(isValidOAuthScheme(new URL('data:text/html,<script>alert("XSS")</script>'))).toBe(false);
+      expect(isValidOAuthScheme(new URL('file:///etc/passwd'))).toBe(false);
+      expect(isValidOAuthScheme(new URL('ftp://malicious.com/file'))).toBe(false);
     });
   });
 });

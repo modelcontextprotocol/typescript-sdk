@@ -12,7 +12,7 @@ import {
   OpenIdProviderDiscoveryMetadataSchema
 } from "../shared/auth.js";
 import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthProtectedResourceMetadataSchema, OAuthTokensSchema } from "../shared/auth.js";
-import { checkResourceAllowed, resourceUrlFromServerUrl } from "../shared/auth-utils.js";
+import { checkResourceAllowed, resourceUrlFromServerUrl, isValidOAuthScheme } from "../shared/auth-utils.js";
 import {
   InvalidClientError,
   InvalidGrantError,
@@ -820,6 +820,9 @@ export async function startAuthorization(
   let authorizationUrl: URL;
   if (metadata) {
     authorizationUrl = new URL(metadata.authorization_endpoint);
+    if (!isValidOAuthScheme(authorizationUrl)) {
+      throw new Error(`Invalid authorization_endpoint URL scheme: ${authorizationUrl.protocol}. Only http: and https: are allowed.`);
+    }
 
     if (!metadata.response_types_supported.includes(responseType)) {
       throw new Error(
@@ -911,9 +914,15 @@ export async function exchangeAuthorization(
 ): Promise<OAuthTokens> {
   const grantType = "authorization_code";
 
-  const tokenUrl = metadata?.token_endpoint
-      ? new URL(metadata.token_endpoint)
-      : new URL("/token", authorizationServerUrl);
+  let tokenUrl: URL;
+  if (metadata?.token_endpoint) {
+    tokenUrl = new URL(metadata.token_endpoint);
+    if (!isValidOAuthScheme(tokenUrl)) {
+      throw new Error(`Invalid token_endpoint URL scheme: ${tokenUrl.protocol}. Only http: and https: are allowed.`);
+    }
+  } else {
+    tokenUrl = new URL("/token", authorizationServerUrl);
+  }
 
   if (
       metadata?.grant_types_supported &&
@@ -998,6 +1007,9 @@ export async function refreshAuthorization(
   let tokenUrl: URL;
   if (metadata) {
     tokenUrl = new URL(metadata.token_endpoint);
+    if (!isValidOAuthScheme(tokenUrl)) {
+      throw new Error(`Invalid token_endpoint URL scheme: ${tokenUrl.protocol}. Only http: and https: are allowed.`);
+    }
 
     if (
       metadata.grant_types_supported &&
@@ -1069,6 +1081,9 @@ export async function registerClient(
     }
 
     registrationUrl = new URL(metadata.registration_endpoint);
+    if (!isValidOAuthScheme(registrationUrl)) {
+      throw new Error(`Invalid registration_endpoint URL scheme: ${registrationUrl.protocol}. Only http: and https: are allowed.`);
+    }
   } else {
     registrationUrl = new URL("/register", authorizationServerUrl);
   }
