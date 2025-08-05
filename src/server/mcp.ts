@@ -1096,7 +1096,7 @@ export class ResourceTemplate {
     uriTemplate: string | UriTemplate,
     private _callbacks: {
       /**
-       * A callback to list all resources matching this template. This is required to specified, even if `undefined`, to avoid accidentally forgetting resource listing.
+       * A callback to list all resources matching this template. This is required to be specified, even if `undefined`, to avoid accidentally forgetting resource listing.
        */
       list: ListResourcesCallback | undefined;
 
