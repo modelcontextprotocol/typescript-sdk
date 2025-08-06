@@ -83,7 +83,7 @@ export type RequestOptions = {
   /**
    * If true, receiving a progress notification will reset the request timeout.
    * This is useful for long-running operations that send periodic progress updates.
-   * Default: false
+   * Default: true
    */
   resetTimeoutOnProgress?: boolean;
 
@@ -628,7 +628,7 @@ export abstract class Protocol<
         { timeout }
       ));
 
-      this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
+      this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? true);
 
       this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch((error) => {
         this._cleanupTimeout(messageId);

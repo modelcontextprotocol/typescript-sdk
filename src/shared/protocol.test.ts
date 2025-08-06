@@ -82,6 +82,13 @@ describe("protocol tests", () => {
   });
 
   describe("_meta preservation with onprogress", () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
     test("should preserve existing _meta when adding progressToken", async () => {
       await protocol.connect(transport);
       const request = { 
@@ -101,6 +108,8 @@ describe("protocol tests", () => {
       
       protocol.request(request, mockSchema, {
         onprogress: onProgressMock,
+        resetTimeoutOnProgress: false,
+        
       });
       
       expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -133,6 +142,8 @@ describe("protocol tests", () => {
       
       protocol.request(request, mockSchema, {
         onprogress: onProgressMock,
+        resetTimeoutOnProgress: false,
+        
       });
       
       expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -163,7 +174,10 @@ describe("protocol tests", () => {
         result: z.string(),
       });
       
-      protocol.request(request, mockSchema);
+      protocol.request(request, mockSchema, {
+        resetTimeoutOnProgress: false,
+        
+      });
       
       expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({
         method: "example",
@@ -190,6 +204,8 @@ describe("protocol tests", () => {
       
       protocol.request(request, mockSchema, {
         onprogress: onProgressMock,
+        resetTimeoutOnProgress: false,
+        
       });
       
       expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({
