@@ -2,6 +2,7 @@ import { Transport, FetchLike } from "../shared/transport.js";
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { EventSourceParserStream } from "eventsource-parser/stream";
+import { normalizeHeaders } from "../shared/headers.js";
 
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
@@ -185,7 +186,7 @@ export class StreamableHTTPClientTransport implements Transport {
       headers["mcp-protocol-version"] = this._protocolVersion;
     }
 
-    const extraHeaders = this._normalizeHeaders(this._requestInit?.headers);
+    const extraHeaders = normalizeHeaders(this._requestInit?.headers);
 
     return new Headers({
       ...headers,
@@ -254,20 +255,6 @@ export class StreamableHTTPClientTransport implements Transport {
     // Cap at maximum delay
     return Math.min(initialDelay * Math.pow(growFactor, attempt), maxDelay);
 
-  }
-
-    private _normalizeHeaders(headers: HeadersInit | undefined): Record<string, string> {
-    if (!headers) return {};
-
-    if (headers instanceof Headers) {
-      return Object.fromEntries(headers.entries());
-    }
-
-    if (Array.isArray(headers)) {
-      return Object.fromEntries(headers);
-    }
-
-    return { ...headers as Record<string, string> };
   }
 
   /**
