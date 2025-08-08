@@ -12,7 +12,7 @@ import {
   OpenIdProviderDiscoveryMetadataSchema
 } from "../shared/auth.js";
 import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthProtectedResourceMetadataSchema, OAuthTokensSchema } from "../shared/auth.js";
-import { checkResourceAllowed, resourceUrlFromServerUrl } from "../shared/auth-utils.js";
+import { checkResourceAllowed, resourceUrlFromServerUrl, isAuthorizationEndpointSafe } from "../shared/auth-utils.js";
 import {
   InvalidClientError,
   InvalidGrantError,
@@ -774,10 +774,19 @@ export async function discoverAuthorizationServerMetadata(
     }
 
     // Parse and validate based on type
+    const responseData = await response.json();
+    
     if (type === 'oauth') {
-      return OAuthMetadataSchema.parse(await response.json());
+      const metadata = OAuthMetadataSchema.parse(responseData);
+      if (!isAuthorizationEndpointSafe(metadata)) {
+        throw new Error(`Invalid OAuth metadata from ${endpointUrl}: authorization_endpoint uses javascript: scheme which is not allowed for security reasons.`);
+      }
+      return metadata;
     } else {
-      const metadata = OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
+      const metadata = OpenIdProviderDiscoveryMetadataSchema.parse(responseData);
+      if (!isAuthorizationEndpointSafe(metadata)) {
+        throw new Error(`Invalid OIDC metadata from ${endpointUrl}: authorization_endpoint uses javascript: scheme which is not allowed for security reasons.`);
+      }
 
       // MCP spec requires OIDC providers to support S256 PKCE
       if (!metadata.code_challenge_methods_supported?.includes('S256')) {

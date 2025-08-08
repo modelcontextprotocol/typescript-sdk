@@ -1,5 +1,5 @@
 /**
- * Utilities for handling OAuth resource URIs.
+ * Utilities for handling OAuth resource URIs and security validation.
  */
 
 /**
@@ -52,3 +52,22 @@ export function resourceUrlFromServerUrl(url: URL | string ): URL {
 
    return requestedPath.startsWith(configuredPath);
  }
+
+ /**
+ * Validates OAuth authorization endpoint to prevent JavaScript URL injection attacks.
+ * 
+ * Checks that the authorization_endpoint doesn't use the javascript: scheme, 
+ * which could lead to code execution when the client redirects users to it.
+ * 
+ * @param metadata - The OAuth authorization server metadata to validate
+ * @returns true if authorization endpoint is safe (no javascript: scheme), false otherwise
+ */
+export function isAuthorizationEndpointSafe(metadata: { authorization_endpoint: string }): boolean {
+  try {
+    const url = new URL(metadata.authorization_endpoint);
+    return url.protocol !== 'javascript:';
+  } catch {
+    // Invalid URL format - let other validation handle this
+    return true;
+  }
+}

