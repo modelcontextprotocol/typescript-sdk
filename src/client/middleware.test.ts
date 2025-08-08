@@ -3,9 +3,9 @@ import {
   withLogging,
   applyMiddleware,
   createMiddleware,
-} from "./fetchWrapper.js";
-import { OAuthClientProvider } from "../client/auth.js";
-import { FetchLike } from "./transport.js";
+} from "./middleware.js";
+import { OAuthClientProvider } from "./auth.js";
+import { FetchLike } from "../shared/transport.js";
 
 jest.mock("../client/auth.js", () => {
   const actual = jest.requireActual("../client/auth.js");
@@ -16,7 +16,7 @@ jest.mock("../client/auth.js", () => {
   };
 });
 
-import { auth, extractResourceMetadataUrl } from "../client/auth.js";
+import { auth, extractResourceMetadataUrl } from "./auth.js";
 
 const mockAuth = auth as jest.MockedFunction<typeof auth>;
 const mockExtractResourceMetadataUrl =
@@ -1091,6 +1091,8 @@ describe("createMiddleware", () => {
 
     // Test normal route
     mockFetch.mockResolvedValue(new Response("fresh data", { status: 200 }));
+    const normalResponse = await enhancedFetch("https://example.com/normal/data");
+    expect(await normalResponse.text()).toBe("fresh data");
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 

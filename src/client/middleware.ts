@@ -3,19 +3,24 @@ import {
   extractResourceMetadataUrl,
   OAuthClientProvider,
   UnauthorizedError,
-} from "../client/auth.js";
-import { FetchLike } from "./transport.js";
+} from "./auth.js";
+import { FetchLike } from "../shared/transport.js";
 
 /**
  * Middleware function that wraps and enhances fetch functionality.
  * Takes a fetch handler and returns an enhanced fetch handler.
  */
-export type FetchMiddleware = (next: FetchLike) => FetchLike;
+export type Middleware = (next: FetchLike) => FetchLike;
 
 /**
- * @deprecated Use FetchMiddleware instead
+ * @deprecated Use Middleware instead
  */
-export type FetchWrapper = FetchMiddleware;
+export type FetchWrapper = Middleware;
+
+/**
+ * @deprecated Use Middleware instead
+ */
+export type FetchMiddleware = Middleware;
 
 /**
  * Creates a fetch wrapper that handles OAuth authentication automatically.
@@ -44,7 +49,7 @@ export type FetchWrapper = FetchMiddleware;
  * @returns A fetch middleware function
  */
 export const withOAuth =
-  (provider: OAuthClientProvider, baseUrl?: string | URL): FetchMiddleware =>
+  (provider: OAuthClientProvider, baseUrl?: string | URL): Middleware =>
   (next) => {
     return async (input, init) => {
       const makeRequest = async (): Promise<Response> => {
@@ -167,7 +172,7 @@ export type LoggingOptions = {
  * @param options - Logging configuration options
  * @returns A fetch middleware function
  */
-export const withLogging = (options: LoggingOptions = {}): FetchMiddleware => {
+export const withLogging = (options: LoggingOptions = {}): Middleware => {
   const {
     logger,
     includeRequestHeaders = false,
@@ -282,8 +287,8 @@ export const withLogging = (options: LoggingOptions = {}): FetchMiddleware => {
  * @returns A single composed middleware function
  */
 export const applyMiddleware = (
-  ...middleware: FetchMiddleware[]
-): FetchMiddleware => {
+  ...middleware: Middleware[]
+): Middleware => {
   return (next) => {
     return middleware.reduce((handler, mw) => mw(handler), next);
   };
@@ -353,6 +358,6 @@ export const createMiddleware = (
     input: string | URL,
     init?: RequestInit,
   ) => Promise<Response>,
-): FetchMiddleware => {
+): Middleware => {
   return (next) => (input, init) => handler(next, input as string | URL, init);
 };
