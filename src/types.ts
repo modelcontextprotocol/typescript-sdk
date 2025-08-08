@@ -1212,8 +1212,10 @@ export const EnumSchemaSchema = z
     type: z.literal("string"),
     title: z.optional(z.string()),
     description: z.optional(z.string()),
-    enum: z.array(z.string()),
-    enumNames: z.optional(z.array(z.string())),
+    oneOf: z.array(z.object({
+      const: z.string(),
+      title: z.string()
+    })),
   })
   .passthrough();
 
