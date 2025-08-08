@@ -21,12 +21,16 @@ import {
   Implementation,
   InitializeResultSchema,
   LATEST_PROTOCOL_VERSION,
+  ListGroupsRequest,
+  ListGroupsResultSchema,
   ListPromptsRequest,
   ListPromptsResultSchema,
   ListResourcesRequest,
   ListResourcesResultSchema,
   ListResourceTemplatesRequest,
   ListResourceTemplatesResultSchema,
+  ListTagsRequest,
+  ListTagsResultSchema,
   ListToolsRequest,
   ListToolsResultSchema,
   LoggingLevel,
@@ -501,8 +505,13 @@ export class Client<
     params?: ListToolsRequest["params"],
     options?: RequestOptions,
   ) {
+    const request: ListToolsRequest = {
+      method: "tools/list",
+      params: params || {},
+    };
+
     const result = await this.request(
-      { method: "tools/list", params },
+      request,
       ListToolsResultSchema,
       options,
     );
@@ -511,6 +520,32 @@ export class Client<
     this.cacheToolOutputSchemas(result.tools);
 
     return result;
+  }
+
+  async listGroups(
+    params?: ListGroupsRequest["params"],
+    options?: RequestOptions,
+  ) {
+    this.assertCapabilityForMethod("groups/list");
+    // Use type assertion with unknown as intermediate step
+    return this.request(
+      { method: "groups/list", params: params || {} } as unknown as ClientRequest,
+      ListGroupsResultSchema,
+      options,
+    );
+  }
+
+  async listTags(
+    params?: ListTagsRequest["params"],
+    options?: RequestOptions,
+  ) {
+    this.assertCapabilityForMethod("tags/list");
+    // Use type assertion with unknown as intermediate step
+    return this.request(
+      { method: "tags/list", params: params || {} } as unknown as ClientRequest,
+      ListTagsResultSchema,
+      options,
+    );
   }
 
   async sendRootsListChanged() {

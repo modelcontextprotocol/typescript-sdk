@@ -340,6 +340,41 @@ export const ServerCapabilitiesSchema = z
         })
         .passthrough(),
     ),
+    /**
+     * Present if the server supports filtering tools, groups, and tags.
+     */
+    filtering: z.optional(
+      z
+        .object({
+          /**
+           * Group filtering capabilities
+           */
+          groups: z.optional(
+            z
+              .object({
+                /**
+                 * Whether this server supports issuing notifications for changes to the groups list.
+                 */
+                listChanged: z.optional(z.boolean()),
+              })
+              .passthrough(),
+          ),
+          /**
+           * Tag filtering capabilities
+           */
+          tags: z.optional(
+            z
+              .object({
+                /**
+                 * Whether this server supports issuing notifications for changes to the tags list.
+                 */
+                listChanged: z.optional(z.boolean()),
+              })
+              .passthrough(),
+          ),
+        })
+        .passthrough(),
+    ),
   })
   .passthrough();
 
@@ -840,6 +875,43 @@ export const PromptListChangedNotificationSchema = NotificationSchema.extend({
 
 /* Tools */
 /**
+ * Definition for a group that contains tools.
+ */
+export const GroupSchema = BaseMetadataSchema.extend({
+  /**
+   * A human-readable description of the group.
+   */
+  description: z.string(),
+
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
+  _meta: z.optional(z.object({}).passthrough()),
+});
+
+/**
+ * Definition for a tag that can be attached to tools.
+ */
+export const TagSchema = z.object({
+  /**
+   * The name of the tag.
+   */
+  name: z.string(),
+
+  /**
+   * A human-readable description of the tag.
+   */
+  description: z.string(),
+
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
+  _meta: z.optional(z.object({}).passthrough()),
+});
+
+/**
  * Additional properties describing a Tool to clients.
  *
  * NOTE: all properties in ToolAnnotations are **hints**.
@@ -931,6 +1003,16 @@ export const ToolSchema = BaseMetadataSchema.extend({
   annotations: z.optional(ToolAnnotationsSchema),
 
   /**
+   * Groups this tool belongs to.
+   */
+  groups: z.optional(z.array(z.string())),
+
+  /**
+   * Tags attached to this tool.
+   */
+  tags: z.optional(z.array(z.string())),
+
+  /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
@@ -938,10 +1020,37 @@ export const ToolSchema = BaseMetadataSchema.extend({
 });
 
 /**
+ * Filter parameters for tools/list request.
+ */
+export const ToolsFilterSchema = z.object({
+  /**
+   * Only return tools belonging to ANY of these named groups.
+   */
+  groups: z.optional(z.array(z.string())),
+
+  /**
+   * Of the tools in the specified groups (or of all tools, if no groups were specified),
+   * only return tools tagged with ALL of these tags.
+   */
+  tags: z.optional(z.array(z.string())),
+}).optional();
+
+/**
  * Sent from the client to request a list of tools the server has.
  */
 export const ListToolsRequestSchema = PaginatedRequestSchema.extend({
   method: z.literal("tools/list"),
+  params: z.optional(BaseRequestParamsSchema.extend({
+    /**
+     * An opaque token representing the current pagination position.
+     * If provided, the server should return results starting after this cursor.
+     */
+    cursor: z.optional(CursorSchema),
+    /**
+     * Optional filter to narrow down the list of tools returned.
+     */
+    filter: ToolsFilterSchema,
+  })),
 });
 
 /**
@@ -1012,6 +1121,50 @@ export const CallToolRequestSchema = RequestSchema.extend({
  */
 export const ToolListChangedNotificationSchema = NotificationSchema.extend({
   method: z.literal("notifications/tools/list_changed"),
+});
+
+/**
+ * Sent from the client to request a list of groups the server has.
+ */
+export const ListGroupsRequestSchema = RequestSchema.extend({
+  method: z.literal("groups/list"),
+  params: z.optional(BaseRequestParamsSchema.extend({})),
+});
+
+/**
+ * The server's response to a groups/list request from the client.
+ */
+export const ListGroupsResultSchema = ResultSchema.extend({
+  groups: z.array(GroupSchema),
+});
+
+/**
+ * Sent from the client to request a list of tags the server has.
+ */
+export const ListTagsRequestSchema = RequestSchema.extend({
+  method: z.literal("tags/list"),
+  params: z.optional(BaseRequestParamsSchema.extend({})),
+});
+
+/**
+ * The server's response to a tags/list request from the client.
+ */
+export const ListTagsResultSchema = ResultSchema.extend({
+  tags: z.array(TagSchema),
+});
+
+/**
+ * An optional notification from the server to the client, informing it that the list of groups it offers has changed.
+ */
+export const GroupListChangedNotificationSchema = NotificationSchema.extend({
+  method: z.literal("notifications/groups/list_changed"),
+});
+
+/**
+ * An optional notification from the server to the client, informing it that the list of tags it offers has changed.
+ */
+export const TagListChangedNotificationSchema = NotificationSchema.extend({
+  method: z.literal("notifications/tags/list_changed"),
 });
 
 /* Logging */
@@ -1590,14 +1743,23 @@ export type GetPromptResult = Infer<typeof GetPromptResultSchema>;
 export type PromptListChangedNotification = Infer<typeof PromptListChangedNotificationSchema>;
 
 /* Tools */
+export type Group = Infer<typeof GroupSchema>;
+export type Tag = Infer<typeof TagSchema>;
 export type ToolAnnotations = Infer<typeof ToolAnnotationsSchema>;
 export type Tool = Infer<typeof ToolSchema>;
+export type ToolsFilter = Infer<typeof ToolsFilterSchema>;
 export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
 export type CallToolResult = Infer<typeof CallToolResultSchema>;
 export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
 export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
+export type ListGroupsRequest = Infer<typeof ListGroupsRequestSchema>;
+export type ListGroupsResult = Infer<typeof ListGroupsResultSchema>;
+export type ListTagsRequest = Infer<typeof ListTagsRequestSchema>;
+export type ListTagsResult = Infer<typeof ListTagsResultSchema>;
+export type GroupListChangedNotification = Infer<typeof GroupListChangedNotificationSchema>;
+export type TagListChangedNotification = Infer<typeof TagListChangedNotificationSchema>;
 
 /* Logging */
 export type LoggingLevel = Infer<typeof LoggingLevelSchema>;
