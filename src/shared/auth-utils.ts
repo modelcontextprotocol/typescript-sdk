@@ -7,10 +7,9 @@
  * RFC 8707 section 2 states that resource URIs "MUST NOT include a fragment component".
  * Keeps everything else unchanged (scheme, domain, port, path, query).
  */
-export function resourceUrlFromServerUrl(url: URL | string ): URL {
-  const resourceURL = typeof url === "string" ? new URL(url) : new URL(url.href);
-  resourceURL.hash = ''; // Remove fragment
-  return resourceURL;
+export function resourceUrlFromServerUrl(url: string ): string {
+  const hashIndex = url.indexOf('#');
+  return hashIndex >= 0 ? url.substring(0, hashIndex) : url;
 }
 
 /**
