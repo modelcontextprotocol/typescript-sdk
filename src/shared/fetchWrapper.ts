@@ -1,4 +1,9 @@
-import { auth, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "../client/auth.js";
+import {
+  auth,
+  extractResourceMetadataUrl,
+  OAuthClientProvider,
+  UnauthorizedError,
+} from "../client/auth.js";
 import { FetchLike } from "./transport.js";
 
 /**
@@ -38,10 +43,8 @@ export type FetchWrapper = FetchMiddleware;
  * @param baseUrl - Base URL for OAuth server discovery (defaults to request URL domain)
  * @returns A fetch middleware function
  */
-export const withOAuth = (
-  provider: OAuthClientProvider,
-  baseUrl?: string | URL
-): FetchMiddleware =>
+export const withOAuth =
+  (provider: OAuthClientProvider, baseUrl?: string | URL): FetchMiddleware =>
   (next) => {
     return async (input, init) => {
       const makeRequest = async (): Promise<Response> => {
@@ -50,7 +53,7 @@ export const withOAuth = (
         // Add authorization header if tokens are available
         const tokens = await provider.tokens();
         if (tokens) {
-          headers.set('Authorization', `Bearer ${tokens.access_token}`);
+          headers.set("Authorization", `Bearer ${tokens.access_token}`);
         }
 
         return await next(input, { ...init, headers });
@@ -64,20 +67,26 @@ export const withOAuth = (
           const resourceMetadataUrl = extractResourceMetadataUrl(response);
 
           // Use provided baseUrl or extract from request URL
-          const serverUrl = baseUrl || (typeof input === 'string' ? new URL(input).origin : input.origin);
+          const serverUrl =
+            baseUrl ||
+            (typeof input === "string" ? new URL(input).origin : input.origin);
 
           const result = await auth(provider, {
             serverUrl,
             resourceMetadataUrl,
-            fetchFn: next
+            fetchFn: next,
           });
 
           if (result === "REDIRECT") {
-            throw new UnauthorizedError("Authentication requires user authorization - redirect initiated");
+            throw new UnauthorizedError(
+              "Authentication requires user authorization - redirect initiated",
+            );
           }
 
           if (result !== "AUTHORIZED") {
-            throw new UnauthorizedError(`Authentication failed with result: ${result}`);
+            throw new UnauthorizedError(
+              `Authentication failed with result: ${result}`,
+            );
           }
 
           // Retry the request with fresh tokens
@@ -86,13 +95,15 @@ export const withOAuth = (
           if (error instanceof UnauthorizedError) {
             throw error;
           }
-          throw new UnauthorizedError(`Failed to re-authenticate: ${error instanceof Error ? error.message : String(error)}`);
+          throw new UnauthorizedError(
+            `Failed to re-authenticate: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
       }
 
       // If we still have a 401 after re-auth attempt, throw an error
       if (response.status === 401) {
-        const url = typeof input === 'string' ? input : input.toString();
+        const url = typeof input === "string" ? input : input.toString();
         throw new UnauthorizedError(`Authentication failed for ${url}`);
       }
 
@@ -103,18 +114,16 @@ export const withOAuth = (
 /**
  * Logger function type for HTTP requests
  */
-export type RequestLogger = (
-  input: {
-    method: string,
-    url: string | URL,
-    status: number,
-    statusText: string,
-    duration: number,
-    requestHeaders?: Headers,
-    responseHeaders?: Headers,
-    error?: Error
-  }
-) => void;
+export type RequestLogger = (input: {
+  method: string;
+  url: string | URL;
+  status: number;
+  statusText: string;
+  duration: number;
+  requestHeaders?: Headers;
+  responseHeaders?: Headers;
+  error?: Error;
+}) => void;
 
 /**
  * Configuration options for the logging middleware
@@ -163,11 +172,20 @@ export const withLogging = (options: LoggingOptions = {}): FetchMiddleware => {
     logger,
     includeRequestHeaders = false,
     includeResponseHeaders = false,
-    statusLevel = 0
+    statusLevel = 0,
   } = options;
 
   const defaultLogger: RequestLogger = (input) => {
-    const { method, url, status, statusText, duration, requestHeaders, responseHeaders, error } = input;
+    const {
+      method,
+      url,
+      status,
+      statusText,
+      duration,
+      requestHeaders,
+      responseHeaders,
+      error,
+    } = input;
 
     let message = error
       ? `HTTP ${method} ${url} failed: ${error.message} (${duration}ms)`
@@ -177,14 +195,14 @@ export const withLogging = (options: LoggingOptions = {}): FetchMiddleware => {
     if (includeRequestHeaders && requestHeaders) {
       const reqHeaders = Array.from(requestHeaders.entries())
         .map(([key, value]) => `${key}: ${value}`)
-        .join(', ');
+        .join(", ");
       message += `\n  Request Headers: {${reqHeaders}}`;
     }
 
     if (includeResponseHeaders && responseHeaders) {
       const resHeaders = Array.from(responseHeaders.entries())
         .map(([key, value]) => `${key}: ${value}`)
-        .join(', ');
+        .join(", ");
       message += `\n  Response Headers: {${resHeaders}}`;
     }
 
@@ -199,9 +217,11 @@ export const withLogging = (options: LoggingOptions = {}): FetchMiddleware => {
 
   return (next) => async (input, init) => {
     const startTime = performance.now();
-    const method = init?.method || 'GET';
-    const url = typeof input === 'string' ? input : input.toString();
-    const requestHeaders = includeRequestHeaders ? new Headers(init?.headers) : undefined;
+    const method = init?.method || "GET";
+    const url = typeof input === "string" ? input : input.toString();
+    const requestHeaders = includeRequestHeaders
+      ? new Headers(init?.headers)
+      : undefined;
 
     try {
       const response = await next(input, init);
@@ -216,7 +236,9 @@ export const withLogging = (options: LoggingOptions = {}): FetchMiddleware => {
           statusText: response.statusText,
           duration,
           requestHeaders,
-          responseHeaders: includeResponseHeaders ? response.headers : undefined
+          responseHeaders: includeResponseHeaders
+            ? response.headers
+            : undefined,
         });
       }
 
@@ -229,10 +251,10 @@ export const withLogging = (options: LoggingOptions = {}): FetchMiddleware => {
         method,
         url,
         status: 0,
-        statusText: 'Network Error',
+        statusText: "Network Error",
         duration,
         requestHeaders,
-        error: error as Error
+        error: error as Error,
       });
 
       throw error;
@@ -259,16 +281,13 @@ export const withLogging = (options: LoggingOptions = {}): FetchMiddleware => {
  * @param middleware - Array of fetch middleware to compose into a pipeline
  * @returns A single composed middleware function
  */
-export const applyMiddleware = (...middleware: FetchMiddleware[]): FetchMiddleware => {
+export const applyMiddleware = (
+  ...middleware: FetchMiddleware[]
+): FetchMiddleware => {
   return (next) => {
     return middleware.reduce((handler, mw) => mw(handler), next);
   };
 };
-
-/**
- * @deprecated Use applyMiddleware instead
- */
-export const withWrappers = applyMiddleware;
 
 /**
  * Helper function to create custom fetch middleware with cleaner syntax.
@@ -280,47 +299,47 @@ export const withWrappers = applyMiddleware;
  * const customAuthMiddleware = createMiddleware(async (next, input, init) => {
  *   const headers = new Headers(init?.headers);
  *   headers.set('X-Custom-Auth', 'my-token');
- *   
+ *
  *   const response = await next(input, { ...init, headers });
- *   
+ *
  *   if (response.status === 401) {
  *     console.log('Authentication failed');
  *   }
- *   
+ *
  *   return response;
  * });
- * 
+ *
  * // Create conditional middleware
  * const conditionalMiddleware = createMiddleware(async (next, input, init) => {
  *   const url = typeof input === 'string' ? input : input.toString();
- *   
+ *
  *   // Only add headers for API routes
  *   if (url.includes('/api/')) {
  *     const headers = new Headers(init?.headers);
  *     headers.set('X-API-Version', 'v2');
  *     return next(input, { ...init, headers });
  *   }
- *   
+ *
  *   // Pass through for non-API routes
  *   return next(input, init);
  * });
- * 
+ *
  * // Create caching middleware
  * const cacheMiddleware = createMiddleware(async (next, input, init) => {
  *   const cacheKey = typeof input === 'string' ? input : input.toString();
- *   
+ *
  *   // Check cache first
  *   const cached = await getFromCache(cacheKey);
  *   if (cached) {
  *     return new Response(cached, { status: 200 });
  *   }
- *   
+ *
  *   // Make request and cache result
  *   const response = await next(input, init);
  *   if (response.ok) {
  *     await saveToCache(cacheKey, await response.clone().text());
  *   }
- *   
+ *
  *   return response;
  * });
  * ```
@@ -329,7 +348,11 @@ export const withWrappers = applyMiddleware;
  * @returns A fetch middleware function
  */
 export const createMiddleware = (
-  handler: (next: FetchLike, input: string | URL, init?: RequestInit) => Promise<Response>
+  handler: (
+    next: FetchLike,
+    input: string | URL,
+    init?: RequestInit,
+  ) => Promise<Response>,
 ): FetchMiddleware => {
   return (next) => (input, init) => handler(next, input as string | URL, init);
 };
