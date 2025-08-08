@@ -1,4 +1,4 @@
-import { withOAuth, withLogging, withWrappers } from './fetchWrapper.js';
+import { withOAuth, withLogging, applyMiddleware, withWrappers } from './fetchWrapper.js';
 import { OAuthClientProvider } from '../client/auth.js';
 import { FetchLike } from './transport.js';
 
@@ -47,9 +47,9 @@ describe('withOAuth', () => {
 
     mockFetch.mockResolvedValue(new Response('success', { status: 200 }));
 
-    const wrappedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+    const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
 
-    await wrappedFetch('https://api.example.com/data');
+    await enhancedFetch('https://api.example.com/data');
 
     expect(mockFetch).toHaveBeenCalledWith(
       'https://api.example.com/data',
@@ -73,9 +73,9 @@ describe('withOAuth', () => {
     mockFetch.mockResolvedValue(new Response('success', { status: 200 }));
 
     // Test without baseUrl - should extract from request URL
-    const wrappedFetch = withOAuth(mockProvider)(mockFetch);
+    const enhancedFetch = withOAuth(mockProvider)(mockFetch);
 
-    await wrappedFetch('https://api.example.com/data');
+    await enhancedFetch('https://api.example.com/data');
 
     expect(mockFetch).toHaveBeenCalledWith(
       'https://api.example.com/data',
@@ -94,9 +94,9 @@ describe('withOAuth', () => {
     mockFetch.mockResolvedValue(new Response('success', { status: 200 }));
 
     // Test without baseUrl
-    const wrappedFetch = withOAuth(mockProvider)(mockFetch);
+    const enhancedFetch = withOAuth(mockProvider)(mockFetch);
 
-    await wrappedFetch('https://api.example.com/data');
+    await enhancedFetch('https://api.example.com/data');
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const callArgs = mockFetch.mock.calls[0];
@@ -131,9 +131,9 @@ describe('withOAuth', () => {
     mockExtractResourceMetadataUrl.mockReturnValue(mockResourceUrl);
     mockAuth.mockResolvedValue('AUTHORIZED');
 
-    const wrappedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+    const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
 
-    const result = await wrappedFetch('https://api.example.com/data');
+    const result = await enhancedFetch('https://api.example.com/data');
 
     expect(result).toBe(successResponse);
     expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -177,9 +177,9 @@ describe('withOAuth', () => {
     mockAuth.mockResolvedValue('AUTHORIZED');
 
     // Test without baseUrl - should extract from request URL
-    const wrappedFetch = withOAuth(mockProvider)(mockFetch);
+    const enhancedFetch = withOAuth(mockProvider)(mockFetch);
 
-    const result = await wrappedFetch('https://api.example.com/data');
+    const result = await enhancedFetch('https://api.example.com/data');
 
     expect(result).toBe(successResponse);
     expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -207,9 +207,9 @@ describe('withOAuth', () => {
     mockAuth.mockResolvedValue('REDIRECT');
 
     // Test without baseUrl
-    const wrappedFetch = withOAuth(mockProvider)(mockFetch);
+    const enhancedFetch = withOAuth(mockProvider)(mockFetch);
 
-    await expect(wrappedFetch('https://api.example.com/data')).rejects.toThrow(
+    await expect(enhancedFetch('https://api.example.com/data')).rejects.toThrow(
       'Authentication requires user authorization - redirect initiated'
     );
   });
@@ -225,9 +225,9 @@ describe('withOAuth', () => {
     mockExtractResourceMetadataUrl.mockReturnValue(undefined);
     mockAuth.mockRejectedValue(new Error('Network error'));
 
-    const wrappedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+    const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
 
-    await expect(wrappedFetch('https://api.example.com/data')).rejects.toThrow(
+    await expect(enhancedFetch('https://api.example.com/data')).rejects.toThrow(
       'Failed to re-authenticate: Network error'
     );
   });
@@ -244,9 +244,9 @@ describe('withOAuth', () => {
     mockExtractResourceMetadataUrl.mockReturnValue(undefined);
     mockAuth.mockResolvedValue('AUTHORIZED');
 
-    const wrappedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+    const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
 
-    await expect(wrappedFetch('https://api.example.com/data')).rejects.toThrow(
+    await expect(enhancedFetch('https://api.example.com/data')).rejects.toThrow(
       'Authentication failed for https://api.example.com/data'
     );
 
@@ -264,10 +264,10 @@ describe('withOAuth', () => {
 
     mockFetch.mockResolvedValue(new Response('success', { status: 200 }));
 
-    const wrappedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+    const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
 
     const requestBody = JSON.stringify({ data: 'test' });
-    await wrappedFetch('https://api.example.com/data', {
+    await enhancedFetch('https://api.example.com/data', {
       method: 'POST',
       body: requestBody,
       headers: { 'Content-Type': 'application/json' },
@@ -298,9 +298,9 @@ describe('withOAuth', () => {
     const serverErrorResponse = new Response('Server Error', { status: 500 });
     mockFetch.mockResolvedValue(serverErrorResponse);
 
-    const wrappedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+    const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
 
-    const result = await wrappedFetch('https://api.example.com/data');
+    const result = await enhancedFetch('https://api.example.com/data');
 
     expect(result).toBe(serverErrorResponse);
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -317,9 +317,9 @@ describe('withOAuth', () => {
     mockFetch.mockResolvedValue(new Response('success', { status: 200 }));
 
     // Test URL object without baseUrl - should extract origin from URL object
-    const wrappedFetch = withOAuth(mockProvider)(mockFetch);
+    const enhancedFetch = withOAuth(mockProvider)(mockFetch);
 
-    await wrappedFetch(new URL('https://api.example.com/data'));
+    await enhancedFetch(new URL('https://api.example.com/data'));
 
     expect(mockFetch).toHaveBeenCalledWith(
       expect.any(URL),
@@ -352,9 +352,9 @@ describe('withOAuth', () => {
     mockExtractResourceMetadataUrl.mockReturnValue(undefined);
     mockAuth.mockResolvedValue('AUTHORIZED');
 
-    const wrappedFetch = withOAuth(mockProvider)(mockFetch);
+    const enhancedFetch = withOAuth(mockProvider)(mockFetch);
 
-    const result = await wrappedFetch(new URL('https://api.example.com/data'));
+    const result = await enhancedFetch(new URL('https://api.example.com/data'));
 
     expect(result).toBe(successResponse);
     expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -400,9 +400,9 @@ describe('withLogging', () => {
     const response = new Response('success', { status: 200, statusText: 'OK' });
     mockFetch.mockResolvedValue(response);
 
-    const wrappedFetch = withLogging()(mockFetch);
+    const enhancedFetch = withLogging()(mockFetch);
 
-    await wrappedFetch('https://api.example.com/data');
+    await enhancedFetch('https://api.example.com/data');
 
     expect(consoleLogSpy).toHaveBeenCalledWith(
       expect.stringMatching(/HTTP GET https:\/\/api\.example\.com\/data 200 OK \(\d+\.\d+ms\)/)
@@ -413,9 +413,9 @@ describe('withLogging', () => {
     const response = new Response('Not Found', { status: 404, statusText: 'Not Found' });
     mockFetch.mockResolvedValue(response);
 
-    const wrappedFetch = withLogging()(mockFetch);
+    const enhancedFetch = withLogging()(mockFetch);
 
-    await wrappedFetch('https://api.example.com/data');
+    await enhancedFetch('https://api.example.com/data');
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringMatching(/HTTP GET https:\/\/api\.example\.com\/data 404 Not Found \(\d+\.\d+ms\)/)
@@ -426,9 +426,9 @@ describe('withLogging', () => {
     const networkError = new Error('Network connection failed');
     mockFetch.mockRejectedValue(networkError);
 
-    const wrappedFetch = withLogging()(mockFetch);
+    const enhancedFetch = withLogging()(mockFetch);
 
-    await expect(wrappedFetch('https://api.example.com/data')).rejects.toThrow('Network connection failed');
+    await expect(enhancedFetch('https://api.example.com/data')).rejects.toThrow('Network connection failed');
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringMatching(/HTTP GET https:\/\/api\.example\.com\/data failed: Network connection failed \(\d+\.\d+ms\)/)
@@ -439,9 +439,9 @@ describe('withLogging', () => {
     const response = new Response('success', { status: 200, statusText: 'OK' });
     mockFetch.mockResolvedValue(response);
 
-    const wrappedFetch = withLogging({ logger: mockLogger })(mockFetch);
+    const enhancedFetch = withLogging({ logger: mockLogger })(mockFetch);
 
-    await wrappedFetch('https://api.example.com/data', { method: 'POST' });
+    await enhancedFetch('https://api.example.com/data', { method: 'POST' });
 
     expect(mockLogger).toHaveBeenCalledWith({
       method: 'POST',
@@ -460,12 +460,12 @@ describe('withLogging', () => {
     const response = new Response('success', { status: 200, statusText: 'OK' });
     mockFetch.mockResolvedValue(response);
 
-    const wrappedFetch = withLogging({
+    const enhancedFetch = withLogging({
       logger: mockLogger,
       includeRequestHeaders: true
     })(mockFetch);
 
-    await wrappedFetch('https://api.example.com/data', {
+    await enhancedFetch('https://api.example.com/data', {
       headers: { 'Authorization': 'Bearer token', 'Content-Type': 'application/json' }
     });
 
@@ -492,12 +492,12 @@ describe('withLogging', () => {
     });
     mockFetch.mockResolvedValue(response);
 
-    const wrappedFetch = withLogging({
+    const enhancedFetch = withLogging({
       logger: mockLogger,
       includeResponseHeaders: true
     })(mockFetch);
 
-    await wrappedFetch('https://api.example.com/data');
+    await enhancedFetch('https://api.example.com/data');
 
     const logCall = mockLogger.mock.calls[0][0];
     expect(logCall.responseHeaders?.get('Content-Type')).toBe('application/json');
@@ -512,17 +512,17 @@ describe('withLogging', () => {
       .mockResolvedValueOnce(successResponse)
       .mockResolvedValueOnce(errorResponse);
 
-    const wrappedFetch = withLogging({
+    const enhancedFetch = withLogging({
       logger: mockLogger,
       statusLevel: 400
     })(mockFetch);
 
     // 200 response should not be logged (below statusLevel 400)
-    await wrappedFetch('https://api.example.com/success');
+    await enhancedFetch('https://api.example.com/success');
     expect(mockLogger).not.toHaveBeenCalled();
 
     // 500 response should be logged (above statusLevel 400)
-    await wrappedFetch('https://api.example.com/error');
+    await enhancedFetch('https://api.example.com/error');
     expect(mockLogger).toHaveBeenCalledWith({
       method: 'GET',
       url: 'https://api.example.com/error',
@@ -538,12 +538,12 @@ describe('withLogging', () => {
     const networkError = new Error('Connection timeout');
     mockFetch.mockRejectedValue(networkError);
 
-    const wrappedFetch = withLogging({
+    const enhancedFetch = withLogging({
       logger: mockLogger,
       statusLevel: 500  // Very high log level
     })(mockFetch);
 
-    await expect(wrappedFetch('https://api.example.com/data')).rejects.toThrow('Connection timeout');
+    await expect(enhancedFetch('https://api.example.com/data')).rejects.toThrow('Connection timeout');
 
     expect(mockLogger).toHaveBeenCalledWith({
       method: 'GET',
@@ -564,12 +564,12 @@ describe('withLogging', () => {
     });
     mockFetch.mockResolvedValue(response);
 
-    const wrappedFetch = withLogging({
+    const enhancedFetch = withLogging({
       includeRequestHeaders: true,
       includeResponseHeaders: true
     })(mockFetch);
 
-    await wrappedFetch('https://api.example.com/data', {
+    await enhancedFetch('https://api.example.com/data', {
       headers: { 'Authorization': 'Bearer token' }
     });
 
@@ -589,16 +589,16 @@ describe('withLogging', () => {
       return response;
     });
 
-    const wrappedFetch = withLogging({ logger: mockLogger })(mockFetch);
+    const enhancedFetch = withLogging({ logger: mockLogger })(mockFetch);
 
-    await wrappedFetch('https://api.example.com/data');
+    await enhancedFetch('https://api.example.com/data');
 
     const logCall = mockLogger.mock.calls[0][0];
     expect(logCall.duration).toBeGreaterThanOrEqual(90); // Allow some margin for timing
   });
 });
 
-describe('withWrappers', () => {
+describe('applyMiddleware', () => {
   let mockFetch: jest.MockedFunction<FetchLike>;
 
   beforeEach(() => {
@@ -606,27 +606,27 @@ describe('withWrappers', () => {
     mockFetch = jest.fn();
   });
 
-  it('should compose no wrappers correctly', () => {
+  it('should compose no middleware correctly', () => {
     const response = new Response('success', { status: 200 });
     mockFetch.mockResolvedValue(response);
 
-    const composedFetch = withWrappers()(mockFetch);
+    const composedFetch = applyMiddleware()(mockFetch);
 
     expect(composedFetch).toBe(mockFetch);
   });
 
-  it('should compose single wrapper correctly', async () => {
+  it('should compose single middleware correctly', async () => {
     const response = new Response('success', { status: 200 });
     mockFetch.mockResolvedValue(response);
 
-    // Create a wrapper that adds a header
-    const wrapper1 = (fetch: FetchLike) => async (input: string | URL, init?: RequestInit) => {
+    // Create a middleware that adds a header
+    const middleware1 = (next: FetchLike) => async (input: string | URL, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
-      headers.set('X-Wrapper-1', 'applied');
-      return fetch(input, { ...init, headers });
+      headers.set('X-Middleware-1', 'applied');
+      return next(input, { ...init, headers });
     };
 
-    const composedFetch = withWrappers(wrapper1)(mockFetch);
+    const composedFetch = applyMiddleware(middleware1)(mockFetch);
 
     await composedFetch('https://api.example.com/data');
 
@@ -639,58 +639,58 @@ describe('withWrappers', () => {
 
     const callArgs = mockFetch.mock.calls[0];
     const headers = callArgs[1]?.headers as Headers;
-    expect(headers.get('X-Wrapper-1')).toBe('applied');
+    expect(headers.get('X-Middleware-1')).toBe('applied');
   });
 
-  it('should compose multiple wrappers in order', async () => {
+  it('should compose multiple middleware in order', async () => {
     const response = new Response('success', { status: 200 });
     mockFetch.mockResolvedValue(response);
 
-    // Create wrappers that add identifying headers
-    const wrapper1 = (fetch: FetchLike) => async (input: string | URL, init?: RequestInit) => {
+    // Create middleware that add identifying headers
+    const middleware1 = (next: FetchLike) => async (input: string | URL, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
-      headers.set('X-Wrapper-1', 'applied');
-      return fetch(input, { ...init, headers });
+      headers.set('X-Middleware-1', 'applied');
+      return next(input, { ...init, headers });
     };
 
-    const wrapper2 = (fetch: FetchLike) => async (input: string | URL, init?: RequestInit) => {
+    const middleware2 = (next: FetchLike) => async (input: string | URL, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
-      headers.set('X-Wrapper-2', 'applied');
-      return fetch(input, { ...init, headers });
+      headers.set('X-Middleware-2', 'applied');
+      return next(input, { ...init, headers });
     };
 
-    const wrapper3 = (fetch: FetchLike) => async (input: string | URL, init?: RequestInit) => {
+    const middleware3 = (next: FetchLike) => async (input: string | URL, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
-      headers.set('X-Wrapper-3', 'applied');
-      return fetch(input, { ...init, headers });
+      headers.set('X-Middleware-3', 'applied');
+      return next(input, { ...init, headers });
     };
 
-    const composedFetch = withWrappers(wrapper1, wrapper2, wrapper3)(mockFetch);
+    const composedFetch = applyMiddleware(middleware1, middleware2, middleware3)(mockFetch);
 
     await composedFetch('https://api.example.com/data');
 
     const callArgs = mockFetch.mock.calls[0];
     const headers = callArgs[1]?.headers as Headers;
-    expect(headers.get('X-Wrapper-1')).toBe('applied');
-    expect(headers.get('X-Wrapper-2')).toBe('applied');
-    expect(headers.get('X-Wrapper-3')).toBe('applied');
+    expect(headers.get('X-Middleware-1')).toBe('applied');
+    expect(headers.get('X-Middleware-2')).toBe('applied');
+    expect(headers.get('X-Middleware-3')).toBe('applied');
   });
 
-    it('should work with real fetchWrapper functions', async () => {
+    it('should work with real fetch middleware functions', async () => {
     const response = new Response('success', { status: 200, statusText: 'OK' });
     mockFetch.mockResolvedValue(response);
 
-    // Create wrappers that add identifying headers
-    const oauthWrapper = (fetch: FetchLike) => async (input: string | URL, init?: RequestInit) => {
+    // Create middleware that add identifying headers
+    const oauthMiddleware = (next: FetchLike) => async (input: string | URL, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
       headers.set('Authorization', 'Bearer test-token');
-      return fetch(input, { ...init, headers });
+      return next(input, { ...init, headers });
     };
 
     // Use custom logger to avoid console output
     const mockLogger = jest.fn();
-    const composedFetch = withWrappers(
-      oauthWrapper,
+    const composedFetch = applyMiddleware(
+      oauthMiddleware,
       withLogging({ logger: mockLogger, statusLevel: 0 })
     )(mockFetch);
 
@@ -711,23 +711,23 @@ describe('withWrappers', () => {
     });
   });
 
-  it('should preserve error propagation through wrappers', async () => {
-    const errorWrapper = (fetch: FetchLike) => async (input: string | URL, init?: RequestInit) => {
+  it('should preserve error propagation through middleware', async () => {
+    const errorMiddleware = (next: FetchLike) => async (input: string | URL, init?: RequestInit) => {
       try {
-        return await fetch(input, init);
+        return await next(input, init);
       } catch (error) {
         // Add context to the error
-        throw new Error(`Wrapper error: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Middleware error: ${error instanceof Error ? error.message : String(error)}`);
       }
     };
 
     const originalError = new Error('Network failure');
     mockFetch.mockRejectedValue(originalError);
 
-    const composedFetch = withWrappers(errorWrapper)(mockFetch);
+    const composedFetch = applyMiddleware(errorMiddleware)(mockFetch);
 
     await expect(composedFetch('https://api.example.com/data')).rejects.toThrow(
-      'Wrapper error: Network failure'
+      'Middleware error: Network failure'
     );
   });
 });
@@ -755,7 +755,7 @@ describe('Integration Tests', () => {
   });
 
   it('should work with SSE transport pattern', async () => {
-    // Simulate how SSE transport might use the wrapper
+    // Simulate how SSE transport might use the middleware
     mockProvider.tokens.mockResolvedValue({
       access_token: 'sse-token',
       token_type: 'Bearer',
@@ -770,13 +770,13 @@ describe('Integration Tests', () => {
 
     // Use custom logger to avoid console output
     const mockLogger = jest.fn();
-    const wrappedFetch = withWrappers(
+    const enhancedFetch = applyMiddleware(
       withOAuth(mockProvider as OAuthClientProvider, 'https://mcp-server.example.com'),
       withLogging({ logger: mockLogger, statusLevel: 400 }) // Only log errors
     )(mockFetch);
 
     // Simulate SSE POST request
-    await wrappedFetch('https://mcp-server.example.com/endpoint', {
+    await enhancedFetch('https://mcp-server.example.com/endpoint', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -802,7 +802,7 @@ describe('Integration Tests', () => {
   });
 
   it('should work with StreamableHTTP transport pattern', async () => {
-    // Simulate how StreamableHTTP transport might use the wrapper
+    // Simulate how StreamableHTTP transport might use the middleware
     mockProvider.tokens.mockResolvedValue({
       access_token: 'streamable-token',
       token_type: 'Bearer',
@@ -817,7 +817,7 @@ describe('Integration Tests', () => {
 
     // Use custom logger to avoid console output
     const mockLogger = jest.fn();
-    const wrappedFetch = withWrappers(
+    const enhancedFetch = applyMiddleware(
       withOAuth(mockProvider as OAuthClientProvider, 'https://streamable-server.example.com'),
       withLogging({
         logger: mockLogger,
@@ -827,7 +827,7 @@ describe('Integration Tests', () => {
     )(mockFetch);
 
     // Simulate StreamableHTTP initialization request
-    await wrappedFetch('https://streamable-server.example.com/mcp', {
+    await enhancedFetch('https://streamable-server.example.com/mcp', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -879,12 +879,12 @@ describe('Integration Tests', () => {
 
     // Use custom logger to avoid console output
     const mockLogger = jest.fn();
-    const wrappedFetch = withWrappers(
+    const enhancedFetch = applyMiddleware(
       withOAuth(mockProvider as OAuthClientProvider, 'https://mcp-server.example.com'),
       withLogging({ logger: mockLogger, statusLevel: 0 })
     )(mockFetch);
 
-    const result = await wrappedFetch('https://mcp-server.example.com/endpoint', {
+    const result = await enhancedFetch('https://mcp-server.example.com/endpoint', {
       method: 'POST',
       body: JSON.stringify({ jsonrpc: '2.0', method: 'test', id: 1 })
     });

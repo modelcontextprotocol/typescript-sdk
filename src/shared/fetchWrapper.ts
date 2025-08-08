@@ -1,7 +1,16 @@
 import { auth, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "../client/auth.js";
 import { FetchLike } from "./transport.js";
 
-export type FetchWrapper = (fetch: FetchLike) => FetchLike;
+/**
+ * Middleware function that wraps and enhances fetch functionality.
+ * Takes a fetch handler and returns an enhanced fetch handler.
+ */
+export type FetchMiddleware = (next: FetchLike) => FetchLike;
+
+/**
+ * @deprecated Use FetchMiddleware instead
+ */
+export type FetchWrapper = FetchMiddleware;
 
 /**
  * Creates a fetch wrapper that handles OAuth authentication automatically.
@@ -27,13 +36,13 @@ export type FetchWrapper = (fetch: FetchLike) => FetchLike;
  *
  * @param provider - OAuth client provider for authentication
  * @param baseUrl - Base URL for OAuth server discovery (defaults to request URL domain)
- * @returns A fetch wrapper function
+ * @returns A fetch middleware function
  */
 export const withOAuth = (
   provider: OAuthClientProvider,
   baseUrl?: string | URL
-): FetchWrapper =>
-  (fetch) => {
+): FetchMiddleware =>
+  (next) => {
     return async (input, init) => {
       const makeRequest = async (): Promise<Response> => {
         const headers = new Headers(init?.headers);
@@ -44,7 +53,7 @@ export const withOAuth = (
           headers.set('Authorization', `Bearer ${tokens.access_token}`);
         }
 
-        return await fetch(input, { ...init, headers });
+        return await next(input, { ...init, headers });
       };
 
       let response = await makeRequest();
@@ -60,7 +69,7 @@ export const withOAuth = (
           const result = await auth(provider, {
             serverUrl,
             resourceMetadataUrl,
-            fetchFn: fetch
+            fetchFn: next
           });
 
           if (result === "REDIRECT") {
@@ -108,7 +117,7 @@ export type RequestLogger = (
 ) => void;
 
 /**
- * Configuration options for the logging wrapper
+ * Configuration options for the logging middleware
  */
 export type LoggingOptions = {
   /**
@@ -137,7 +146,7 @@ export type LoggingOptions = {
 };
 
 /**
- * Creates a fetch wrapper that logs HTTP requests and responses.
+ * Creates a fetch middleware that logs HTTP requests and responses.
  *
  * When called without arguments `withLogging()`, it uses the default logger that:
  * - Logs successful requests (2xx) to console.log
@@ -147,9 +156,9 @@ export type LoggingOptions = {
  * - Measures and displays request duration in milliseconds
  *
  * @param options - Logging configuration options
- * @returns A fetch wrapper function
+ * @returns A fetch middleware function
  */
-export const withLogging = (options: LoggingOptions = {}): FetchWrapper => {
+export const withLogging = (options: LoggingOptions = {}): FetchMiddleware => {
   const {
     logger,
     includeRequestHeaders = false,
@@ -188,14 +197,14 @@ export const withLogging = (options: LoggingOptions = {}): FetchWrapper => {
 
   const logFn = logger || defaultLogger;
 
-  return (fetch) => async (input, init) => {
+  return (next) => async (input, init) => {
     const startTime = performance.now();
     const method = init?.method || 'GET';
     const url = typeof input === 'string' ? input : input.toString();
     const requestHeaders = includeRequestHeaders ? new Headers(init?.headers) : undefined;
 
     try {
-      const response = await fetch(input, init);
+      const response = await next(input, init);
       const duration = performance.now() - startTime;
 
       // Only log if status meets the log level threshold
@@ -232,26 +241,31 @@ export const withLogging = (options: LoggingOptions = {}): FetchWrapper => {
 };
 
 /**
- * Utility function to compose multiple fetch wrappers into a single wrapper.
- * Wrappers are applied in the order they appear in the array.
+ * Composes multiple fetch middleware functions into a single middleware pipeline.
+ * Middleware are applied in the order they appear, creating a chain of handlers.
  *
  * @example
  * ```typescript
- * // Create a fetch wrapper that handles both OAuth and logging
- * const wrappedFetch = withWrappers(
+ * // Create a middleware pipeline that handles both OAuth and logging
+ * const enhancedFetch = applyMiddleware(
  *   withOAuth(oauthProvider, 'https://api.example.com'),
  *   withLogging({ statusLevel: 400 })
  * )(fetch);
  *
- * // Use the wrapped fetch - it will handle auth and log errors
- * const response = await wrappedFetch('https://api.example.com/data');
+ * // Use the enhanced fetch - it will handle auth and log errors
+ * const response = await enhancedFetch('https://api.example.com/data');
  * ```
  *
- * @param wrappers - Array of fetch wrappers to compose
- * @returns A single composed fetch wrapper
+ * @param middleware - Array of fetch middleware to compose into a pipeline
+ * @returns A single composed middleware function
  */
-export const withWrappers = (...wrappers: FetchWrapper[]): FetchWrapper => {
-  return (fetch) => {
-    return wrappers.reduce((wrappedFetch, wrapper) => wrapper(wrappedFetch), fetch);
+export const applyMiddleware = (...middleware: FetchMiddleware[]): FetchMiddleware => {
+  return (next) => {
+    return middleware.reduce((handler, mw) => mw(handler), next);
   };
 };
+
+/**
+ * @deprecated Use applyMiddleware instead
+ */
+export const withWrappers = applyMiddleware;
