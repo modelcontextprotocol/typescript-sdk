@@ -1,4 +1,4 @@
-import { withOAuth, withLogging, applyMiddleware, withWrappers } from './fetchWrapper.js';
+import { withOAuth, withLogging, applyMiddleware, withWrappers, createMiddleware } from './fetchWrapper.js';
 import { OAuthClientProvider } from '../client/auth.js';
 import { FetchLike } from './transport.js';
 
@@ -896,5 +896,213 @@ describe('Integration Tests', () => {
       resourceMetadataUrl: new URL('https://auth.example.com/.well-known/oauth-protected-resource'),
       fetchFn: mockFetch,
     });
+  });
+});
+
+describe('createMiddleware', () => {
+  let mockFetch: jest.MockedFunction<FetchLike>;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFetch = jest.fn();
+  });
+
+  it('should create middleware with cleaner syntax', async () => {
+    const response = new Response('success', { status: 200 });
+    mockFetch.mockResolvedValue(response);
+
+    const customMiddleware = createMiddleware(async (next, input, init) => {
+      const headers = new Headers(init?.headers);
+      headers.set('X-Custom-Header', 'custom-value');
+      return next(input, { ...init, headers });
+    });
+
+    const enhancedFetch = customMiddleware(mockFetch);
+    await enhancedFetch('https://api.example.com/data');
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://api.example.com/data',
+      expect.objectContaining({
+        headers: expect.any(Headers),
+      })
+    );
+
+    const callArgs = mockFetch.mock.calls[0];
+    const headers = callArgs[1]?.headers as Headers;
+    expect(headers.get('X-Custom-Header')).toBe('custom-value');
+  });
+
+  it('should support conditional middleware logic', async () => {
+    const apiResponse = new Response('api response', { status: 200 });
+    const publicResponse = new Response('public response', { status: 200 });
+    mockFetch
+      .mockResolvedValueOnce(apiResponse)
+      .mockResolvedValueOnce(publicResponse);
+
+    const conditionalMiddleware = createMiddleware(async (next, input, init) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      
+      if (url.includes('/api/')) {
+        const headers = new Headers(init?.headers);
+        headers.set('X-API-Version', 'v2');
+        return next(input, { ...init, headers });
+      }
+      
+      return next(input, init);
+    });
+
+    const enhancedFetch = conditionalMiddleware(mockFetch);
+    
+    // Test API route
+    await enhancedFetch('https://example.com/api/users');
+    let callArgs = mockFetch.mock.calls[0];
+    let headers = callArgs[1]?.headers as Headers;
+    expect(headers.get('X-API-Version')).toBe('v2');
+
+    // Test non-API route
+    await enhancedFetch('https://example.com/public/page');
+    callArgs = mockFetch.mock.calls[1];
+    const maybeHeaders = callArgs[1]?.headers as Headers | undefined;
+    expect(maybeHeaders?.get('X-API-Version')).toBeUndefined();
+  });
+
+  it('should support short-circuit responses', async () => {
+    const customMiddleware = createMiddleware(async (next, input, init) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      
+      // Short-circuit for specific URL
+      if (url.includes('/cached')) {
+        return new Response('cached data', { status: 200 });
+      }
+      
+      return next(input, init);
+    });
+
+    const enhancedFetch = customMiddleware(mockFetch);
+    
+    // Test cached route (should not call mockFetch)
+    const cachedResponse = await enhancedFetch('https://example.com/cached/data');
+    expect(await cachedResponse.text()).toBe('cached data');
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    // Test normal route
+    mockFetch.mockResolvedValue(new Response('fresh data', { status: 200 }));
+    const freshResponse = await enhancedFetch('https://example.com/fresh/data');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('should handle response transformation', async () => {
+    const originalResponse = new Response('{"data": "original"}', {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+    mockFetch.mockResolvedValue(originalResponse);
+
+    const transformMiddleware = createMiddleware(async (next, input, init) => {
+      const response = await next(input, init);
+      
+      if (response.headers.get('content-type')?.includes('application/json')) {
+        const data = await response.json();
+        const transformed = { ...data, timestamp: 123456789 };
+        
+        return new Response(JSON.stringify(transformed), {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers
+        });
+      }
+      
+      return response;
+    });
+
+    const enhancedFetch = transformMiddleware(mockFetch);
+    const response = await enhancedFetch('https://api.example.com/data');
+    const result = await response.json();
+    
+    expect(result).toEqual({
+      data: 'original',
+      timestamp: 123456789
+    });
+  });
+
+  it('should support error handling and recovery', async () => {
+    let attemptCount = 0;
+    mockFetch.mockImplementation(async () => {
+      attemptCount++;
+      if (attemptCount === 1) {
+        throw new Error('Network error');
+      }
+      return new Response('success', { status: 200 });
+    });
+
+    const retryMiddleware = createMiddleware(async (next, input, init) => {
+      try {
+        return await next(input, init);
+      } catch (error) {
+        // Retry once on network error
+        console.log('Retrying request after error:', error);
+        return await next(input, init);
+      }
+    });
+
+    const enhancedFetch = retryMiddleware(mockFetch);
+    const response = await enhancedFetch('https://api.example.com/data');
+    
+    expect(await response.text()).toBe('success');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('should compose well with other middleware', async () => {
+    const response = new Response('success', { status: 200 });
+    mockFetch.mockResolvedValue(response);
+
+    // Create custom middleware using createMiddleware
+    const customAuth = createMiddleware(async (next, input, init) => {
+      const headers = new Headers(init?.headers);
+      headers.set('Authorization', 'Custom token');
+      return next(input, { ...init, headers });
+    });
+
+    const customLogging = createMiddleware(async (next, input, init) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      console.log(`Request to: ${url}`);
+      const response = await next(input, init);
+      console.log(`Response status: ${response.status}`);
+      return response;
+    });
+
+    // Compose with existing middleware
+    const enhancedFetch = applyMiddleware(
+      customAuth,
+      customLogging,
+      withLogging({ statusLevel: 400 })
+    )(mockFetch);
+
+    await enhancedFetch('https://api.example.com/data');
+
+    const callArgs = mockFetch.mock.calls[0];
+    const headers = callArgs[1]?.headers as Headers;
+    expect(headers.get('Authorization')).toBe('Custom token');
+  });
+
+  it('should have access to both input types (string and URL)', async () => {
+    const response = new Response('success', { status: 200 });
+    mockFetch.mockResolvedValue(response);
+
+    let capturedInputType: string | undefined;
+    const inspectMiddleware = createMiddleware(async (next, input, init) => {
+      capturedInputType = typeof input === 'string' ? 'string' : 'URL';
+      return next(input, init);
+    });
+
+    const enhancedFetch = inspectMiddleware(mockFetch);
+    
+    // Test with string input
+    await enhancedFetch('https://api.example.com/data');
+    expect(capturedInputType).toBe('string');
+    
+    // Test with URL input
+    await enhancedFetch(new URL('https://api.example.com/data'));
+    expect(capturedInputType).toBe('URL');
   });
 });
