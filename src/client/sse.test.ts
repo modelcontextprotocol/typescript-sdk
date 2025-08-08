@@ -953,7 +953,7 @@ describe("SSEClientTransport", () => {
       let baseUrl = resourceBaseUrl;
 
       // Create server that returns InvalidClientError on token refresh
-      const server = createServer((req, res) => {
+      authServer = createServer((req, res) => {
         lastServerRequest = req;
 
         // Handle OAuth metadata discovery
@@ -985,8 +985,8 @@ describe("SSEClientTransport", () => {
       });
 
       await new Promise<void>(resolve => {
-        server.listen(0, "127.0.0.1", () => {
-          const addr = server.address() as AddressInfo;
+        authServer.listen(0, "127.0.0.1", () => {
+          const addr = authServer.address() as AddressInfo;
           baseUrl = new URL(`http://127.0.0.1:${addr.port}`);
           resolve();
         });
@@ -1010,7 +1010,7 @@ describe("SSEClientTransport", () => {
 
       let baseUrl = resourceBaseUrl;
 
-      const server = createServer((req, res) => {
+      authServer = createServer((req, res) => {
         lastServerRequest = req;
 
         // Handle OAuth metadata discovery
@@ -1042,8 +1042,8 @@ describe("SSEClientTransport", () => {
       });
 
       await new Promise<void>(resolve => {
-        server.listen(0, "127.0.0.1", () => {
-          const addr = server.address() as AddressInfo;
+        authServer.listen(0, "127.0.0.1", () => {
+          const addr = authServer.address() as AddressInfo;
           baseUrl = new URL(`http://127.0.0.1:${addr.port}`);
           resolve();
         });
@@ -1066,7 +1066,7 @@ describe("SSEClientTransport", () => {
       });
       let baseUrl = resourceBaseUrl;
 
-      const server = createServer((req, res) => {
+      authServer = createServer((req, res) => {
         lastServerRequest = req;
 
         // Handle OAuth metadata discovery
@@ -1098,8 +1098,8 @@ describe("SSEClientTransport", () => {
       });
 
       await new Promise<void>(resolve => {
-        server.listen(0, "127.0.0.1", () => {
-          const addr = server.address() as AddressInfo;
+        authServer.listen(0, "127.0.0.1", () => {
+          const addr = authServer.address() as AddressInfo;
           baseUrl = new URL(`http://127.0.0.1:${addr.port}`);
           resolve();
         });
