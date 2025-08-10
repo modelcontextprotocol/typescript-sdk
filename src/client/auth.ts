@@ -606,6 +606,17 @@ async function discoverMetadataWithFallback(
 }
 
 /**
+ * Identify common providers from metadata
+ * Used for providers that have quirks needing conditional handling
+ * e.g. Azure no PKCE advertised, scope param instead of resource param.
+ */
+function identifyProvider(metadata: AuthorizationServerMetadata): "azure_v2" | undefined {
+  if (metadata.issuer.includes("login.microsoftonline.com")) {
+    return "azure_v2"
+  }
+}
+
+/**
  * Looks up RFC 8414 OAuth 2.0 Authorization Server Metadata.
  *
  * If the server returns a 404 for the well-known endpoint, this function will
@@ -778,6 +789,10 @@ export async function discoverAuthorizationServerMetadata(
       return OAuthMetadataSchema.parse(await response.json());
     } else {
       const metadata = OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
+      // Azure Bypass
+      if (identifyProvider(metadata) === "azure_v2" && !metadata.code_challenge_methods_supported) {
+        metadata.code_challenge_methods_supported = ["S256"];
+      }
 
       // MCP spec requires OIDC providers to support S256 PKCE
       if (!metadata.code_challenge_methods_supported?.includes('S256')) {
@@ -869,7 +884,11 @@ export async function startAuthorization(
   }
 
   if (resource) {
-    authorizationUrl.searchParams.set("resource", resource.href);
+    if (metadata && identifyProvider(metadata) === "azure_v2") {
+      authorizationUrl.searchParams.set("scope", `${resource.href}/.default`);
+    } else {
+      authorizationUrl.searchParams.set("resource", resource.href);
+    }
   }
 
   return { authorizationUrl, codeVerifier };
@@ -947,7 +966,11 @@ export async function exchangeAuthorization(
   }
 
   if (resource) {
-    params.set("resource", resource.href);
+    if (metadata && identifyProvider(metadata) === "azure_v2") {
+      params.set("scope", `${resource.href}/.default`);
+    } else {
+      params.set("resource", resource.href);
+    }
   }
 
   const response = await (fetchFn ?? fetch)(tokenUrl, {
@@ -1031,7 +1054,11 @@ export async function refreshAuthorization(
   }
 
   if (resource) {
-    params.set("resource", resource.href);
+    if (metadata && identifyProvider(metadata) === "azure_v2") {
+      params.set("scope", `${resource.href}/.default`);
+    } else {
+      params.set("resource", resource.href);
+    }
   }
 
   const response = await (fetchFn ?? fetch)(tokenUrl, {
