@@ -41,6 +41,8 @@ import {
   ServerRequest,
   ServerNotification,
   ToolAnnotations,
+  CallToolResultUnstructured,
+  CallToolResultStructured,
 } from "../types.js";
 import { Completable, CompletableDef } from "./completable.js";
 import { UriTemplate, Variables } from "../shared/uriTemplate.js";
@@ -920,7 +922,7 @@ export class McpServer {
   /**
    * Registers a tool with a config object and callback.
    */
-  registerTool<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape>(
+  registerTool<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape | undefined>(
     name: string,
     config: {
       title?: string;
@@ -929,7 +931,7 @@ export class McpServer {
       outputSchema?: OutputArgs;
       annotations?: ToolAnnotations;
     },
-    cb: ToolCallback<InputArgs>
+    cb: ToolCallback<InputArgs, OutputArgs>
   ): RegisteredTool {
     if (this._registeredTools[name]) {
       throw new Error(`Tool ${name} is already registered`);
@@ -1148,13 +1150,21 @@ export class ResourceTemplate {
  * - `content` if the tool does not have an outputSchema
  * - Both fields are optional but typically one should be provided
  */
-export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
-  Args extends ZodRawShape
+export type ToolCallback<InputArgs extends undefined | ZodRawShape = undefined, OutputArgs extends undefined | ZodRawShape = undefined> =
+  InputArgs extends ZodRawShape
   ? (
-    args: z.objectOutputType<Args, ZodTypeAny>,
+    args: z.objectOutputType<InputArgs, ZodTypeAny>,
     extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
-  ) => CallToolResult | Promise<CallToolResult>
-  : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
+  ) => OutputArgs extends ZodRawShape
+    ? CallToolResultStructured<OutputArgs> | Promise<CallToolResultStructured<OutputArgs>>
+    : OutputArgs extends undefined
+    ? CallToolResultUnstructured | Promise<CallToolResultUnstructured>
+    : never
+  : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => OutputArgs extends ZodRawShape
+    ? CallToolResultStructured<OutputArgs> | Promise<CallToolResultStructured<OutputArgs>>
+    : OutputArgs extends undefined
+    ? CallToolResultUnstructured | Promise<CallToolResultUnstructured>
+    : never;
 
 export type RegisteredTool = {
   title?: string;
