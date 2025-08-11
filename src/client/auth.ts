@@ -606,14 +606,27 @@ async function discoverMetadataWithFallback(
 }
 
 /**
- * Identify common providers from metadata
- * Used for providers that have quirks needing conditional handling
+ * Using metadata, identifies common issuers that need special handling.
+ * Only for large, unusual issuers, fully spec compliant issuers should not be identified, small issuers should not be given special treatment.
  * e.g. Azure no PKCE advertised, scope param instead of resource param.
  */
-function identifyProvider(metadata: AuthorizationServerMetadata): "azure_v2" | undefined {
-  if (metadata.issuer.includes("login.microsoftonline.com")) {
-    return "azure_v2"
+function identifyQuirkyIssuer(metadata: AuthorizationServerMetadata): "azure_v2" | undefined {
+  const issuerString = metadata.issuer;
+  let issuerUrl: URL;
+  // Parse issuer URL and treat failed parse as normal issuer.
+  try {
+    issuerUrl = new URL(issuerString);
+  } catch (e) {
+    if (e instanceof TypeError && e.message === "Invalid URL") {
+      return undefined;
+    }
+    throw e;
   }
+  // Check for known issuer types needing conditional handling
+  if (issuerUrl.hostname === "login.microsoftonline.com" && issuerUrl.pathname.endsWith('/v2.0')) {
+    return "azure_v2";
+  }
+  return undefined;
 }
 
 /**
@@ -790,7 +803,7 @@ export async function discoverAuthorizationServerMetadata(
     } else {
       const metadata = OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
       // Azure Bypass
-      if (identifyProvider(metadata) === "azure_v2" && !metadata.code_challenge_methods_supported) {
+      if (identifyQuirkyIssuer(metadata) === "azure_v2" && !metadata.code_challenge_methods_supported) {
         metadata.code_challenge_methods_supported = ["S256"];
       }
 
@@ -884,7 +897,7 @@ export async function startAuthorization(
   }
 
   if (resource) {
-    if (metadata && identifyProvider(metadata) === "azure_v2") {
+    if (metadata && identifyQuirkyIssuer(metadata) === "azure_v2") {
       authorizationUrl.searchParams.set("scope", `${resource.href}/.default`);
     } else {
       authorizationUrl.searchParams.set("resource", resource.href);
@@ -966,7 +979,7 @@ export async function exchangeAuthorization(
   }
 
   if (resource) {
-    if (metadata && identifyProvider(metadata) === "azure_v2") {
+    if (metadata && identifyQuirkyIssuer(metadata) === "azure_v2") {
       params.set("scope", `${resource.href}/.default`);
     } else {
       params.set("resource", resource.href);
@@ -1054,7 +1067,7 @@ export async function refreshAuthorization(
   }
 
   if (resource) {
-    if (metadata && identifyProvider(metadata) === "azure_v2") {
+    if (metadata && identifyQuirkyIssuer(metadata) === "azure_v2") {
       params.set("scope", `${resource.href}/.default`);
     } else {
       params.set("resource", resource.href);
