@@ -27,6 +27,10 @@
       "import": "./dist/esm/client/index.js",
       "require": "./dist/cjs/client/index.js"
     },
+    "./server": {
+      "import": "./dist/esm/server/index.js",
+      "require": "./dist/cjs/server/index.js"
+    },
     "./*": {
       "import": "./dist/esm/*",
       "require": "./dist/cjs/*"
