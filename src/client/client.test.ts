@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable no-constant-binary-expression */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
-import { Client } from "./index.js";
+import { Client } from "./client.js";
 import { z } from "zod";
 import {
   RequestSchema,

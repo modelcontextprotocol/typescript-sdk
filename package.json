@@ -31,6 +31,10 @@
       "import": "./dist/esm/server/index.js",
       "require": "./dist/cjs/server/index.js"
     },
+    "./shared": {
+      "import": "./dist/esm/shared/index.js",
+      "require": "./dist/cjs/shared/index.js"
+    },
     "./*": {
       "import": "./dist/esm/*",
       "require": "./dist/cjs/*"
