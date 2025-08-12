@@ -5,3 +5,5 @@ export * from './protocol.js';
 export * from './stdio.js';
 export * from './transport.js';
 export * from './uriTemplate.js';
+export * from '../types.js';
+export * from '../inMemory.js';
