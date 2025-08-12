@@ -13,16 +13,6 @@ import { FetchLike } from "../shared/transport.js";
 export type Middleware = (next: FetchLike) => FetchLike;
 
 /**
- * @deprecated Use Middleware instead
- */
-export type FetchWrapper = Middleware;
-
-/**
- * @deprecated Use Middleware instead
- */
-export type FetchMiddleware = Middleware;
-
-/**
  * Creates a fetch wrapper that handles OAuth authentication automatically.
  *
  * This wrapper will:
@@ -163,11 +153,14 @@ export type LoggingOptions = {
  * Creates a fetch middleware that logs HTTP requests and responses.
  *
  * When called without arguments `withLogging()`, it uses the default logger that:
- * - Logs successful requests (2xx) to console.log
- * - Logs error responses (4xx/5xx) and network errors to console.error
+ * - Logs successful requests (2xx) to `console.log`
+ * - Logs error responses (4xx/5xx) and network errors to `console.error`
  * - Logs all requests regardless of status (statusLevel: 0)
  * - Does not include request or response headers in logs
  * - Measures and displays request duration in milliseconds
+ *
+ * Important: the default logger uses both `console.log` and `console.error` so it should not be used with
+ * `stdio` transports and applications.
  *
  * @param options - Logging configuration options
  * @returns A fetch middleware function
@@ -212,8 +205,10 @@ export const withLogging = (options: LoggingOptions = {}): Middleware => {
     }
 
     if (error || status >= 400) {
+      // eslint-disable-next-line no-console
       console.error(message);
     } else {
+      // eslint-disable-next-line no-console
       console.log(message);
     }
   };
@@ -274,7 +269,7 @@ export const withLogging = (options: LoggingOptions = {}): Middleware => {
  * @example
  * ```typescript
  * // Create a middleware pipeline that handles both OAuth and logging
- * const enhancedFetch = applyMiddleware(
+ * const enhancedFetch = applyMiddlewares(
  *   withOAuth(oauthProvider, 'https://api.example.com'),
  *   withLogging({ statusLevel: 400 })
  * )(fetch);
@@ -286,7 +281,7 @@ export const withLogging = (options: LoggingOptions = {}): Middleware => {
  * @param middleware - Array of fetch middleware to compose into a pipeline
  * @returns A single composed middleware function
  */
-export const applyMiddleware = (
+export const applyMiddlewares = (
   ...middleware: Middleware[]
 ): Middleware => {
   return (next) => {

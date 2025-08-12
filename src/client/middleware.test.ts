@@ -1,8 +1,8 @@
 import {
-  withOAuth,
-  withLogging,
-  applyMiddleware,
-  createMiddleware,
+    withOAuth,
+    withLogging,
+    applyMiddlewares,
+    createMiddleware,
 } from "./middleware.js";
 import { OAuthClientProvider } from "./auth.js";
 import { FetchLike } from "../shared/transport.js";
@@ -677,7 +677,7 @@ describe("applyMiddleware", () => {
     const response = new Response("success", { status: 200 });
     mockFetch.mockResolvedValue(response);
 
-    const composedFetch = applyMiddleware()(mockFetch);
+    const composedFetch = applyMiddlewares()(mockFetch);
 
     expect(composedFetch).toBe(mockFetch);
   });
@@ -694,7 +694,7 @@ describe("applyMiddleware", () => {
         return next(input, { ...init, headers });
       };
 
-    const composedFetch = applyMiddleware(middleware1)(mockFetch);
+    const composedFetch = applyMiddlewares(middleware1)(mockFetch);
 
     await composedFetch("https://api.example.com/data");
 
@@ -736,7 +736,7 @@ describe("applyMiddleware", () => {
         return next(input, { ...init, headers });
       };
 
-    const composedFetch = applyMiddleware(
+    const composedFetch = applyMiddlewares(
       middleware1,
       middleware2,
       middleware3,
@@ -765,7 +765,7 @@ describe("applyMiddleware", () => {
 
     // Use custom logger to avoid console output
     const mockLogger = jest.fn();
-    const composedFetch = applyMiddleware(
+    const composedFetch = applyMiddlewares(
       oauthMiddleware,
       withLogging({ logger: mockLogger, statusLevel: 0 }),
     )(mockFetch);
@@ -803,7 +803,7 @@ describe("applyMiddleware", () => {
     const originalError = new Error("Network failure");
     mockFetch.mockRejectedValue(originalError);
 
-    const composedFetch = applyMiddleware(errorMiddleware)(mockFetch);
+    const composedFetch = applyMiddlewares(errorMiddleware)(mockFetch);
 
     await expect(composedFetch("https://api.example.com/data")).rejects.toThrow(
       "Middleware error: Network failure",
@@ -853,7 +853,7 @@ describe("Integration Tests", () => {
 
     // Use custom logger to avoid console output
     const mockLogger = jest.fn();
-    const enhancedFetch = applyMiddleware(
+    const enhancedFetch = applyMiddlewares(
       withOAuth(
         mockProvider as OAuthClientProvider,
         "https://mcp-server.example.com",
@@ -903,7 +903,7 @@ describe("Integration Tests", () => {
 
     // Use custom logger to avoid console output
     const mockLogger = jest.fn();
-    const enhancedFetch = applyMiddleware(
+    const enhancedFetch = applyMiddlewares(
       withOAuth(
         mockProvider as OAuthClientProvider,
         "https://streamable-server.example.com",
@@ -971,7 +971,7 @@ describe("Integration Tests", () => {
 
     // Use custom logger to avoid console output
     const mockLogger = jest.fn();
-    const enhancedFetch = applyMiddleware(
+    const enhancedFetch = applyMiddlewares(
       withOAuth(
         mockProvider as OAuthClientProvider,
         "https://mcp-server.example.com",
@@ -1177,7 +1177,7 @@ describe("createMiddleware", () => {
     });
 
     // Compose with existing middleware
-    const enhancedFetch = applyMiddleware(
+    const enhancedFetch = applyMiddlewares(
       customAuth,
       customLogging,
       withLogging({ statusLevel: 400 }),
