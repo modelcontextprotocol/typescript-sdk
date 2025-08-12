@@ -270,7 +270,9 @@ class InteractiveOAuthClient {
         }
 
         if (command === 'quit') {
-          break;
+          console.log('\n👋 Goodbye!');
+          this.close();
+          process.exit(0);
         } else if (command === 'list') {
           await this.listTools();
         } else if (command.startsWith('call ')) {
