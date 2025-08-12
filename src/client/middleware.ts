@@ -1,5 +1,6 @@
 import { auth, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { FetchLike } from '../shared/transport.js';
+import { createUserAgentProvider } from '../shared/userAgent.js';
 
 /**
  * Middleware function that wraps and enhances fetch functionality.
@@ -36,6 +37,7 @@ export type Middleware = (next: FetchLike) => FetchLike;
 export const withOAuth =
     (provider: OAuthClientProvider, baseUrl?: string | URL): Middleware =>
     next => {
+        const userAgentProvider = createUserAgentProvider();
         return async (input, init) => {
             const makeRequest = async (): Promise<Response> => {
                 const headers = new Headers(init?.headers);
@@ -62,7 +64,8 @@ export const withOAuth =
                     const result = await auth(provider, {
                         serverUrl,
                         resourceMetadataUrl,
-                        fetchFn: next
+                        fetchFn: next,
+                        userAgentProvider
                     });
 
                     if (result === 'REDIRECT') {

@@ -1,3 +1,4 @@
+import { createUserAgentProvider, UserAgentProvider } from '../shared/userAgent.js';
 import { Transport, FetchLike } from '../shared/transport.js';
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
 import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from './auth.js';
@@ -132,6 +133,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
     private _hasCompletedAuthFlow = false; // Circuit breaker: detect auth success followed by immediate 401
+    private _userAgentProvider: UserAgentProvider;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -145,6 +147,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._fetch = opts?.fetch;
         this._sessionId = opts?.sessionId;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
+        this._userAgentProvider = createUserAgentProvider();
     }
 
     private async _authThenStart(): Promise<void> {
@@ -157,7 +160,8 @@ export class StreamableHTTPClientTransport implements Transport {
             result = await auth(this._authProvider, {
                 serverUrl: this._url,
                 resourceMetadataUrl: this._resourceMetadataUrl,
-                fetchFn: this._fetch
+                fetchFn: this._fetch,
+                userAgentProvider: this._userAgentProvider
             });
         } catch (error) {
             this.onerror?.(error as Error);
@@ -186,6 +190,8 @@ export class StreamableHTTPClientTransport implements Transport {
         if (this._protocolVersion) {
             headers['mcp-protocol-version'] = this._protocolVersion;
         }
+
+        headers['user-agent'] = await this._userAgentProvider();
 
         const extraHeaders = this._normalizeHeaders(this._requestInit?.headers);
 
@@ -381,7 +387,8 @@ export class StreamableHTTPClientTransport implements Transport {
             serverUrl: this._url,
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
-            fetchFn: this._fetch
+            fetchFn: this._fetch,
+            userAgentProvider: this._userAgentProvider
         });
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');
@@ -442,7 +449,8 @@ export class StreamableHTTPClientTransport implements Transport {
                     const result = await auth(this._authProvider, {
                         serverUrl: this._url,
                         resourceMetadataUrl: this._resourceMetadataUrl,
-                        fetchFn: this._fetch
+                        fetchFn: this._fetch,
+                        userAgentProvider: this._userAgentProvider
                     });
                     if (result !== 'AUTHORIZED') {
                         throw new UnauthorizedError();
