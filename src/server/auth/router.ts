@@ -208,16 +208,11 @@ export function mcpAuthMetadataRouter(options: AuthMetadataOptions): express.Rou
     resource_documentation: options.serviceDocumentationUrl?.href,
   };
 
-  // Serve PRM at the base well-known URL…
-  router.use("/.well-known/oauth-protected-resource", metadataHandler(protectedResourceMetadata));
-
-  // …and also at the path-specific URL per RFC 9728 when the resource has a path (e.g., /mcp)
+  // Serve PRM at the path-specific URL per RFC 9728
   const rsPath = new URL(options.resourceServerUrl.href).pathname;
-  if (rsPath && rsPath !== "/") {
-    router.use(`/.well-known/oauth-protected-resource${rsPath}`, metadataHandler(protectedResourceMetadata));
-  }
+  router.use(`/.well-known/oauth-protected-resource${rsPath === '/' ? '' : rsPath}`, metadataHandler(protectedResourceMetadata));
 
-  // Always add this for backwards compatibility
+  // Always add this for OAuth Authorization Server metadata per RFC 8414
   router.use("/.well-known/oauth-authorization-server", metadataHandler(options.oauthMetadata));
 
   return router;
