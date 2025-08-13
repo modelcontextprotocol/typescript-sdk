@@ -119,7 +119,7 @@ export interface OAuthClientProvider {
    *
    * Implementations must verify the returned resource matches the MCP server.
    */
-  validateResourceURL?(serverUrl: string | URL, resource?: string): Promise<URL | undefined>;
+  validateResourceURL?(serverUrl: string, resource?: string): Promise<string | undefined>;
 
   /**
    * If implemented, provides a way for the client to invalidate (e.g. delete) the specified
@@ -281,7 +281,7 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
 export async function auth(
   provider: OAuthClientProvider,
   options: {
-    serverUrl: string | URL;
+    serverUrl: string;
     authorizationCode?: string;
     scope?: string;
     resourceMetadataUrl?: URL;
@@ -312,7 +312,7 @@ async function authInternal(
     resourceMetadataUrl,
     fetchFn,
   }: {
-    serverUrl: string | URL;
+    serverUrl: string;
     authorizationCode?: string;
     scope?: string;
     resourceMetadataUrl?: URL;
@@ -339,7 +339,7 @@ async function authInternal(
     authorizationServerUrl = serverUrl;
   }
 
-  const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
+  const resource: string | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
 
   const metadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
     fetchFn,
@@ -427,7 +427,7 @@ async function authInternal(
   return "REDIRECT"
 }
 
-export async function selectResourceURL(serverUrl: string | URL, provider: OAuthClientProvider, resourceMetadata?: OAuthProtectedResourceMetadata): Promise<URL | undefined> {
+export async function selectResourceURL(serverUrl: string, provider: OAuthClientProvider, resourceMetadata?: OAuthProtectedResourceMetadata): Promise<string | undefined> {
   const defaultResource = resourceUrlFromServerUrl(serverUrl);
 
   // If provider has custom validation, delegate to it
@@ -445,7 +445,7 @@ export async function selectResourceURL(serverUrl: string | URL, provider: OAuth
     throw new Error(`Protected resource ${resourceMetadata.resource} does not match expected ${defaultResource} (or origin)`);
   }
   // Prefer the resource from metadata since it's what the server is telling us to request
-  return new URL(resourceMetadata.resource);
+  return resourceMetadata.resource;
 }
 
 /**
@@ -811,7 +811,7 @@ export async function startAuthorization(
     redirectUrl: string | URL;
     scope?: string;
     state?: string;
-    resource?: URL;
+    resource?: string;
   },
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
   const responseType = "code";
@@ -869,7 +869,7 @@ export async function startAuthorization(
   }
 
   if (resource) {
-    authorizationUrl.searchParams.set("resource", resource.href);
+    authorizationUrl.searchParams.set("resource", resource);
   }
 
   return { authorizationUrl, codeVerifier };
@@ -904,7 +904,7 @@ export async function exchangeAuthorization(
     authorizationCode: string;
     codeVerifier: string;
     redirectUri: string | URL;
-    resource?: URL;
+    resource?: string;
     addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
     fetchFn?: FetchLike;
   },
@@ -947,7 +947,7 @@ export async function exchangeAuthorization(
   }
 
   if (resource) {
-    params.set("resource", resource.href);
+    params.set("resource", resource);
   }
 
   const response = await (fetchFn ?? fetch)(tokenUrl, {
@@ -988,7 +988,7 @@ export async function refreshAuthorization(
     metadata?: AuthorizationServerMetadata;
     clientInformation: OAuthClientInformation;
     refreshToken: string;
-    resource?: URL;
+    resource?: string;
     addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
     fetchFn?: FetchLike;
   }
@@ -1031,7 +1031,7 @@ export async function refreshAuthorization(
   }
 
   if (resource) {
-    params.set("resource", resource.href);
+    params.set("resource", resource);
   }
 
   const response = await (fetchFn ?? fetch)(tokenUrl, {
