@@ -6,7 +6,7 @@ import { StreamableHTTPClientTransport } from '../client/streamableHttp.js';
 import { McpServer } from '../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../server/streamableHttp.js';
 import { CallToolResultSchema, ListToolsResultSchema, ListResourcesResultSchema, ListPromptsResultSchema, LATEST_PROTOCOL_VERSION } from '../types.js';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 
 describe('Streamable HTTP Transport Session Management', () => {
   // Function to set up the server with optional session management
@@ -55,7 +55,7 @@ describe('Streamable HTTP Transport Session Management', () => {
       'greet',
       'A simple greeting tool',
       {
-        name: z.string().describe('Name to greet').default('World'),
+        name: z.string().describe('Name to greet').prefault('World'),
       },
       async ({ name }) => {
         return {

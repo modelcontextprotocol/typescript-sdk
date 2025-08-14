@@ -6,7 +6,7 @@ import { StreamableHTTPClientTransport } from '../client/streamableHttp.js';
 import { McpServer } from '../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../server/streamableHttp.js';
 import { CallToolResultSchema, LoggingMessageNotificationSchema } from '../types.js';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { InMemoryEventStore } from '../examples/shared/inMemoryEventStore.js';
 
 
@@ -33,7 +33,7 @@ describe('Transport resumability', () => {
       'send-notification',
       'Sends a single notification',
       {
-        message: z.string().describe('Message to send').default('Test notification')
+        message: z.string().describe('Message to send').prefault('Test notification')
       },
       async ({ message }, { sendNotification }) => {
         // Send notification immediately
@@ -56,8 +56,8 @@ describe('Transport resumability', () => {
       'run-notifications',
       'Sends multiple notifications over time',
       {
-        count: z.number().describe('Number of notifications to send').default(10),
-        interval: z.number().describe('Interval between notifications in ms').default(50)
+        count: z.number().describe('Number of notifications to send').prefault(10),
+        interval: z.number().describe('Interval between notifications in ms').prefault(50)
       },
       async ({ count, interval }, { sendNotification }) => {
         // Send notifications at specified intervals

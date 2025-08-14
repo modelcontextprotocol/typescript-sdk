@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import { McpServer } from '../../server/mcp.js';
 import { SSEServerTransport } from '../../server/sse.js';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { CallToolResult } from '../../types.js';
 
 /**
@@ -25,8 +25,8 @@ const getServer = () => {
     'start-notification-stream',
     'Starts sending periodic notifications',
     {
-      interval: z.number().describe('Interval in milliseconds between notifications').default(1000),
-      count: z.number().describe('Number of notifications to send').default(10),
+      interval: z.number().describe('Interval in milliseconds between notifications').prefault(1000),
+      count: z.number().describe('Number of notifications to send').prefault(10),
     },
     async ({ interval, count }, { sendNotification }): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

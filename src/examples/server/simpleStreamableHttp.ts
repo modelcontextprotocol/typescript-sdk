@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';
@@ -270,8 +270,8 @@ const getServer = () => {
     'start-notification-stream',
     'Starts sending periodic notifications for testing resumability',
     {
-      interval: z.number().describe('Interval in milliseconds between notifications').default(100),
-      count: z.number().describe('Number of notifications to send (0 for 100)').default(50),
+      interval: z.number().describe('Interval in milliseconds between notifications').prefault(100),
+      count: z.number().describe('Number of notifications to send (0 for 100)').prefault(50),
     },
     async ({ interval, count }, { sendNotification }): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
