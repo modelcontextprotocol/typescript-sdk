@@ -6,6 +6,7 @@ This directory contains example implementations of MCP clients and servers using
 
 - [Client Implementations](#client-implementations)
   - [Streamable HTTP Client](#streamable-http-client)
+  - [Custom Context Client](#custom-context-client)
   - [Backwards Compatible Client](#backwards-compatible-client)
 - [Server Implementations](#server-implementations)
   - [Single Node Deployment](#single-node-deployment)
@@ -38,6 +39,26 @@ Example client with OAuth:
 ```bash
 npx tsx src/examples/client/simpleOAuthClient.js
 ```
+
+### Custom Context Client
+
+An interactive client that demonstrates the custom context feature, showing how to:
+
+- Authenticate using API keys that map to user contexts
+- Pass user context (identity, permissions, organization) through the transport layer
+- Access context in MCP tool handlers for authorization and personalization
+- Implement multi-tenant data isolation
+- Track requests with unique IDs for auditing
+
+```bash
+# Start the server first:
+npx tsx src/examples/server/customContextServer.ts
+
+# Then run the client:
+npx tsx src/examples/client/customContextClient.ts
+```
+
+See [custom-context-example.md](custom-context-example.md) for a detailed walkthrough.
 
 ### Backwards Compatible Client
 
@@ -105,6 +126,22 @@ A server that demonstrates server notifications using Streamable HTTP.
 ```bash
 npx tsx src/examples/server/standaloneSseWithGetStreamableHttp.ts
 ```
+
+##### Custom Context Server
+
+A server that demonstrates how to inject custom context (user authentication, permissions, tenant data) into MCP tool handlers.
+
+- API key authentication with user context extraction
+- Context injection via `transport.setCustomContext()`
+- Permission-based access control in tools
+- Multi-tenant data isolation
+- Request tracking with unique IDs
+
+```bash
+npx tsx src/examples/server/customContextServer.ts
+```
+
+This example is essential for building secure, multi-tenant MCP applications. See [custom-context-example.md](custom-context-example.md) for implementation details.
 
 #### Deprecated SSE Transport
 
