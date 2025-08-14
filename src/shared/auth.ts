@@ -1,4 +1,8 @@
 import { z } from "zod";
+import type {
+  JWTHeaderParameters,
+  JWTClaimVerificationOptions
+} from 'jose';
 
 /**
  * RFC 9728 OAuth Protected Resource Metadata
@@ -24,6 +28,7 @@ export const OAuthProtectedResourceMetadataSchema = z
 
 /**
  * RFC 8414 OAuth 2.0 Authorization Server Metadata
+ * Extended to support JWT authentication methods
  */
 export const OAuthMetadataSchema = z
   .object({
@@ -210,3 +215,156 @@ export type OAuthProtectedResourceMetadata = z.infer<typeof OAuthProtectedResour
 
 // Unified type for authorization server metadata
 export type AuthorizationServerMetadata = OAuthMetadata | OpenIdProviderDiscoveryMetadata;
+
+/**
+ * JWT Header Schema
+ * RFC 7515 JSON Web Signature (JWS) Header Parameters
+ * Note: We keep this Zod schema for runtime validation, but the type uses jose's JWTHeaderParameters
+ */
+export const JWTHeaderSchema = z.object({
+  alg: z.string(),
+  typ: z.literal('JWT').optional(),
+  kid: z.string().optional(),
+});
+
+/**
+ * JWT Client Assertion Payload Schema
+ * RFC 7523 JWT Profile for OAuth 2.0 Client Authentication
+ */
+export const JWTClientAssertionPayloadSchema = z.object({
+  iss: z.string(), // client_id
+  sub: z.string(), // client_id  
+  aud: z.union([z.string(), z.array(z.string())]), // token endpoint
+  jti: z.string(),
+  exp: z.number(),
+  iat: z.number(),
+  nbf: z.number().optional(),
+});
+
+/**
+ * JWT Bearer Grant Payload Schema
+ * RFC 7523 JWT Profile for OAuth 2.0 Authorization Grants
+ */
+export const JWTBearerGrantPayloadSchema = z.object({
+  iss: z.string(),
+  sub: z.string(),
+  aud: z.union([z.string(), z.array(z.string())]),
+  exp: z.number(),
+  iat: z.number(),
+  nbf: z.number().optional(),
+  scope: z.string().optional(),
+}).passthrough(); // Allow additional claims
+
+/**
+ * JWT Client Credentials Schema
+ * Configuration for JWT-based client authentication
+ */
+export const JWTClientCredentialsSchema = z.object({
+  clientSecret: z.string().optional(),
+  privateKey: z.union([z.string(), z.instanceof(Buffer)]).optional(),
+  keyId: z.string().optional(),
+  algorithm: z.enum(['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512']).optional(),
+  tokenLifetime: z.number().positive().max(300).optional(), // Max 5 minutes
+  issuer: z.string().optional(),
+  subject: z.string().optional(),
+});
+
+/**
+ * JWT Client Assertion Request Schema
+ * Used for client_secret_jwt and private_key_jwt authentication
+ */
+export const JWTClientAssertionRequestSchema = z.object({
+  client_assertion_type: z.literal('urn:ietf:params:oauth:client-assertion-type:jwt-bearer'),
+  client_assertion: z.string(),
+});
+
+/**
+ * JWT Bearer Grant Request Schema
+ * Used for urn:ietf:params:oauth:grant-type:jwt-bearer grants
+ */
+export const JWTBearerGrantRequestSchema = z.object({
+  grant_type: z.literal('urn:ietf:params:oauth:grant-type:jwt-bearer'),
+  assertion: z.string(),
+  scope: z.string().optional(),
+  resource: z.string().url().optional(),
+});
+
+/**
+ * JWT Bearer Grant Schema for token requests
+ * Used for parsing JWT bearer grant request bodies
+ */
+export const JWTBearerGrantSchema = z.object({
+  assertion: z.string(),
+  scope: z.string().optional(),
+  resource: z.string().url().optional(),
+});
+
+// Use jose's JWTHeaderParameters instead of our custom JWTHeader
+export type JWTHeader = JWTHeaderParameters;
+export type JWTClientAssertionPayload = z.infer<typeof JWTClientAssertionPayloadSchema>;
+export type JWTBearerGrantPayload = z.infer<typeof JWTBearerGrantPayloadSchema>;
+export type JWTClientCredentials = z.infer<typeof JWTClientCredentialsSchema>;
+export type JWTClientAssertionRequest = z.infer<typeof JWTClientAssertionRequestSchema>;
+export type JWTBearerGrantRequest = z.infer<typeof JWTBearerGrantRequestSchema>;
+export type JWTBearerGrant = z.infer<typeof JWTBearerGrantSchema>;
+
+/**
+ * JWT Assertion Options for generation
+ */
+export interface JWTAssertionOptions {
+  issuer: string;
+  subject: string;
+  audience: string | string[];
+  expiresIn?: number;
+  notBefore?: number;
+  jwtId?: string;
+  additionalClaims?: Record<string, unknown>;
+}
+
+/**
+ * JWT Signing Options
+ */
+export interface JWTSigningOptions {
+  algorithm: string;
+  secret?: string;
+  privateKey?: string | Buffer;
+  keyId?: string;
+}
+
+/**
+ * JWT Validation Result
+ */
+export interface JWTValidationResult {
+  payload: JWTClientAssertionPayload | JWTBearerGrantPayload;
+  header: JWTHeader;
+  clientId: string;
+  issuedAt: number;
+  expiresAt: number;
+  audience: string[];
+}
+
+/**
+ * JWT Validation Options
+ * Uses jose's JWTClaimVerificationOptions with required audience for OAuth compliance
+ * - audience is required (jose's is optional)
+ * - maxAge maps to jose's maxTokenAge
+ * - clockTolerance is number-only (jose accepts string | number)
+ */
+export interface JWTValidationOptions {
+  audience: string | string[];
+  issuer?: string;
+  clockTolerance?: number; // seconds, default 30
+  maxAge?: number; // seconds, default 300
+}
+
+/**
+ * Convert our custom JWT validation options to jose's format
+ */
+export function toJoseValidationOptions(options: JWTValidationOptions): JWTClaimVerificationOptions {
+  return {
+    audience: options.audience,
+    issuer: options.issuer,
+    clockTolerance: options.clockTolerance,
+    maxTokenAge: options.maxAge,
+  };
+}
