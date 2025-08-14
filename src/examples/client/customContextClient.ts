@@ -6,7 +6,6 @@ import {
   CallToolResultSchema,
   ListToolsResultSchema,
   GetPromptResultSchema,
-  ListResourcesResultSchema,
   ReadResourceResultSchema,
 } from '../../types.js';
 
