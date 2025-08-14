@@ -2,6 +2,7 @@ import { EventSource, type ErrorEvent, type EventSourceInit } from "eventsource"
 import { Transport, FetchLike } from "../shared/transport.js";
 import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
+import { normalizeHeaders } from "../shared/headers.js";
 
 export class SseError extends Error {
   constructor(
@@ -107,7 +108,7 @@ export class SSEClientTransport implements Transport {
   }
 
   private async _commonHeaders(): Promise<Headers> {
-    const headers: HeadersInit = {};
+    const headers: HeadersInit & Record<string, string> = {};
     if (this._authProvider) {
       const tokens = await this._authProvider.tokens();
       if (tokens) {
@@ -118,9 +119,12 @@ export class SSEClientTransport implements Transport {
       headers["mcp-protocol-version"] = this._protocolVersion;
     }
 
-    return new Headers(
-      { ...headers, ...this._requestInit?.headers }
-    );
+    const extraHeaders = normalizeHeaders(this._requestInit?.headers);
+
+    return new Headers({
+      ...headers,
+      ...extraHeaders,
+    });
   }
 
   private _startOrAuth(): Promise<void> {
