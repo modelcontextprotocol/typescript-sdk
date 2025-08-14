@@ -12,8 +12,16 @@ import {
   auth,
   type OAuthClientProvider,
 } from "./auth.js";
-import {ServerError} from "../server/auth/errors.js";
+import { ServerError } from "../server/auth/errors.js";
 import { AuthorizationServerMetadata } from '../shared/auth.js';
+
+// Mock JWT utilities
+jest.mock('../shared/jwt-utils.js', () => ({
+  JWTAssertionGenerator: {
+    generateClientAssertion: jest.fn().mockResolvedValue('mock.jwt.assertion'),
+    generateBearerAssertion: jest.fn().mockResolvedValue('mock.bearer.assertion'),
+  },
+}));
 
 // Mock fetch globally
 const mockFetch = jest.fn();
@@ -907,7 +915,7 @@ describe("OAuth Authorization", () => {
       const metadata = await discoverAuthorizationServerMetadata("https://auth.example.com/tenant1");
 
       expect(metadata).toBeUndefined();
-      
+
       // Verify that all discovery URLs were attempted
       expect(mockFetch).toHaveBeenCalledTimes(8); // 4 URLs × 2 attempts each (with and without headers)
     });
@@ -1008,12 +1016,12 @@ describe("OAuth Authorization", () => {
     // OpenID Connect requires that the user is prompted for consent if the scope includes 'offline_access'
     it("includes consent prompt parameter if scope includes 'offline_access'", async () => {
       const { authorizationUrl } = await startAuthorization(
-          "https://auth.example.com",
-          {
-            clientInformation: validClientInfo,
-            redirectUrl: "http://localhost:3000/callback",
-            scope: "read write profile offline_access",
-          }
+        "https://auth.example.com",
+        {
+          clientInformation: validClientInfo,
+          redirectUrl: "http://localhost:3000/callback",
+          scope: "read write profile offline_access",
+        }
       );
 
       expect(authorizationUrl.searchParams.get("prompt")).toBe("consent");
@@ -2220,6 +2228,211 @@ describe("OAuth Authorization", () => {
     });
   });
 
+  describe("auth function with JWT Bearer Grant", () => {
+    const mockProvider: OAuthClientProvider = {
+      get redirectUrl() { return "http://localhost:3000/callback"; },
+      get clientMetadata() {
+        return {
+          redirect_uris: ["http://localhost:3000/callback"],
+          grant_types: ["authorization_code", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
+          response_types: ["code"],
+          scope: "read write",
+        };
+      },
+      clientInformation: jest.fn(),
+      tokens: jest.fn(),
+      saveTokens: jest.fn(),
+      redirectToAuthorization: jest.fn(),
+      saveCodeVerifier: jest.fn(),
+      codeVerifier: jest.fn(),
+      jwtCredentials: jest.fn(),
+    };
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it("should exchange JWT bearer assertion for tokens", async () => {
+      const jwtAssertion = 'test-jwt-assertion';
+
+      // Mock client information
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+
+      // Mock no existing tokens
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+
+      // Mock protected resource metadata discovery (404 - not found)
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // Mock authorization server metadata discovery - first URL (path-aware) succeeds
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          issuer: "https://api.example.com",
+          authorization_endpoint: "https://api.example.com/authorize",
+          token_endpoint: "https://api.example.com/token",
+          response_types_supported: ["code"],
+          grant_types_supported: ["authorization_code", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
+          token_endpoint_auth_methods_supported: ["client_secret_basic"],
+        }),
+      });
+
+      // Mock token exchange
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: "access123",
+          token_type: "Bearer",
+          expires_in: 3600,
+        }),
+      });
+
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com",  // Use root URL to avoid multiple discovery URLs
+        jwtBearerAssertion: jwtAssertion,
+        scope: "read write",
+      });
+
+      expect(result).toBe("AUTHORIZED");
+      expect(mockProvider.saveTokens).toHaveBeenCalledWith({
+        access_token: "access123",
+        token_type: "Bearer",
+        expires_in: 3600,
+      });
+
+      // Verify token exchange request
+      const tokenCall = mockFetch.mock.calls[2]; // Third call is token exchange
+      const body = tokenCall[1].body as URLSearchParams;
+      expect(body.get("grant_type")).toBe("urn:ietf:params:oauth:grant-type:jwt-bearer");
+      expect(body.get("assertion")).toBe(jwtAssertion);
+      expect(body.get("scope")).toBe("read write");
+    });
+
+    it("should generate JWT bearer assertion from credentials when jwtBearerAssertion not provided", async () => {
+      // Mock JWT credentials
+      (mockProvider.jwtCredentials as jest.Mock).mockResolvedValue({
+        clientSecret: "jwt-secret",
+        algorithm: "HS256",
+        tokenLifetime: 300,
+      });
+
+      // Mock client information
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+
+      // Mock no existing tokens
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+
+      // Mock protected resource metadata discovery (404 - not found)
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      // Mock authorization server metadata discovery - first URL (path-aware) succeeds
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          issuer: "https://api.example.com",
+          authorization_endpoint: "https://api.example.com/authorize",
+          token_endpoint: "https://api.example.com/token",
+          response_types_supported: ["code"],
+          grant_types_supported: ["authorization_code", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
+          token_endpoint_auth_methods_supported: ["client_secret_basic"],
+        }),
+      });
+
+      // Mock token exchange
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: "access123",
+          token_type: "Bearer",
+          expires_in: 3600,
+        }),
+      });
+
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com",  // Use root URL to avoid multiple discovery URLs
+        scope: "read write",
+      });
+
+      expect(result).toBe("AUTHORIZED");
+      expect(mockProvider.saveTokens).toHaveBeenCalledWith({
+        access_token: "access123",
+        token_type: "Bearer",
+        expires_in: 3600,
+      });
+
+      // Verify token exchange request uses JWT bearer grant
+      const tokenCall = mockFetch.mock.calls[2]; // Third call is token exchange
+      const body = tokenCall[1].body as URLSearchParams;
+      expect(body.get("grant_type")).toBe("urn:ietf:params:oauth:grant-type:jwt-bearer");
+      expect(body.get("assertion")).toBeTruthy(); // Should have generated assertion
+      expect(body.get("scope")).toBe("read write");
+    });
+
+    it("should fall back to authorization code flow when JWT credentials are not available", async () => {
+      // Mock no JWT credentials
+      (mockProvider.jwtCredentials as jest.Mock).mockResolvedValue(undefined);
+
+      // Mock client information
+      (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+        client_id: "test-client",
+        client_secret: "test-secret",
+      });
+
+      // Mock no existing tokens
+      (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+
+      // Mock authorization server metadata discovery
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          issuer: "https://auth.example.com",
+          authorization_endpoint: "https://auth.example.com/authorize",
+          token_endpoint: "https://auth.example.com/token",
+          response_types_supported: ["code"],
+          grant_types_supported: ["authorization_code"],
+          token_endpoint_auth_methods_supported: ["client_secret_basic"],
+        }),
+      });
+
+      const result = await auth(mockProvider, {
+        serverUrl: "https://api.example.com/mcp-server",
+        scope: "read write",
+      });
+
+      expect(result).toBe("REDIRECT");
+      expect(mockProvider.redirectToAuthorization).toHaveBeenCalled();
+      expect(mockProvider.saveCodeVerifier).toHaveBeenCalled();
+    });
+
+    it("should throw error when both jwtBearerAssertion and authorizationCode are provided", async () => {
+      const jwtAssertion = 'test-jwt-assertion';
+
+      await expect(
+        auth(mockProvider, {
+          serverUrl: "https://api.example.com/mcp-server",
+          jwtBearerAssertion: jwtAssertion,
+          authorizationCode: "code123", // This should cause an error
+        })
+      ).rejects.toThrow("Cannot use both authorizationCode and jwtBearerAssertion");
+    });
+  });
+
   describe("exchangeAuthorization with multiple client authentication methods", () => {
     const validTokens = {
       access_token: "access123",
@@ -2398,6 +2611,108 @@ describe("OAuth Authorization", () => {
       const body = request.body as URLSearchParams;
       expect(body.get("client_id")).toBe("client123");
       expect(body.get("client_secret")).toBe("secret123");
+    });
+  });
+
+  describe("exchangeAuthorization with JWT Bearer Grant", () => {
+    const validTokens = {
+      access_token: "access123",
+      token_type: "Bearer",
+      expires_in: 3600,
+    };
+
+    const validClientInfo = {
+      client_id: "client123",
+      client_secret: "secret123",
+      redirect_uris: ["http://localhost:3000/callback"],
+      client_name: "Test Client",
+    };
+
+    const validMetadata = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      response_types_supported: ["code"],
+      token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"],
+    };
+
+    beforeEach(() => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => validTokens,
+      });
+    });
+
+    it("exchanges JWT bearer assertion for tokens", async () => {
+      const jwtAssertion = 'test-jwt-assertion';
+
+      const tokens = await exchangeAuthorization("https://auth.example.com", {
+        metadata: validMetadata,
+        clientInformation: validClientInfo,
+        jwtBearerAssertion: jwtAssertion,
+        scope: "read write",
+        resource: new URL("https://api.example.com"),
+      });
+
+      expect(tokens).toEqual(validTokens);
+
+      const call = mockFetch.mock.calls[0];
+      const body = call[1].body as URLSearchParams;
+
+      expect(body.get("grant_type")).toBe("urn:ietf:params:oauth:grant-type:jwt-bearer");
+      expect(body.get("assertion")).toBe(jwtAssertion);
+      expect(body.get("scope")).toBe("read write");
+      expect(body.get("resource")).toBe("https://api.example.com/");
+
+      // Should not have authorization code parameters
+      expect(body.get("code")).toBeNull();
+      expect(body.get("code_verifier")).toBeNull();
+      expect(body.get("redirect_uri")).toBeNull();
+    });
+
+    it("exchanges JWT bearer assertion without optional parameters", async () => {
+      const jwtAssertion = 'test-jwt-assertion';
+
+      const tokens = await exchangeAuthorization("https://auth.example.com", {
+        metadata: validMetadata,
+        clientInformation: validClientInfo,
+        jwtBearerAssertion: jwtAssertion,
+      });
+
+      expect(tokens).toEqual(validTokens);
+
+      const call = mockFetch.mock.calls[0];
+      const body = call[1].body as URLSearchParams;
+
+      expect(body.get("grant_type")).toBe("urn:ietf:params:oauth:grant-type:jwt-bearer");
+      expect(body.get("assertion")).toBe(jwtAssertion);
+      expect(body.get("scope")).toBeNull();
+      expect(body.get("resource")).toBeNull();
+    });
+
+    it("throws error when mixing JWT bearer assertion with authorization code parameters", async () => {
+      const jwtAssertion = 'test-jwt-assertion';
+
+      await expect(
+        exchangeAuthorization("https://auth.example.com", {
+          metadata: validMetadata,
+          clientInformation: validClientInfo,
+          jwtBearerAssertion: jwtAssertion,
+          authorizationCode: "code123", // This should cause an error
+          codeVerifier: "verifier123",
+          redirectUri: "https://client.example.com/callback",
+        })
+      ).rejects.toThrow("JWT Bearer Grant cannot be used with authorization code parameters");
+    });
+
+    it("throws error when neither JWT bearer assertion nor authorization code is provided", async () => {
+      await expect(
+        exchangeAuthorization("https://auth.example.com", {
+          metadata: validMetadata,
+          clientInformation: validClientInfo,
+          // Missing both jwtBearerAssertion and authorizationCode
+        })
+      ).rejects.toThrow("Missing required components to exchange for token");
     });
   });
 

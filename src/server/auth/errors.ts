@@ -177,12 +177,46 @@ export class CustomOAuthError extends OAuthError {
 }
 
 /**
+ * Invalid JWT error - The JWT assertion is malformed, has invalid claims, or signature verification failed.
+ */
+export class InvalidJWTError extends InvalidClientError {
+  constructor(description?: string, uri?: string) {
+    super(description || 'Invalid JWT assertion', uri);
+  }
+}
+
+/**
+ * Unsupported JWT algorithm error - The JWT uses an algorithm that is not supported by the server.
+ */
+export class UnsupportedJWTAlgorithmError extends InvalidClientError {
+  constructor(algorithm: string) {
+    super(`Unsupported JWT algorithm: ${algorithm}`);
+  }
+}
+
+/**
+ * Expired JWT error - The JWT assertion has expired.
+ */
+export class ExpiredJWTError extends InvalidGrantError {
+  constructor() {
+    super('JWT assertion has expired');
+  }
+}
+
+/**
+ * Invalid JWT audience error - The JWT audience claim does not match the expected value.
+ */
+export class InvalidJWTAudienceError extends InvalidGrantError {
+  constructor(expected: string, actual: string) {
+    super(`Invalid JWT audience. Expected: ${expected}, Got: ${actual}`);
+  }
+}
+
+/**
  * A full list of all OAuthErrors, enabling parsing from error responses
  */
 export const OAUTH_ERRORS = {
   [InvalidRequestError.errorCode]: InvalidRequestError,
-  [InvalidClientError.errorCode]: InvalidClientError,
-  [InvalidGrantError.errorCode]: InvalidGrantError,
   [UnauthorizedClientError.errorCode]: UnauthorizedClientError,
   [UnsupportedGrantTypeError.errorCode]: UnsupportedGrantTypeError,
   [InvalidScopeError.errorCode]: InvalidScopeError,
@@ -196,4 +230,7 @@ export const OAUTH_ERRORS = {
   [TooManyRequestsError.errorCode]: TooManyRequestsError,
   [InvalidClientMetadataError.errorCode]: InvalidClientMetadataError,
   [InsufficientScopeError.errorCode]: InsufficientScopeError,
+  [InvalidClientError.errorCode]: InvalidClientError,
+  [InvalidGrantError.errorCode]: InvalidGrantError,
+  [CustomOAuthError.errorCode]: CustomOAuthError
 } as const;
