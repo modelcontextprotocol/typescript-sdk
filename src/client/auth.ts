@@ -22,6 +22,7 @@ import {
   UnauthorizedClientError
 } from "../server/auth/errors.js";
 import { FetchLike } from "../shared/transport.js";
+import { UserAgentProvider } from "../shared/userAgent.js";
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
@@ -286,6 +287,7 @@ export async function auth(
     scope?: string;
     resourceMetadataUrl?: URL;
     fetchFn?: FetchLike;
+    userAgentProvider: UserAgentProvider;
 }): Promise<AuthResult> {
   try {
     return await authInternal(provider, options);
@@ -311,19 +313,21 @@ async function authInternal(
     scope,
     resourceMetadataUrl,
     fetchFn,
+    userAgentProvider,
   }: {
     serverUrl: string | URL;
     authorizationCode?: string;
     scope?: string;
     resourceMetadataUrl?: URL;
     fetchFn?: FetchLike;
+    userAgentProvider: UserAgentProvider;
   },
 ): Promise<AuthResult> {
 
   let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
   let authorizationServerUrl: string | URL | undefined;
   try {
-    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl }, fetchFn);
+    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, userAgentProvider, { resourceMetadataUrl }, fetchFn);
     if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
       authorizationServerUrl = resourceMetadata.authorization_servers[0];
     }
@@ -341,7 +345,7 @@ async function authInternal(
 
   const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
 
-  const metadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
+  const metadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, userAgentProvider, {
     fetchFn,
   });
 
@@ -360,6 +364,7 @@ async function authInternal(
       metadata,
       clientMetadata: provider.clientMetadata,
       fetchFn,
+      userAgentProvider,
     });
 
     await provider.saveClientInformation(fullInformation);
@@ -377,7 +382,8 @@ async function authInternal(
       redirectUri: provider.redirectUrl,
       resource,
       addClientAuthentication: provider.addClientAuthentication,
-      fetchFn: fetchFn,
+      fetchFn,
+      userAgentProvider,
     });
 
     await provider.saveTokens(tokens);
@@ -397,6 +403,7 @@ async function authInternal(
         resource,
         addClientAuthentication: provider.addClientAuthentication,
         fetchFn,
+        userAgentProvider,
       });
 
       await provider.saveTokens(newTokens);
@@ -486,6 +493,7 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
  */
 export async function discoverOAuthProtectedResourceMetadata(
   serverUrl: string | URL,
+  userAgentProvider: UserAgentProvider,
   opts?: { protocolVersion?: string, resourceMetadataUrl?: string | URL },
   fetchFn: FetchLike = fetch,
 ): Promise<OAuthProtectedResourceMetadata> {
@@ -493,6 +501,7 @@ export async function discoverOAuthProtectedResourceMetadata(
     serverUrl,
     'oauth-protected-resource',
     fetchFn,
+    userAgentProvider,
     {
       protocolVersion: opts?.protocolVersion,
       metadataUrl: opts?.resourceMetadataUrl,
@@ -559,10 +568,12 @@ function buildWellKnownPath(
 async function tryMetadataDiscovery(
   url: URL,
   protocolVersion: string,
+  userAgentProvider: UserAgentProvider,
   fetchFn: FetchLike = fetch,
 ): Promise<Response | undefined> {
   const headers = {
-    "MCP-Protocol-Version": protocolVersion
+    "MCP-Protocol-Version": protocolVersion,
+    "User-Agent": await userAgentProvider(),
   };
   return await fetchWithCorsRetry(url, headers, fetchFn);
 }
@@ -581,6 +592,7 @@ async function discoverMetadataWithFallback(
   serverUrl: string | URL,
   wellKnownType: 'oauth-authorization-server' | 'oauth-protected-resource',
   fetchFn: FetchLike,
+  userAgentProvider: UserAgentProvider,
   opts?: { protocolVersion?: string; metadataUrl?: string | URL, metadataServerUrl?: string | URL },
 ): Promise<Response | undefined> {
   const issuer = new URL(serverUrl);
@@ -596,12 +608,12 @@ async function discoverMetadataWithFallback(
     url.search = issuer.search;
   }
 
-  let response = await tryMetadataDiscovery(url, protocolVersion, fetchFn);
+  let response = await tryMetadataDiscovery(url, protocolVersion, userAgentProvider, fetchFn);
 
   // If path-aware discovery fails with 404 and we're not already at root, try fallback to root discovery
   if (!opts?.metadataUrl && shouldAttemptFallback(response, issuer.pathname)) {
     const rootUrl = new URL(`/.well-known/${wellKnownType}`, issuer);
-    response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
+    response = await tryMetadataDiscovery(rootUrl, protocolVersion, userAgentProvider, fetchFn);
   }
 
   return response;
@@ -617,6 +629,7 @@ async function discoverMetadataWithFallback(
  */
 export async function discoverOAuthMetadata(
   issuer: string | URL,
+  userAgentProvider: UserAgentProvider,
   {
     authorizationServerUrl,
     protocolVersion,
@@ -641,6 +654,7 @@ export async function discoverOAuthMetadata(
     authorizationServerUrl,
     'oauth-authorization-server',
     fetchFn,
+    userAgentProvider,
     {
       protocolVersion,
       metadataServerUrl: authorizationServerUrl,
@@ -742,6 +756,7 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
  */
 export async function discoverAuthorizationServerMetadata(
   authorizationServerUrl: string | URL,
+  userAgentProvider: UserAgentProvider,
   {
     fetchFn = fetch,
     protocolVersion = LATEST_PROTOCOL_VERSION,
@@ -750,7 +765,7 @@ export async function discoverAuthorizationServerMetadata(
     protocolVersion?: string;
   } = {}
 ): Promise<AuthorizationServerMetadata | undefined> {
-  const headers = { 'MCP-Protocol-Version': protocolVersion };
+  const headers = { 'MCP-Protocol-Version': protocolVersion, 'User-Agent': await userAgentProvider() };
 
   // Get the list of URLs to try
   const urlsToTry = buildDiscoveryUrls(authorizationServerUrl);
@@ -900,6 +915,7 @@ export async function exchangeAuthorization(
     resource,
     addClientAuthentication,
     fetchFn,
+    userAgentProvider,
   }: {
     metadata?: AuthorizationServerMetadata;
     clientInformation: OAuthClientInformation;
@@ -909,6 +925,7 @@ export async function exchangeAuthorization(
     resource?: URL;
     addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
     fetchFn?: FetchLike;
+    userAgentProvider: UserAgentProvider;
   },
 ): Promise<OAuthTokens> {
   const grantType = "authorization_code";
@@ -930,6 +947,7 @@ export async function exchangeAuthorization(
   const headers = new Headers({
     "Content-Type": "application/x-www-form-urlencoded",
     "Accept": "application/json",
+    "User-Agent": await userAgentProvider(),
   });
   const params = new URLSearchParams({
     grant_type: grantType,
@@ -986,6 +1004,7 @@ export async function refreshAuthorization(
     resource,
     addClientAuthentication,
     fetchFn,
+    userAgentProvider,
   }: {
     metadata?: AuthorizationServerMetadata;
     clientInformation: OAuthClientInformation;
@@ -993,6 +1012,7 @@ export async function refreshAuthorization(
     resource?: URL;
     addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
     fetchFn?: FetchLike;
+    userAgentProvider: UserAgentProvider;
   }
 ): Promise<OAuthTokens> {
   const grantType = "refresh_token";
@@ -1016,6 +1036,7 @@ export async function refreshAuthorization(
   // Exchange refresh token
   const headers = new Headers({
     "Content-Type": "application/x-www-form-urlencoded",
+    "User-Agent": await userAgentProvider(),
   });
   const params = new URLSearchParams({
     grant_type: grantType,
@@ -1057,10 +1078,12 @@ export async function registerClient(
     metadata,
     clientMetadata,
     fetchFn,
+    userAgentProvider,
   }: {
     metadata?: AuthorizationServerMetadata;
     clientMetadata: OAuthClientMetadata;
     fetchFn?: FetchLike;
+    userAgentProvider: UserAgentProvider;
   },
 ): Promise<OAuthClientInformationFull> {
   let registrationUrl: URL;
@@ -1079,6 +1102,7 @@ export async function registerClient(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "User-Agent": await userAgentProvider(),
     },
     body: JSON.stringify(clientMetadata),
   });
