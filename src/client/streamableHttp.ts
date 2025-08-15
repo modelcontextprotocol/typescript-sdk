@@ -233,8 +233,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
       this._handleSseStream(response.body, options, true);
     } catch (error) {
-      this.onerror?.(error as Error);
-      throw error;
+      throw error as Error;
     }
   }
 
