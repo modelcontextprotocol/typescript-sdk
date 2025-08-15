@@ -12,6 +12,7 @@ import {
   TooManyRequestsError,
   OAuthError
 } from "../errors.js";
+import { fetchClientMetadata } from "../clientIdHelpers.js";
 
 export type AuthorizationHandlerOptions = {
   provider: OAuthServerProvider;
@@ -76,7 +77,25 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
 
       client = await provider.clientsStore.getClient(client_id);
       if (!client) {
-        throw new InvalidClientError("Invalid client_id");
+        // Check if client_id is a URL
+        if (!client_id.startsWith('https://')) {
+          throw new InvalidClientError("Invalid client_id");
+        }
+        // If it's a URL, fetch its metadata
+        try {
+          // Fetch client metadata from the URL using client ID helpers
+          client = await fetchClientMetadata(client_id);
+
+          // Store the fetched metadata, to prevent needing to refetch
+          // TODO: handle expiring metadata
+          // TODO: make this registration independent of DCR
+          if (provider.clientsStore.registerClient) {
+            await provider.clientsStore.registerClient(client);
+          }
+
+        } catch (fetchError) {
+          throw new InvalidClientError(`Failed to fetch client metadata: ${fetchError instanceof Error ? fetchError.message : fetchError}`);
+        }
       }
 
       if (redirect_uri !== undefined) {
