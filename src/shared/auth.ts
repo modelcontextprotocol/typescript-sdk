@@ -8,8 +8,15 @@ export const SafeUrlSchema = z.string().url()
     (url) => URL.canParse(url),
     {message: "URL must be parseable"}
   ).refine(
-    (url) =>  !url.toLowerCase().startsWith('javascript:'),
-    { message: "URL cannot use javascript: scheme" }
+    (url) => {
+      const u = url.trim().toLowerCase();
+      return !(
+        u.startsWith('javascript:') ||
+        u.startsWith('data:') ||
+        u.startsWith('vbscript:')
+      );
+    },
+    { message: "URL cannot use javascript:, data:, or vbscript: scheme" }
 );
 
 
