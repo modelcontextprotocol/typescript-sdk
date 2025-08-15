@@ -571,7 +571,7 @@ async function tryMetadataDiscovery(
  * Determines if fallback to root discovery should be attempted
  */
 function shouldAttemptFallback(response: Response | undefined, pathname: string): boolean {
-  return !response || response.status === 404 && pathname !== '/';
+  return !response || (response.status >= 400 && response.status < 500) && pathname !== '/';
 }
 
 /**
