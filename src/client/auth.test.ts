@@ -212,11 +212,11 @@ describe("OAuth Authorization", () => {
       expect(url.toString()).toBe("https://resource.example.com/.well-known/oauth-protected-resource/path?param=value");
     });
 
-    it("falls back to root discovery when path-aware discovery returns 404", async () => {
-      // First call (path-aware) returns 404
+    it("falls back to root discovery when path-aware discovery fails", async () => {
+      // First call (path-aware) returns 4xx
       mockFetch.mockResolvedValueOnce({
         ok: false,
-        status: 404,
+        status: 401,
       });
 
       // Second call (root fallback) succeeds
@@ -907,7 +907,7 @@ describe("OAuth Authorization", () => {
       const metadata = await discoverAuthorizationServerMetadata("https://auth.example.com/tenant1");
 
       expect(metadata).toBeUndefined();
-      
+
       // Verify that all discovery URLs were attempted
       expect(mockFetch).toHaveBeenCalledTimes(8); // 4 URLs × 2 attempts each (with and without headers)
     });
