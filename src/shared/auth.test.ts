@@ -3,7 +3,6 @@ import {
   SafeUrlSchema,
   OAuthMetadataSchema,
   OpenIdProviderMetadataSchema,
-  OAuthTokensSchema,
   OAuthClientMetadataSchema,
 } from './auth.js';
 
@@ -18,8 +17,8 @@ describe('SafeUrlSchema', () => {
   });
 
   it('rejects javascript: scheme URLs', () => {
-    expect(() => SafeUrlSchema.parse('javascript:alert(1)')).toThrow('URL cannot use javascript: scheme');
-    expect(() => SafeUrlSchema.parse('JAVASCRIPT:alert(1)')).toThrow('URL cannot use javascript: scheme');
+    expect(() => SafeUrlSchema.parse('javascript:alert(1)')).toThrow('URL cannot use javascript:, data:, or vbscript: scheme');
+    expect(() => SafeUrlSchema.parse('JAVASCRIPT:alert(1)')).toThrow('URL cannot use javascript:, data:, or vbscript: scheme');
   });
 
   it('rejects invalid URLs', () => {
@@ -49,7 +48,7 @@ describe('OAuthMetadataSchema', () => {
       response_types_supported: ['code'],
     };
 
-    expect(() => OAuthMetadataSchema.parse(metadata)).toThrow('URL cannot use javascript: scheme');
+    expect(() => OAuthMetadataSchema.parse(metadata)).toThrow('URL cannot use javascript:, data:, or vbscript: scheme');
   });
 
   it('requires mandatory fields', () => {
@@ -87,7 +86,7 @@ describe('OpenIdProviderMetadataSchema', () => {
       id_token_signing_alg_values_supported: ['RS256'],
     };
 
-    expect(() => OpenIdProviderMetadataSchema.parse(metadata)).toThrow('URL cannot use javascript: scheme');
+    expect(() => OpenIdProviderMetadataSchema.parse(metadata)).toThrow('URL cannot use javascript:, data:, or vbscript: scheme');
   });
 });
 
@@ -108,6 +107,6 @@ describe('OAuthClientMetadataSchema', () => {
       client_name: 'Test App',
     };
 
-    expect(() => OAuthClientMetadataSchema.parse(metadata)).toThrow('URL cannot use javascript: scheme');
+    expect(() => OAuthClientMetadataSchema.parse(metadata)).toThrow('URL cannot use javascript:, data:, or vbscript: scheme');
   });
 });
