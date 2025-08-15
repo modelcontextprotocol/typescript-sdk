@@ -11,7 +11,7 @@
   - [Resources](#resources)
   - [Tools](#tools)
   - [Prompts](#prompts)
-  - [Completions](#completions)
+  - [Completions](#argument-completions)
   - [Sampling](#sampling)
 - [Running Your Server](#running-your-server)
   - [stdio](#stdio)
@@ -32,7 +32,7 @@
 
 ## Overview
 
-The Model Context Protocol allows applications to provide context for LLMs in a standardized way, separating the concerns of providing context from the actual LLM interaction. This TypeScript SDK implements the full MCP specification, making it easy to:
+The Model Context Protocol (MCP) allows applications to provide context for LLMs in a standardized way, separating the concerns of providing context from the actual LLM interaction. This TypeScript SDK implements the full MCP specification, making it easy to:
 
 - Build MCP clients that can connect to any MCP server
 - Create MCP servers that expose resources, prompts and tools
@@ -45,7 +45,7 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 npm install @modelcontextprotocol/sdk
 ```
 
-> ⚠️ MCP requires Node.js v18.x or higher to work fine.
+> ⚠️ MCP requires Node.js v18.x or higher for maximum compatibility.
 
 ## Quick Start
 
@@ -97,7 +97,8 @@ await server.connect(transport);
 
 ## What is MCP?
 
-The [Model Context Protocol (MCP)](https://modelcontextprotocol.io) lets you build servers that expose data and functionality to LLM applications in a secure, standardized way. Think of it like a web API, but specifically designed for LLM interactions. MCP servers can:
+The [Model Context Protocol (MCP)](https://modelcontextprotocol.io) lets you build servers that expose data and functionality to LLM applications in a secure, standardized way. Think of it like a web API, but specifically designed for LLM interactions.
+MCP servers can:
 
 - Expose data through **Resources** (think of these sort of like GET endpoints; they are used to load information into the LLM's context)
 - Provide functionality through **Tools** (sort of like POST endpoints; they are used to execute code or otherwise produce a side effect)
@@ -185,7 +186,7 @@ server.registerResource(
 
 ### Tools
 
-Tools let LLMs take actions through your server. Unlike resources, tools are expected to perform computation and have side effects:
+Tools let LLMs take actions through your server. Unlike resources, tools are expected to perform computations and have side effects:
 
 ```typescript
 // Simple tool with parameters
@@ -257,7 +258,7 @@ server.registerTool(
 
 #### ResourceLinks
 
-Tools can return `ResourceLink` objects to reference resources without embedding their full content. This is essential for performance when dealing with large files or many resources - clients can then selectively read only the resources they need using the provided URIs.
+Tools can return `ResourceLink` objects to reference resources without embedding their full content. This is essential for performance when dealing with large files or many resources - clients can selectively read only the resources they need using the provided URIs.
 
 ### Prompts
 
@@ -321,11 +322,10 @@ server.registerPrompt(
 );
 ```
 
-### Completions
+### Argument Completions
 
-MCP supports argument completions to help users fill in prompt arguments and resource template parameters. See the examples above for [resource completions](#resources) and [prompt completions](#prompts).
-
-#### Client Usage
+See the examples above for [resource completions](#resources) and [prompt completions](#prompts).
+MCP supports argument completions to help users fill in prompt arguments and resource template parameters:
 
 ```typescript
 // Request completions for any argument
@@ -349,7 +349,7 @@ const result = await client.complete({
 
 ### Display Names and Metadata
 
-All resources, tools, and prompts support an optional `title` field for better UI presentation. The `title` is used as a display name, while `name` remains the unique identifier.
+All resources, tools, and prompts support an optional `title` field for better UI presentation. `title` is used as a display name, while `name` remains the unique identifier.
 
 **Note:** The `register*` methods (`registerTool`, `registerPrompt`, `registerResource`) are the recommended approach for new code. The older methods (`tool`, `prompt`, `resource`) remain available for backwards compatibility.
 
@@ -359,7 +359,7 @@ For tools specifically, there are two ways to specify a title:
 - `title` field in the tool configuration
 - `annotations.title` field (when using the older `tool()` method with annotations)
 
-The precedence order is: `title` → `annotations.title` → `name`
+The precedence order is: `title` → `annotations.title` → `name`:
 
 ```typescript
 // Using registerTool (recommended)
@@ -387,7 +387,7 @@ const displayName = getDisplayName(tool);
 
 ### Sampling
 
-MCP servers can request LLM completions from connected clients that support sampling.
+MCP servers can request LLM completions from connected clients that support sampling:
 
 ```typescript
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -476,7 +476,7 @@ For remote servers, set up a Streamable HTTP transport that handles both client 
 
 #### With Session Management
 
-In some cases, servers need to be stateful. This is achieved by [session management](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#session-management).
+In some cases, servers need to be stateful. This is achieved with [session management](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#session-management):
 
 ```typescript
 import express from "express";
@@ -570,7 +570,7 @@ app.listen(3000);
 ```
 
 > [!TIP]
-> When using this in a remote environment, make sure to allow the header parameter `mcp-session-id` in CORS. Otherwise, it may result in a `Bad Request: No valid session ID provided` error. Read the following section for examples.
+> When using this in a remote environment, make sure to allow the header parameter `mcp-session-id` in CORS. Otherwise, it may result in a `Bad Request: No valid session ID provided` error. Read this following section for examples.
 
 
 #### CORS Configuration for Browser-Based Clients
@@ -854,7 +854,7 @@ server.registerTool(
 
 If you want to offer an initial set of tools/prompts/resources, but later add additional ones based on user action or external state change, you can add/update/remove them _after_ the Server is connected. This will automatically emit the corresponding `listChanged` notifications:
 
-```ts
+```typescript
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
@@ -921,7 +921,7 @@ This feature coalesces multiple, rapid calls for the same notification type into
 > [!IMPORTANT]
 > This feature is designed for "simple" notifications that do not carry unique data in their parameters. To prevent silent data loss, debouncing is **automatically bypassed** for any notification that contains a `params` object or a `relatedRequestId`. Such notifications will always be sent immediately.
 
-This is an opt-in feature configured during server initialization.
+This is an opt-in feature configured during server initialization:
 
 ```typescript
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -951,7 +951,7 @@ server.registerTool("tool3", ...).disable();
 
 ### Low-Level Server
 
-For more control, you can use the low-level Server class directly:
+For more control, you can use the low-level `Server` class directly:
 
 ```typescript
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -1211,11 +1211,7 @@ This setup allows you to:
 
 ### Backwards Compatibility
 
-Clients and servers with StreamableHttp transport can maintain [backwards compatibility](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility) with the deprecated HTTP+SSE transport (from protocol version 2024-11-05) as follows
-
-#### Client-Side Compatibility
-
-For clients that need to work with both Streamable HTTP and older SSE servers:
+Clients and servers with Streamable HTTP transport can maintain [backwards compatibility](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility) with the deprecated HTTP+SSE transport (from protocol version 2024-11-05) as follows:
 
 ```typescript
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -1248,7 +1244,7 @@ try {
 
 #### Server-Side Compatibility
 
-For servers that need to support both Streamable HTTP and older clients:
+For servers that need to support both Streamable HTTP as well as older clients:
 
 ```typescript
 import express from "express";
