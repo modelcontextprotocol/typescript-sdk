@@ -12,7 +12,10 @@ import {
 /**
  * Interactive client demonstrating custom context feature.
  * 
- * This client shows how API keys are used to authenticate and 
+ * This example uses API keys for authentication, but the same pattern works
+ * with MCP access tokens from the OAuth flow.
+ * 
+ * The client shows how authentication credentials are sent with requests and
  * how the server uses the context to provide user-specific responses.
  */
 
@@ -46,8 +49,8 @@ async function main(): Promise<void> {
   console.log('MCP Custom Context Demo Client');
   console.log('==============================================');
   console.log('\nThis client demonstrates how custom context works:');
-  console.log('1. Authenticate with an API key');
-  console.log('2. The server fetches user context from the API key');
+  console.log('1. Authenticate with credentials (API key or MCP access token)');
+  console.log('2. The server validates credentials and fetches user context');
   console.log('3. Tools receive the context and respond based on user permissions\n');
 
   printHelp();
@@ -160,12 +163,14 @@ async function authenticateWithKey(apiKey: string): Promise<void> {
   // Store the API key for this session (used in fetch)
   console.log(`\n🔐 Authenticating with API key: ${apiKey.substring(0, 15)}...`);
 
-  // Create transport with API key in headers
+  // Create transport with authentication credentials in headers
+  // This example uses API key, but you could also use MCP access tokens
   transport = new StreamableHTTPClientTransport(
     new URL(serverUrl),
     {
       fetch: async (url: string | URL, options?: RequestInit) => {
-        // Add API key to all requests
+        // Add authentication credentials to all requests
+        // For MCP access token: use Authorization header instead of X-API-Key
         // Handle Headers object or plain object
         let headers: HeadersInit;
         if (options?.headers instanceof Headers) {

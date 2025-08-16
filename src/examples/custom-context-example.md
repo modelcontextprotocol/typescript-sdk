@@ -6,7 +6,7 @@ This example demonstrates the **Custom Context** feature that allows MCP servers
 
 Custom Context allows transport implementations to attach arbitrary data that will be available to all request handlers (tools, prompts, resources). This is essential for:
 
-- **Authentication**: Pass user identity from API keys or tokens
+- **Authentication**: Pass user identity from API keys or MCP access tokens
 - **Multi-tenancy**: Isolate data between different organizations
 - **Permissions**: Enforce access control based on user roles
 - **Request tracking**: Add request IDs for debugging and auditing
@@ -142,17 +142,23 @@ Content:
 
 ### Server Side
 
-1. **API Key Extraction**: The server extracts the API key from request headers
-2. **Context Fetching**: Uses the API key to fetch user context from a "database"
+1. **Authentication Extraction**: The server extracts authentication credentials from request headers
+2. **Context Fetching**: Uses the credentials to fetch/validate user context
 3. **Context Injection**: Calls `transport.setCustomContext(userContext)`
 4. **Tool Access**: Tools receive context via `extra.customContext`
 
 ```typescript
-// In the server
-const context = fetchUserContext(apiKey);
+// Example with API key (shown in demo)
+const apiKey = request.headers.get('x-api-key');
+const context = await fetchUserContextByApiKey(apiKey);
 transport.setCustomContext(context);
 
-// In tool handlers
+// Example with MCP access token (OAuth flow)
+const accessToken = request.headers.get('authorization')?.replace('Bearer ', '');
+const context = await validateMcpAccessToken(accessToken);
+transport.setCustomContext(context);
+
+// In tool handlers (same regardless of auth method)
 async (params, extra) => {
   const context = extra.customContext as UserContext;
   if (!context.permissions.includes('required:permission')) {
@@ -164,15 +170,28 @@ async (params, extra) => {
 
 ### Client Side
 
-The client adds the API key to all requests:
+The client adds authentication credentials to all requests:
 
 ```typescript
+// Example with API key (shown in demo)
 const transport = new StreamableHTTPClientTransport({
   url: serverUrl,
   fetch: async (url, options) => {
     const headers = {
       ...options?.headers,
       'X-API-Key': apiKey,
+    };
+    return fetch(url, { ...options, headers });
+  }
+});
+
+// Example with MCP access token (OAuth flow)
+const transport = new StreamableHTTPClientTransport({
+  url: serverUrl,
+  fetch: async (url, options) => {
+    const headers = {
+      ...options?.headers,
+      'Authorization': `Bearer ${mcpAccessToken}`,
     };
     return fetch(url, { ...options, headers });
   }
@@ -190,7 +209,7 @@ const transport = new StreamableHTTPClientTransport({
 
 ## Key Features Demonstrated
 
-1. **Authentication**: API key-based user authentication
+1. **Authentication**: Supports both API keys and MCP access tokens
 2. **Tool Context**: `get_user` tool accesses user context
 3. **Prompt Context**: `user-dashboard` prompt personalizes content based on context
 4. **Resource Context**: `user-profile` resource returns context-aware data

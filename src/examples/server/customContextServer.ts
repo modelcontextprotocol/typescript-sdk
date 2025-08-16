@@ -9,9 +9,12 @@ import cors from 'cors';
 /**
  * Example server demonstrating custom context feature.
  * 
- * This server simulates API key authentication where:
- * - Each request includes an API key
- * - The API key is used to fetch user context from a "database"
+ * This example uses API key authentication for simplicity, but the same pattern
+ * works with MCP access tokens from the OAuth flow.
+ * 
+ * The authentication flow:
+ * - Each request includes authentication credentials (API key or MCP access token)
+ * - The credentials are used to fetch/validate user context
  * - Tools can access the authenticated user's information
  * - Different users have different permissions and data access
  * 
@@ -21,7 +24,7 @@ import cors from 'cors';
  * - organizationId: User's organization
  * - role: User's role (admin, developer, user)
  * - permissions: What the user is allowed to do
- * - apiKeyId: The API key used
+ * - apiKeyId: The credential identifier
  * - requestId: For tracking and logging
  */
 
@@ -314,9 +317,12 @@ app.use(cors({
 // Map to store transports by session ID
 const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
-// Function to fetch user context from API key
+// Function to fetch user context from authentication credentials
+// This example uses API keys, but you could also validate MCP access tokens
 const fetchUserContext = (apiKey: string): UserContext | undefined => {
-  // In a real application, this would query a database
+  // In a real application, this would:
+  // - For API keys: query your database
+  // - For MCP access tokens: validate with MCP OAuth server
   const baseContext = apiKeyDatabase[apiKey];
   
   if (!baseContext) {
@@ -334,10 +340,11 @@ const fetchUserContext = (apiKey: string): UserContext | undefined => {
 
 // Middleware to extract user context from API key
 const extractUserContext = (req: Request): UserContext | undefined => {
-  // Check for API key in various places
+  // Extract authentication credentials from the request
+  // This example uses API keys, but you could also extract MCP access tokens
   const apiKey = 
     req.headers['x-api-key'] as string ||
-    req.headers['authorization']?.replace('Bearer ', '') as string ||
+    req.headers['authorization']?.replace('Bearer ', '') as string ||  // MCP access token would be here
     (req.query?.api_key as string);
   
   if (!apiKey) {
