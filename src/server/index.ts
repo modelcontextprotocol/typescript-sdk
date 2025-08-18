@@ -32,6 +32,7 @@ import {
   ServerRequest,
   ServerResult,
   SUPPORTED_PROTOCOL_VERSIONS,
+  LoggingLevel, SetLevelRequestSchema,
 } from "../types.js";
 import Ajv from "ajv";
 
@@ -108,7 +109,33 @@ export class Server<
     this.setNotificationHandler(InitializedNotificationSchema, () =>
       this.oninitialized?.(),
     );
+
+    if (this._capabilities.logging) {
+        this.setRequestHandler(SetLevelRequestSchema, async (request) => {
+            const { level } = request.params;
+            this._logLevel = level;
+            return {};
+        })
+    }
   }
+
+  private _logLevel: LoggingLevel = "debug";
+  private _msgLevels = [
+    { level: "debug" },
+    { level: "info" },
+    { level: "notice" },
+    { level: "warning" },
+    { level: "error"  },
+    { level: "critical" },
+    { level: "alert" },
+    { level: "emergency" },
+  ];
+
+  private isMessageIgnored = (level: LoggingLevel): boolean => {
+    const currentLevel = this._msgLevels.findIndex((msg) => this._logLevel === msg.level);
+    const messageLevel = this._msgLevels.findIndex((msg) => level === msg.level);
+    return messageLevel < currentLevel;
+  };
 
   /**
    * Registers new capabilities. This can only be called before connecting to a transport.
@@ -121,7 +148,6 @@ export class Server<
         "Cannot register capabilities after connecting to transport",
       );
     }
-
     this._capabilities = mergeCapabilities(this._capabilities, capabilities);
   }
 
@@ -324,10 +350,10 @@ export class Server<
     if (result.action === "accept" && result.content) {
       try {
         const ajv = new Ajv();
-        
+
         const validate = ajv.compile(params.requestedSchema);
         const isValid = validate(result.content);
-        
+
         if (!isValid) {
           throw new McpError(
             ErrorCode.InvalidParams,
@@ -360,7 +386,9 @@ export class Server<
   }
 
   async sendLoggingMessage(params: LoggingMessageNotification["params"]) {
-    return this.notification({ method: "notifications/message", params });
+      return (!this.isMessageIgnored(params.level))
+        ? this.notification({ method: "notifications/message", params })
+        : undefined
   }
 
   async sendResourceUpdated(params: ResourceUpdatedNotification["params"]) {

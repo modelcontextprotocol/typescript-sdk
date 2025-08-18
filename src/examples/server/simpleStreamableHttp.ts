@@ -58,27 +58,18 @@ const getServer = () => {
       readOnlyHint: true,
       openWorldHint: false
     },
-    async ({ name }, { sendNotification }): Promise<CallToolResult> => {
+    async ({ name }): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-      await sendNotification({
-        method: "notifications/message",
-        params: { level: "debug", data: `Starting multi-greet for ${name}` }
-      });
+      await server.sendLoggingMessage({ level: "debug", data: `Starting multi-greet for ${name}`});
 
       await sleep(1000); // Wait 1 second before first greeting
 
-      await sendNotification({
-        method: "notifications/message",
-        params: { level: "info", data: `Sending first greeting to ${name}` }
-      });
+      await server.sendLoggingMessage( { level: "info", data: `Sending first greeting to ${name}`});
 
       await sleep(1000); // Wait another second before second greeting
 
-      await sendNotification({
-        method: "notifications/message",
-        params: { level: "info", data: `Sending second greeting to ${name}` }
-      });
+      await server.sendLoggingMessage( { level: "info", data: `Sending second greeting to ${name}`});
 
       return {
         content: [
@@ -273,20 +264,17 @@ const getServer = () => {
       interval: z.number().describe('Interval in milliseconds between notifications').default(100),
       count: z.number().describe('Number of notifications to send (0 for 100)').default(50),
     },
-    async ({ interval, count }, { sendNotification }): Promise<CallToolResult> => {
+    async ({ interval, count }): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
       let counter = 0;
 
       while (count === 0 || counter < count) {
         counter++;
         try {
-          await sendNotification({
-            method: "notifications/message",
-            params: {
-              level: "info",
-              data: `Periodic notification #${counter} at ${new Date().toISOString()}`
-            }
-          });
+            await server.sendLoggingMessage( {
+                level: "info",
+                data: `Periodic notification #${counter} at ${new Date().toISOString()}`
+            });
         }
         catch (error) {
           console.error("Error sending notification:", error);
