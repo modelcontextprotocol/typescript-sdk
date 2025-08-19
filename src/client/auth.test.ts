@@ -212,11 +212,11 @@ describe("OAuth Authorization", () => {
       expect(url.toString()).toBe("https://resource.example.com/.well-known/oauth-protected-resource/path?param=value");
     });
 
-    it("falls back to root discovery when path-aware discovery fails", async () => {
+    it.each([400, 401, 403, 404, 410, 422, 429])("falls back to root discovery when path-aware discovery returns %d", async (statusCode) => {
       // First call (path-aware) returns 4xx
       mockFetch.mockResolvedValueOnce({
         ok: false,
-        status: 401,
+        status: statusCode,
       });
 
       // Second call (root fallback) succeeds
@@ -265,6 +265,20 @@ describe("OAuth Authorization", () => {
 
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(2);
+    });
+
+    it("throws error on 500 status and does not fallback", async () => {
+      // First call (path-aware) returns 500
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+      });
+
+      await expect(discoverOAuthProtectedResourceMetadata("https://resource.example.com/path/name"))
+        .rejects.toThrow();
+
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(1); // Should not attempt fallback
     });
 
     it("does not fallback when the original URL is already at root path", async () => {
