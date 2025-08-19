@@ -111,29 +111,32 @@ export class Server<
     );
 
     if (this._capabilities.logging) {
-        this.setRequestHandler(SetLevelRequestSchema, async (request) => {
+        this.setRequestHandler(SetLevelRequestSchema, async (request, extra) => {
+            const transportSessionId: string | undefined = extra.sessionId || extra.requestInfo?.headers['mcp-session-id'] as string || undefined;
             const { level } = request.params;
-            this._logLevel = level;
+            if (transportSessionId && this._levelNames.some(l => l === level)) {
+                this._loggingLevels.set(transportSessionId, level);
+            }
             return {};
         })
     }
   }
 
-  private _logLevel: LoggingLevel = "debug";
-  private _msgLevels = [
-    { level: "debug" },
-    { level: "info" },
-    { level: "notice" },
-    { level: "warning" },
-    { level: "error"  },
-    { level: "critical" },
-    { level: "alert" },
-    { level: "emergency" },
+  private _loggingLevels = new Map<string, LoggingLevel>();
+  private _levelNames = [
+    "debug",
+    "info",
+    "notice",
+    "warning",
+    "error",
+    "critical",
+    "alert",
+    "emergency",
   ];
 
-  private isMessageIgnored = (level: LoggingLevel): boolean => {
-    const currentLevel = this._msgLevels.findIndex((msg) => this._logLevel === msg.level);
-    const messageLevel = this._msgLevels.findIndex((msg) => level === msg.level);
+  private isMessageIgnored = (level: LoggingLevel, sessionId: string): boolean => {
+    const currentLevel = this._levelNames.findIndex((l) => this._loggingLevels.get(sessionId) === l);
+    const messageLevel = this._levelNames.findIndex((l) => level === l);
     return messageLevel < currentLevel;
   };
 
@@ -385,10 +388,19 @@ export class Server<
     );
   }
 
-  async sendLoggingMessage(params: LoggingMessageNotification["params"]) {
-      return (!this.isMessageIgnored(params.level))
-        ? this.notification({ method: "notifications/message", params })
-        : undefined
+    /**
+     * Sends a logging message to the client, if connected.
+     * Note: You only need to send the parameters object, not the entire JSON RPC message
+     * @see LoggingMessageNotification
+     * @param params
+     * @param sessionId optional for stateless and backward compatibility
+     */
+    async sendLoggingMessage(params: LoggingMessageNotification["params"], sessionId?: string) {
+      if (this._capabilities.logging) {
+          if (!sessionId || !this.isMessageIgnored(params.level, sessionId)) {
+              return this.notification({method: "notifications/message", params})
+          }
+      }
   }
 
   async sendResourceUpdated(params: ResourceUpdatedNotification["params"]) {

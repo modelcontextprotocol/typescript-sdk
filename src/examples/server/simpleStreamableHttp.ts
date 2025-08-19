@@ -58,18 +58,27 @@ const getServer = () => {
       readOnlyHint: true,
       openWorldHint: false
     },
-    async ({ name }): Promise<CallToolResult> => {
+    async ({ name }, extra): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-      await server.sendLoggingMessage({ level: "debug", data: `Starting multi-greet for ${name}`});
+      await server.sendLoggingMessage({
+          level: "debug",
+          data: `Starting multi-greet for ${name}`
+      }, extra.sessionId);
 
       await sleep(1000); // Wait 1 second before first greeting
 
-      await server.sendLoggingMessage( { level: "info", data: `Sending first greeting to ${name}`});
+      await server.sendLoggingMessage({
+          level: "info",
+          data: `Sending first greeting to ${name}`
+      }, extra.sessionId);
 
       await sleep(1000); // Wait another second before second greeting
 
-      await server.sendLoggingMessage( { level: "info", data: `Sending second greeting to ${name}`});
+      await server.sendLoggingMessage({
+          level: "info",
+          data: `Sending second greeting to ${name}`
+      }, extra.sessionId);
 
       return {
         content: [
@@ -264,7 +273,7 @@ const getServer = () => {
       interval: z.number().describe('Interval in milliseconds between notifications').default(100),
       count: z.number().describe('Number of notifications to send (0 for 100)').default(50),
     },
-    async ({ interval, count }): Promise<CallToolResult> => {
+    async ({ interval, count }, extra): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
       let counter = 0;
 
@@ -274,7 +283,7 @@ const getServer = () => {
             await server.sendLoggingMessage( {
                 level: "info",
                 data: `Periodic notification #${counter} at ${new Date().toISOString()}`
-            });
+            }, extra.sessionId);
         }
         catch (error) {
           console.error("Error sending notification:", error);
