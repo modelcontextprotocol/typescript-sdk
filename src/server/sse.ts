@@ -2,12 +2,11 @@ import { randomUUID } from "node:crypto";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Transport } from "../shared/transport.js";
 import { JSONRPCMessage, JSONRPCMessageSchema, MessageExtraInfo, RequestInfo } from "../types.js";
-import getRawBody from "raw-body";
 import contentType from "content-type";
 import { AuthInfo } from "./auth/types.js";
 import { URL } from 'url';
 
-const MAXIMUM_MESSAGE_SIZE = "4mb";
+const MAXIMUM_MESSAGE_SIZE = 4 * 1024 * 1024; // 4MB
 
 /**
  * Configuration options for SSEServerTransport.
@@ -161,7 +160,7 @@ export class SSEServerTransport implements Transport {
 
       body = parsedBody ?? await getRawBody(req, {
         limit: MAXIMUM_MESSAGE_SIZE,
-        encoding: ct.parameters.charset ?? "utf-8",
+        encoding: (ct.parameters.charset as BufferEncoding) ?? "utf-8",
       });
     } catch (error) {
       res.writeHead(400).end(String(error));
@@ -218,4 +217,24 @@ export class SSEServerTransport implements Transport {
   get sessionId(): string {
     return this._sessionId;
   }
+}
+
+export function getRawBody(req: IncomingMessage, { limit, encoding }: { limit: number, encoding: BufferEncoding }) {
+  return new Promise<string>((resolve, reject) => {
+    let received = 0;
+
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => {
+      received += chunk.length;
+      if (received > limit)
+        return reject(new Error(`Message size exceeds limit of ${limit} bytes`));
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      resolve(Buffer.concat(chunks).toString(encoding));
+    });
+    req.on('error', (error) => {
+      reject(error);
+    });
+  });
 }
