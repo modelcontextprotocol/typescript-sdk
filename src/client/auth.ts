@@ -481,6 +481,7 @@ async function authInternal(
     const fullInformation = await registerClient(authorizationServerUrl, {
       metadata,
       clientMetadata: provider.clientMetadata,
+      fetchFn,
     });
 
     await provider.saveClientInformation(fullInformation);
@@ -548,6 +549,7 @@ async function authInternal(
         resource,
         addClientAuthentication: provider.addClientAuthentication,
         jwtCredentials,
+        fetchFn,
       });
 
       await provider.saveTokens(newTokens);
