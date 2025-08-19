@@ -4,10 +4,17 @@ import { z } from "zod";
  * Reusable URL validation that disallows javascript: scheme
  */
 export const SafeUrlSchema = z.string().url()
-  .refine(
-    (url) => URL.canParse(url),
-    {message: "URL must be parseable"}
-  ).refine(
+  .superRefine((val, ctx) => {
+    if (!URL.canParse(val)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "URL must be parseable",
+        fatal: true,
+      });
+
+      return z.NEVER;
+    }
+  }).refine(
     (url) => {
       const u = new URL(url);
       return u.protocol !== 'javascript:' && u.protocol !== 'data:' && u.protocol !== 'vbscript:';

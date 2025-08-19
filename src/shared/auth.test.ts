@@ -25,6 +25,10 @@ describe('SafeUrlSchema', () => {
     expect(() => SafeUrlSchema.parse('not-a-url')).toThrow();
     expect(() => SafeUrlSchema.parse('')).toThrow();
   });
+
+  it('works with safeParse', () => {
+    expect(() => SafeUrlSchema.safeParse('not-a-url')).not.toThrow();
+  });
 });
 
 describe('OAuthMetadataSchema', () => {
