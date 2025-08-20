@@ -1,6 +1,6 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import { Protocol, SessionState } from './protocol.js';
-import { ErrorCode, JSONRPCRequest, JSONRPCNotification, JSONRPCMessage, Request, Notification, Result, MessageExtraInfo } from '../types.js';
+import { ErrorCode, JSONRPCRequest, JSONRPCMessage, Request, Notification, Result, MessageExtraInfo } from '../types.js';
 import { Transport } from './transport.js';
 
 // Mock transport for testing

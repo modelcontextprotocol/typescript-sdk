@@ -147,9 +147,9 @@ export type RequestHandlerExtra<SendRequestT extends Request,
     authInfo?: AuthInfo;
 
     /**
-     * The session ID from the transport, if available.
+     * The session ID from the protocol session, if available.
      */
-    sessionId?: string;
+    sessionId?: SessionId;
 
     /**
      * Metadata from the original request.
@@ -480,8 +480,9 @@ export abstract class Protocol<
     const handler =
       this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
 
-    // Capture the current transport at request time to ensure responses go to the correct client
+    // Capture the current transport and session state at request time to ensure responses go to the correct client
     const capturedTransport = this._transport;
+    const capturedSessionState = this._sessionState ? { ...this._sessionState } : undefined;
 
     if (handler === undefined) {
       capturedTransport
@@ -492,6 +493,7 @@ export abstract class Protocol<
             code: ErrorCode.MethodNotFound,
             message: "Method not found",
           },
+          ...(capturedSessionState && { sessionId: capturedSessionState.sessionId }),
         })
         .catch((error) =>
           this._onerror(
@@ -506,7 +508,7 @@ export abstract class Protocol<
 
     const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
       signal: abortController.signal,
-      sessionId: capturedTransport?.sessionId,
+      sessionId: capturedSessionState?.sessionId,
       _meta: request.params?._meta,
       sendNotification:
         (notification) =>
@@ -531,6 +533,7 @@ export abstract class Protocol<
             result,
             jsonrpc: "2.0",
             id: request.id,
+            ...(capturedSessionState && { sessionId: capturedSessionState.sessionId }),
           });
         },
         (error) => {
@@ -547,6 +550,7 @@ export abstract class Protocol<
                 : ErrorCode.InternalError,
               message: error.message ?? "Internal error",
             },
+            ...(capturedSessionState && { sessionId: capturedSessionState.sessionId }),
           });
         },
       )
