@@ -26,15 +26,15 @@ class TestProtocol extends Protocol<Request, Notification, Result> {
   protected assertRequestHandlerCapability(_method: string): void {}
   
   // Expose protected methods for testing
-  public testValidateSessionId(sessionId?: string | number) {
+  public testValidateSessionId(sessionId?: string) {
     return this.validateSessionId(sessionId);
   }
   
-  public testCreateSession(sessionId: string | number, timeout?: number) {
+  public testCreateSession(sessionId: string, timeout?: number) {
     return this.createSession(sessionId, timeout);
   }
   
-  public testTerminateSession(sessionId?: string | number) {
+  public testTerminateSession(sessionId?: string) {
     return this.terminateSession(sessionId);
   }
   

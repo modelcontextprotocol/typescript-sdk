@@ -1,6 +1,7 @@
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Transport } from "../shared/transport.js";
-import { MessageExtraInfo, RequestInfo, isInitializeRequest, isJSONRPCError, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema, RequestId, SUPPORTED_PROTOCOL_VERSIONS, DEFAULT_NEGOTIATED_PROTOCOL_VERSION } from "../types.js";
+import { SessionState, SessionOptions } from "../shared/protocol.js";
+import { MessageExtraInfo, RequestInfo, isJSONRPCError, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema, RequestId, SUPPORTED_PROTOCOL_VERSIONS, DEFAULT_NEGOTIATED_PROTOCOL_VERSION } from "../types.js";
 import getRawBody from "raw-body";
 import contentType from "content-type";
 import { randomUUID } from "node:crypto";
@@ -128,33 +129,57 @@ export interface StreamableHTTPServerTransportOptions {
  * - No session validation is performed
  */
 export class StreamableHTTPServerTransport implements Transport {
-  // when sessionId is not set (undefined), it means the transport is in stateless mode
-  private sessionIdGenerator: (() => string) | undefined;
   private _started: boolean = false;
   private _streamMapping: Map<string, ServerResponse> = new Map();
   private _requestToStreamMapping: Map<RequestId, string> = new Map();
   private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
-  private _initialized: boolean = false;
   private _enableJsonResponse: boolean = false;
   private _standaloneSseStreamId: string = '_GET_stream';
   private _eventStore?: EventStore;
-  private _onsessioninitialized?: (sessionId: string) => void | Promise<void>;
-  private _onsessionclosed?: (sessionId: string) => void | Promise<void>;
   private _allowedHosts?: string[];
   private _allowedOrigins?: string[];
   private _enableDnsRebindingProtection: boolean;
-
-  sessionId?: string;
+  private _sessionState?: SessionState; // Reference to server's session state
+  private _legacySessionCallbacks?: SessionOptions; // Legacy callbacks for backward compatibility
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
 
+  /**
+   * Sets the session state reference for HTTP header handling.
+   * Called by the server when session is created.
+   */
+  setSessionState(sessionState: SessionState): void {
+    this._sessionState = sessionState;
+  }
+
+  /**
+   * Gets the current sessionId for HTTP headers.
+   * Returns undefined if no session is active.
+   */
+  get sessionId(): string | undefined {
+    return this._sessionState?.sessionId;
+  }
+
+  /**
+   * Gets legacy session callbacks for delegation to server.
+   * Used for backward compatibility when server connects.
+   */
+  getLegacySessionCallbacks(): SessionOptions | undefined {
+    return this._legacySessionCallbacks;
+  }
+
   constructor(options: StreamableHTTPServerTransportOptions) {
-    this.sessionIdGenerator = options.sessionIdGenerator;
+    // Store legacy session callbacks for delegation to server
+    this._legacySessionCallbacks = {
+      sessionIdGenerator: options.sessionIdGenerator,
+      onsessioninitialized: options.onsessioninitialized,
+      onsessionclosed: options.onsessionclosed
+    };
+    
+    // Transport options
     this._enableJsonResponse = options.enableJsonResponse ?? false;
     this._eventStore = options.eventStore;
-    this._onsessioninitialized = options.onsessioninitialized;
-    this._onsessionclosed = options.onsessionclosed;
     this._allowedHosts = options.allowedHosts;
     this._allowedOrigins = options.allowedOrigins;
     this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
@@ -248,12 +273,7 @@ export class StreamableHTTPServerTransport implements Transport {
       return;
     }
 
-    // If an Mcp-Session-Id is returned by the server during initialization,
-    // clients using the Streamable HTTP transport MUST include it
-    // in the Mcp-Session-Id header on all of their subsequent HTTP requests.
-    if (!this.validateSession(req, res)) {
-      return;
-    }
+    // Session validation now handled by server through protocol layer
     if (!this.validateProtocolVersion(req, res)) {
       return;
     }
@@ -426,56 +446,39 @@ export class StreamableHTTPServerTransport implements Transport {
         messages = [JSONRPCMessageSchema.parse(rawMessage)];
       }
 
-      // Check if this is an initialization request
-      // https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle/
-      const isInitializationRequest = messages.some(isInitializeRequest);
-      if (isInitializationRequest) {
-        // If it's a server with session management and the session ID is already set we should reject the request
-        // to avoid re-initialization.
-        if (this._initialized && this.sessionId !== undefined) {
-          res.writeHead(400).end(JSON.stringify({
-            jsonrpc: "2.0",
-            error: {
-              code: -32600,
-              message: "Invalid Request: Server already initialized"
-            },
-            id: null
-          }));
-          return;
+      // Inject sessionId from HTTP headers into protocol messages (for backward compatibility)
+      const headerSessionId = req.headers["mcp-session-id"];
+      if (headerSessionId && !Array.isArray(headerSessionId)) {
+        // Check for sessionId mismatches first
+        for (const message of messages) {
+          if ('sessionId' in message && message.sessionId !== undefined) {
+            if (message.sessionId !== headerSessionId) {
+              // SessionId mismatch between header and protocol message
+              res.writeHead(400).end(JSON.stringify({
+                jsonrpc: "2.0",
+                error: {
+                  code: -32000,
+                  message: "Bad Request: SessionId mismatch between header and protocol message"
+                },
+                id: null
+              }));
+              return; // Fail entire request
+            }
+          }
         }
-        if (messages.length > 1) {
-          res.writeHead(400).end(JSON.stringify({
-            jsonrpc: "2.0",
-            error: {
-              code: -32600,
-              message: "Invalid Request: Only one initialization request is allowed"
-            },
-            id: null
-          }));
-          return;
-        }
-        this.sessionId = this.sessionIdGenerator?.();
-        this._initialized = true;
-
-        // If we have a session ID and an onsessioninitialized handler, call it immediately
-        // This is needed in cases where the server needs to keep track of multiple sessions
-        if (this.sessionId && this._onsessioninitialized) {
-          await Promise.resolve(this._onsessioninitialized(this.sessionId));
-        }
-
+        
+        // No mismatches, proceed with injection
+        messages = messages.map(message => {
+          // Inject header sessionId if message doesn't have one
+          if (!('sessionId' in message) || message.sessionId === undefined) {
+            return { ...message, sessionId: headerSessionId };
+          }
+          return message; // Keep existing sessionId
+        });
       }
-      if (!isInitializationRequest) {
-        // If an Mcp-Session-Id is returned by the server during initialization,
-        // clients using the Streamable HTTP transport MUST include it 
-        // in the Mcp-Session-Id header on all of their subsequent HTTP requests.
-        if (!this.validateSession(req, res)) {
-          return;
-        }
-        // Mcp-Protocol-Version header is required for all requests after initialization.
-        if (!this.validateProtocolVersion(req, res)) {
-          return;
-        }
-      }
+
+      // All message validation and processing now handled by server
+      // Transport is now a pure HTTP-to-protocol bridge
 
 
       // check if it contains requests
@@ -543,82 +546,47 @@ export class StreamableHTTPServerTransport implements Transport {
   }
 
   /**
-   * Handles DELETE requests to terminate sessions
+   * Handles DELETE requests to terminate sessions 
+   * 
+   * Note: backward compatibility. Handler delegates via a SessionTerminateRequest message to the server
    */
   private async handleDeleteRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (!this.validateSession(req, res)) {
-      return;
-    }
     if (!this.validateProtocolVersion(req, res)) {
       return;
     }
-    await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
-    await this.close();
+    
+    // Extract sessionId from header and convert to session/terminate protocol message
+    const headerSessionId = req.headers["mcp-session-id"];
+    if (!headerSessionId || Array.isArray(headerSessionId)) {
+      res.writeHead(400).end(JSON.stringify({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: "Bad Request: Mcp-Session-Id header required for session termination"
+        },
+        id: null
+      }));
+      return;
+    }
+
+    // Create session/terminate protocol message
+    const terminateMessage: JSONRPCMessage = {
+      jsonrpc: "2.0",
+      id: Date.now(), // Simple ID for internal message
+      method: "session/terminate",
+      sessionId: headerSessionId
+    };
+
+    // Send to server for processing (server handles validation and termination)
+    this.onmessage?.(terminateMessage, { 
+      requestInfo: { headers: req.headers }
+    });
+    
+    // Response will be sent by server through normal protocol flow
     res.writeHead(200).end();
   }
 
-  /**
-   * Validates session ID for non-initialization requests
-   * Returns true if the session is valid, false otherwise
-   */
-  private validateSession(req: IncomingMessage, res: ServerResponse): boolean {
-    if (this.sessionIdGenerator === undefined) {
-      // If the sessionIdGenerator ID is not set, the session management is disabled
-      // and we don't need to validate the session ID
-      return true;
-    }
-    if (!this._initialized) {
-      // If the server has not been initialized yet, reject all requests
-      res.writeHead(400).end(JSON.stringify({
-        jsonrpc: "2.0",
-        error: {
-          code: -32000,
-          message: "Bad Request: Server not initialized"
-        },
-        id: null
-      }));
-      return false;
-    }
-
-    const sessionId = req.headers["mcp-session-id"];
-
-    if (!sessionId) {
-      // Non-initialization requests without a session ID should return 400 Bad Request
-      res.writeHead(400).end(JSON.stringify({
-        jsonrpc: "2.0",
-        error: {
-          code: -32000,
-          message: "Bad Request: Mcp-Session-Id header is required"
-        },
-        id: null
-      }));
-      return false;
-    } else if (Array.isArray(sessionId)) {
-      res.writeHead(400).end(JSON.stringify({
-        jsonrpc: "2.0",
-        error: {
-          code: -32000,
-          message: "Bad Request: Mcp-Session-Id header must be a single value"
-        },
-        id: null
-      }));
-      return false;
-    }
-    else if (sessionId !== this.sessionId) {
-      // Reject requests with invalid session ID with 404 Not Found
-      res.writeHead(404).end(JSON.stringify({
-        jsonrpc: "2.0",
-        error: {
-          code: -32001,
-          message: "Session not found"
-        },
-        id: null
-      }));
-      return false;
-    }
-
-    return true;
-  }
+  // Session validation now handled entirely by server through protocol layer
 
   private validateProtocolVersion(req: IncomingMessage, res: ServerResponse): boolean {
     let protocolVersion = req.headers["mcp-protocol-version"] ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION;

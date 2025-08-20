@@ -26,7 +26,7 @@ export const CursorSchema = z.string();
 /**
  * A unique identifier for a session.
  */
-export const SessionIdSchema = z.union([z.string(), z.number().int()]);
+export const SessionIdSchema = z.string();
 
 const RequestMetaSchema = z
   .object({
