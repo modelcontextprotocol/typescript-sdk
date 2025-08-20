@@ -231,7 +231,11 @@ export function getRawBody(req: IncomingMessage, { limit, encoding }: { limit: n
       chunks.push(chunk);
     });
     req.on('end', () => {
-      resolve(Buffer.concat(chunks).toString(encoding));
+      try {
+        resolve(Buffer.concat(chunks).toString(encoding));
+      } catch (error) {
+        reject(error);
+      }
     });
     req.on('error', (error) => {
       reject(error);
