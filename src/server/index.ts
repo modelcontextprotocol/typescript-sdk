@@ -32,6 +32,8 @@ import {
   ServerRequest,
   ServerResult,
   SUPPORTED_PROTOCOL_VERSIONS,
+  SessionTerminateRequestSchema,
+  SessionTerminateRequest,
 } from "../types.js";
 import Ajv from "ajv";
 
@@ -92,6 +94,14 @@ export class Server<
   oninitialized?: () => void;
 
   /**
+   * Returns the connected transport instance.
+   * Used for session-to-server routing in examples.
+   */
+  getTransport() {
+    return this.transport;
+  }
+
+  /**
    * Initializes this server with the given name and version information.
    */
   constructor(
@@ -104,6 +114,9 @@ export class Server<
 
     this.setRequestHandler(InitializeRequestSchema, (request) =>
       this._oninitialize(request),
+    );
+    this.setRequestHandler(SessionTerminateRequestSchema, (request) =>
+      this._onSessionTerminate(request),
     );
     this.setNotificationHandler(InitializedNotificationSchema, () =>
       this.oninitialized?.(),
@@ -269,12 +282,34 @@ export class Server<
         ? requestedVersion
         : LATEST_PROTOCOL_VERSION;
 
-    return {
+    const result: InitializeResult = {
       protocolVersion,
       capabilities: this.getCapabilities(),
       serverInfo: this._serverInfo,
       ...(this._instructions && { instructions: this._instructions }),
     };
+
+    // Generate session if supported  
+    const sessionOptions = this.getSessionOptions();
+    if (sessionOptions?.sessionIdGenerator) {
+      const sessionId = sessionOptions.sessionIdGenerator();
+      result.sessionId = sessionId;
+      result.sessionTimeout = sessionOptions.sessionTimeout;
+      
+      this.createSession(sessionId, sessionOptions.sessionTimeout);
+      await sessionOptions.onsessioninitialized?.(sessionId);
+    }
+
+    return result;
+  }
+
+  private async _onSessionTerminate(
+    request: SessionTerminateRequest
+  ): Promise<object> {
+    // Use the same termination logic as the protocol method
+    // sessionId comes directly from the protocol request
+    await this.terminateSession(request.sessionId);
+    return {};
   }
 
   /**

@@ -23,6 +23,11 @@ export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
  */
 export const CursorSchema = z.string();
 
+/**
+ * A unique identifier for a session.
+ */
+export const SessionIdSchema = z.union([z.string(), z.number().int()]);
+
 const RequestMetaSchema = z
   .object({
     /**
@@ -41,6 +46,7 @@ const BaseRequestParamsSchema = z
 export const RequestSchema = z.object({
   method: z.string(),
   params: z.optional(BaseRequestParamsSchema),
+  sessionId: z.optional(SessionIdSchema),
 });
 
 const BaseNotificationParamsSchema = z
@@ -56,6 +62,7 @@ const BaseNotificationParamsSchema = z
 export const NotificationSchema = z.object({
   method: z.string(),
   params: z.optional(BaseNotificationParamsSchema),
+  sessionId: z.optional(SessionIdSchema),
 });
 
 export const ResultSchema = z
@@ -65,6 +72,7 @@ export const ResultSchema = z
      * for notes on _meta usage.
      */
     _meta: z.optional(z.object({}).passthrough()),
+    sessionId: z.optional(SessionIdSchema),
   })
   .passthrough();
 
@@ -74,18 +82,12 @@ export const ResultSchema = z
 export const RequestIdSchema = z.union([z.string(), z.number().int()]);
 
 /**
- * A unique identifier for a session.
- */
-export const SessionIdSchema = z.union([z.string(), z.number().int()]);
-
-/**
  * A request that expects a response.
  */
 export const JSONRPCRequestSchema = z
   .object({
     jsonrpc: z.literal(JSONRPC_VERSION),
     id: RequestIdSchema,
-    sessionId: z.optional(SessionIdSchema),
   })
   .merge(RequestSchema)
   .strict();
@@ -99,7 +101,6 @@ export const isJSONRPCRequest = (value: unknown): value is JSONRPCRequest =>
 export const JSONRPCNotificationSchema = z
   .object({
     jsonrpc: z.literal(JSONRPC_VERSION),
-    sessionId: z.optional(SessionIdSchema),
   })
   .merge(NotificationSchema)
   .strict();
@@ -117,7 +118,6 @@ export const JSONRPCResponseSchema = z
     jsonrpc: z.literal(JSONRPC_VERSION),
     id: RequestIdSchema,
     result: ResultSchema,
-    sessionId: z.optional(SessionIdSchema),
   })
   .strict();
 
@@ -164,7 +164,6 @@ export const JSONRPCErrorSchema = z
        */
       data: z.optional(z.unknown()),
     }),
-    sessionId: z.optional(SessionIdSchema),
   })
   .strict();
 

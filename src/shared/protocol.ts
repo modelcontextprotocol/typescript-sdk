@@ -364,6 +364,10 @@ export abstract class Protocol<
     }
   }
 
+  protected getSessionOptions() {
+    return this._sessionOptions;
+  }
+
   private sendInvalidSessionError(message: JSONRPCMessage): void {
     if ('id' in message && message.id !== undefined) {
       const errorResponse: JSONRPCError = {
@@ -676,11 +680,16 @@ export abstract class Protocol<
       options?.signal?.throwIfAborted();
 
       const messageId = this._requestMessageId++;
-      const jsonrpcRequest: JSONRPCRequest = {
+      // Add sessionId to request if we have one
+      const requestWithSession = {
         ...request,
+        ...(this._sessionState && { sessionId: this._sessionState.sessionId }),
+      };
+      
+      const jsonrpcRequest: JSONRPCRequest = {
+        ...requestWithSession,
         jsonrpc: "2.0",
         id: messageId,
-        ...(this._sessionState && { sessionId: this._sessionState.sessionId }),
       };
 
       if (options?.onprogress) {
@@ -789,10 +798,15 @@ export abstract class Protocol<
           return;
         }
 
-        const jsonrpcNotification: JSONRPCNotification = {
+        // Add sessionId to notification if we have one
+        const notificationWithSession = {
           ...notification,
-          jsonrpc: "2.0",
           ...(this._sessionState && { sessionId: this._sessionState.sessionId }),
+        };
+        
+        const jsonrpcNotification: JSONRPCNotification = {
+          ...notificationWithSession,
+          jsonrpc: "2.0",
         };
         // Send the notification, but don't await it here to avoid blocking.
         // Handle potential errors with a .catch().
@@ -803,10 +817,15 @@ export abstract class Protocol<
       return;
     }
 
-    const jsonrpcNotification: JSONRPCNotification = {
+    // Add sessionId to notification if we have one
+    const notificationWithSession = {
       ...notification,
-      jsonrpc: "2.0",
       ...(this._sessionState && { sessionId: this._sessionState.sessionId }),
+    };
+    
+    const jsonrpcNotification: JSONRPCNotification = {
+      ...notificationWithSession,
+      jsonrpc: "2.0",
     };
 
     await this._transport.send(jsonrpcNotification, options);
