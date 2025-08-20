@@ -3,7 +3,7 @@ import WebSocket from "ws";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (global as any).WebSocket = WebSocket;
 
-import express from "express";
+import http from "http";
 import { Client } from "./client/index.js";
 import { SSEClientTransport } from "./client/sse.js";
 import { StdioClientTransport } from "./client/stdio.js";
@@ -59,54 +59,55 @@ async function runClient(url_or_command: string, args: string[]) {
 
 async function runServer(port: number | null) {
   if (port !== null) {
-    const app = express();
-
     let servers: Server[] = [];
+    const app = http.createServer(async (req, res) => {
+      const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+      if (req.method === 'GET' && url.pathname === '/sse') {
+        console.log("Got new SSE connection");
 
-    app.get("/sse", async (req, res) => {
-      console.log("Got new SSE connection");
+        const transport = new SSEServerTransport("/message", res);
+        const server = new Server(
+          {
+            name: "mcp-typescript test server",
+            version: "0.1.0",
+          },
+          {
+            capabilities: {},
+          },
+        );
 
-      const transport = new SSEServerTransport("/message", res);
-      const server = new Server(
-        {
-          name: "mcp-typescript test server",
-          version: "0.1.0",
-        },
-        {
-          capabilities: {},
-        },
-      );
+        servers.push(server);
 
-      servers.push(server);
+        server.onclose = () => {
+          console.log("SSE connection closed");
+          servers = servers.filter((s) => s !== server);
+        };
 
-      server.onclose = () => {
-        console.log("SSE connection closed");
-        servers = servers.filter((s) => s !== server);
-      };
-
-      await server.connect(transport);
-    });
-
-    app.post("/message", async (req, res) => {
-      console.log("Received message");
-
-      const sessionId = req.query.sessionId as string;
-      const transport = servers
-        .map((s) => s.transport as SSEServerTransport)
-        .find((t) => t.sessionId === sessionId);
-      if (!transport) {
-        res.status(404).send("Session not found");
-        return;
+        await server.connect(transport);
       }
 
-      await transport.handlePostMessage(req, res);
+      if (req.method === 'POST' && url.pathname === '/message') {
+        console.log("Received message");
+
+        const sessionId = url.searchParams.get("sessionId") as string;
+        const transport = servers
+          .map((s) => s.transport as SSEServerTransport)
+          .find((t) => t.sessionId === sessionId);
+        if (!transport) {
+          res.statusCode = 404;
+          res.end("Session not found");
+          return;
+        }
+
+        await transport.handlePostMessage(req, res);
+      }
     });
 
-    app.listen(port, (error) => {
-      if (error) {
-        console.error('Failed to start server:', error);
-        process.exit(1);
-      }
+    app.on('error', error => {
+      console.error('Failed to start server:', error);
+      process.exit(1);
+    })
+    app.listen(port, () => {
       console.log(`Server running on http://localhost:${port}/sse`);
     });
   } else {
