@@ -11,6 +11,7 @@ import {
   JSONRPCNotification,
   JSONRPCRequest,
   JSONRPCResponse,
+  JSONRPCMessage,
   McpError,
   Notification,
   PingRequestSchema,
@@ -24,6 +25,7 @@ import {
   RequestMeta,
   MessageExtraInfo,
   RequestInfo,
+  SessionId,
 } from "../types.js";
 import { Transport, TransportSendOptions } from "./transport.js";
 import { AuthInfo } from "../server/auth/types.js";
@@ -32,6 +34,26 @@ import { AuthInfo } from "../server/auth/types.js";
  * Callback for progress notifications.
  */
 export type ProgressCallback = (progress: Progress) => void;
+
+/**
+ * Session state for protocol-level session management.
+ */
+export interface SessionState {
+  sessionId: SessionId;
+  createdAt: number;
+  lastActivity: number;
+  timeout?: number; // seconds
+}
+
+/**
+ * Session configuration options.
+ */
+export interface SessionOptions {
+  sessionIdGenerator?: () => SessionId;
+  sessionTimeout?: number; // seconds
+  onsessioninitialized?: (sessionId: SessionId) => void | Promise<void>;
+  onsessionclosed?: (sessionId: SessionId) => void | Promise<void>;
+}
 
 /**
  * Additional initialization options.
@@ -52,6 +74,10 @@ export type ProtocolOptions = {
    * e.g., ['notifications/tools/list_changed']
    */
   debouncedNotificationMethods?: string[];
+  /**
+   * Session configuration options.
+   */
+  sessions?: SessionOptions;
 };
 
 /**
@@ -179,6 +205,8 @@ export abstract class Protocol<
 > {
   private _transport?: Transport;
   private _requestMessageId = 0;
+  private _sessionState?: SessionState;
+  private _sessionOptions?: SessionOptions;
   private _requestHandlers: Map<
     string,
     (
@@ -228,6 +256,7 @@ export abstract class Protocol<
   fallbackNotificationHandler?: (notification: Notification) => Promise<void>;
 
   constructor(private _options?: ProtocolOptions) {
+    this._sessionOptions = _options?.sessions;
     this.setNotificationHandler(CancelledNotificationSchema, (notification) => {
       const controller = this._requestHandlerAbortControllers.get(
         notification.params.requestId,
@@ -290,6 +319,66 @@ export abstract class Protocol<
     }
   }
 
+  // Session management methods
+  protected validateSessionId(messageSessionId?: SessionId): boolean {
+    if (!messageSessionId && !this._sessionState) return true; // Both sessionless
+    if (!messageSessionId || !this._sessionState) return false; // Mismatch
+    return messageSessionId === this._sessionState.sessionId;
+  }
+
+  protected createSession(sessionId: SessionId, timeout?: number): void {
+    this._sessionState = {
+      sessionId,
+      createdAt: Date.now(),
+      lastActivity: Date.now(),
+      timeout
+    };
+    this._requestMessageId = 0; // Reset counter for new session
+  }
+
+  protected updateSessionActivity(): void {
+    if (this._sessionState) {
+      this._sessionState.lastActivity = Date.now();
+    }
+  }
+
+  protected isSessionExpired(): boolean {
+    if (!this._sessionState?.timeout) return false;
+    const now = Date.now();
+    const expiry = this._sessionState.lastActivity + (this._sessionState.timeout * 1000);
+    return now > expiry;
+  }
+
+  protected async terminateSession(sessionId?: SessionId): Promise<void> {
+    // Validate sessionId (same as protocol handler)
+    if (sessionId && sessionId !== this._sessionState?.sessionId) {
+      throw new McpError(ErrorCode.InvalidSession, "Invalid session");
+    }
+    
+    // Terminate session (same cleanup as protocol handler)
+    if (this._sessionState) {
+      const terminatingSessionId = this._sessionState.sessionId;
+      this._sessionState = undefined;
+      this._requestMessageId = 0; // Reset counter
+      await this._sessionOptions?.onsessionclosed?.(terminatingSessionId);
+    }
+  }
+
+  private sendInvalidSessionError(message: JSONRPCMessage): void {
+    if ('id' in message && message.id !== undefined) {
+      const errorResponse: JSONRPCError = {
+        jsonrpc: "2.0",
+        id: message.id,
+        error: {
+          code: ErrorCode.InvalidSession,
+          message: "Invalid or expired session",
+          data: { sessionId: 'sessionId' in message ? message.sessionId : null }
+        }
+      };
+      this._transport?.send(errorResponse).catch(err => this._onerror(err));
+    }
+  }
+
   /**
    * Attaches to the given transport, starts it, and starts listening for messages.
    *
@@ -312,6 +401,27 @@ export abstract class Protocol<
     const _onmessage = this._transport?.onmessage;
     this._transport.onmessage = (message, extra) => {
       _onmessage?.(message, extra);
+      
+      // Always validate if sessions are enabled
+      if (this._sessionOptions) {
+        const messageSessionId = 'sessionId' in message ? message.sessionId : undefined;
+        if (!this.validateSessionId(messageSessionId)) {
+          // Send invalid session error
+          this.sendInvalidSessionError(message);
+          return;
+        }
+        // Only update activity if message has valid sessionId
+        if (messageSessionId) {
+          this.updateSessionActivity();
+        }
+      }
+      
+      // Check for session expiry
+      if (this.isSessionExpired()) {
+        this.sendInvalidSessionError(message);
+        return;
+      }
+      
       if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
         this._onresponse(message);
       } else if (isJSONRPCRequest(message)) {
@@ -566,6 +676,7 @@ export abstract class Protocol<
         ...request,
         jsonrpc: "2.0",
         id: messageId,
+        ...(this._sessionState && { sessionId: this._sessionState.sessionId }),
       };
 
       if (options?.onprogress) {
@@ -677,6 +788,7 @@ export abstract class Protocol<
         const jsonrpcNotification: JSONRPCNotification = {
           ...notification,
           jsonrpc: "2.0",
+          ...(this._sessionState && { sessionId: this._sessionState.sessionId }),
         };
         // Send the notification, but don't await it here to avoid blocking.
         // Handle potential errors with a .catch().
@@ -690,6 +802,7 @@ export abstract class Protocol<
     const jsonrpcNotification: JSONRPCNotification = {
       ...notification,
       jsonrpc: "2.0",
+      ...(this._sessionState && { sessionId: this._sessionState.sessionId }),
     };
 
     await this._transport.send(jsonrpcNotification, options);
