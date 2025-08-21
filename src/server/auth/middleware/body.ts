@@ -30,8 +30,11 @@ function getRawBody(req: IncomingMessage, { limit, encoding }: { limit: number, 
 }
 
 export const urlEncoded: RequestHandler = async (req, res, next) => {
-  const ct = contentType.parse(req.headers["content-type"] ?? "");
-  if (ct.type !== "application/x-www-form-urlencoded") {
+  try {
+    if (contentType.parse(req).type !== "application/x-www-form-urlencoded") {
+      return next();
+    }
+  } catch {
     return next();
   }
 
@@ -45,11 +48,15 @@ export const urlEncoded: RequestHandler = async (req, res, next) => {
 };
 
 export const json: RequestHandler = async (req, res, next) => {
-  const ct = contentType.parse(req.headers["content-type"] ?? "");
-  if (ct.type !== "application/json") {
+  try {
+    const ct = contentType.parse(req);
+    if (ct.type !== "application/json") {
+      return next();
+    }
+  } catch {
     return next();
   }
-
+  
   try {
     const body = await getRawBody(req, { limit: MAX_BODY_SIZE, encoding: 'utf-8' });
     req.body = JSON.parse(body);
