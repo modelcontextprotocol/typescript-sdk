@@ -42,6 +42,16 @@ import {
   Tool,
   ErrorCode,
   McpError,
+  EmptyResult,
+  CompleteResult,
+  GetPromptResult,
+  ListPromptsResult,
+  ListResourcesResult,
+  ListResourceTemplatesResult,
+  ReadResourceResult,
+  CompatibilityCallToolResult,
+  CallToolResult,
+  ListToolsResult,
 } from "../types.js";
 import Ajv from "ajv";
 import type { ValidateFunction } from "ajv";
@@ -329,11 +339,11 @@ export class Client<
     }
   }
 
-  async ping(options?: RequestOptions) {
+  async ping(options?: RequestOptions): Promise<EmptyResult> {
     return this.request({ method: "ping" }, EmptyResultSchema, options);
   }
 
-  async complete(params: CompleteRequest["params"], options?: RequestOptions) {
+  async complete(params: CompleteRequest["params"], options?: RequestOptions): Promise<CompleteResult> {
     return this.request(
       { method: "completion/complete", params },
       CompleteResultSchema,
@@ -341,7 +351,7 @@ export class Client<
     );
   }
 
-  async setLoggingLevel(level: LoggingLevel, options?: RequestOptions) {
+  async setLoggingLevel(level: LoggingLevel, options?: RequestOptions): Promise<EmptyResult> {
     return this.request(
       { method: "logging/setLevel", params: { level } },
       EmptyResultSchema,
@@ -352,7 +362,7 @@ export class Client<
   async getPrompt(
     params: GetPromptRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<GetPromptResult> {
     return this.request(
       { method: "prompts/get", params },
       GetPromptResultSchema,
@@ -363,7 +373,7 @@ export class Client<
   async listPrompts(
     params?: ListPromptsRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<ListPromptsResult> {
     return this.request(
       { method: "prompts/list", params },
       ListPromptsResultSchema,
@@ -374,7 +384,7 @@ export class Client<
   async listResources(
     params?: ListResourcesRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<ListResourcesResult> {
     return this.request(
       { method: "resources/list", params },
       ListResourcesResultSchema,
@@ -385,7 +395,7 @@ export class Client<
   async listResourceTemplates(
     params?: ListResourceTemplatesRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<ListResourceTemplatesResult> {
     return this.request(
       { method: "resources/templates/list", params },
       ListResourceTemplatesResultSchema,
@@ -396,7 +406,7 @@ export class Client<
   async readResource(
     params: ReadResourceRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<ReadResourceResult> {
     return this.request(
       { method: "resources/read", params },
       ReadResourceResultSchema,
@@ -407,7 +417,7 @@ export class Client<
   async subscribeResource(
     params: SubscribeRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<EmptyResult> {
     return this.request(
       { method: "resources/subscribe", params },
       EmptyResultSchema,
@@ -418,7 +428,7 @@ export class Client<
   async unsubscribeResource(
     params: UnsubscribeRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<EmptyResult> {
     return this.request(
       { method: "resources/unsubscribe", params },
       EmptyResultSchema,
@@ -432,7 +442,8 @@ export class Client<
       | typeof CallToolResultSchema
       | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
     options?: RequestOptions,
-  ) {
+  ): Promise<CallToolResult | CompatibilityCallToolResult> {
+    // Ensure the tool name is provided
     const result = await this.request(
       { method: "tools/call", params },
       resultSchema,
@@ -443,7 +454,11 @@ export class Client<
     const validator = this.getToolOutputValidator(params.name);
     if (validator) {
       // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
-      if (!result.structuredContent && !result.isError) {
+      // Use property presence checks for union type compatibility
+      const hasStructuredContent = 'structuredContent' in result && result.structuredContent !== undefined;
+      const hasError = 'isError' in result && result.isError;
+      
+      if (!hasStructuredContent && !hasError) {
         throw new McpError(
           ErrorCode.InvalidRequest,
           `Tool ${params.name} has an output schema but did not return structured content`
@@ -451,7 +466,7 @@ export class Client<
       }
 
       // Only validate structured content if present (not when there's an error)
-      if (result.structuredContent) {
+      if (hasStructuredContent) {
         try {
           // Validate the structured content (which is already an object) against the schema
           const isValid = validator(result.structuredContent);
@@ -500,7 +515,7 @@ export class Client<
   async listTools(
     params?: ListToolsRequest["params"],
     options?: RequestOptions,
-  ) {
+  ): Promise<ListToolsResult> {
     const result = await this.request(
       { method: "tools/list", params },
       ListToolsResultSchema,
