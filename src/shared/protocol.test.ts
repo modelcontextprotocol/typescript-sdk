@@ -82,6 +82,13 @@ describe("protocol tests", () => {
   });
 
   describe("_meta preservation with onprogress", () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
     test("should preserve existing _meta when adding progressToken", async () => {
       await protocol.connect(transport);
       const request = { 
@@ -101,6 +108,8 @@ describe("protocol tests", () => {
       
       protocol.request(request, mockSchema, {
         onprogress: onProgressMock,
+        resetTimeoutOnProgress: false,
+        
       });
       
       expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -133,6 +142,8 @@ describe("protocol tests", () => {
       
       protocol.request(request, mockSchema, {
         onprogress: onProgressMock,
+        resetTimeoutOnProgress: false,
+        
       });
       
       expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -163,7 +174,10 @@ describe("protocol tests", () => {
         result: z.string(),
       });
       
-      protocol.request(request, mockSchema);
+      protocol.request(request, mockSchema, {
+        resetTimeoutOnProgress: false,
+        
+      });
       
       expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({
         method: "example",
@@ -190,6 +204,8 @@ describe("protocol tests", () => {
       
       protocol.request(request, mockSchema, {
         onprogress: onProgressMock,
+        resetTimeoutOnProgress: false,
+        
       });
       
       expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -464,6 +480,58 @@ describe("protocol tests", () => {
       }
       await Promise.resolve();
       await expect(requestPromise).resolves.toEqual({ result: "success" });
+    });
+
+    test("should reset timeout by default when progress notification is received", async () => {
+      await protocol.connect(transport);
+      const request = { method: "example", params: {} };
+      const mockSchema: ZodType<{ result: string }> = z.object({
+        result: z.string(),
+      });
+      const onProgressMock = jest.fn();
+      // Don't specify resetTimeoutOnProgress, should default to true
+      const requestPromise = protocol.request(request, mockSchema, {
+        timeout: 1000,
+        onprogress: onProgressMock,
+      });
+
+      // Advance past most of the timeout period
+      jest.advanceTimersByTime(900);
+      
+      // Send progress notification - should reset timeout
+      if (transport.onmessage) {
+        transport.onmessage({
+          jsonrpc: "2.0",
+          method: "notifications/progress",
+          params: {
+            progressToken: 0,
+            progress: 50,
+            total: 100,
+          },
+        });
+      }
+      await Promise.resolve();
+      
+      expect(onProgressMock).toHaveBeenCalledWith({
+        progress: 50,
+        total: 100,
+      });
+
+      // Advance another 900ms (would have timed out without reset)
+      jest.advanceTimersByTime(900);
+      
+      // Send final response
+      if (transport.onmessage) {
+        transport.onmessage({
+          jsonrpc: "2.0",
+          id: 0,
+          result: { result: "completed" },
+        });
+      }
+      await Promise.resolve();
+      
+      // Should complete successfully because timeout was reset
+      await expect(requestPromise).resolves.toEqual({ result: "completed" });
     });
   });
 
