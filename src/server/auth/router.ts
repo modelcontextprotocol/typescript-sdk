@@ -1,4 +1,4 @@
-import express, { RequestHandler } from "express";
+import type { RequestHandler } from "express";
 import { clientRegistrationHandler, ClientRegistrationHandlerOptions } from "./handlers/register.js";
 import { tokenHandler, TokenHandlerOptions } from "./handlers/token.js";
 import { authorizationHandler, AuthorizationHandlerOptions } from "./handlers/authorize.js";
@@ -116,45 +116,37 @@ export const createOAuthMetadata = (options: {
 export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
   const oauthMetadata = createOAuthMetadata(options);
 
-  const router = express.Router();
+  return (req, res, next) => {
+    if (req.path === new URL(oauthMetadata.authorization_endpoint).pathname) {
+      return authorizationHandler({ provider: options.provider, ...options.authorizationOptions })(req, res, next);
+    }
 
-  router.use(
-    new URL(oauthMetadata.authorization_endpoint).pathname,
-    authorizationHandler({ provider: options.provider, ...options.authorizationOptions })
-  );
+    if (req.path === new URL(oauthMetadata.token_endpoint).pathname) {
+      return tokenHandler({ provider: options.provider, ...options.tokenOptions })(req, res, next);
+    }
 
-  router.use(
-    new URL(oauthMetadata.token_endpoint).pathname,
-    tokenHandler({ provider: options.provider, ...options.tokenOptions })
-  );
+    mcpAuthMetadataRouter({
+      oauthMetadata,
+      // This router is used for AS+RS combo's, so the issuer is also the resource server
+      resourceServerUrl: new URL(oauthMetadata.issuer),
+      serviceDocumentationUrl: options.serviceDocumentationUrl,
+      scopesSupported: options.scopesSupported,
+      resourceName: options.resourceName
+    })(req, res, () => {
+      if (oauthMetadata.registration_endpoint && req.path === new URL(oauthMetadata.registration_endpoint).pathname) {
+        return clientRegistrationHandler({
+          clientsStore: options.provider.clientsStore,
+          ...options.clientRegistrationOptions,
+        })(req, res, next);
+      }
 
-  router.use(mcpAuthMetadataRouter({
-    oauthMetadata,
-    // This router is used for AS+RS combo's, so the issuer is also the resource server
-    resourceServerUrl: new URL(oauthMetadata.issuer),
-    serviceDocumentationUrl: options.serviceDocumentationUrl,
-    scopesSupported: options.scopesSupported,
-    resourceName: options.resourceName
-  }));
+      if (oauthMetadata.revocation_endpoint && req.path === new URL(oauthMetadata.revocation_endpoint).pathname) {
+        return revocationHandler({ provider: options.provider, ...options.revocationOptions })(req, res, next);
+      }
 
-  if (oauthMetadata.registration_endpoint) {
-    router.use(
-      new URL(oauthMetadata.registration_endpoint).pathname,
-      clientRegistrationHandler({
-        clientsStore: options.provider.clientsStore,
-        ...options.clientRegistrationOptions,
-      })
-    );
+      next();
+    });
   }
-
-  if (oauthMetadata.revocation_endpoint) {
-    router.use(
-      new URL(oauthMetadata.revocation_endpoint).pathname,
-      revocationHandler({ provider: options.provider, ...options.revocationOptions })
-    );
-  }
-
-  return router;
 }
 
 export type AuthMetadataOptions = {
@@ -185,10 +177,8 @@ export type AuthMetadataOptions = {
   resourceName?: string;
 }
 
-export function mcpAuthMetadataRouter(options: AuthMetadataOptions) {
+export function mcpAuthMetadataRouter(options: AuthMetadataOptions): RequestHandler {
   checkIssuerUrl(new URL(options.oauthMetadata.issuer));
-
-  const router = express.Router();
 
   const protectedResourceMetadata: OAuthProtectedResourceMetadata = {
     resource: options.resourceServerUrl.href,
@@ -202,12 +192,18 @@ export function mcpAuthMetadataRouter(options: AuthMetadataOptions) {
     resource_documentation: options.serviceDocumentationUrl?.href,
   };
 
-  router.use("/.well-known/oauth-protected-resource", metadataHandler(protectedResourceMetadata));
+  return (req, res, next) => {
+    if (req.path === "/.well-known/oauth-protected-resource") {
+      return metadataHandler(protectedResourceMetadata)(req, res, next);
+    }
 
-  // Always add this for backwards compatibility
-  router.use("/.well-known/oauth-authorization-server", metadataHandler(options.oauthMetadata));
+    // Always add this for backwards compatibility
+    if (req.path === "/.well-known/oauth-authorization-server") {
+      return metadataHandler(options.oauthMetadata)(req, res, next);
+    }
 
-  return router;
+    next();
+  }
 }
 
 /**
