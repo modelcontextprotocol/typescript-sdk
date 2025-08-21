@@ -1,12 +1,35 @@
 import { z } from "zod";
 
 /**
+ * Reusable URL validation that disallows javascript: scheme
+ */
+export const SafeUrlSchema = z.string().url()
+  .superRefine((val, ctx) => {
+    if (!URL.canParse(val)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "URL must be parseable",
+        fatal: true,
+      });
+
+      return z.NEVER;
+    }
+  }).refine(
+    (url) => {
+      const u = new URL(url);
+      return u.protocol !== 'javascript:' && u.protocol !== 'data:' && u.protocol !== 'vbscript:';
+    },
+    { message: "URL cannot use javascript:, data:, or vbscript: scheme" }
+);
+
+
+/**
  * RFC 9728 OAuth Protected Resource Metadata
  */
 export const OAuthProtectedResourceMetadataSchema = z
   .object({
     resource: z.string().url(),
-    authorization_servers: z.array(z.string().url()).optional(),
+    authorization_servers: z.array(SafeUrlSchema).optional(),
     jwks_uri: z.string().url().optional(),
     scopes_supported: z.array(z.string()).optional(),
     bearer_methods_supported: z.array(z.string()).optional(),
@@ -28,9 +51,9 @@ export const OAuthProtectedResourceMetadataSchema = z
 export const OAuthMetadataSchema = z
   .object({
     issuer: z.string(),
-    authorization_endpoint: z.string(),
-    token_endpoint: z.string(),
-    registration_endpoint: z.string().optional(),
+    authorization_endpoint: SafeUrlSchema,
+    token_endpoint: SafeUrlSchema,
+    registration_endpoint: SafeUrlSchema.optional(),
     scopes_supported: z.array(z.string()).optional(),
     response_types_supported: z.array(z.string()),
     response_modes_supported: z.array(z.string()).optional(),
@@ -39,8 +62,8 @@ export const OAuthMetadataSchema = z
     token_endpoint_auth_signing_alg_values_supported: z
       .array(z.string())
       .optional(),
-    service_documentation: z.string().optional(),
-    revocation_endpoint: z.string().optional(),
+    service_documentation: SafeUrlSchema.optional(),
+    revocation_endpoint: SafeUrlSchema.optional(),
     revocation_endpoint_auth_methods_supported: z.array(z.string()).optional(),
     revocation_endpoint_auth_signing_alg_values_supported: z
       .array(z.string())
@@ -63,11 +86,11 @@ export const OAuthMetadataSchema = z
 export const OpenIdProviderMetadataSchema = z
   .object({
     issuer: z.string(),
-    authorization_endpoint: z.string(),
-    token_endpoint: z.string(),
-    userinfo_endpoint: z.string().optional(),
-    jwks_uri: z.string(),
-    registration_endpoint: z.string().optional(),
+    authorization_endpoint: SafeUrlSchema,
+    token_endpoint: SafeUrlSchema,
+    userinfo_endpoint: SafeUrlSchema.optional(),
+    jwks_uri: SafeUrlSchema,
+    registration_endpoint: SafeUrlSchema.optional(),
     scopes_supported: z.array(z.string()).optional(),
     response_types_supported: z.array(z.string()),
     response_modes_supported: z.array(z.string()).optional(),
@@ -101,8 +124,8 @@ export const OpenIdProviderMetadataSchema = z
     request_parameter_supported: z.boolean().optional(),
     request_uri_parameter_supported: z.boolean().optional(),
     require_request_uri_registration: z.boolean().optional(),
-    op_policy_uri: z.string().optional(),
-    op_tos_uri: z.string().optional(),
+    op_policy_uri: SafeUrlSchema.optional(),
+    op_tos_uri: SafeUrlSchema.optional(),
   })
   .passthrough();
 
@@ -146,18 +169,18 @@ export const OAuthErrorResponseSchema = z
  * RFC 7591 OAuth 2.0 Dynamic Client Registration metadata
  */
 export const OAuthClientMetadataSchema = z.object({
-  redirect_uris: z.array(z.string()).refine((uris) => uris.every((uri) => URL.canParse(uri)), { message: "redirect_uris must contain valid URLs" }),
+  redirect_uris: z.array(SafeUrlSchema),
   token_endpoint_auth_method: z.string().optional(),
   grant_types: z.array(z.string()).optional(),
   response_types: z.array(z.string()).optional(),
   client_name: z.string().optional(),
-  client_uri: z.string().optional(),
-  logo_uri: z.string().optional(),
+  client_uri: SafeUrlSchema.optional(),
+  logo_uri: SafeUrlSchema.optional(),
   scope: z.string().optional(),
   contacts: z.array(z.string()).optional(),
-  tos_uri: z.string().optional(),
+  tos_uri: SafeUrlSchema.optional(),
   policy_uri: z.string().optional(),
-  jwks_uri: z.string().optional(),
+  jwks_uri: SafeUrlSchema.optional(),
   jwks: z.any().optional(),
   software_id: z.string().optional(),
   software_version: z.string().optional(),
