@@ -1,5 +1,5 @@
 import { z } from "zod";
-import express, { RequestHandler } from "express";
+import type { RequestHandler } from "express";
 import { OAuthServerProvider } from "../provider.js";
 import cors from "cors";
 import { verifyChallenge } from "pkce-challenge";
@@ -15,6 +15,7 @@ import {
   OAuthError
 } from "../errors.js";
 import { noopMiddleware } from "../middleware/noop.js";
+import { urlEncoded } from "../middleware/urlencoded.js";
 
 export type TokenHandlerOptions = {
   provider: OAuthServerProvider;
@@ -54,7 +55,7 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
   return (req, res) => {
     cors()(req, res, () => {
       allowedMethods(["POST"])(req, res, () => {
-        express.urlencoded({ extended: false })(req, res, () => {
+        urlEncoded(req, res, () => {
           rateLimiter(req, res, () => {
             authenticateClient({ clientsStore: provider.clientsStore })(req, res, async () => {
               res.setHeader('Cache-Control', 'no-store');

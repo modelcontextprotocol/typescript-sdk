@@ -1,6 +1,5 @@
 import { RequestHandler } from "express";
 import { z } from "zod";
-import express from "express";
 import { OAuthServerProvider } from "../provider.js";
 import { rateLimit, Options as RateLimitOptions } from "express-rate-limit";
 import { allowedMethods } from "../middleware/allowedMethods.js";
@@ -13,6 +12,7 @@ import {
   OAuthError
 } from "../errors.js";
 import { noopMiddleware } from "../middleware/noop.js";
+import { urlEncoded } from "../middleware/urlencoded.js";
 
 export type AuthorizationHandlerOptions = {
   provider: OAuthServerProvider;
@@ -51,7 +51,7 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
 
   return (req, res) => {
     allowedMethods(['GET', 'POST'])(req, res, () => {
-      express.urlencoded({ extended: false })(req, res, () => {
+      urlEncoded(req, res, () => {
         rateLimiter(req, res, async () => {
           res.setHeader('Cache-Control', 'no-store');
 
