@@ -334,11 +334,23 @@ export abstract class Protocol<
     this._progressHandlers.clear();
     this._pendingDebouncedNotifications.clear();
     this._transport = undefined;
+    
+    // Abort all active request handlers
+    const requestHandlerAbortControllers = this._requestHandlerAbortControllers;
+    this._requestHandlerAbortControllers = new Map();
+    
     this.onclose?.();
 
     const error = new McpError(ErrorCode.ConnectionClosed, "Connection closed");
+    
+    // Reject all pending response handlers (for outgoing requests)
     for (const handler of responseHandlers.values()) {
       handler(error);
+    }
+    
+    // Abort all active request handlers (for incoming requests being processed)
+    for (const abortController of requestHandlerAbortControllers.values()) {
+      abortController.abort(error);
     }
   }
 
