@@ -11,6 +11,7 @@ import { AuthInfo } from "../types.js";
 import { AuthorizationParams, OAuthServerProvider } from "../provider.js";
 import { ServerError } from "../errors.js";
 import { FetchLike } from "../../../shared/transport.js";
+import { createUserAgentProvider, UserAgentProvider } from "../../../shared/userAgent.js";
 
 export type ProxyEndpoints = {
   authorizationUrl: string;
@@ -49,6 +50,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
   protected readonly _verifyAccessToken: (token: string) => Promise<AuthInfo>;
   protected readonly _getClient: (clientId: string) => Promise<OAuthClientInformationFull | undefined>;
   protected readonly _fetch?: FetchLike;
+  protected readonly _userAgentProvider: UserAgentProvider;
   
   skipLocalPkceValidation = true;
 
@@ -62,6 +64,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
     this._verifyAccessToken = options.verifyAccessToken;
     this._getClient = options.getClient;
     this._fetch = options.fetch;
+    this._userAgentProvider = createUserAgentProvider();
     if (options.endpoints?.revocationUrl) {
       this.revokeToken = async (
         client: OAuthClientInformationFull,
@@ -87,6 +90,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
           method: "POST",
           headers: {
             "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": await this._userAgentProvider(),
           },
           body: params.toString(),
         });
@@ -108,6 +112,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
+              "User-Agent": await this._userAgentProvider(),
             },
             body: JSON.stringify(client),
           });
@@ -231,6 +236,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": await this._userAgentProvider(),
       },
       body: params.toString(),
     });
