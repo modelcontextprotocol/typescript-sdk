@@ -1,6 +1,7 @@
 import type { RequestHandler } from "express";
 import type { IncomingMessage } from "node:http";
 import { URLSearchParams } from "node:url";
+import contentType from "content-type";
 
 const MAX_BODY_SIZE = 100 * 1024; // 100 KB
 
@@ -29,7 +30,8 @@ function getRawBody(req: IncomingMessage, { limit, encoding }: { limit: number, 
 }
 
 export const urlEncoded: RequestHandler = async (req, res, next) => {
-  if (!req.headers["content-type"]?.toLowerCase().startsWith("application/x-www-form-urlencoded")) {
+  const ct = contentType.parse(req.headers["content-type"] ?? "");
+  if (ct.type !== "application/x-www-form-urlencoded") {
     return next();
   }
 
@@ -43,7 +45,8 @@ export const urlEncoded: RequestHandler = async (req, res, next) => {
 };
 
 export const json: RequestHandler = async (req, res, next) => {
-  if (!req.headers["content-type"]?.toLowerCase().startsWith("application/json")) {
+  const ct = contentType.parse(req.headers["content-type"] ?? "");
+  if (ct.type !== "application/json") {
     return next();
   }
 
