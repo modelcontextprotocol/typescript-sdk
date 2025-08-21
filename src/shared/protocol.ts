@@ -697,10 +697,10 @@ export abstract class Protocol<
       options?.signal?.throwIfAborted();
 
       const messageId = this._requestMessageId++;
-      // Add sessionId to request if we have one
+      // Add sessionId to request if not already present and we have session state
       const requestWithSession = {
         ...request,
-        ...(this._sessionState && { sessionId: this._sessionState.sessionId }),
+        ...(this._sessionState && !request.sessionId && { sessionId: this._sessionState.sessionId }),
       };
       
       const jsonrpcRequest: JSONRPCRequest = {
@@ -815,10 +815,10 @@ export abstract class Protocol<
           return;
         }
 
-        // Add sessionId to notification if we have one
+        // Add sessionId to notification if not already present and we have session state
         const notificationWithSession = {
           ...notification,
-          ...(this._sessionState && { sessionId: this._sessionState.sessionId }),
+          ...(this._sessionState && !notification.sessionId && { sessionId: this._sessionState.sessionId }),
         };
         
         const jsonrpcNotification: JSONRPCNotification = {
@@ -834,10 +834,10 @@ export abstract class Protocol<
       return;
     }
 
-    // Add sessionId to notification if we have one
+    // Add sessionId to notification if not already present and we have session state
     const notificationWithSession = {
       ...notification,
-      ...(this._sessionState && { sessionId: this._sessionState.sessionId }),
+      ...(this._sessionState && !notification.sessionId && { sessionId: this._sessionState.sessionId }),
     };
     
     const jsonrpcNotification: JSONRPCNotification = {
