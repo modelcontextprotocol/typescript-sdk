@@ -1,4 +1,4 @@
-import express, { RequestHandler } from "express";
+import type { RequestHandler } from "express";
 import { OAuthClientInformationFull, OAuthClientMetadataSchema } from "../../../shared/auth.js";
 import crypto from 'node:crypto';
 import cors from 'cors';
@@ -12,6 +12,7 @@ import {
   OAuthError
 } from "../errors.js";
 import { noopMiddleware } from "../middleware/noop.js";
+import { json } from "../middleware/body.js";
 
 export type ClientRegistrationHandlerOptions = {
   /**
@@ -65,7 +66,7 @@ export function clientRegistrationHandler({
   return (req, res) => {
     cors()(req, res, () => {
       allowedMethods(['POST'])(req, res, () => {
-        express.json()(req, res, () => {
+        json(req, res, () => {
           rateLimiter(req, res, async () => {
             res.setHeader('Cache-Control', 'no-store');
 

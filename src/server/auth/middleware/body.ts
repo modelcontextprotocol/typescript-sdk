@@ -41,3 +41,17 @@ export const urlEncoded: RequestHandler = async (req, res, next) => {
     res.status(500).end('Invalid request body');
   }
 };
+
+export const json: RequestHandler = async (req, res, next) => {
+  if (!req.headers["content-type"]?.toLowerCase().startsWith("application/json")) {
+    return next();
+  }
+
+  try {
+    const body = await getRawBody(req, { limit: MAX_BODY_SIZE, encoding: 'utf-8' });
+    req.body = JSON.parse(body);
+    return next();
+  } catch {
+    res.status(500).end('Invalid request body');
+  }
+};

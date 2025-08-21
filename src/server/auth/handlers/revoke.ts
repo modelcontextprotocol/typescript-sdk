@@ -1,5 +1,5 @@
 import { OAuthServerProvider } from "../provider.js";
-import express, { RequestHandler } from "express";
+import type { RequestHandler } from "express";
 import cors from "cors";
 import { authenticateClient } from "../middleware/clientAuth.js";
 import { OAuthTokenRevocationRequestSchema } from "../../../shared/auth.js";
@@ -12,6 +12,7 @@ import {
   OAuthError,
 } from "../errors.js";
 import { noopMiddleware } from "../middleware/noop.js";
+import { urlEncoded } from "../middleware/body.js";
 
 export type RevocationHandlerOptions = {
   provider: OAuthServerProvider;
@@ -42,7 +43,7 @@ export function revocationHandler({
   return (req, res) => {
     cors()(req, res, () => {
       allowedMethods(["POST"])(req, res, () => {
-        express.urlencoded({ extended: false })(req, res, () => {
+        urlEncoded(req, res, () => {
           rateLimiter(req, res, () => {
             authenticateClient({ clientsStore: provider.clientsStore })(req, res, async () => {
               res.setHeader("Cache-Control", "no-store");

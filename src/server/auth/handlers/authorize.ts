@@ -1,4 +1,4 @@
-import { RequestHandler } from "express";
+import type { RequestHandler } from "express";
 import { z } from "zod";
 import { OAuthServerProvider } from "../provider.js";
 import { rateLimit, Options as RateLimitOptions } from "express-rate-limit";
@@ -12,7 +12,7 @@ import {
   OAuthError
 } from "../errors.js";
 import { noopMiddleware } from "../middleware/noop.js";
-import { urlEncoded } from "../middleware/urlencoded.js";
+import { urlEncoded } from "../middleware/body.js";
 
 export type AuthorizationHandlerOptions = {
   provider: OAuthServerProvider;

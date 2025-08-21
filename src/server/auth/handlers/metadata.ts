@@ -1,4 +1,4 @@
-import { RequestHandler } from "express";
+import type { RequestHandler } from "express";
 import { OAuthMetadata, OAuthProtectedResourceMetadata } from "../../../shared/auth.js";
 import cors from 'cors';
 import { allowedMethods } from "../middleware/allowedMethods.js";

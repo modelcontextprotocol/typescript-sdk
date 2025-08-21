@@ -15,7 +15,7 @@ import {
   OAuthError
 } from "../errors.js";
 import { noopMiddleware } from "../middleware/noop.js";
-import { urlEncoded } from "../middleware/urlencoded.js";
+import { urlEncoded } from "../middleware/body.js";
 
 export type TokenHandlerOptions = {
   provider: OAuthServerProvider;

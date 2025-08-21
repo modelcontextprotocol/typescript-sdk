@@ -1,4 +1,4 @@
-import { Response } from "express";
+import type { Response } from "express";
 import { OAuthRegisteredClientsStore } from "../clients.js";
 import {
   OAuthClientInformationFull,
