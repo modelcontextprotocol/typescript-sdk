@@ -279,7 +279,7 @@ describe("OAuth Authorization", () => {
         status: 500,
       });
 
-      await expect(discoverOAuthProtectedResourceMetadata("https://resource.example.com/path/name"))
+      await expect(discoverOAuthProtectedResourceMetadata("https://resource.example.com/path/name", userAgentProvider))
         .rejects.toThrow();
 
       const calls = mockFetch.mock.calls;
