@@ -334,6 +334,9 @@ export abstract class Protocol<
       timeout
     };
     this._requestMessageId = 0; // Reset counter for new session
+    
+    // Notify transport of session state for HTTP header handling
+    this._transport?.setSessionState?.(this._sessionState);
   }
 
   protected updateSessionActivity(): void {
@@ -366,6 +369,10 @@ export abstract class Protocol<
 
   protected getSessionOptions() {
     return this._sessionOptions;
+  }
+
+  protected getSessionState() {
+    return this._sessionState;
   }
 
   private sendInvalidSessionError(message: JSONRPCMessage): void {
@@ -401,6 +408,16 @@ export abstract class Protocol<
       _onerror?.(error);
       this._onerror(error);
     };
+
+    // Handle legacy session options delegation from transport
+    const legacySessionOptions = transport.getLegacySessionOptions?.();
+    if (legacySessionOptions) {
+      if (this._sessionOptions) {
+        console.warn("Warning: Both server session options and transport legacy session options provided. Using server options.");
+      } else {
+        this._sessionOptions = legacySessionOptions;
+      }
+    }
 
     const _onmessage = this._transport?.onmessage;
     this._transport.onmessage = (message, extra) => {

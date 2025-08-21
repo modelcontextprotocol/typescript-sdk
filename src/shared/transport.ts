@@ -1,4 +1,5 @@
 import { JSONRPCMessage, MessageExtraInfo, RequestId } from "../types.js";
+import { SessionOptions, SessionState } from "./protocol.js";
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -74,9 +75,23 @@ export interface Transport {
   onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
 
   /**
-   * The session ID generated for this connection.
+   * The session ID for this connection (read-only).
+   * Available for backward compatibility only - returns the current session state's sessionId.
+   * Session management should be done through server session options, not transport properties.
    */
-  sessionId?: string;
+  readonly sessionId?: string;
+
+  /**
+   * Gets legacy session configuration for backward compatibility.
+   * Used by server to delegate transport-level session configuration.
+   */
+  getLegacySessionOptions?: () => SessionOptions | undefined;
+
+  /**
+   * Sets the session state reference for HTTP header handling.
+   * Used by server to notify transport of session creation.
+   */
+  setSessionState?: (sessionState: SessionState) => void;
 
   /**
    * Sets the protocol version used for the connection (called when the initialize response is received).

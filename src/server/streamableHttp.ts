@@ -162,10 +162,10 @@ export class StreamableHTTPServerTransport implements Transport {
   }
 
   /**
-   * Gets legacy session callbacks for delegation to server.
+   * Gets legacy session options for delegation to server.
    * Used for backward compatibility when server connects.
    */
-  getLegacySessionCallbacks(): SessionOptions | undefined {
+  getLegacySessionOptions(): SessionOptions | undefined {
     return this._legacySessionCallbacks;
   }
 

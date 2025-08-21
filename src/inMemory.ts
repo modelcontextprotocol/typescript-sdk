@@ -1,6 +1,7 @@
 import { Transport } from "./shared/transport.js";
 import { JSONRPCMessage, RequestId } from "./types.js";
 import { AuthInfo } from "./server/auth/types.js";
+import { SessionState, SessionOptions } from "./shared/protocol.js";
 
 interface QueuedMessage {
   message: JSONRPCMessage;
@@ -17,7 +18,23 @@ export class InMemoryTransport implements Transport {
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
-  sessionId?: string;
+  
+  private _sessionState?: SessionState;
+
+  get sessionId(): string | undefined {
+    return this._sessionState?.sessionId;
+  }
+
+  getLegacySessionOptions(): undefined {
+    // InMemoryTransport has no legacy session configuration
+    return undefined;
+  }
+
+  setSessionState(sessionState: SessionState): void {
+    // Store session state for sessionId getter
+    // InMemoryTransport doesn't use session state for other purposes
+    this._sessionState = sessionState;
+  }
 
   /**
    * Creates a pair of linked in-memory transports that can communicate with each other. One should be passed to a Client and one to a Server.
