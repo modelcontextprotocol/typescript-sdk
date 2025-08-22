@@ -926,6 +926,9 @@ describe("StreamableHTTPClientTransport", () => {
     });
 
     it("uses custom fetch in finishAuth method - no global fetch fallback", async () => {
+      // Setup mock auth provider to return required values
+      mockAuthProvider.codeVerifier = jest.fn().mockResolvedValue("test-code-verifier");
+
       // Create custom fetch
       const customFetch = jest.fn()
         // Protected resource metadata discovery
