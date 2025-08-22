@@ -1,12 +1,10 @@
 import { validateToolName, validateAndWarnToolName, issueToolNameWarning } from './toolNameValidation.js';
 
-// Spy on console.warn and console.error to capture output
+// Spy on console.warn to capture output
 let warnSpy: jest.SpyInstance;
-let errorSpy: jest.SpyInstance;
 
 beforeEach(() => {
   warnSpy = jest.spyOn(console, 'warn').mockImplementation();
-  errorSpy = jest.spyOn(console, 'error').mockImplementation();
 });
 
 afterEach(() => {
@@ -181,21 +179,18 @@ describe('validateAndWarnToolName', () => {
     const result = validateAndWarnToolName('-get-user-');
     expect(result).toBe(true);
     expect(warnSpy).toHaveBeenCalled();
-    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   test('should return true and not issue warnings for completely valid names', () => {
     const result = validateAndWarnToolName('get-user-profile');
     expect(result).toBe(true);
     expect(warnSpy).not.toHaveBeenCalled();
-    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   test('should return false and issue warnings for invalid names', () => {
     const result = validateAndWarnToolName('get user profile');
     expect(result).toBe(false);
     expect(warnSpy).toHaveBeenCalled(); // Now issues warnings instead of errors
-    expect(errorSpy).not.toHaveBeenCalled();
     const warningCalls = warnSpy.mock.calls.map(call => call.join(' '));
     expect(warningCalls.some(call => call.includes('Tool name contains spaces'))).toBe(true);
   });

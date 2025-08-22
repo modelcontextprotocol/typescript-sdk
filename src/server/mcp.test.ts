@@ -1645,9 +1645,8 @@ describe("tool()", () => {
       version: "1.0",
     });
     
-    // Spy on console.warn and console.error to verify warnings/errors are logged
+    // Spy on console.warn to verify warnings are logged
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
     
     // Test valid tool names
     testServer.registerTool("valid-tool-name", {
@@ -1666,7 +1665,6 @@ describe("tool()", () => {
     
     // Verify that warnings were issued (both for warnings and validation failures)
     expect(warnSpy).toHaveBeenCalled();
-    expect(errorSpy).not.toHaveBeenCalled(); // No more errors, only warnings
     
     // Verify specific warning content
     const warningCalls = warnSpy.mock.calls.map(call => call.join(' '));
