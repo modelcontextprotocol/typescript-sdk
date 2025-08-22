@@ -9,9 +9,9 @@
  */
 
 /**
- * Regular expression for valid tool names according to the MCP SEP specification
+ * Regular expression for valid tool names according to SEP-986 specification
  */
-const TOOL_NAME_REGEX = /^[A-Za-z0-9_-]{1,64}$/;
+const TOOL_NAME_REGEX = /^[A-Za-z0-9._/-]{1,128}$/;
 
 /**
  * Validates a tool name according to the SEP specification
@@ -32,10 +32,10 @@ export function validateToolName(name: string): {
     };
   }
   
-  if (name.length > 64) {
+  if (name.length > 128) {
     return {
       isValid: false,
-      warnings: [`Tool name exceeds maximum length of 64 characters (current: ${name.length})`]
+      warnings: [`Tool name exceeds maximum length of 128 characters (current: ${name.length})`]
     };
   }
   
@@ -48,21 +48,29 @@ export function validateToolName(name: string): {
     warnings.push("Tool name contains commas, which may cause parsing issues");
   }
   
-  // Check for potentially confusing patterns (only hyphens, not dots/slashes)
+  // Check for potentially confusing patterns (leading/trailing dashes, dots, slashes)
   if (name.startsWith('-') || name.endsWith('-')) {
     warnings.push("Tool name starts or ends with a dash, which may cause parsing issues in some contexts");
   }
   
-  // Check for invalid characters (including dots and slashes)
+  if (name.startsWith('.') || name.endsWith('.')) {
+    warnings.push("Tool name starts or ends with a dot, which may cause parsing issues in some contexts");
+  }
+  
+  if (name.startsWith('/') || name.endsWith('/')) {
+    warnings.push("Tool name starts or ends with a slash, which may cause parsing issues in some contexts");
+  }
+  
+  // Check for invalid characters
   if (!TOOL_NAME_REGEX.test(name)) {
     const invalidChars = name
       .split('')
-      .filter(char => !/[A-Za-z0-9_-]/.test(char))
+      .filter(char => !/[A-Za-z0-9._/-]/.test(char))
       .filter((char, index, arr) => arr.indexOf(char) === index); // Remove duplicates
     
     warnings.push(
       `Tool name contains invalid characters: ${invalidChars.map(c => `"${c}"`).join(', ')}`,
-      "Allowed characters are: A-Z, a-z, 0-9, underscore (_), and dash (-)"
+      "Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), dot (.), and forward slash (/)"
     );
     
     return {
