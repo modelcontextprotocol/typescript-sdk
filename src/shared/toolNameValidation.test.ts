@@ -31,20 +31,20 @@ describe('validateToolName', () => {
       expect(result.warnings).toHaveLength(0);
     });
 
-    test('should accept names with dots', () => {
+    test('should reject names with dots', () => {
       const result = validateToolName('admin.tools.list');
-      expect(result.isValid).toBe(true);
-      expect(result.warnings).toHaveLength(0);
+      expect(result.isValid).toBe(false);
+      expect(result.warnings).toContain('Tool name contains invalid characters: "."');
     });
 
-    test('should accept names with forward slashes', () => {
+    test('should reject names with forward slashes', () => {
       const result = validateToolName('user/profile/update');
-      expect(result.isValid).toBe(true);
-      expect(result.warnings).toHaveLength(0);
+      expect(result.isValid).toBe(false);
+      expect(result.warnings).toContain('Tool name contains invalid characters: "/"');
     });
 
     test('should accept mixed character names', () => {
-      const result = validateToolName('DATA_EXPORT_v2.1');
+      const result = validateToolName('DATA_EXPORT_v2-1');
       expect(result.isValid).toBe(true);
       expect(result.warnings).toHaveLength(0);
     });
@@ -55,8 +55,8 @@ describe('validateToolName', () => {
       expect(result.warnings).toHaveLength(0);
     });
 
-    test('should accept 128 character names', () => {
-      const name = 'a'.repeat(128);
+    test('should accept 64 character names', () => {
+      const name = 'a'.repeat(64);
       const result = validateToolName(name);
       expect(result.isValid).toBe(true);
       expect(result.warnings).toHaveLength(0);
@@ -70,11 +70,11 @@ describe('validateToolName', () => {
       expect(result.warnings).toContain('Tool name cannot be empty');
     });
 
-    test('should reject names longer than 128 characters', () => {
-      const name = 'a'.repeat(129);
+    test('should reject names longer than 64 characters', () => {
+      const name = 'a'.repeat(65);
       const result = validateToolName(name);
       expect(result.isValid).toBe(false);
-      expect(result.warnings).toContain('Tool name exceeds maximum length of 128 characters (current: 129)');
+      expect(result.warnings).toContain('Tool name exceeds maximum length of 64 characters (current: 65)');
     });
 
     test('should reject names with spaces', () => {
@@ -92,7 +92,7 @@ describe('validateToolName', () => {
     test('should reject names with other special characters', () => {
       const result = validateToolName('user@domain.com');
       expect(result.isValid).toBe(false);
-      expect(result.warnings).toContain('Tool name contains invalid characters: "@"');
+      expect(result.warnings).toContain('Tool name contains invalid characters: "@", "."');
     });
 
     test('should reject names with multiple invalid characters', () => {
@@ -133,22 +133,22 @@ describe('validateToolName', () => {
       expect(result.warnings).toContain('Tool name starts or ends with a dash, which may cause parsing issues in some contexts');
     });
 
-    test('should warn about names starting with dot', () => {
+    test('should reject names starting with dot', () => {
       const result = validateToolName('.get.user');
-      expect(result.isValid).toBe(true);
-      expect(result.warnings).toContain('Tool name starts or ends with a dot, which may cause parsing issues in some contexts');
+      expect(result.isValid).toBe(false);
+      expect(result.warnings).toContain('Tool name contains invalid characters: "."');
     });
 
-    test('should warn about names ending with dot', () => {
+    test('should reject names ending with dot', () => {
       const result = validateToolName('get.user.');
-      expect(result.isValid).toBe(true);
-      expect(result.warnings).toContain('Tool name starts or ends with a dot, which may cause parsing issues in some contexts');
+      expect(result.isValid).toBe(false);
+      expect(result.warnings).toContain('Tool name contains invalid characters: "."');
     });
 
-    test('should warn about names with both leading and trailing problematic characters', () => {
+    test('should reject names with both leading and trailing dots', () => {
       const result = validateToolName('.get.user.');
-      expect(result.isValid).toBe(true);
-      expect(result.warnings).toContain('Tool name starts or ends with a dot, which may cause parsing issues in some contexts');
+      expect(result.isValid).toBe(false);
+      expect(result.warnings).toContain('Tool name contains invalid characters: "."');
     });
   });
 });
@@ -202,7 +202,7 @@ describe('validateAndWarnToolName', () => {
   });
 
   test('should return false for names exceeding length limit', () => {
-    const longName = 'a'.repeat(129);
+    const longName = 'a'.repeat(65);
     const result = validateAndWarnToolName(longName);
     expect(result).toBe(false);
     expect(warnSpy).toHaveBeenCalled(); // Now issues warnings instead of errors
@@ -210,10 +210,10 @@ describe('validateAndWarnToolName', () => {
 });
 
 describe('edge cases and robustness', () => {
-  test('should handle names with only special characters', () => {
+  test('should reject names with only dots', () => {
     const result = validateToolName('...');
-    expect(result.isValid).toBe(true);
-    expect(result.warnings).toContain('Tool name starts or ends with a dot, which may cause parsing issues in some contexts');
+    expect(result.isValid).toBe(false);
+    expect(result.warnings).toContain('Tool name contains invalid characters: "."');
   });
 
   test('should handle names with only dashes', () => {
@@ -222,10 +222,10 @@ describe('edge cases and robustness', () => {
     expect(result.warnings).toContain('Tool name starts or ends with a dash, which may cause parsing issues in some contexts');
   });
 
-  test('should handle names with only forward slashes', () => {
+  test('should reject names with only forward slashes', () => {
     const result = validateToolName('///');
-    expect(result.isValid).toBe(true);
-    expect(result.warnings).toHaveLength(0);
+    expect(result.isValid).toBe(false);
+    expect(result.warnings).toContain('Tool name contains invalid characters: "/"');
   });
 
   test('should handle names with mixed valid and invalid characters', () => {

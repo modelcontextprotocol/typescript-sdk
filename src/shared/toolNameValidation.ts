@@ -48,25 +48,21 @@ export function validateToolName(name: string): {
     warnings.push("Tool name contains commas, which may cause parsing issues");
   }
   
-  // Check for potentially confusing patterns
+  // Check for potentially confusing patterns (only hyphens, not dots/slashes)
   if (name.startsWith('-') || name.endsWith('-')) {
     warnings.push("Tool name starts or ends with a dash, which may cause parsing issues in some contexts");
   }
   
-  if (name.startsWith('.') || name.endsWith('.')) {
-    warnings.push("Tool name starts or ends with a dot, which may cause parsing issues in some contexts");
-  }
-  
-  // Check for invalid characters
+  // Check for invalid characters (including dots and slashes)
   if (!TOOL_NAME_REGEX.test(name)) {
     const invalidChars = name
       .split('')
-      .filter(char => !/[A-Za-z0-9._/-]/.test(char))
+      .filter(char => !/[A-Za-z0-9_-]/.test(char))
       .filter((char, index, arr) => arr.indexOf(char) === index); // Remove duplicates
     
     warnings.push(
       `Tool name contains invalid characters: ${invalidChars.map(c => `"${c}"`).join(', ')}`,
-      "Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), dot (.), and forward slash (/)"
+      "Allowed characters are: A-Z, a-z, 0-9, underscore (_), and dash (-)"
     );
     
     return {
