@@ -1664,18 +1664,15 @@ describe("tool()", () => {
       description: "An invalid tool name"
     }, async () => ({ content: [{ type: "text", text: "Success" }] }));
     
-    // Verify that warnings and errors were issued
+    // Verify that warnings were issued (both for warnings and validation failures)
     expect(warnSpy).toHaveBeenCalled();
-    expect(errorSpy).toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled(); // No more errors, only warnings
     
     // Verify specific warning content
     const warningCalls = warnSpy.mock.calls.map(call => call.join(' '));
     expect(warningCalls.some(call => call.includes('Tool name starts or ends with a dash'))).toBe(true);
-    
-    // Verify error content for invalid names
-    const errorCalls = errorSpy.mock.calls.map(call => call.join(' '));
-    expect(errorCalls.some(call => call.includes('Tool name contains spaces'))).toBe(true);
-    expect(errorCalls.some(call => call.includes('Tool name contains invalid characters'))).toBe(true);
+    expect(warningCalls.some(call => call.includes('Tool name contains spaces'))).toBe(true);
+    expect(warningCalls.some(call => call.includes('Tool name contains invalid characters'))).toBe(true);
   });
 });
 

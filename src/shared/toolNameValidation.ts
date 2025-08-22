@@ -82,8 +82,8 @@ export function validateToolName(name: string): {
 }
 
 /**
- * Issues a warning for non-conforming tool names
- * @param name - The tool name that triggered the warning
+ * Issues warnings for non-conforming tool names
+ * @param name - The tool name that triggered the warnings
  * @param warnings - Array of warning messages
  */
 export function issueToolNameWarning(name: string, warnings: string[]): void {
@@ -92,6 +92,7 @@ export function issueToolNameWarning(name: string, warnings: string[]): void {
     warnings.forEach(warning => {
       console.warn(`  - ${warning}`);
     });
+    console.warn("Tool registration will proceed, but this may cause compatibility issues.");
     console.warn("Consider updating the tool name to conform to the MCP tool naming standard.");
     console.warn("See SEP: Specify Format for Tool Names for more details.");
   }
@@ -105,18 +106,10 @@ export function issueToolNameWarning(name: string, warnings: string[]): void {
 export function validateAndWarnToolName(name: string): boolean {
   const result = validateToolName(name);
   
-  if (!result.isValid) {
-    console.error(`Tool name validation failed for "${name}":`);
-    result.warnings.forEach(warning => {
-      console.error(`  - ${warning}`);
-    });
-    console.error("Tool registration will proceed, but this may cause compatibility issues.");
-    return false;
-  }
-  
+  // Always issue warnings for any validation issues (both invalid names and warnings)
   if (result.warnings.length > 0) {
     issueToolNameWarning(name, result.warnings);
   }
   
-  return true;
+  return result.isValid;
 }

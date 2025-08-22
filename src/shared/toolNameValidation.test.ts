@@ -160,13 +160,14 @@ describe('issueToolNameWarning', () => {
     const warnings = ['Warning 1', 'Warning 2'];
     issueToolNameWarning('test-tool', warnings);
     
-    expect(warnSpy).toHaveBeenCalledTimes(5); // Header + 2 warnings + 2 guidance lines
+    expect(warnSpy).toHaveBeenCalledTimes(6); // Header + 2 warnings + 3 guidance lines
     const calls = warnSpy.mock.calls.map(call => call.join(' '));
     expect(calls[0]).toContain('Tool name validation warning for "test-tool"');
     expect(calls[1]).toContain('- Warning 1');
     expect(calls[2]).toContain('- Warning 2');
-    expect(calls[3]).toContain('Consider updating the tool name');
-    expect(calls[4]).toContain('See SEP: Specify Format for Tool Names');
+    expect(calls[3]).toContain('Tool registration will proceed, but this may cause compatibility issues.');
+    expect(calls[4]).toContain('Consider updating the tool name');
+    expect(calls[5]).toContain('See SEP: Specify Format for Tool Names');
   });
 
   test('should handle empty warnings array', () => {
@@ -190,26 +191,26 @@ describe('validateAndWarnToolName', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  test('should return false and issue errors for invalid names', () => {
+  test('should return false and issue warnings for invalid names', () => {
     const result = validateAndWarnToolName('get user profile');
     expect(result).toBe(false);
-    expect(warnSpy).not.toHaveBeenCalled();
-    expect(errorSpy).toHaveBeenCalled();
-    const errorCalls = errorSpy.mock.calls.map(call => call.join(' '));
-    expect(errorCalls.some(call => call.includes('Tool name validation failed for "get user profile"'))).toBe(true);
+    expect(warnSpy).toHaveBeenCalled(); // Now issues warnings instead of errors
+    expect(errorSpy).not.toHaveBeenCalled();
+    const warningCalls = warnSpy.mock.calls.map(call => call.join(' '));
+    expect(warningCalls.some(call => call.includes('Tool name contains spaces'))).toBe(true);
   });
 
   test('should return false for empty names', () => {
     const result = validateAndWarnToolName('');
     expect(result).toBe(false);
-    expect(errorSpy).toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled(); // Now issues warnings instead of errors
   });
 
   test('should return false for names exceeding length limit', () => {
     const longName = 'a'.repeat(129);
     const result = validateAndWarnToolName(longName);
     expect(result).toBe(false);
-    expect(errorSpy).toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled(); // Now issues warnings instead of errors
   });
 });
 
