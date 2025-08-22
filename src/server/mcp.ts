@@ -41,6 +41,7 @@ import {
   ServerRequest,
   ServerNotification,
   ToolAnnotations,
+  LoggingMessageNotification,
 } from "../types.js";
 import { Completable, CompletableDef } from "./completable.js";
 import { UriTemplate, Variables } from "../shared/uriTemplate.js";
@@ -822,7 +823,7 @@ export class McpServer {
   /**
    * Registers a tool taking either a parameter schema for validation or annotations for additional metadata.
    * This unified overload handles both `tool(name, paramsSchema, cb)` and `tool(name, annotations, cb)` cases.
-   * 
+   *
    * Note: We use a union type for the second parameter because TypeScript cannot reliably disambiguate
    * between ToolAnnotations and ZodRawShape during overload resolution, as both are plain object types.
    */
@@ -834,9 +835,9 @@ export class McpServer {
 
   /**
    * Registers a tool `name` (with a description) taking either parameter schema or annotations.
-   * This unified overload handles both `tool(name, description, paramsSchema, cb)` and 
+   * This unified overload handles both `tool(name, description, paramsSchema, cb)` and
    * `tool(name, description, annotations, cb)` cases.
-   * 
+   *
    * Note: We use a union type for the third parameter because TypeScript cannot reliably disambiguate
    * between ToolAnnotations and ZodRawShape during overload resolution, as both are plain object types.
    */
@@ -1047,6 +1048,16 @@ export class McpServer {
     return this.server.transport !== undefined
   }
 
+  /**
+   * Sends a logging message to the client, if connected.
+   * Note: You only need to send the parameters object, not the entire JSON RPC message
+   * @see LoggingMessageNotification
+   * @param params
+   * @param sessionId optional for stateless and backward compatibility
+   */
+  async sendLoggingMessage(params: LoggingMessageNotification["params"], sessionId?: string) {
+    return this.server.sendLoggingMessage(params, sessionId);
+  }
   /**
    * Sends a resource list changed event to the client, if connected.
    */

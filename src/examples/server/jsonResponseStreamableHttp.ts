@@ -44,27 +44,27 @@ const getServer = () => {
     {
       name: z.string().describe('Name to greet'),
     },
-    async ({ name }, { sendNotification }): Promise<CallToolResult> => {
+    async ({ name }, extra): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-      await sendNotification({
-        method: "notifications/message",
-        params: { level: "debug", data: `Starting multi-greet for ${name}` }
-      });
+      await server.sendLoggingMessage({
+        level: "debug",
+        data: `Starting multi-greet for ${name}`
+      }, extra.sessionId);
 
       await sleep(1000); // Wait 1 second before first greeting
 
-      await sendNotification({
-        method: "notifications/message",
-        params: { level: "info", data: `Sending first greeting to ${name}` }
-      });
+      await server.sendLoggingMessage({
+        level: "info",
+        data: `Sending first greeting to ${name}`
+      }, extra.sessionId);
 
       await sleep(1000); // Wait another second before second greeting
 
-      await sendNotification({
-        method: "notifications/message",
-        params: { level: "info", data: `Sending second greeting to ${name}` }
-      });
+      await server.sendLoggingMessage({
+        level: "info",
+        data: `Sending second greeting to ${name}`
+      }, extra.sessionId);
 
       return {
         content: [
