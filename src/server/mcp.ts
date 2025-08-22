@@ -793,10 +793,7 @@ export class McpServer {
       remove: () => registeredTool.update({ name: null }),
       update: (updates) => {
         if (typeof updates.name !== "undefined" && updates.name !== name) {
-          // Validate new tool name if it's being changed
-          if (updates.name) {
-            validateAndWarnToolName(updates.name);
-          }
+          if (updates.name) validateAndWarnToolName(updates.name);
           delete this._registeredTools[name]
           if (updates.name) this._registeredTools[updates.name] = registeredTool
         }
