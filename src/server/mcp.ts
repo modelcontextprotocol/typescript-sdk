@@ -48,6 +48,24 @@ import { RequestHandlerExtra } from "../shared/protocol.js";
 import { Transport } from "../shared/transport.js";
 
 /**
+ * Simple interface for tool registration that avoids TypeScript "Type instantiation is excessively deep" 
+ * errors when registering large numbers of tools with complex schemas.
+ * 
+ * Uses unknown types to prevent TypeScript from attempting deep type inference on complex schemas.
+ */
+export interface ToolRegistration {
+  name: string;
+  config: {
+    title?: string;
+    description?: string;
+    inputSchema?: unknown;
+    outputSchema?: unknown;
+    annotations?: ToolAnnotations;
+  };
+  callback: (args: unknown, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
+}
+
+/**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * Server instance available via the `server` property.
@@ -666,6 +684,113 @@ export class McpServer {
     }
   }
 
+  /**
+   * Registers multiple resources at once with a single notification.
+   * This is more efficient than calling registerResource() multiple times,
+   * especially when registering many resources, as it sends only one list_changed notification.
+   */
+  registerResources(resources: Array<{
+    name: string;
+    uriOrTemplate: string | ResourceTemplate;
+    config: ResourceMetadata;
+    callback: ReadResourceCallback | ReadResourceTemplateCallback;
+  }>): (RegisteredResource | RegisteredResourceTemplate)[] {
+    if (resources.length === 0) {
+      return [];
+    }
+    
+    const results: (RegisteredResource | RegisteredResourceTemplate)[] = [];
+
+    // First, validate that none of the resources are already registered
+    for (const { name, uriOrTemplate } of resources) {
+      if (typeof uriOrTemplate === "string") {
+        if (this._registeredResources[uriOrTemplate]) {
+          throw new Error(`Resource ${uriOrTemplate} is already registered`);
+        }
+      } else {
+        if (this._registeredResourceTemplates[name]) {
+          throw new Error(`Resource template ${name} is already registered`);
+        }
+      }
+    }
+
+    // Register all resources without sending notifications
+    for (const { name, uriOrTemplate, config, callback } of resources) {
+      if (typeof uriOrTemplate === "string") {
+        const result = this._createRegisteredResource(
+          name,
+          (config as BaseMetadata).title,
+          uriOrTemplate,
+          config,
+          callback as ReadResourceCallback
+        );
+        results.push(result);
+      } else {
+        const result = this._createRegisteredResourceTemplate(
+          name,
+          (config as BaseMetadata).title,
+          uriOrTemplate,
+          config,
+          callback as ReadResourceTemplateCallback
+        );
+        results.push(result);
+      }
+    }
+
+    // Set up handlers and send single notification at the end
+    this.setResourceRequestHandlers();
+    this.sendResourceListChanged();
+
+    return results;
+  }
+
+  /**
+   * Register multiple prompts in a single operation with a single notification.
+   * This is more efficient than calling registerPrompt() multiple times when registering many prompts,
+   * especially when registering many prompts, as it sends only one list_changed notification.
+   */
+  registerPrompts(prompts: Array<{
+    name: string;
+    config: {
+      title?: string;
+      description?: string;
+      argsSchema?: PromptArgsRawShape;
+    };
+    callback: PromptCallback<PromptArgsRawShape | undefined>;
+  }>): RegisteredPrompt[] {
+    if (prompts.length === 0) {
+      return [];
+    }
+    
+    const results: RegisteredPrompt[] = [];
+
+    // First, validate that none of the prompts are already registered
+    for (const { name } of prompts) {
+      if (this._registeredPrompts[name]) {
+        throw new Error(`Prompt ${name} is already registered`);
+      }
+    }
+
+    // Register all prompts without sending notifications
+    for (const { name, config, callback } of prompts) {
+      const { title, description, argsSchema } = config;
+      const result = this._createRegisteredPrompt(
+        name,
+        title,
+        description,
+        argsSchema,
+        callback
+      );
+      results.push(result);
+    }
+
+    // Set up handlers and send single notification at the end
+    this.setPromptRequestHandlers();
+    this.sendPromptListChanged();
+
+    return results;
+  }
+
   private _createRegisteredResource(
     name: string,
     title: string | undefined,
@@ -803,9 +928,6 @@ export class McpServer {
     };
     this._registeredTools[name] = registeredTool;
 
-    this.setToolRequestHandlers();
-    this.sendToolListChanged()
-
     return registeredTool
   }
 
@@ -914,7 +1036,12 @@ export class McpServer {
     }
     const callback = rest[0] as ToolCallback<ZodRawShape | undefined>;
 
-    return this._createRegisteredTool(name, undefined, description, inputSchema, outputSchema, annotations, callback)
+    const result = this._createRegisteredTool(name, undefined, description, inputSchema, outputSchema, annotations, callback);
+    
+    this.setToolRequestHandlers();
+    this.sendToolListChanged();
+
+    return result;
   }
 
   /**
@@ -937,7 +1064,7 @@ export class McpServer {
 
     const { title, description, inputSchema, outputSchema, annotations } = config;
 
-    return this._createRegisteredTool(
+    const result = this._createRegisteredTool(
       name,
       title,
       description,
@@ -946,6 +1073,56 @@ export class McpServer {
       annotations,
       cb as ToolCallback<ZodRawShape | undefined>
     );
+
+    this.setToolRequestHandlers();
+    this.sendToolListChanged();
+
+    return result;
+  }
+
+  /**
+   * Registers multiple tools at once with a single notification.
+   * This is more efficient than calling registerTool() multiple times,
+   * especially when registering many tools, as it sends only one list_changed notification.
+   * 
+   * Uses simplified types to avoid TypeScript compilation issues with large numbers of complex tools.
+   */
+  registerTools(tools: ToolRegistration[]): RegisteredTool[] {
+    if (tools.length === 0) {
+      return [];
+    }
+    
+    const results: RegisteredTool[] = [];
+
+    // First, validate that none of the tools are already registered
+    for (const { name } of tools) {
+      if (this._registeredTools[name]) {
+        throw new Error(`Tool ${name} is already registered`);
+      }
+    }
+
+    // Register all tools without sending notifications
+    for (const { name, config, callback } of tools) {
+      const { title, description, inputSchema, outputSchema, annotations } = config;
+      
+      const result = this._createRegisteredTool(
+        name,
+        title,
+        description,
+        inputSchema as ZodRawShape | undefined,
+        outputSchema as ZodRawShape | undefined,
+        annotations,
+        callback as ToolCallback<ZodRawShape | undefined>
+      );
+      
+      results.push(result);
+    }
+
+    // Set up handlers and send single notification at the end
+    this.setToolRequestHandlers();
+    this.sendToolListChanged();
+
+    return results;
   }
 
   /**
