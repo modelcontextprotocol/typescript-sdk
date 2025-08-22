@@ -141,7 +141,7 @@ export class Server<
         : false;
     };
 
-    /**
+  /**
    * Registers new capabilities. This can only be called before connecting to a transport.
    *
    * The new capabilities will be merged with any existing capabilities previously given (e.g., at initialization).
