@@ -32,7 +32,9 @@ import {
   ServerRequest,
   ServerResult,
   SUPPORTED_PROTOCOL_VERSIONS,
-  LoggingLevel, SetLevelRequestSchema,
+  LoggingLevel,
+  SetLevelRequestSchema,
+  LoggingLevelSchema
 } from "../types.js";
 import Ajv from "ajv";
 
@@ -114,33 +116,32 @@ export class Server<
         this.setRequestHandler(SetLevelRequestSchema, async (request, extra) => {
             const transportSessionId: string | undefined = extra.sessionId || extra.requestInfo?.headers['mcp-session-id'] as string || undefined;
             const { level } = request.params;
-            if (transportSessionId && this._levelNames.some(l => l === level)) {
-                this._loggingLevels.set(transportSessionId, level);
+            const parseResult = LoggingLevelSchema.safeParse(level);
+            if (transportSessionId && parseResult.success) {
+                this._loggingLevels.set(transportSessionId, parseResult.data);
             }
             return {};
         })
     }
   }
 
+  // Map log levels by session id
   private _loggingLevels = new Map<string, LoggingLevel>();
-  private _levelNames = [
-    "debug",
-    "info",
-    "notice",
-    "warning",
-    "error",
-    "critical",
-    "alert",
-    "emergency",
-  ];
 
+  // Map LogLevelSchema to severity index
+  private readonly LOG_LEVEL_SEVERITY = new Map(
+    LoggingLevelSchema.options.map((level, index) => [level, index])
+  );
+
+  // Is a message with the given level ignored in the log level set for the given session id?
   private isMessageIgnored = (level: LoggingLevel, sessionId: string): boolean => {
-    const currentLevel = this._levelNames.findIndex((l) => this._loggingLevels.get(sessionId) === l);
-    const messageLevel = this._levelNames.findIndex((l) => level === l);
-    return messageLevel < currentLevel;
-  };
+    const currentLevel = this._loggingLevels.get(sessionId);
+    return (currentLevel)
+        ? this.LOG_LEVEL_SEVERITY.get(level)! < this.LOG_LEVEL_SEVERITY.get(currentLevel)!
+        : false;
+    };
 
-  /**
+    /**
    * Registers new capabilities. This can only be called before connecting to a transport.
    *
    * The new capabilities will be merged with any existing capabilities previously given (e.g., at initialization).
