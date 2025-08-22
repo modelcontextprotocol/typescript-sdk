@@ -1676,8 +1676,6 @@ describe("tool()", () => {
   });
 });
 
-
-
 describe("resource()", () => {
   /***
    * Test: Resource Registration with URI and Read Callback
