@@ -222,6 +222,10 @@ describe("ResourceTemplate", () => {
 });
 
 describe("tool()", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   /***
    * Test: Zero-Argument Tool Registration
    */
@@ -1641,49 +1645,37 @@ describe("tool()", () => {
       version: "1.0",
     });
     
-    // Mock console.warn and console.error to capture output
-    const originalWarn = console.warn;
-    const originalError = console.error;
-    let warnOutput: string[] = [];
-    let errorOutput: string[] = [];
+    // Spy on console.warn and console.error to verify warnings/errors are logged
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
     
-    console.warn = (...args: unknown[]) => warnOutput.push(args.join(' '));
-    console.error = (...args: unknown[]) => errorOutput.push(args.join(' '));
+    // Test valid tool names
+    testServer.registerTool("valid-tool-name", {
+      description: "A valid tool name"
+    }, async () => ({ content: [{ type: "text", text: "Success" }] }));
     
-    try {
-      // Test valid tool names
-      testServer.registerTool("valid-tool-name", {
-        description: "A valid tool name"
-      }, async () => ({ content: [{ type: "text", text: "Success" }] }));
-      
-      // Test tool name with warnings (starts with dash)
-      testServer.registerTool("-warning-tool", {
-        description: "A tool name that generates warnings"
-      }, async () => ({ content: [{ type: "text", text: "Success" }] }));
-      
-      // Test invalid tool name (contains spaces)
-      testServer.registerTool("invalid tool name", {
-        description: "An invalid tool name"
-      }, async () => ({ content: [{ type: "text", text: "Success" }] }));
-      
-      // Verify that warnings were issued
-      expect(warnOutput.length).toBeGreaterThan(0);
-      expect(errorOutput.length).toBeGreaterThan(0);
-      
-      // Verify specific warning content
-      const warningText = warnOutput.join(' ');
-      expect(warningText).toContain('Tool name starts or ends with a dash');
-      
-      // Verify error content for invalid names
-      const errorText = errorOutput.join(' ');
-      expect(errorText).toContain('Tool name contains spaces');
-      expect(errorText).toContain('Tool name contains invalid characters');
-      
-    } finally {
-      // Restore console methods
-      console.warn = originalWarn;
-      console.error = originalError;
-    }
+    // Test tool name with warnings (starts with dash)
+    testServer.registerTool("-warning-tool", {
+      description: "A tool name that generates warnings"
+    }, async () => ({ content: [{ type: "text", text: "Success" }] }));
+    
+    // Test invalid tool name (contains spaces)
+    testServer.registerTool("invalid tool name", {
+      description: "An invalid tool name"
+    }, async () => ({ content: [{ type: "text", text: "Success" }] }));
+    
+    // Verify that warnings and errors were issued
+    expect(warnSpy).toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
+    
+    // Verify specific warning content
+    const warningCalls = warnSpy.mock.calls.map(call => call.join(' '));
+    expect(warningCalls.some(call => call.includes('Tool name starts or ends with a dash'))).toBe(true);
+    
+    // Verify error content for invalid names
+    const errorCalls = errorSpy.mock.calls.map(call => call.join(' '));
+    expect(errorCalls.some(call => call.includes('Tool name contains spaces'))).toBe(true);
+    expect(errorCalls.some(call => call.includes('Tool name contains invalid characters'))).toBe(true);
   });
 });
 
