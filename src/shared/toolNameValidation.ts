@@ -89,9 +89,9 @@ export function validateToolName(name: string): {
 export function issueToolNameWarning(name: string, warnings: string[]): void {
   if (warnings.length > 0) {
     console.warn(`Tool name validation warning for "${name}":`);
-    warnings.forEach(warning => {
+    for (const warning of warnings) {
       console.warn(`  - ${warning}`);
-    });
+    }
     console.warn("Tool registration will proceed, but this may cause compatibility issues.");
     console.warn("Consider updating the tool name to conform to the MCP tool naming standard.");
     console.warn("See SEP: Specify Format for Tool Names for more details.");
@@ -107,9 +107,7 @@ export function validateAndWarnToolName(name: string): boolean {
   const result = validateToolName(name);
   
   // Always issue warnings for any validation issues (both invalid names and warnings)
-  if (result.warnings.length > 0) {
-    issueToolNameWarning(name, result.warnings);
-  }
+  issueToolNameWarning(name, result.warnings);
   
   return result.isValid;
 }
