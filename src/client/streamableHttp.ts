@@ -208,6 +208,7 @@ export class StreamableHTTPClientTransport implements Transport {
       }
 
       const response = await (this._fetch ?? fetch)(this._url, {
+        ...this._requestInit,
         method: "GET",
         headers,
         signal: this._abortController?.signal,
@@ -301,7 +302,7 @@ export class StreamableHTTPClientTransport implements Transport {
   }
 
   private _handleSseStream(
-    stream: ReadableStream<Uint8Array> | null, 
+    stream: ReadableStream<Uint8Array> | null,
     options: StartSSEOptions,
     isReconnectable: boolean,
   ): void {
@@ -352,8 +353,8 @@ export class StreamableHTTPClientTransport implements Transport {
 
         // Attempt to reconnect if the stream disconnects unexpectedly and we aren't closing
         if (
-          isReconnectable && 
-          this._abortController && 
+          isReconnectable &&
+          this._abortController &&
           !this._abortController.signal.aborted
         ) {
           // Use the exponential backoff reconnection strategy
