@@ -46,6 +46,7 @@ import { Completable, CompletableDef } from "./completable.js";
 import { UriTemplate, Variables } from "../shared/uriTemplate.js";
 import { RequestHandlerExtra } from "../shared/protocol.js";
 import { Transport } from "../shared/transport.js";
+import { validateAndWarnToolName } from "../shared/toolNameValidation.js";
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -774,6 +775,9 @@ export class McpServer {
     annotations: ToolAnnotations | undefined,
     callback: ToolCallback<ZodRawShape | undefined>
   ): RegisteredTool {
+    // Validate tool name according to SEP specification
+    validateAndWarnToolName(name);
+    
     const registeredTool: RegisteredTool = {
       title,
       description,
@@ -789,6 +793,10 @@ export class McpServer {
       remove: () => registeredTool.update({ name: null }),
       update: (updates) => {
         if (typeof updates.name !== "undefined" && updates.name !== name) {
+          // Validate new tool name if it's being changed
+          if (updates.name) {
+            validateAndWarnToolName(updates.name);
+          }
           delete this._registeredTools[name]
           if (updates.name) this._registeredTools[updates.name] = registeredTool
         }
