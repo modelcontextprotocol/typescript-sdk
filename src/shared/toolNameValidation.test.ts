@@ -233,6 +233,4 @@ describe('edge cases and robustness', () => {
     expect(result.isValid).toBe(false);
     expect(result.warnings).toContain('Tool name contains invalid characters: "@"');
   });
-
-
 });
