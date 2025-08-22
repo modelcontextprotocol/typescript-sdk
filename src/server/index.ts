@@ -139,7 +139,7 @@ export class Server<
     return (currentLevel)
         ? this.LOG_LEVEL_SEVERITY.get(level)! < this.LOG_LEVEL_SEVERITY.get(currentLevel)!
         : false;
-    };
+  };
 
   /**
    * Registers new capabilities. This can only be called before connecting to a transport.
