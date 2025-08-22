@@ -1175,6 +1175,7 @@ describe("tool()", () => {
           resultType: z.string(),
         },
       },
+        // @ts-expect-error - This is a test - we are not providing structuredContent. The type system is not able to infer the correct type, so we need ts-expect-error for the test.
       async ({ input }) => ({
         // Only return content without structuredContent
         content: [
@@ -1230,6 +1231,7 @@ describe("tool()", () => {
           resultType: z.string(),
         },
       },
+      // @ts-expect-error - This is a test - we are not providing structuredContent. The type system is not able to infer the correct type, so we need ts-expect-error for the test.
       async ({ input }) => ({
         content: [
           {
@@ -1295,6 +1297,7 @@ describe("tool()", () => {
           timestamp: z.string()
         },
       },
+      // @ts-expect-error - This is a test - we are not providing structuredContent. The type system is not able to infer the correct type, so we need ts-expect-error for the test.
       async ({ input }) => ({
         content: [
           {
