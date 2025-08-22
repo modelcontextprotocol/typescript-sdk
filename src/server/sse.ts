@@ -41,6 +41,7 @@ export class SSEServerTransport implements Transport {
   private _sseResponse?: ServerResponse;
   private _sessionId: string;
   private _options: SSEServerTransportOptions;
+  private _customContext?: Record<string, unknown>;
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
@@ -191,7 +192,12 @@ export class SSEServerTransport implements Transport {
       throw error;
     }
 
-    this.onmessage?.(parsedMessage, extra);
+    // Merge custom context with the extra info
+    const enhancedExtra: MessageExtraInfo = {
+      ...extra,
+      customContext: this._customContext
+    };
+    this.onmessage?.(parsedMessage, enhancedExtra);
   }
 
   async close(): Promise<void> {
@@ -217,5 +223,12 @@ export class SSEServerTransport implements Transport {
    */
   get sessionId(): string {
     return this._sessionId;
+  }
+
+  /**
+   * Sets custom context data that will be passed to all message handlers.
+   */
+  setCustomContext(context: Record<string, unknown>): void {
+    this._customContext = context;
   }
 }
