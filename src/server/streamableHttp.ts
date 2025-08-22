@@ -236,6 +236,7 @@ export class StreamableHTTPServerTransport implements Transport {
   private async handleGetRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     // The client MUST include an Accept header, listing text/event-stream as a supported content type.
     const acceptHeader = req.headers.accept;
+    console.log('GET cookies:', req.headers.cookie);
     if (!acceptHeader?.includes("text/event-stream")) {
       res.writeHead(406).end(JSON.stringify({
         jsonrpc: "2.0",

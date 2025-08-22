@@ -73,6 +73,7 @@ async function runServer(port: number | null) {
           version: "0.1.0",
         },
         {
+        
           capabilities: {},
         },
       );
@@ -142,6 +143,7 @@ switch (command) {
     }
 
     runClient(args[1], args.slice(2)).catch((error) => {
+      console.log("hi")
       console.error(error);
       process.exit(1);
     });
@@ -150,7 +152,9 @@ switch (command) {
 
   case "server": {
     const port = args[1] ? parseInt(args[1]) : null;
+    
     runServer(port).catch((error) => {
+     
       console.error(error);
       process.exit(1);
     });
