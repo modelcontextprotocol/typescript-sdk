@@ -9,9 +9,9 @@
  */
 
 /**
- * Regular expression for valid tool names according to the SEP specification
+ * Regular expression for valid tool names according to the MCP SEP specification
  */
-const TOOL_NAME_REGEX = /^[A-Za-z0-9._/-]{1,128}$/;
+const TOOL_NAME_REGEX = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
  * Validates a tool name according to the SEP specification
@@ -32,10 +32,10 @@ export function validateToolName(name: string): {
     };
   }
   
-  if (name.length > 128) {
+  if (name.length > 64) {
     return {
       isValid: false,
-      warnings: [`Tool name exceeds maximum length of 128 characters (current: ${name.length})`]
+      warnings: [`Tool name exceeds maximum length of 64 characters (current: ${name.length})`]
     };
   }
   
