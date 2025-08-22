@@ -1,12 +1,12 @@
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Transport } from "../shared/transport.js";
 import { MessageExtraInfo, RequestInfo, isInitializeRequest, isJSONRPCError, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema, RequestId, SUPPORTED_PROTOCOL_VERSIONS, DEFAULT_NEGOTIATED_PROTOCOL_VERSION } from "../types.js";
-import getRawBody from "raw-body";
 import contentType from "content-type";
 import { randomUUID } from "node:crypto";
 import { AuthInfo } from "./auth/types.js";
+import { getRawBody } from "./sse.js";
 
-const MAXIMUM_MESSAGE_SIZE = "4mb";
+const MAXIMUM_MESSAGE_SIZE = 4 * 1024 * 1024; // 4MB
 
 export type StreamId = string;
 export type EventId = string;
@@ -412,9 +412,9 @@ export class StreamableHTTPServerTransport implements Transport {
         const parsedCt = contentType.parse(ct);
         const body = await getRawBody(req, {
           limit: MAXIMUM_MESSAGE_SIZE,
-          encoding: parsedCt.parameters.charset ?? "utf-8",
+          encoding: (parsedCt.parameters.charset as BufferEncoding) ?? "utf-8",
         });
-        rawMessage = JSON.parse(body.toString());
+        rawMessage = JSON.parse(body);
       }
 
       let messages: JSONRPCMessage[];
