@@ -502,6 +502,30 @@ describe("StreamableHTTPClientTransport", () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("should always include requestInit options for initial connection in SSE", async () => {
+    const requestInit: RequestInit = {
+      credentials: 'include'
+    };
+
+    transport = new StreamableHTTPClientTransport(new URL("http://localhost:1234/mcp"), {
+      requestInit: requestInit
+    });
+
+    let actualReqInit: RequestInit = {};
+
+    ((global.fetch as jest.Mock)).mockImplementation(
+      async (_url, reqInit) => {
+        actualReqInit = reqInit;
+        return new Response(null, { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+    );
+
+    await transport.start();
+
+    await transport["_startOrAuthSse"]({});
+    expect(actualReqInit.credentials).toBe("include");
+  });
+
   it("should always send specified custom headers (Headers class)", async () => {
     const requestInit = {
       headers: new Headers({
