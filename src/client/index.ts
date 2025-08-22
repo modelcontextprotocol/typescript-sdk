@@ -43,7 +43,7 @@ import {
   ErrorCode,
   McpError,
 } from "../types.js";
-import Ajv from "ajv";
+import { Ajv } from 'ajv';
 import type { ValidateFunction } from "ajv";
 
 export type ClientOptions = ProtocolOptions & {
@@ -92,7 +92,7 @@ export class Client<
   private _capabilities: ClientCapabilities;
   private _instructions?: string;
   private _cachedToolOutputValidators: Map<string, ValidateFunction> = new Map();
-  private _ajv: InstanceType<typeof Ajv>;
+  private _ajv: Ajv;
 
   /**
    * Initializes this client with the given name and version information.

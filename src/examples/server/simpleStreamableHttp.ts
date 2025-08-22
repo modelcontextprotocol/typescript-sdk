@@ -141,8 +141,11 @@ const getServer = () => {
                 type: 'string',
                 title: 'Theme',
                 description: 'Choose your preferred theme',
-                enum: ['light', 'dark', 'auto'],
-                enumNames: ['Light', 'Dark', 'Auto'],
+                oneOf: [
+                  { const: 'light', title: 'Light' },
+                  { const: 'dark', title: 'Dark' },
+                  { const: 'auto', title: 'Auto' }
+                ],
               },
               notifications: {
                 type: 'boolean',
@@ -154,8 +157,11 @@ const getServer = () => {
                 type: 'string',
                 title: 'Notification Frequency',
                 description: 'How often would you like notifications?',
-                enum: ['daily', 'weekly', 'monthly'],
-                enumNames: ['Daily', 'Weekly', 'Monthly'],
+                oneOf: [
+                  { const: 'daily', title: 'Daily' },
+                  { const: 'weekly', title: 'Weekly' },
+                  { const: 'monthly', title: 'Monthly' }
+                ],
               },
             },
             required: ['theme'],
