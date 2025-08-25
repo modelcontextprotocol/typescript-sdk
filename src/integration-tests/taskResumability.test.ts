@@ -186,7 +186,7 @@ describe('Transport resumability', () => {
         name: 'run-notifications',
         arguments: {
           count: 3,
-          interval: 10
+          interval: 50  // Increased interval for more reliable timing
         }
       }
     }, CallToolResultSchema, {
@@ -194,8 +194,10 @@ describe('Transport resumability', () => {
       onresumptiontoken: onLastEventIdUpdate
     });
 
-    // Wait for some notifications to arrive (not all) - shorter wait time
-    await new Promise(resolve => setTimeout(resolve, 20));
+    // Wait for some notifications to arrive (not all)
+    // With 50ms interval, first notification should arrive immediately,
+    // second at 50ms. We wait 75ms to ensure we get at least 1-2 notifications
+    await new Promise(resolve => setTimeout(resolve, 75));
 
     // Verify we received some notifications and lastEventId was updated
     expect(notifications.length).toBeGreaterThan(0);
@@ -219,7 +221,7 @@ describe('Transport resumability', () => {
 
 
     // Add a short delay to ensure clean disconnect before reconnecting
-    await new Promise(resolve => setTimeout(resolve, 10));
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     // Wait for the rejection to be handled
     await catchPromise;
