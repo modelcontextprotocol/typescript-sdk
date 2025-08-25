@@ -65,6 +65,7 @@ describe("Protocol transport handling bug", () => {
     protocol.setRequestHandler(
       InitializeRequestSchema,
       async (request) => {
+        console.log(`Processing initialize from ${request.params.clientInfo.name}`);
         return handlerPromise;
       }
     );
@@ -122,6 +123,8 @@ describe("Protocol transport handling bug", () => {
     await new Promise(resolve => setTimeout(resolve, 10));
     
     // Check where the responses went
+    console.log("Transport A received:", transportA.sentMessages);
+    console.log("Transport B received:", transportB.sentMessages);
     
     // Transport A should receive response for its initialize request
     expect(transportA.sentMessages.length).toBe(1);
@@ -163,6 +166,7 @@ describe("Protocol transport handling bug", () => {
     protocol.setRequestHandler(
       TestRequestSchema,
       async (request) => {
+        console.log(`Processing request from ${request.params?.from}`);
         return handlerPromise;
       }
     );
@@ -201,6 +205,8 @@ describe("Protocol transport handling bug", () => {
     await new Promise(resolve => setTimeout(resolve, 10));
     
     // Check where the responses went
+    console.log("Transport A received:", transportA.sentMessages);
+    console.log("Transport B received:", transportB.sentMessages);
     
     // FIXED: Each transport now receives its own response
     
@@ -255,6 +261,7 @@ describe("Protocol transport handling bug", () => {
       InitializeRequestSchema,
       async (request) => {
         initializeCount++;
+        console.log(`Initialize handler called, count=${initializeCount}, client=${request.params.clientInfo.name}`);
         // Simulate session creation on server side
         const sessionId = `session-${initializeCount}`;
         serverProtocol.testCreateSession(sessionId);
