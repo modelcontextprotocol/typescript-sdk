@@ -85,6 +85,14 @@ export class McpServer {
     await this.server.close();
   }
 
+  /**
+   * Returns the connected transport instance.
+   * Used for session-to-server routing in examples.
+   */
+  getTransport() {
+    return this.server.getTransport();
+  }
+
   private _toolHandlersInitialized = false;
 
   private setToolRequestHandlers() {

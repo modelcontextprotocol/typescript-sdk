@@ -11,6 +11,7 @@ import {
   JSONRPCNotification,
   JSONRPCRequest,
   JSONRPCResponse,
+  JSONRPCMessage,
   McpError,
   Notification,
   PingRequestSchema,
@@ -24,6 +25,7 @@ import {
   RequestMeta,
   MessageExtraInfo,
   RequestInfo,
+  SessionId,
 } from "../types.js";
 import { Transport, TransportSendOptions } from "./transport.js";
 import { AuthInfo } from "../server/auth/types.js";
@@ -32,6 +34,27 @@ import { AuthInfo } from "../server/auth/types.js";
  * Callback for progress notifications.
  */
 export type ProgressCallback = (progress: Progress) => void;
+
+/**
+ * Session state for protocol-level session management.
+ */
+export interface SessionState {
+  sessionId: SessionId;
+  createdAt: number;
+  lastActivity: number;
+  timeout?: number; // seconds
+  callbackError?: Error; // Stores error if session callbacks fail
+}
+
+/**
+ * Session configuration options.
+ */
+export interface SessionOptions {
+  sessionIdGenerator?: () => SessionId;
+  sessionTimeout?: number; // seconds
+  onsessioninitialized?: (sessionId: SessionId) => void | Promise<void>;
+  onsessionclosed?: (sessionId: SessionId) => void | Promise<void>;
+}
 
 /**
  * Additional initialization options.
@@ -52,6 +75,10 @@ export type ProtocolOptions = {
    * e.g., ['notifications/tools/list_changed']
    */
   debouncedNotificationMethods?: string[];
+  /**
+   * Session configuration options.
+   */
+  sessions?: SessionOptions;
 };
 
 /**
@@ -121,9 +148,9 @@ export type RequestHandlerExtra<SendRequestT extends Request,
     authInfo?: AuthInfo;
 
     /**
-     * The session ID from the transport, if available.
+     * The session ID from the protocol session, if available.
      */
-    sessionId?: string;
+    sessionId?: SessionId;
 
     /**
      * Metadata from the original request.
@@ -179,6 +206,7 @@ export abstract class Protocol<
 > {
   private _transport?: Transport;
   private _requestMessageId = 0;
+  private _sessionState?: SessionState;
   private _requestHandlers: Map<
     string,
     (
@@ -290,6 +318,73 @@ export abstract class Protocol<
     }
   }
 
+  // Session management methods
+  protected validateSessionId(messageSessionId?: SessionId): boolean {
+    if (!messageSessionId && !this._sessionState) return true; // Both sessionless
+    if (!messageSessionId || !this._sessionState) return false; // Mismatch
+    return messageSessionId === this._sessionState.sessionId;
+  }
+
+  protected createSession(sessionId: SessionId, timeout?: number): void {
+    this._sessionState = {
+      sessionId,
+      createdAt: Date.now(),
+      lastActivity: Date.now(),
+      timeout
+    };
+    // Don't reset counter when creating session - only reset on reconnect/terminate
+    
+    // Notify transport of session state for HTTP header handling
+    this._transport?.setSessionState?.(this._sessionState);
+  }
+
+
+  protected updateSessionActivity(): void {
+    if (this._sessionState) {
+      this._sessionState.lastActivity = Date.now();
+    }
+  }
+
+  protected isSessionExpired(): boolean {
+    if (!this._sessionState?.timeout) return false;
+    const now = Date.now();
+    const expiry = this._sessionState.lastActivity + (this._sessionState.timeout * 1000);
+    return now > expiry;
+  }
+
+  protected async terminateSession(sessionId?: SessionId): Promise<void> {
+    // Validate sessionId - mismatch is internal error since sessionId should be validated on incoming message
+    if (sessionId && sessionId !== this._sessionState?.sessionId) {
+      throw new Error(`Internal error: terminateSession called with sessionId ${sessionId} but current session is ${this._sessionState?.sessionId}`);
+    }
+    
+    // Terminate session (same cleanup as protocol handler)
+    if (this._sessionState) {
+      this._sessionState = undefined;
+      this._requestMessageId = 0; // Reset counter
+    }
+  }
+
+
+  protected getSessionState() {
+    return this._sessionState;
+  }
+
+  private sendInvalidSessionError(message: JSONRPCMessage): void {
+    if ('id' in message && message.id !== undefined) {
+      const errorResponse: JSONRPCError = {
+        jsonrpc: "2.0",
+        id: message.id,
+        error: {
+          code: ErrorCode.InvalidSession,
+          message: "Invalid or expired session",
+          data: { sessionId: 'sessionId' in message ? message.sessionId : null }
+        }
+      };
+      this._transport?.send(errorResponse).catch(err => this._onerror(err));
+    }
+  }
+
   /**
    * Attaches to the given transport, starts it, and starts listening for messages.
    *
@@ -309,9 +404,32 @@ export abstract class Protocol<
       this._onerror(error);
     };
 
+
     const _onmessage = this._transport?.onmessage;
     this._transport.onmessage = (message, extra) => {
       _onmessage?.(message, extra);
+      
+      // Only validate session for incoming requests (server-side only)
+      // Don't validate responses or notifications as they are outgoing from server
+      if (this._sessionState && isJSONRPCRequest(message)) {
+        // Check for session expiry BEFORE updating activity
+        if (this.isSessionExpired()) {
+          this.sendInvalidSessionError(message);
+          return;
+        }
+        
+        const messageSessionId = 'sessionId' in message ? message.sessionId : undefined;
+        if (!this.validateSessionId(messageSessionId)) {
+          // Send invalid session error
+          this.sendInvalidSessionError(message);
+          return;
+        }
+        // Only update activity if message has valid sessionId
+        if (messageSessionId) {
+          this.updateSessionActivity();
+        }
+      }
+      
       if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
         this._onresponse(message);
       } else if (isJSONRPCRequest(message)) {
@@ -370,8 +488,9 @@ export abstract class Protocol<
     const handler =
       this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
 
-    // Capture the current transport at request time to ensure responses go to the correct client
+    // Capture the current transport and session state at request time to ensure responses go to the correct client
     const capturedTransport = this._transport;
+    const capturedSessionState = this._sessionState ? { ...this._sessionState } : undefined;
 
     if (handler === undefined) {
       capturedTransport
@@ -396,7 +515,7 @@ export abstract class Protocol<
 
     const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
       signal: abortController.signal,
-      sessionId: capturedTransport?.sessionId,
+      sessionId: capturedSessionState?.sessionId,
       _meta: request.params?._meta,
       sendNotification:
         (notification) =>
@@ -417,11 +536,16 @@ export abstract class Protocol<
             return;
           }
 
-          return capturedTransport?.send({
-            result,
-            jsonrpc: "2.0",
+          const resultWithSession = {
+            ...result,
+            ...(this._sessionState && { sessionId: this._sessionState.sessionId }),
+          };
+          const responseMessage = {
+            result: resultWithSession,
+            jsonrpc: "2.0" as const,
             id: request.id,
-          });
+          };
+          return capturedTransport?.send(responseMessage);
         },
         (error) => {
           if (abortController.signal.aborted) {
@@ -562,8 +686,14 @@ export abstract class Protocol<
       options?.signal?.throwIfAborted();
 
       const messageId = this._requestMessageId++;
-      const jsonrpcRequest: JSONRPCRequest = {
+      // Add sessionId to request if not already present and we have session state
+      const requestWithSession = {
         ...request,
+        ...(this._sessionState && !request.sessionId && { sessionId: this._sessionState.sessionId }),
+      };
+      
+      const jsonrpcRequest: JSONRPCRequest = {
+        ...requestWithSession,
         jsonrpc: "2.0",
         id: messageId,
       };
@@ -674,8 +804,14 @@ export abstract class Protocol<
           return;
         }
 
-        const jsonrpcNotification: JSONRPCNotification = {
+        // Add sessionId to notification if not already present and we have session state
+        const notificationWithSession = {
           ...notification,
+          ...(this._sessionState && !notification.sessionId && { sessionId: this._sessionState.sessionId }),
+        };
+        
+        const jsonrpcNotification: JSONRPCNotification = {
+          ...notificationWithSession,
           jsonrpc: "2.0",
         };
         // Send the notification, but don't await it here to avoid blocking.
@@ -687,8 +823,14 @@ export abstract class Protocol<
       return;
     }
 
-    const jsonrpcNotification: JSONRPCNotification = {
+    // Add sessionId to notification if not already present and we have session state
+    const notificationWithSession = {
       ...notification,
+      ...(this._sessionState && !notification.sessionId && { sessionId: this._sessionState.sessionId }),
+    };
+    
+    const jsonrpcNotification: JSONRPCNotification = {
+      ...notificationWithSession,
       jsonrpc: "2.0",
     };
 

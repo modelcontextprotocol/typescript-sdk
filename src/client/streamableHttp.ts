@@ -1,4 +1,5 @@
 import { Transport, FetchLike } from "../shared/transport.js";
+import { SessionState } from "../shared/protocol.js";
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { EventSourceParserStream } from "eventsource-parser/stream";
@@ -129,6 +130,7 @@ export class StreamableHTTPClientTransport implements Transport {
   private _authProvider?: OAuthClientProvider;
   private _fetch?: FetchLike;
   private _sessionId?: string;
+  private _sessionState?: SessionState; // For protocol-level session support
   private _reconnectionOptions: StreamableHTTPReconnectionOptions;
   private _protocolVersion?: string;
 
@@ -504,7 +506,12 @@ export class StreamableHTTPClientTransport implements Transport {
   }
 
   get sessionId(): string | undefined {
-    return this._sessionId;
+    // Prefer protocol-level session state, fallback to legacy _sessionId
+    return this._sessionState?.sessionId || this._sessionId;
+  }
+
+  setSessionState(sessionState: SessionState): void {
+    this._sessionState = sessionState;
   }
 
   /**

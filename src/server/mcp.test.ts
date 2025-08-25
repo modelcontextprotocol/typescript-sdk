@@ -14,7 +14,8 @@ import {
   LoggingMessageNotificationSchema,
   Notification,
   TextContent,
-  ElicitRequestSchema
+  ElicitRequestSchema,
+  InitializeResultSchema
 } from "../types.js";
 import { ResourceTemplate } from "./mcp.js";
 import { completable } from "./completable.js";
@@ -1342,6 +1343,10 @@ describe("tool()", () => {
     const mcpServer = new McpServer({
       name: "test server",
       version: "1.0",
+    }, {
+      sessions: {
+        sessionIdGenerator: () => "test-session-123"
+      }
     });
 
     const client = new Client({
@@ -1349,7 +1354,7 @@ describe("tool()", () => {
       version: "1.0",
     });
 
-    let receivedSessionId: string | undefined;
+    let receivedSessionId: string | number | undefined;
     mcpServer.tool("test-tool", async (extra) => {
       receivedSessionId = extra.sessionId;
       return {
@@ -1363,13 +1368,24 @@ describe("tool()", () => {
     });
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    // Set a test sessionId on the server transport
-    serverTransport.sessionId = "test-session-123";
 
     await Promise.all([
       client.connect(clientTransport),
       mcpServer.server.connect(serverTransport),
     ]);
+
+    // Initialize to create session
+    await client.request(
+      {
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "test client", version: "1.0" }
+        }
+      },
+      InitializeResultSchema
+    );
 
     await client.request(
       {
@@ -1377,6 +1393,7 @@ describe("tool()", () => {
         params: {
           name: "test-tool",
         },
+        sessionId: "test-session-123", // Protocol-level session approach
       },
       CallToolResultSchema,
     );

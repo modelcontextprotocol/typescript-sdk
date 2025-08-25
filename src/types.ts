@@ -23,6 +23,11 @@ export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
  */
 export const CursorSchema = z.string();
 
+/**
+ * A unique identifier for a session.
+ */
+export const SessionIdSchema = z.string();
+
 const RequestMetaSchema = z
   .object({
     /**
@@ -41,6 +46,7 @@ const BaseRequestParamsSchema = z
 export const RequestSchema = z.object({
   method: z.string(),
   params: z.optional(BaseRequestParamsSchema),
+  sessionId: z.optional(SessionIdSchema),
 });
 
 const BaseNotificationParamsSchema = z
@@ -56,6 +62,7 @@ const BaseNotificationParamsSchema = z
 export const NotificationSchema = z.object({
   method: z.string(),
   params: z.optional(BaseNotificationParamsSchema),
+  sessionId: z.optional(SessionIdSchema),
 });
 
 export const ResultSchema = z
@@ -65,6 +72,7 @@ export const ResultSchema = z
      * for notes on _meta usage.
      */
     _meta: z.optional(z.object({}).passthrough()),
+    sessionId: z.optional(SessionIdSchema),
   })
   .passthrough();
 
@@ -123,6 +131,9 @@ export enum ErrorCode {
   // SDK error codes
   ConnectionClosed = -32000,
   RequestTimeout = -32001,
+  
+  // MCP-specific error codes
+  InvalidSession = -32003,
 
   // Standard JSON-RPC error codes
   ParseError = -32700,
@@ -359,6 +370,14 @@ export const InitializeResultSchema = ResultSchema.extend({
    * This can be used by clients to improve the LLM's understanding of available tools, resources, etc. It can be thought of like a "hint" to the model. For example, this information MAY be added to the system prompt.
    */
   instructions: z.optional(z.string()),
+  /**
+   * Optional session identifier assigned by the server.
+   */
+  sessionId: z.optional(SessionIdSchema),
+  /**
+   * Optional session timeout hint in seconds.
+   */
+  sessionTimeout: z.optional(z.number().int().positive()),
 });
 
 /**
@@ -1352,6 +1371,15 @@ export const CompleteResultSchema = ResultSchema.extend({
     .passthrough(),
 });
 
+/* Sessions */
+/**
+ * Request to terminate a session.
+ */
+export const SessionTerminateRequestSchema = RequestSchema.extend({
+  method: z.literal("session/terminate"),
+  // No params - sessionId in request envelope
+});
+
 /* Roots */
 /**
  * Represents a root directory or file that the server can operate on.
@@ -1400,6 +1428,7 @@ export const RootsListChangedNotificationSchema = NotificationSchema.extend({
 export const ClientRequestSchema = z.union([
   PingRequestSchema,
   InitializeRequestSchema,
+  SessionTerminateRequestSchema,
   CompleteRequestSchema,
   SetLevelRequestSchema,
   GetPromptRequestSchema,
@@ -1522,6 +1551,7 @@ export type RequestMeta = Infer<typeof RequestMetaSchema>;
 export type Notification = Infer<typeof NotificationSchema>;
 export type Result = Infer<typeof ResultSchema>;
 export type RequestId = Infer<typeof RequestIdSchema>;
+export type SessionId = Infer<typeof SessionIdSchema>;
 export type JSONRPCRequest = Infer<typeof JSONRPCRequestSchema>;
 export type JSONRPCNotification = Infer<typeof JSONRPCNotificationSchema>;
 export type JSONRPCResponse = Infer<typeof JSONRPCResponseSchema>;
@@ -1627,6 +1657,9 @@ export type ResourceReference = ResourceTemplateReference;
 export type PromptReference = Infer<typeof PromptReferenceSchema>;
 export type CompleteRequest = Infer<typeof CompleteRequestSchema>;
 export type CompleteResult = Infer<typeof CompleteResultSchema>;
+
+/* Sessions */
+export type SessionTerminateRequest = Infer<typeof SessionTerminateRequestSchema>;
 
 /* Roots */
 export type Root = Infer<typeof RootSchema>;

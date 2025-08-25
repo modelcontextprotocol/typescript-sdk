@@ -172,6 +172,11 @@ export class Client<
 
       this._instructions = result.instructions;
 
+      // Handle session assignment from server
+      if (result.sessionId) {
+        this.createSession(result.sessionId, result.sessionTimeout);
+      }
+
       await this.notification({
         method: "notifications/initialized",
       });
