@@ -191,20 +191,20 @@ export class StreamableHTTPServerTransport implements Transport {
     return this._legacySessionCallbacks;
   }
 
-  constructor(options: StreamableHTTPServerTransportOptions) {
+  constructor(options?: StreamableHTTPServerTransportOptions) {
     // Store legacy session callbacks for delegation to server
-    this._legacySessionCallbacks = {
+    this._legacySessionCallbacks = options ? {
       sessionIdGenerator: options.sessionIdGenerator,
       onsessioninitialized: options.onsessioninitialized,
       onsessionclosed: options.onsessionclosed
-    };
+    } : undefined;
     
     // Transport options
-    this._enableJsonResponse = options.enableJsonResponse ?? false;
-    this._eventStore = options.eventStore;
-    this._allowedHosts = options.allowedHosts;
-    this._allowedOrigins = options.allowedOrigins;
-    this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
+    this._enableJsonResponse = options?.enableJsonResponse ?? false;
+    this._eventStore = options?.eventStore;
+    this._allowedHosts = options?.allowedHosts;
+    this._allowedOrigins = options?.allowedOrigins;
+    this._enableDnsRebindingProtection = options?.enableDnsRebindingProtection ?? false;
   }
 
   /**

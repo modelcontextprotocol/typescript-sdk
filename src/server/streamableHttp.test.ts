@@ -262,6 +262,23 @@ describe("StreamableHTTPServerTransport", () => {
     expect(response.headers.get("mcp-session-id")).toBeDefined();
   });
 
+  it("should create transport without options (backward compatibility)", async () => {
+    // Test that StreamableHTTPServerTransport can be created without any options
+    const minimalTransport = new StreamableHTTPServerTransport();
+    expect(minimalTransport).toBeDefined();
+    
+    // Test that it can connect to a server
+    const minimalMcpServer = new McpServer(
+      { name: "minimal-server", version: "1.0.0" },
+      { capabilities: {} }
+    );
+    
+    await expect(minimalMcpServer.connect(minimalTransport)).resolves.not.toThrow();
+    
+    // Clean up
+    await minimalTransport.close();
+  });
+
   it("should reject second initialization request", async () => {
     // First initialize
     const sessionId = await initializeServer();
