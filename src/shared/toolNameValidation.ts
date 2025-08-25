@@ -98,7 +98,7 @@ export function issueToolNameWarning(name: string, warnings: string[]): void {
     }
     console.warn("Tool registration will proceed, but this may cause compatibility issues.");
     console.warn("Consider updating the tool name to conform to the MCP tool naming standard.");
-    console.warn("See SEP: Specify Format for Tool Names for more details.");
+    console.warn("See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.");
   }
 }
 
