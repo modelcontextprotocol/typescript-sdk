@@ -1339,7 +1339,7 @@ describe("tool()", () => {
   /***
    * Test: Pass Session ID to Tool Callback
    */
-  test.skip("should pass sessionId to tool callback via RequestHandlerExtra (timing out - needs investigation)", async () => {
+  test("should pass sessionId to tool callback via RequestHandlerExtra", async () => {
     const mcpServer = new McpServer({
       name: "test server",
       version: "1.0",

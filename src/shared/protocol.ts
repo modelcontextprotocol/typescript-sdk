@@ -43,6 +43,7 @@ export interface SessionState {
   createdAt: number;
   lastActivity: number;
   timeout?: number; // seconds
+  callbackError?: Error; // Stores error if session callbacks fail
 }
 
 /**
@@ -206,7 +207,6 @@ export abstract class Protocol<
   private _transport?: Transport;
   private _requestMessageId = 0;
   private _sessionState?: SessionState;
-  private _sessionOptions?: SessionOptions;
   private _requestHandlers: Map<
     string,
     (
@@ -256,7 +256,6 @@ export abstract class Protocol<
   fallbackNotificationHandler?: (notification: Notification) => Promise<void>;
 
   constructor(private _options?: ProtocolOptions) {
-    this._sessionOptions = _options?.sessions;
     this.setNotificationHandler(CancelledNotificationSchema, (notification) => {
       const controller = this._requestHandlerAbortControllers.get(
         notification.params.requestId,
@@ -333,11 +332,12 @@ export abstract class Protocol<
       lastActivity: Date.now(),
       timeout
     };
-    this._requestMessageId = 0; // Reset counter for new session
+    // Don't reset counter when creating session - only reset on reconnect/terminate
     
     // Notify transport of session state for HTTP header handling
     this._transport?.setSessionState?.(this._sessionState);
   }
+
 
   protected updateSessionActivity(): void {
     if (this._sessionState) {
@@ -353,23 +353,18 @@ export abstract class Protocol<
   }
 
   protected async terminateSession(sessionId?: SessionId): Promise<void> {
-    // Validate sessionId (same as protocol handler)
+    // Validate sessionId - mismatch is internal error since sessionId should be validated on incoming message
     if (sessionId && sessionId !== this._sessionState?.sessionId) {
-      throw new McpError(ErrorCode.InvalidSession, "Invalid session");
+      throw new Error(`Internal error: terminateSession called with sessionId ${sessionId} but current session is ${this._sessionState?.sessionId}`);
     }
     
     // Terminate session (same cleanup as protocol handler)
     if (this._sessionState) {
-      const terminatingSessionId = this._sessionState.sessionId;
       this._sessionState = undefined;
       this._requestMessageId = 0; // Reset counter
-      await this._sessionOptions?.onsessionclosed?.(terminatingSessionId);
     }
   }
 
-  protected getSessionOptions() {
-    return this._sessionOptions;
-  }
 
   protected getSessionState() {
     return this._sessionState;
@@ -409,22 +404,20 @@ export abstract class Protocol<
       this._onerror(error);
     };
 
-    // Handle legacy session options delegation from transport
-    const legacySessionOptions = transport.getLegacySessionOptions?.();
-    if (legacySessionOptions) {
-      if (this._sessionOptions) {
-        console.warn("Warning: Both server session options and transport legacy session options provided. Using server options.");
-      } else {
-        this._sessionOptions = legacySessionOptions;
-      }
-    }
 
     const _onmessage = this._transport?.onmessage;
     this._transport.onmessage = (message, extra) => {
       _onmessage?.(message, extra);
       
-      // Always validate if sessions are enabled
-      if (this._sessionOptions) {
+      // Only validate session for incoming requests (server-side only)
+      // Don't validate responses or notifications as they are outgoing from server
+      if (this._sessionState && isJSONRPCRequest(message)) {
+        // Check for session expiry BEFORE updating activity
+        if (this.isSessionExpired()) {
+          this.sendInvalidSessionError(message);
+          return;
+        }
+        
         const messageSessionId = 'sessionId' in message ? message.sessionId : undefined;
         if (!this.validateSessionId(messageSessionId)) {
           // Send invalid session error
@@ -435,12 +428,6 @@ export abstract class Protocol<
         if (messageSessionId) {
           this.updateSessionActivity();
         }
-      }
-      
-      // Check for session expiry
-      if (this.isSessionExpired()) {
-        this.sendInvalidSessionError(message);
-        return;
       }
       
       if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
@@ -514,7 +501,6 @@ export abstract class Protocol<
             code: ErrorCode.MethodNotFound,
             message: "Method not found",
           },
-          ...(capturedSessionState && { sessionId: capturedSessionState.sessionId }),
         })
         .catch((error) =>
           this._onerror(
@@ -550,12 +536,16 @@ export abstract class Protocol<
             return;
           }
 
-          return capturedTransport?.send({
-            result,
-            jsonrpc: "2.0",
+          const resultWithSession = {
+            ...result,
+            ...(this._sessionState && { sessionId: this._sessionState.sessionId }),
+          };
+          const responseMessage = {
+            result: resultWithSession,
+            jsonrpc: "2.0" as const,
             id: request.id,
-            ...(capturedSessionState && { sessionId: capturedSessionState.sessionId }),
-          });
+          };
+          return capturedTransport?.send(responseMessage);
         },
         (error) => {
           if (abortController.signal.aborted) {
@@ -571,7 +561,6 @@ export abstract class Protocol<
                 : ErrorCode.InternalError,
               message: error.message ?? "Internal error",
             },
-            ...(capturedSessionState && { sessionId: capturedSessionState.sessionId }),
           });
         },
       )

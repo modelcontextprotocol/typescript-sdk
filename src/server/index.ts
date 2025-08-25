@@ -3,7 +3,10 @@ import {
   Protocol,
   ProtocolOptions,
   RequestOptions,
+  SessionOptions,
+  SessionState,
 } from "../shared/protocol.js";
+import { Transport } from "../shared/transport.js";
 import {
   ClientCapabilities,
   CreateMessageRequest,
@@ -87,6 +90,7 @@ export class Server<
   private _clientVersion?: Implementation;
   private _capabilities: ServerCapabilities;
   private _instructions?: string;
+  private _sessionOptions?: SessionOptions;
 
   /**
    * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
@@ -108,7 +112,10 @@ export class Server<
     private _serverInfo: Implementation,
     options?: ServerOptions,
   ) {
-    super(options);
+    // Extract session options before passing to super
+    const { sessions, ...protocolOptions } = options ?? {};
+    super(protocolOptions);
+    this._sessionOptions = sessions;
     this._capabilities = options?.capabilities ?? {};
     this._instructions = options?.instructions;
 
@@ -121,6 +128,48 @@ export class Server<
     this.setNotificationHandler(InitializedNotificationSchema, () =>
       this.oninitialized?.(),
     );
+  }
+
+  /**
+   * Handles initialization request synchronously for HTTP transport backward compatibility.
+   * This bypasses the Protocol's async request handling to allow immediate error detection.
+   * @internal
+   */
+  async handleInitializeSync(request: InitializeRequest): Promise<InitializeResult> {
+    // Call the internal initialization handler directly
+    const result = await this._oninitialize(request);
+    return result;
+  }
+
+  /**
+   * Connect to a transport, handling legacy session options from the transport.
+   */
+  async connect(transport: Transport): Promise<void> {
+    // Handle legacy session options delegation from transport
+    const legacySessionOptions = transport.getLegacySessionOptions?.();
+    if (legacySessionOptions) {
+      if (this._sessionOptions) {
+        // Both server session options and transport legacy session options provided. Using server options.
+      } else {
+        this._sessionOptions = legacySessionOptions;
+      }
+    }
+    
+    // Register synchronous initialization handler if transport supports it
+    if (transport.setInitializeHandler) {
+      transport.setInitializeHandler((request: InitializeRequest) => 
+        this.handleInitializeSync(request)
+      );
+    }
+    
+    // Register synchronous termination handler if transport supports it
+    if (transport.setTerminateHandler) {
+      transport.setTerminateHandler((sessionId?: string) => 
+        this.terminateSession(sessionId)
+      );
+    }
+    
+    await super.connect(transport);
   }
 
   /**
@@ -290,17 +339,59 @@ export class Server<
     };
 
     // Generate session if supported  
-    const sessionOptions = this.getSessionOptions();
-    if (sessionOptions?.sessionIdGenerator) {
-      const sessionId = sessionOptions.sessionIdGenerator();
+    if (this._sessionOptions?.sessionIdGenerator) {
+      const sessionId = this._sessionOptions.sessionIdGenerator();
       result.sessionId = sessionId;
-      result.sessionTimeout = sessionOptions.sessionTimeout;
+      result.sessionTimeout = this._sessionOptions.sessionTimeout;
       
-      this.createSession(sessionId, sessionOptions.sessionTimeout);
-      await sessionOptions.onsessioninitialized?.(sessionId);
+      await this.initializeSession(sessionId, this._sessionOptions.sessionTimeout);
     }
 
     return result;
+  }
+
+  private async initializeSession(sessionId: string, timeout?: number): Promise<void> {
+    // Create the session
+    this.createSession(sessionId, timeout);
+    
+    // Try to call the initialization callback, but if it fails,
+    // store the error in session state and rethrow
+    try {
+      await this._sessionOptions?.onsessioninitialized?.(sessionId);
+    } catch (error) {
+      // Store the error in session state for the transport to check
+      const sessionState = this.getSessionState();
+      if (sessionState) {
+        sessionState.callbackError = error instanceof Error ? error : new Error(String(error));
+      }
+      throw error;
+    }
+  }
+
+  protected async terminateSession(sessionId?: string): Promise<void> {
+    // Get the current session ID before termination
+    const currentSessionId = this.getSessionState()?.sessionId;
+    
+    // Call parent's terminateSession to clear the session state
+    await super.terminateSession(sessionId);
+    
+    // Now call the callback if we had a session
+    if (currentSessionId) {
+      try {
+        await this._sessionOptions?.onsessionclosed?.(currentSessionId);
+      } catch (error) {
+        // Re-create minimal session state just to store the error for transport to check
+        const sessionState: SessionState = {
+          sessionId: currentSessionId,
+          createdAt: Date.now(),
+          lastActivity: Date.now(),
+          callbackError: error instanceof Error ? error : new Error(String(error))
+        };
+        // Notify transport of the error state
+        this.transport?.setSessionState?.(sessionState);
+        throw error;
+      }
+    }
   }
 
   private async _onSessionTerminate(

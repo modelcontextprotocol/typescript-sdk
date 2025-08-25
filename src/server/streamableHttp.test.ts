@@ -289,6 +289,7 @@ describe("StreamableHTTPServerTransport", () => {
         params: {
           clientInfo: { name: "test-client-2", version: "1.0" },
           protocolVersion: "2025-03-26",
+          capabilities: {},
         },
         id: "init-2",
       }

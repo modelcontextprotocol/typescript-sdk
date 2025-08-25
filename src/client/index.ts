@@ -175,11 +175,6 @@ export class Client<
       // Handle session assignment from server
       if (result.sessionId) {
         this.createSession(result.sessionId, result.sessionTimeout);
-        // Notify transport of session state for sessionId property
-        const sessionState = this.getSessionState();
-        if (sessionState) {
-          transport.setSessionState?.(sessionState);
-        }
       }
 
       await this.notification({

@@ -133,3 +133,6 @@ out
 
 .DS_Store
 dist/
+
+# claude
+.claude/

@@ -1,4 +1,4 @@
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { describe, it, expect, beforeEach } from '@jest/globals';
 import { Protocol, SessionState } from './protocol.js';
 import { ErrorCode, JSONRPCRequest, JSONRPCMessage, Request, Notification, Result, MessageExtraInfo } from '../types.js';
 import { Transport } from './transport.js';
@@ -69,12 +69,8 @@ describe('Protocol Session Management', () => {
       expect(protocol.testValidateSessionId('some-session')).toBe(false);
     });
 
-    it('should validate session correctly when enabled', async () => {
-      protocol = new TestProtocol({
-        sessions: {
-          sessionIdGenerator: () => 'test-session-123'
-        }
-      });
+    it('should validate session correctly when session exists', async () => {
+      protocol = new TestProtocol();
       await protocol.connect(transport);
       
       // Create a session
@@ -91,11 +87,7 @@ describe('Protocol Session Management', () => {
     });
 
     it('should validate sessionless correctly when no active session', async () => {
-      protocol = new TestProtocol({
-        sessions: {
-          sessionIdGenerator: () => 'test-session'
-        }
-      });
+      protocol = new TestProtocol();
       await protocol.connect(transport);
       
       // No active session, no message session = valid
@@ -108,12 +100,7 @@ describe('Protocol Session Management', () => {
 
   describe('Session Lifecycle', () => {
     it('should create session with correct state', async () => {
-      protocol = new TestProtocol({
-        sessions: {
-          sessionIdGenerator: () => 'test-session-123',
-          sessionTimeout: 60
-        }
-      });
+      protocol = new TestProtocol();
       await protocol.connect(transport);
       
       protocol.testCreateSession('test-session-123', 60);
@@ -127,13 +114,7 @@ describe('Protocol Session Management', () => {
     });
 
     it('should terminate session correctly', async () => {
-      const mockCallback = jest.fn() as jest.MockedFunction<(sessionId: string | number) => void>;
-      protocol = new TestProtocol({
-        sessions: {
-          sessionIdGenerator: () => 'test-session-123',
-          onsessionclosed: mockCallback
-        }
-      });
+      protocol = new TestProtocol();
       await protocol.connect(transport);
       
       protocol.testCreateSession('test-session-123');
@@ -142,21 +123,16 @@ describe('Protocol Session Management', () => {
       await protocol.testTerminateSession('test-session-123');
       
       expect(protocol.getSessionState()).toBeUndefined();
-      expect(mockCallback).toHaveBeenCalledWith('test-session-123');
     });
 
     it('should reject termination with wrong sessionId', async () => {
-      protocol = new TestProtocol({
-        sessions: {
-          sessionIdGenerator: () => 'test-session-123'
-        }
-      });
+      protocol = new TestProtocol();
       await protocol.connect(transport);
       
       protocol.testCreateSession('test-session-123');
       
       await expect(protocol.testTerminateSession('wrong-session'))
-        .rejects.toThrow('Invalid session');
+        .rejects.toThrow('Internal error');
       
       // Session should still exist
       expect(protocol.getSessionState()).toBeDefined();
@@ -165,11 +141,7 @@ describe('Protocol Session Management', () => {
 
   describe('Message Handling with Sessions', () => {
     beforeEach(async () => {
-      protocol = new TestProtocol({
-        sessions: {
-          sessionIdGenerator: () => 'test-session'
-        }
-      });
+      protocol = new TestProtocol();
       await protocol.connect(transport);
       protocol.testCreateSession('test-session');
     });

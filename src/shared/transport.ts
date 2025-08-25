@@ -1,4 +1,4 @@
-import { JSONRPCMessage, MessageExtraInfo, RequestId } from "../types.js";
+import { JSONRPCMessage, MessageExtraInfo, RequestId, InitializeRequest, InitializeResult } from "../types.js";
 import { SessionOptions, SessionState } from "./protocol.js";
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
@@ -97,4 +97,16 @@ export interface Transport {
    * Sets the protocol version used for the connection (called when the initialize response is received).
    */
   setProtocolVersion?: (version: string) => void;
+
+  /**
+   * Sets a handler for synchronous initialization processing.
+   * Used by HTTP transport to handle initialization before sending response headers.
+   */
+  setInitializeHandler?: (handler: (request: InitializeRequest) => Promise<InitializeResult>) => void;
+
+  /**
+   * Sets a handler for synchronous session termination processing.
+   * Used by HTTP transport to handle termination before sending response headers.
+   */
+  setTerminateHandler?: (handler: (sessionId?: string) => Promise<void>) => void;
 }
