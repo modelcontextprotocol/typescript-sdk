@@ -13,4 +13,5 @@ export default {
     "/node_modules/(?!eventsource)/"
   ],
   testPathIgnorePatterns: ["/node_modules/", "/dist/"],
+  modulePathIgnorePatterns: ["<rootDir>/dist"],
 };
