@@ -35,7 +35,11 @@ async function createAndRunClient(config: ClientConfig): Promise<{ id: string; r
     version: '1.0.0'
   });
 
-  const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
+  const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
+    requestInit: {
+      credentials: "include",   // ensures cookies/auth headers are sent
+    },
+  });
 
   // Set up client-specific error handler
   client.onerror = (error) => {
