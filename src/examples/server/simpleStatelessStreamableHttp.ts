@@ -42,20 +42,17 @@ const getServer = () => {
       interval: z.number().describe('Interval in milliseconds between notifications').default(100),
       count: z.number().describe('Number of notifications to send (0 for 100)').default(10),
     },
-    async ({ interval, count }, { sendNotification }): Promise<CallToolResult> => {
+    async ({ interval, count }, extra): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
       let counter = 0;
 
       while (count === 0 || counter < count) {
         counter++;
         try {
-          await sendNotification({
-            method: "notifications/message",
-            params: {
-              level: "info",
-              data: `Periodic notification #${counter} at ${new Date().toISOString()}`
-            }
-          });
+          await server.sendLoggingMessage({
+            level: "info",
+            data: `Periodic notification #${counter} at ${new Date().toISOString()}`
+          }, extra.sessionId);
         }
         catch (error) {
           console.error("Error sending notification:", error);
