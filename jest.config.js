@@ -18,5 +18,5 @@ export default {
    *  JSONRPCNotification vs Notification.
    *  See: https://github.com/modelcontextprotocol/modelcontextprotocol/pull/1026
    */
-  testPathIgnorePatterns: ["/node_modules/", "/dist/", "<rootDir>/src/spec.types.test.ts"],
+  testPathIgnorePatterns: ["/node_modules/", "/dist/"],
 };
