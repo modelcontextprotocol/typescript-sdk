@@ -2,6 +2,7 @@ import { EventSource, type ErrorEvent, type EventSourceInit } from "eventsource"
 import { Transport, FetchLike } from "../shared/transport.js";
 import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
 import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
+import { createUserAgentProvider, UserAgentProvider } from "../shared/userAgent.js";
 
 export class SseError extends Error {
   constructor(
@@ -69,6 +70,7 @@ export class SSEClientTransport implements Transport {
   private _authProvider?: OAuthClientProvider;
   private _fetch?: FetchLike;
   private _protocolVersion?: string;
+  private _userAgentProvider: UserAgentProvider;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -84,6 +86,7 @@ export class SSEClientTransport implements Transport {
     this._requestInit = opts?.requestInit;
     this._authProvider = opts?.authProvider;
     this._fetch = opts?.fetch;
+    this._userAgentProvider = createUserAgentProvider();
   }
 
   private async _authThenStart(): Promise<void> {
@@ -93,7 +96,7 @@ export class SSEClientTransport implements Transport {
 
     let result: AuthResult;
     try {
-      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
+      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch, userAgentProvider: this._userAgentProvider });
     } catch (error) {
       this.onerror?.(error as Error);
       throw error;
@@ -117,6 +120,8 @@ export class SSEClientTransport implements Transport {
     if (this._protocolVersion) {
       headers["mcp-protocol-version"] = this._protocolVersion;
     }
+
+    headers["user-agent"] = await this._userAgentProvider();
 
     return new Headers(
       { ...headers, ...this._requestInit?.headers }
@@ -218,7 +223,7 @@ export class SSEClientTransport implements Transport {
       throw new UnauthorizedError("No auth provider");
     }
 
-    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
+    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch, userAgentProvider: this._userAgentProvider });
     if (result !== "AUTHORIZED") {
       throw new UnauthorizedError("Failed to authorize");
     }
@@ -252,7 +257,7 @@ export class SSEClientTransport implements Transport {
 
           this._resourceMetadataUrl = extractResourceMetadataUrl(response);
 
-          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
+          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch, userAgentProvider: this._userAgentProvider });
           if (result !== "AUTHORIZED") {
             throw new UnauthorizedError();
           }

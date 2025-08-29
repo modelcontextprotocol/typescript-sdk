@@ -161,6 +161,7 @@ describe("withOAuth", () => {
       serverUrl: "https://api.example.com",
       resourceMetadataUrl: mockResourceUrl,
       fetchFn: mockFetch,
+      userAgentProvider: expect.any(Function),
     });
 
     // Verify the retry used the new token
@@ -209,6 +210,7 @@ describe("withOAuth", () => {
       serverUrl: "https://api.example.com", // Should be extracted from request URL
       resourceMetadataUrl: mockResourceUrl,
       fetchFn: mockFetch,
+      userAgentProvider: expect.any(Function),
     });
 
     // Verify the retry used the new token
@@ -396,6 +398,7 @@ describe("withOAuth", () => {
       serverUrl: "https://api.example.com", // Should extract origin from URL object
       resourceMetadataUrl: undefined,
       fetchFn: mockFetch,
+      userAgentProvider: expect.any(Function),
     });
   });
 });
@@ -995,6 +998,7 @@ describe("Integration Tests", () => {
         "https://auth.example.com/.well-known/oauth-protected-resource",
       ),
       fetchFn: mockFetch,
+      userAgentProvider: expect.any(Function),
     });
   });
 });

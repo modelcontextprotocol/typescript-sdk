@@ -212,9 +212,9 @@ describe("Proxy OAuth Server Provider", () => {
         "https://auth.example.com/token",
         expect.objectContaining({
           method: "POST",
-          headers: {
+          headers: expect.objectContaining({
             "Content-Type": "application/x-www-form-urlencoded",
-          },
+          }),
           body: expect.stringContaining("grant_type=refresh_token")
         })
       );
@@ -233,9 +233,9 @@ describe("Proxy OAuth Server Provider", () => {
         'https://auth.example.com/token',
         expect.objectContaining({
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
+          headers: expect.objectContaining({
+            "Content-Type": "application/x-www-form-urlencoded",
+          }),
           body: expect.stringContaining('resource=' + encodeURIComponent('https://api.example.com/resource'))
         })
       );
@@ -263,9 +263,9 @@ describe("Proxy OAuth Server Provider", () => {
         "https://auth.example.com/register",
         expect.objectContaining({
           method: "POST",
-          headers: {
+          headers: expect.objectContaining({
             "Content-Type": "application/json",
-          },
+          }),
           body: JSON.stringify(newClient),
         })
       );
@@ -302,9 +302,9 @@ describe("Proxy OAuth Server Provider", () => {
         "https://auth.example.com/revoke",
         expect.objectContaining({
           method: "POST",
-          headers: {
+          headers: expect.objectContaining({
             "Content-Type": "application/x-www-form-urlencoded",
-          },
+          }),
           body: expect.stringContaining("token=token-to-revoke"),
         })
       );
