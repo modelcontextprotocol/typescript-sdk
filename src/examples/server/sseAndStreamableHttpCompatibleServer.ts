@@ -12,7 +12,7 @@ import cors from 'cors';
  * This example server demonstrates backwards compatibility with both:
  * 1. The deprecated HTTP+SSE transport (protocol version 2024-11-05)
  * 2. The Streamable HTTP transport (protocol version 2025-03-26)
- * 
+ *
  * It maintains a single MCP server instance but exposes two transport options:
  * - /mcp: The new Streamable HTTP endpoint (supports GET/POST/DELETE)
  * - /sse: The deprecated SSE endpoint for older clients (GET to establish stream)
@@ -33,20 +33,17 @@ const getServer = () => {
       interval: z.number().describe('Interval in milliseconds between notifications').default(100),
       count: z.number().describe('Number of notifications to send (0 for 100)').default(50),
     },
-    async ({ interval, count }, { sendNotification }): Promise<CallToolResult> => {
+    async ({ interval, count }, extra): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
       let counter = 0;
 
       while (count === 0 || counter < count) {
         counter++;
         try {
-          await sendNotification({
-            method: "notifications/message",
-            params: {
-              level: "info",
-              data: `Periodic notification #${counter} at ${new Date().toISOString()}`
-            }
-          });
+          await server.sendLoggingMessage({
+            level: "info",
+            data: `Periodic notification #${counter} at ${new Date().toISOString()}`
+          }, extra.sessionId);
         }
         catch (error) {
           console.error("Error sending notification:", error);

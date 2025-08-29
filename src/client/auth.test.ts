@@ -212,11 +212,11 @@ describe("OAuth Authorization", () => {
       expect(url.toString()).toBe("https://resource.example.com/.well-known/oauth-protected-resource/path?param=value");
     });
 
-    it("falls back to root discovery when path-aware discovery returns 404", async () => {
-      // First call (path-aware) returns 404
+    it.each([400, 401, 403, 404, 410, 422, 429])("falls back to root discovery when path-aware discovery returns %d", async (statusCode) => {
+      // First call (path-aware) returns 4xx
       mockFetch.mockResolvedValueOnce({
         ok: false,
-        status: 404,
+        status: statusCode,
       });
 
       // Second call (root fallback) succeeds
@@ -265,6 +265,20 @@ describe("OAuth Authorization", () => {
 
       const calls = mockFetch.mock.calls;
       expect(calls.length).toBe(2);
+    });
+
+    it("throws error on 500 status and does not fallback", async () => {
+      // First call (path-aware) returns 500
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+      });
+
+      await expect(discoverOAuthProtectedResourceMetadata("https://resource.example.com/path/name"))
+        .rejects.toThrow();
+
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(1); // Should not attempt fallback
     });
 
     it("does not fallback when the original URL is already at root path", async () => {
@@ -898,6 +912,18 @@ describe("OAuth Authorization", () => {
       expect(options.headers).toEqual({
         "MCP-Protocol-Version": "2025-01-01"
       });
+    });
+
+    it("returns undefined when all URLs fail with CORS errors", async () => {
+      // All fetch attempts fail with CORS errors (TypeError)
+      mockFetch.mockImplementation(() => Promise.reject(new TypeError("CORS error")));
+
+      const metadata = await discoverAuthorizationServerMetadata("https://auth.example.com/tenant1");
+
+      expect(metadata).toBeUndefined();
+
+      // Verify that all discovery URLs were attempted
+      expect(mockFetch).toHaveBeenCalledTimes(8); // 4 URLs × 2 attempts each (with and without headers)
     });
   });
 
