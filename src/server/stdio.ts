@@ -1,7 +1,7 @@
 import process from "node:process";
 import { Readable, Writable } from "node:stream";
 import { ReadBuffer, serializeMessage } from "../shared/stdio.js";
-import { JSONRPCMessage } from "../types.js";
+import { JSONRPCMessage, MessageExtraInfo } from "../types.js";
 import { Transport } from "../shared/transport.js";
 
 /**
@@ -12,6 +12,7 @@ import { Transport } from "../shared/transport.js";
 export class StdioServerTransport implements Transport {
   private _readBuffer: ReadBuffer = new ReadBuffer();
   private _started = false;
+  private _customContext?: Record<string, unknown>;
 
   constructor(
     private _stdin: Readable = process.stdin,
@@ -20,7 +21,7 @@ export class StdioServerTransport implements Transport {
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage) => void;
+  onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
 
   // Arrow functions to bind `this` properly, while maintaining function identity.
   _ondata = (chunk: Buffer) => {
@@ -54,7 +55,11 @@ export class StdioServerTransport implements Transport {
           break;
         }
 
-        this.onmessage?.(message);
+        // Pass custom context to message handlers
+        const extra: MessageExtraInfo = {
+          customContext: this._customContext
+        };
+        this.onmessage?.(message, extra);
       } catch (error) {
         this.onerror?.(error as Error);
       }
@@ -88,5 +93,12 @@ export class StdioServerTransport implements Transport {
         this._stdout.once("drain", resolve);
       }
     });
+  }
+
+  /**
+   * Sets custom context data that will be passed to all message handlers.
+   */
+  setCustomContext(context: Record<string, unknown>): void {
+    this._customContext = context;
   }
 }
