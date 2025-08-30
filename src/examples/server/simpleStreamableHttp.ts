@@ -21,7 +21,9 @@ const strictOAuth = process.argv.includes('--oauth-strict');
 const getServer = () => {
   const server = new McpServer({
     name: 'simple-streamable-http-server',
-    version: '1.0.0'
+    version: '1.0.0',
+    icons: [{src: './mcp.svg', sizes: '512x512', type: 'image/svg+xml'}],
+    websiteUrl: 'https://github.com/modelcontextprotocol/typescript-sdk',
   }, { capabilities: { logging: {} } });
 
   // Register a simple tool that returns a greeting
