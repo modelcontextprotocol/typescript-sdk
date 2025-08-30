@@ -4290,4 +4290,484 @@ describe("elicitInput()", () => {
       text: "No booking made. Original date not available."
     }]);
   });
+
+  /***
+   * Test: Bulk Tool Registration - Memory Leak Prevention
+   */
+  test("should handle multiple tool registrations without memory leak", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    // Register first tool before connection (should work fine)
+    mcpServer.tool("tool1", async () => ({
+      content: [{ type: "text", text: "Tool 1" }]
+    }));
+
+    const notifications: Notification[] = []
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Clear any initial notifications
+    notifications.length = 0;
+
+    // This should work since capabilities were already registered during first tool
+    mcpServer.tool("tool2", async () => ({
+      content: [{ type: "text", text: "Tool 2" }]
+    }));
+
+    // Yield event loop to let notifications process
+    await new Promise(process.nextTick);
+
+    // Should have sent exactly one notification for the second tool
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      method: "notifications/tools/list_changed",
+    });
+
+    // Verify both tools are registered
+    const toolsResult = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+    expect(toolsResult.tools).toHaveLength(2);
+    expect(toolsResult.tools.map(t => t.name).sort()).toEqual(["tool1", "tool2"]);
+  });
+
+  /***
+   * Test: registerTool() should work after connection (fixed behavior)
+   */
+  test("registerTool() should work after connection", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    // Register first tool before connection to establish capabilities
+    mcpServer.tool("tool1", async () => ({
+      content: [{ type: "text", text: "Tool 1" }]
+    }));
+
+    const notifications: Notification[] = []
+    const client = new Client({
+      name: "test client", 
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Clear any initial notifications
+    notifications.length = 0;
+
+    // This should now work after the fix
+    mcpServer.registerTool("test2", {
+      description: "Test tool 2"
+    }, async () => ({
+      content: [{ type: "text", text: "Test 2" }]
+    }));
+
+    // Yield event loop to let notifications process
+    await new Promise(process.nextTick);
+
+    // Should have sent exactly one notification
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      method: "notifications/tools/list_changed",
+    });
+
+    // Verify both tools are registered
+    const toolsResult = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+    expect(toolsResult.tools).toHaveLength(2);
+    expect(toolsResult.tools.map(t => t.name).sort()).toEqual(["test2", "tool1"]);
+  });
+
+  /***
+   * Test: registerTools() bulk method
+   */
+  test("should register multiple tools with single notification using registerTools()", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    // Register first tool to establish capabilities
+    mcpServer.tool("initial", async () => ({
+      content: [{ type: "text", text: "Initial" }]
+    }));
+
+    const notifications: Notification[] = []
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Clear initial notifications
+    notifications.length = 0;
+
+    // Register multiple tools at once using the bulk method
+    const tools = mcpServer.registerTools([
+      {
+        name: "bulk1",
+        config: { 
+          title: "Bulk Tool 1",
+          description: "First bulk tool"
+        },
+        callback: async () => ({
+          content: [{ type: "text" as const, text: "Bulk 1" }]
+        })
+      },
+      {
+        name: "bulk2", 
+        config: {
+          title: "Bulk Tool 2",
+          description: "Second bulk tool"
+        },
+        callback: async () => ({
+          content: [{ type: "text" as const, text: "Bulk 2" }]
+        })
+      },
+      {
+        name: "bulk3",
+        config: {
+          description: "Third bulk tool"
+        },
+        callback: async () => ({
+          content: [{ type: "text" as const, text: "Bulk 3" }]
+        })
+      }
+    ]);
+
+    // Yield event loop to let notifications process
+    await new Promise(process.nextTick);
+
+    // Should have sent exactly ONE notification for all three tools
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      method: "notifications/tools/list_changed",
+    });
+
+    // Should return array of registered tools
+    expect(tools).toHaveLength(3);
+    expect(tools[0].title).toBe("Bulk Tool 1");
+    expect(tools[1].title).toBe("Bulk Tool 2");
+    expect(tools[2].title).toBeUndefined(); // No title provided
+
+    // Verify all tools are registered and functional
+    const toolsResult = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+    expect(toolsResult.tools).toHaveLength(4); // initial + 3 bulk tools
+    
+    const toolNames = toolsResult.tools.map(t => t.name).sort();
+    expect(toolNames).toEqual(["bulk1", "bulk2", "bulk3", "initial"]);
+
+    // Test that the tools actually work
+    const callResult = await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "bulk1",
+          arguments: {}
+        }
+      },
+      CallToolResultSchema,
+    );
+    expect(callResult.content[0]).toMatchObject({
+      type: "text",
+      text: "Bulk 1"
+    });
+  });
+
+  /***
+   * Test: registerResources() bulk method
+   */
+  test("should register multiple resources with single notification using registerResources()", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    // Register first resource to establish capabilities
+    mcpServer.resource("initial", "initial://resource", async () => ({
+      contents: [{
+        uri: "initial://resource",
+        text: "Initial resource"
+      }]
+    }));
+
+    const notifications: Notification[] = []
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Clear initial notifications
+    notifications.length = 0;
+
+    // Register multiple resources at once using the bulk method
+    const resources = mcpServer.registerResources([
+      {
+        name: "bulk1",
+        uriOrTemplate: "bulk://resource1",
+        config: {
+          title: "Bulk Resource 1",
+          description: "First bulk resource"
+        },
+        callback: async () => ({
+          contents: [{
+            uri: "bulk://resource1",
+            text: "Bulk resource 1 content"
+          }]
+        })
+      },
+      {
+        name: "bulk2",
+        uriOrTemplate: "bulk://resource2", 
+        config: {
+          title: "Bulk Resource 2",
+          description: "Second bulk resource"
+        },
+        callback: async () => ({
+          contents: [{
+            uri: "bulk://resource2",
+            text: "Bulk resource 2 content"
+          }]
+        })
+      }
+    ]);
+
+    // Yield event loop to let notifications process
+    await new Promise(process.nextTick);
+
+    // Should have sent exactly ONE notification for all resources
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      method: "notifications/resources/list_changed",
+    });
+
+    // Should return array of registered resources
+    expect(resources).toHaveLength(2);
+    expect(resources[0].title).toBe("Bulk Resource 1");
+    expect(resources[1].title).toBe("Bulk Resource 2");
+
+    // Verify all resources are registered and functional
+    const resourcesResult = await client.request(
+      { method: "resources/list" },
+      ListResourcesResultSchema,
+    );
+    expect(resourcesResult.resources).toHaveLength(3); // initial + 2 bulk resources
+    
+    const resourceNames = resourcesResult.resources.map(r => r.name).sort();
+    expect(resourceNames).toEqual(["bulk1", "bulk2", "initial"]);
+
+    // Test that a resource actually works
+    const readResult = await client.request(
+      {
+        method: "resources/read",
+        params: {
+          uri: "bulk://resource1"
+        }
+      },
+      ReadResourceResultSchema,
+    );
+    expect(readResult.contents[0]).toMatchObject({
+      uri: "bulk://resource1",
+      text: "Bulk resource 1 content"
+    });
+  });
+
+  test("registerTools() should handle empty array gracefully", () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const result = mcpServer.registerTools([]);
+    expect(result).toEqual([]);
+  });
+
+  test("registerResources() should handle empty array gracefully", () => {
+    const mcpServer = new McpServer({
+      name: "test server", 
+      version: "1.0",
+    });
+
+    const result = mcpServer.registerResources([]);
+    expect(result).toEqual([]);
+  });
+
+  test("registerPrompts() should handle empty array gracefully", () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0", 
+    });
+
+    const result = mcpServer.registerPrompts([]);
+    expect(result).toEqual([]);
+  });
+
+  test("registerPrompts() should register multiple prompts with single notification", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const notifications: Notification[] = []
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+    client.fallbackNotificationHandler = async (notification) => {
+      notifications.push(notification)
+    }
+
+    // Register a single prompt first to test notification behavior
+    mcpServer.registerPrompt(
+      "initial", 
+      {
+        title: "Initial Prompt",
+        description: "An initial prompt",
+        argsSchema: { input: z.string() }
+      },
+      ({ input }) => ({
+        messages: [{
+          role: "user" as const,
+          content: { type: "text" as const, text: `Initial: ${input}` }
+        }]
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.connect(serverTransport),
+    ]);
+
+    // Clear any initial notifications
+    notifications.length = 0;
+
+    // Register multiple prompts in bulk
+    const registeredPrompts = mcpServer.registerPrompts([
+      {
+        name: "bulk1",
+        config: {
+          title: "Bulk Prompt One", 
+          description: "First bulk prompt",
+          argsSchema: { input: z.string() }
+        },
+        callback: (args, _extra) => ({
+          messages: [{
+            role: "user" as const,
+            content: { type: "text" as const, text: `Bulk 1: ${args.input}` }
+          }]
+        })
+      },
+      {
+        name: "bulk2",
+        config: {
+          title: "Bulk Prompt Two",
+          description: "Second bulk prompt", 
+          argsSchema: { value: z.string() }
+        },
+        callback: (args, _extra) => ({
+          messages: [{
+            role: "assistant" as const,
+            content: { type: "text" as const, text: `Bulk 2: ${args.value}` }
+          }]
+        })
+      }
+    ]);
+
+    // Yield event loop to let notifications process
+    await new Promise(process.nextTick);
+
+    // Should return array of registered prompts
+    expect(registeredPrompts).toHaveLength(2);
+    expect(registeredPrompts[0].title).toBe("Bulk Prompt One");
+    expect(registeredPrompts[1].title).toBe("Bulk Prompt Two");
+
+    // Should have sent exactly ONE notification for all prompts
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      method: "notifications/prompts/list_changed",
+    });
+
+    // Test list prompts shows all prompts
+    const promptsResult = await client.request(
+      {
+        method: "prompts/list",
+        params: {}
+      },
+      ListPromptsResultSchema,
+    );
+
+    const promptNames = promptsResult.prompts.map(p => p.name).sort();
+    expect(promptNames).toEqual(["bulk1", "bulk2", "initial"]);
+
+    // Test that a prompt actually works
+    const getResult = await client.request(
+      {
+        method: "prompts/get",
+        params: {
+          name: "bulk1",
+          arguments: { input: "test" }
+        }
+      },
+      GetPromptResultSchema,
+    );
+    expect(getResult.messages[0]).toMatchObject({
+      role: "user",
+      content: { type: "text", text: "Bulk 1: test" }
+    });
+  });
 });
