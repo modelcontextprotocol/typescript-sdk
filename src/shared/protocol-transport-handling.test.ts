@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach } from "@jest/globals";
-import { Protocol } from "./protocol.js";
+import { AnyResultType, Protocol } from "./protocol.js";
 import { Transport } from "./transport.js";
 import { Request, Notification, Result, JSONRPCMessage } from "../types.js";
 import { z } from "zod";
@@ -28,12 +28,12 @@ class MockTransport implements Transport {
 }
 
 describe("Protocol transport handling bug", () => {
-  let protocol: Protocol<Request, Notification, Result>;
+  let protocol: Protocol<Request, Notification, Result, AnyResultType>;
   let transportA: MockTransport;
   let transportB: MockTransport;
 
   beforeEach(() => {
-    protocol = new (class extends Protocol<Request, Notification, Result> {
+    protocol = new (class extends Protocol<Request, Notification, Result, AnyResultType> {
       protected assertCapabilityForMethod(): void {}
       protected assertNotificationCapability(): void {}
       protected assertRequestHandlerCapability(): void {}

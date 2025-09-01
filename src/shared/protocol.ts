@@ -1,29 +1,61 @@
 import { ZodLiteral, ZodObject, ZodType, z } from "zod";
 import {
+  CallToolRequest,
+  CallToolResult,
   CancelledNotificationSchema,
   ClientCapabilities,
+  CompleteRequest,
+  CompleteResult,
+  CreateMessageRequest,
+  CreateMessageResult,
+  ElicitRequest,
+  ElicitResult,
+  EmptyResult,
   ErrorCode,
+  GetPromptRequest,
+  GetPromptResult,
+  Infer,
+  InitializeRequest,
+  InitializeResult,
   isJSONRPCError,
+  isJSONRPCNotification,
   isJSONRPCRequest,
   isJSONRPCResponse,
-  isJSONRPCNotification,
   JSONRPCError,
   JSONRPCNotification,
   JSONRPCRequest,
   JSONRPCResponse,
+  ListPromptsRequest,
+  ListPromptsResult,
+  ListResourcesRequest,
+  ListResourcesResult,
+  ListResourceTemplatesRequest,
+  ListResourceTemplatesResult,
+  ListRootsRequest,
+  ListRootsResult,
+  ListToolsRequest,
+  ListToolsResult,
   McpError,
+  MessageExtraInfo,
   Notification,
+  PaginatedRequest,
+  PaginatedResult,
+  PingRequest,
   PingRequestSchema,
   Progress,
   ProgressNotification,
   ProgressNotificationSchema,
+  ReadResourceRequest,
+  ReadResourceResult,
   Request,
   RequestId,
+  RequestInfo,
+  RequestMeta,
   Result,
   ServerCapabilities,
-  RequestMeta,
-  MessageExtraInfo,
-  RequestInfo,
+  SetLevelRequest,
+  SubscribeRequest,
+  UnsubscribeRequest,
 } from "../types.js";
 import { Transport, TransportSendOptions } from "./transport.js";
 import { AuthInfo } from "../server/auth/types.js";
@@ -108,8 +140,11 @@ export type NotificationOptions = {
 /**
  * Extra data given to request handlers.
  */
-export type RequestHandlerExtra<SendRequestT extends Request,
-  SendNotificationT extends Notification> = {
+export type RequestHandlerExtra<
+  SendRequestT extends Request,
+  SendNotificationT extends Notification,
+  ResultTypeT extends ResultType,
+> = {
     /**
      * An abort signal used to communicate if the request was cancelled from the sender's side.
      */
@@ -153,7 +188,7 @@ export type RequestHandlerExtra<SendRequestT extends Request,
      * 
      * This is used by certain transports to correctly associate related messages.
      */
-    sendRequest: <U extends ZodType<object>>(request: SendRequestT, resultSchema: U, options?: RequestOptions) => Promise<z.infer<U>>;
+    sendRequest: <R extends SendRequestT, U extends ZodType<object>>(request: R, resultSchema: U, options?: RequestOptions) => Promise<Infer<U> extends ApplyResultType<ResultTypeT, R> ? Infer<U> : never>;
   };
 
 /**
@@ -168,6 +203,53 @@ type TimeoutInfo = {
   onTimeout: () => void;
 };
 
+export type TypedRequest<T extends {params: any}> = JSONRPCRequest & { params: T['params'] };
+export type TypedResponse<T> = JSONRPCResponse & { result: T };
+
+// Interface for a type that resolves response result types from request types
+// (Higher-kinder type using the trick described in https://github.com/colinhacks/zod/issues/2075#issuecomment-2676983344).
+export interface ResultType {
+  request: unknown;
+  result: unknown;
+}
+export type ApplyResultType<f extends ResultType, x>
+  = (f & { request: x })['result'];
+
+type _MCPResultType<T> =
+    T extends PingRequest ? EmptyResult :
+    T extends InitializeRequest ? InitializeResult :
+    T extends PaginatedRequest ? PaginatedResult :
+    T extends ListResourcesRequest ? ListResourcesResult :
+    T extends ListResourceTemplatesRequest ? ListResourceTemplatesResult :
+    T extends ReadResourceRequest ? ReadResourceResult :
+    T extends SubscribeRequest ? EmptyResult :
+    T extends UnsubscribeRequest ? EmptyResult :
+    T extends ListPromptsRequest ? ListPromptsResult :
+    T extends GetPromptRequest ? GetPromptResult :
+    T extends ListToolsRequest ? ListToolsResult :
+    T extends CallToolRequest ? CallToolResult :
+    T extends SetLevelRequest ? SetLevelRequest :
+    T extends CreateMessageRequest ? CreateMessageResult :
+    T extends ElicitRequest ? ElicitResult :
+    T extends CompleteRequest ? CompleteResult :
+    T extends ListRootsRequest ? ListRootsResult :
+    never;
+
+// type RemovePassthrough<T> = T extends object
+//   ? T extends Array<infer U>
+//     ? Array<RemovePassthrough<U>>
+//     : T extends Function
+//         ? T
+//         : {[K in keyof T as string extends K ? never : K]: RemovePassthrough<T[K]>}
+//     : T;
+
+export interface MCPResultType extends ResultType {
+  result: _MCPResultType<this['request']>;
+}
+export interface AnyResultType extends ResultType {
+  result: TypedResponse<any>;
+}
+
 /**
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
@@ -176,6 +258,7 @@ export abstract class Protocol<
   SendRequestT extends Request,
   SendNotificationT extends Notification,
   SendResultT extends Result,
+  ResultTypeT extends ResultType,
 > {
   private _transport?: Transport;
   private _requestMessageId = 0;
@@ -183,7 +266,7 @@ export abstract class Protocol<
     string,
     (
       request: JSONRPCRequest,
-      extra: RequestHandlerExtra<SendRequestT, SendNotificationT>,
+      extra: RequestHandlerExtra<SendRequestT, SendNotificationT, ResultTypeT>,
     ) => Promise<SendResultT>
   > = new Map();
   private _requestHandlerAbortControllers: Map<RequestId, AbortController> =
@@ -219,7 +302,7 @@ export abstract class Protocol<
    */
   fallbackRequestHandler?: (
     request: JSONRPCRequest,
-    extra: RequestHandlerExtra<SendRequestT, SendNotificationT>
+    extra: RequestHandlerExtra<SendRequestT, SendNotificationT, ResultTypeT>,
   ) => Promise<SendResultT>;
 
   /**
@@ -394,7 +477,7 @@ export abstract class Protocol<
     const abortController = new AbortController();
     this._requestHandlerAbortControllers.set(request.id, abortController);
 
-    const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
+    const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT, ResultTypeT> = {
       signal: abortController.signal,
       sessionId: capturedTransport?.sessionId,
       _meta: request.params?._meta,
@@ -546,7 +629,7 @@ export abstract class Protocol<
     request: SendRequestT,
     resultSchema: T,
     options?: RequestOptions,
-  ): Promise<z.infer<T>> {
+  ): Promise<Infer<T> extends ApplyResultType<ResultTypeT, SendRequestT> ? Infer<T> : never> {
     const { relatedRequestId, resumptionToken, onresumptiontoken } = options ?? {};
 
     return new Promise((resolve, reject) => {
@@ -611,7 +694,7 @@ export abstract class Protocol<
 
         try {
           const result = resultSchema.parse(response.result);
-          resolve(result);
+          resolve(result as any);
         } catch (error) {
           reject(error);
         }
@@ -708,7 +791,7 @@ export abstract class Protocol<
     requestSchema: T,
     handler: (
       request: z.infer<T>,
-      extra: RequestHandlerExtra<SendRequestT, SendNotificationT>,
+      extra: RequestHandlerExtra<SendRequestT, SendNotificationT, ResultTypeT>,
     ) => SendResultT | Promise<SendResultT>,
   ): void {
     const method = requestSchema.shape.method.value;

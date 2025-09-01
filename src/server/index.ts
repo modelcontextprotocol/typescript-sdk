@@ -1,8 +1,11 @@
 import {
+  AnyResultType,
+  MCPResultType,
   mergeCapabilities,
   Protocol,
   ProtocolOptions,
   RequestOptions,
+  ResultType,
 } from "../shared/protocol.js";
 import {
   ClientCapabilities,
@@ -79,10 +82,12 @@ export class Server<
   RequestT extends Request = Request,
   NotificationT extends Notification = Notification,
   ResultT extends Result = Result,
+  ResultTypeT extends ResultType = MCPResultType,
 > extends Protocol<
   ServerRequest | RequestT,
   ServerNotification | NotificationT,
-  ServerResult | ResultT
+  ServerResult | ResultT,
+  ResultTypeT
 > {
   private _clientCapabilities?: ClientCapabilities;
   private _clientVersion?: Implementation;

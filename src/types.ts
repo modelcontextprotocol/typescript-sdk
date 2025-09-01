@@ -1482,7 +1482,7 @@ type Flatten<T> = T extends Primitive
   ? { [K in keyof T]: Flatten<T[K]> }
   : T;
 
-type Infer<Schema extends ZodTypeAny> = Flatten<z.infer<Schema>>;
+export type Infer<Schema extends ZodTypeAny> = Flatten<z.infer<Schema>>;
 
 /**
  * Headers that are compatible with both Node.js and the browser.

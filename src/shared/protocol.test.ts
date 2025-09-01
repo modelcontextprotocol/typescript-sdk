@@ -8,7 +8,7 @@ import {
   Result,
   ServerCapabilities,
 } from "../types.js";
-import { Protocol, mergeCapabilities } from "./protocol.js";
+import { AnyResultType, Protocol, mergeCapabilities } from "./protocol.js";
 import { Transport } from "./transport.js";
 
 // Mock Transport class
@@ -25,14 +25,14 @@ class MockTransport implements Transport {
 }
 
 describe("protocol tests", () => {
-  let protocol: Protocol<Request, Notification, Result>;
+  let protocol: Protocol<Request, Notification, Result, AnyResultType>;
   let transport: MockTransport;
   let sendSpy: jest.SpyInstance;
 
   beforeEach(() => {
     transport = new MockTransport();
     sendSpy = jest.spyOn(transport, 'send');
-    protocol = new (class extends Protocol<Request, Notification, Result> {
+    protocol = new (class extends Protocol<Request, Notification, Result, AnyResultType> {
       protected assertCapabilityForMethod(): void {}
       protected assertNotificationCapability(): void {}
       protected assertRequestHandlerCapability(): void {}
@@ -474,7 +474,7 @@ describe("protocol tests", () => {
 
       it("should NOT debounce a notification that has parameters", async () => {
       // ARRANGE
-      protocol = new (class extends Protocol<Request, Notification, Result> {
+      protocol = new (class extends Protocol<Request, Notification, Result, AnyResultType> {
         protected assertCapabilityForMethod(): void {}
         protected assertNotificationCapability(): void {}
         protected assertRequestHandlerCapability(): void {}
@@ -495,7 +495,7 @@ describe("protocol tests", () => {
 
     it("should NOT debounce a notification that has a relatedRequestId", async () => {
       // ARRANGE
-      protocol = new (class extends Protocol<Request, Notification, Result> {
+      protocol = new (class extends Protocol<Request, Notification, Result, AnyResultType> {
         protected assertCapabilityForMethod(): void {}
         protected assertNotificationCapability(): void {}
         protected assertRequestHandlerCapability(): void {}
@@ -514,7 +514,7 @@ describe("protocol tests", () => {
 
     it("should clear pending debounced notifications on connection close", async () => {
       // ARRANGE
-      protocol = new (class extends Protocol<Request, Notification, Result> {
+      protocol = new (class extends Protocol<Request, Notification, Result, AnyResultType> {
         protected assertCapabilityForMethod(): void {}
         protected assertNotificationCapability(): void {}
         protected assertRequestHandlerCapability(): void {}
@@ -538,7 +538,7 @@ describe("protocol tests", () => {
 
     it("should debounce multiple synchronous calls when params property is omitted", async () => {
       // ARRANGE
-      protocol = new (class extends Protocol<Request, Notification, Result> {
+      protocol = new (class extends Protocol<Request, Notification, Result, AnyResultType> {
         protected assertCapabilityForMethod(): void {}
         protected assertNotificationCapability(): void {}
         protected assertRequestHandlerCapability(): void {}
@@ -565,7 +565,7 @@ describe("protocol tests", () => {
 
     it("should debounce calls when params is explicitly undefined", async () => {
       // ARRANGE
-      protocol = new (class extends Protocol<Request, Notification, Result> {
+      protocol = new (class extends Protocol<Request, Notification, Result, AnyResultType> {
         protected assertCapabilityForMethod(): void {}
         protected assertNotificationCapability(): void {}
         protected assertRequestHandlerCapability(): void {}
@@ -590,7 +590,7 @@ describe("protocol tests", () => {
 
     it("should send non-debounced notifications immediately and multiple times", async () => {
       // ARRANGE
-      protocol = new (class extends Protocol<Request, Notification, Result> {
+      protocol = new (class extends Protocol<Request, Notification, Result, AnyResultType> {
         protected assertCapabilityForMethod(): void {}
         protected assertNotificationCapability(): void {}
         protected assertRequestHandlerCapability(): void {}
@@ -623,7 +623,7 @@ describe("protocol tests", () => {
 
     it("should handle sequential batches of debounced notifications correctly", async () => {
       // ARRANGE
-      protocol = new (class extends Protocol<Request, Notification, Result> {
+      protocol = new (class extends Protocol<Request, Notification, Result, AnyResultType> {
         protected assertCapabilityForMethod(): void {}
         protected assertNotificationCapability(): void {}
         protected assertRequestHandlerCapability(): void {}
