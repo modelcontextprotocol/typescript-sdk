@@ -14,30 +14,32 @@ describe("completable", () => {
     const completions = ["foo", "bar", "baz"];
     const schema = completable(z.string(), () => completions);
 
-    expect(await schema._def.complete("")).toEqual(completions);
+    expect(await schema.def.complete("")).toEqual(completions);
   });
 
   it("allows async completion functions", async () => {
     const completions = ["foo", "bar", "baz"];
     const schema = completable(z.string(), async () => completions);
 
-    expect(await schema._def.complete("")).toEqual(completions);
+    expect(await schema.def.complete("")).toEqual(completions);
   });
 
   it("passes current value to completion function", async () => {
     const schema = completable(z.string(), (value) => [value + "!"]);
 
-    expect(await schema._def.complete("test")).toEqual(["test!"]);
+    expect(await schema.def.complete("test")).toEqual(["test!"]);
   });
 
   it("works with number schemas", async () => {
     const schema = completable(z.number(), () => [1, 2, 3]);
 
     expect(schema.parse(1)).toBe(1);
-    expect(await schema._def.complete(0)).toEqual([1, 2, 3]);
+    expect(await schema.def.complete(0)).toEqual([1, 2, 3]);
   });
 
-  it("preserves schema description", () => {
+  // This is no longer how zod behavior works
+  // See: https://github.com/colinhacks/zod/issues/4965
+  it.skip("preserves schema description", () => {
     const desc = "test description";
     const schema = completable(z.string().describe(desc), () => []);
 

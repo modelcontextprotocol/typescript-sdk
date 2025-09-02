@@ -1,14 +1,10 @@
 import { Server, ServerOptions } from "./index.js";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import {
   z,
   ZodRawShape,
   ZodObject,
   ZodString,
-  AnyZodObject,
-  ZodTypeAny,
   ZodType,
-  ZodTypeDef,
   ZodOptional,
 } from "zod";
 import {
@@ -43,7 +39,7 @@ import {
   ToolAnnotations,
   LoggingMessageNotification,
 } from "../types.js";
-import { Completable, CompletableDef } from "./completable.js";
+import { Completable, $CompletableDef } from "./completable.js";
 import { UriTemplate, Variables } from "../shared/uriTemplate.js";
 import { RequestHandlerExtra } from "../shared/protocol.js";
 import { Transport } from "../shared/transport.js";
@@ -118,18 +114,19 @@ export class McpServer {
               title: tool.title,
               description: tool.description,
               inputSchema: tool.inputSchema
-                ? (zodToJsonSchema(tool.inputSchema, {
-                  strictUnions: true,
+                ? (z.toJSONSchema(tool.inputSchema, {
+                  target: "draft-7",
+                  // strictUnions: true,
                 }) as Tool["inputSchema"])
                 : EMPTY_OBJECT_JSON_SCHEMA,
               annotations: tool.annotations,
             };
 
             if (tool.outputSchema) {
-              toolDefinition.outputSchema = zodToJsonSchema(
-                tool.outputSchema,
-                { strictUnions: true }
-              ) as Tool["outputSchema"];
+              toolDefinition.outputSchema = z.toJSONSchema(tool.outputSchema, {
+                target: "draft-7",
+                // strictUnions: true,
+              }) as Tool["outputSchema"];
             }
 
             return toolDefinition;
@@ -293,7 +290,7 @@ export class McpServer {
       return EMPTY_COMPLETION_RESULT;
     }
 
-    const def: CompletableDef<ZodString> = field._def;
+    const def: $CompletableDef<ZodString> = (field as Completable<ZodString>)._zod.def;
     const suggestions = await def.complete(request.params.argument.value, request.params.context);
     return createCompletionResult(suggestions);
   }
@@ -1159,10 +1156,11 @@ export class ResourceTemplate {
  * - `content` if the tool does not have an outputSchema
  * - Both fields are optional but typically one should be provided
  */
-export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
-  Args extends ZodRawShape
+export type ToolCallback<Args extends undefined | z.core.$ZodLooseShape = undefined> =
+  Args extends z.core.$ZodLooseShape
   ? (
-    args: z.objectOutputType<Args, ZodTypeAny>,
+    args: z.core.$InferObjectOutput<Args, Record<string, unknown>>,
+    // args: z.objectOutputType<Args, ZodTypeAny>,
     extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
   ) => CallToolResult | Promise<CallToolResult>
   : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
@@ -1170,8 +1168,8 @@ export type ToolCallback<Args extends undefined | ZodRawShape = undefined> =
 export type RegisteredTool = {
   title?: string;
   description?: string;
-  inputSchema?: AnyZodObject;
-  outputSchema?: AnyZodObject;
+  inputSchema?: ZodObject;
+  outputSchema?: ZodObject;
   annotations?: ToolAnnotations;
   callback: ToolCallback<undefined | ZodRawShape>;
   enabled: boolean;
@@ -1269,15 +1267,16 @@ export type RegisteredResourceTemplate = {
 
 type PromptArgsRawShape = {
   [k: string]:
-  | ZodType<string, ZodTypeDef, string>
-  | ZodOptional<ZodType<string, ZodTypeDef, string>>;
+  | ZodType<string, string>
+  | ZodOptional<ZodType<string, string>>;
 };
 
 export type PromptCallback<
   Args extends undefined | PromptArgsRawShape = undefined,
 > = Args extends PromptArgsRawShape
   ? (
-    args: z.objectOutputType<Args, ZodTypeAny>,
+    args: z.core.$InferObjectOutput<Args, Record<string, unknown>>,
+    // args: z3.objectOutputType<Args, ZodTypeAny>,
     extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
   ) => GetPromptResult | Promise<GetPromptResult>
   : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;

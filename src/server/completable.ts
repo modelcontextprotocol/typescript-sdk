@@ -1,98 +1,71 @@
 import {
-  ZodTypeAny,
-  ZodTypeDef,
-  ZodType,
-  ParseInput,
-  ParseReturnType,
-  RawCreateParams,
-  ZodErrorMap,
-  ProcessedCreateParams,
+  z,
 } from "zod";
 
-export enum McpZodTypeKind {
-  Completable = "McpCompletable",
-}
-
-export type CompleteCallback<T extends ZodTypeAny = ZodTypeAny> = (
-  value: T["_input"],
+export type CompleteCallback<T extends z.core.SomeType = z.core.SomeType> = (
+  value: z.input<T>,
   context?: {
     arguments?: Record<string, string>;
   },
-) => T["_input"][] | Promise<T["_input"][]>;
+) => z.output<T>[] | Promise<z.output<T>[]>;
 
-export interface CompletableDef<T extends ZodTypeAny = ZodTypeAny>
-  extends ZodTypeDef {
-  type: T;
+export interface $CompletableDef<T extends z.core.SomeType = z.core.$ZodType> extends z.core.$ZodTypeDef {
+  type: "custom";
+  innerType: T;
   complete: CompleteCallback<T>;
-  typeName: McpZodTypeKind.Completable;
 }
 
-export class Completable<T extends ZodTypeAny> extends ZodType<
-  T["_output"],
-  CompletableDef<T>,
-  T["_input"]
-> {
-  _parse(input: ParseInput): ParseReturnType<this["_output"]> {
-    const { ctx } = this._processInputParams(input);
-    const data = ctx.data;
-    return this._def.type._parse({
-      data,
-      path: ctx.path,
-      parent: ctx,
-    });
-  }
+export interface $CompletableInternals<T extends z.core.SomeType = z.core.$ZodType>
+  extends z.core.$ZodTypeInternals<z.core.output<T>, z.core.input<T>> {
+  def: $CompletableDef<T>;
+  isst: never;
+  /** Auto-cached way to retrieve the inner schema */
+  innerType: T;
+  pattern: T["_zod"]["pattern"];
+  propValues: T["_zod"]["propValues"];
+  optin: T["_zod"]["optin"];
+  optout: T["_zod"]["optout"];
+}
 
-  unwrap() {
-    return this._def.type;
-  }
+export interface $Completable<T extends z.core.SomeType = z.core.$ZodType> extends z.core.$ZodType {
+  _zod: $CompletableInternals<T>;
+}
 
-  static create = <T extends ZodTypeAny>(
-    type: T,
-    params: RawCreateParams & {
-      complete: CompleteCallback<T>;
-    },
-  ): Completable<T> => {
-    return new Completable({
-      type,
-      typeName: McpZodTypeKind.Completable,
-      complete: params.complete,
-      ...processCreateParams(params),
-    });
+export const $Completable: z.core.$constructor<$Completable> = /*@__PURE__*/ z.core.$constructor("$Completable", (inst, def) => {
+  z.core.$ZodType.init(inst, def);
+
+  z.util.defineLazy(inst._zod, "innerType", () => inst._zod.innerType);
+  z.util.defineLazy(inst._zod, "pattern", () => inst._zod.innerType._zod.pattern);
+  z.util.defineLazy(inst._zod, "propValues", () => inst._zod.innerType._zod.propValues);
+  z.util.defineLazy(inst._zod, "optin", () => inst._zod.innerType._zod.optin ?? undefined);
+  z.util.defineLazy(inst._zod, "optout", () => inst._zod.innerType._zod.optout ?? undefined);
+  
+  inst._zod.parse = (payload, ctx) => {
+    return def.innerType._zod.run(payload, ctx);
   };
-}
+});
 
-/**
- * Wraps a Zod type to provide autocompletion capabilities. Useful for, e.g., prompt arguments in MCP.
- */
-export function completable<T extends ZodTypeAny>(
-  schema: T,
+
+// Completable
+export interface Completable<T extends z.core.SomeType = z.core.$ZodType>
+  extends z._ZodType<$CompletableInternals<T>>,
+    $Completable<T> {
+  complete: CompleteCallback<T>;
+}
+export const Completable: z.core.$constructor<Completable> = /*@__PURE__*/ z.core.$constructor("Completable", (inst, def) => {
+  $Completable.init(inst, def);
+  z.ZodType.init(inst, def);
+
+  inst.complete = def.complete;
+});
+
+export function completable<T extends z.core.SomeType>(
+  innerType: T,
   complete: CompleteCallback<T>,
 ): Completable<T> {
-  return Completable.create(schema, { ...schema._def, complete });
-}
-
-// Not sure why this isn't exported from Zod:
-// https://github.com/colinhacks/zod/blob/f7ad26147ba291cb3fb257545972a8e00e767470/src/types.ts#L130
-function processCreateParams(params: RawCreateParams): ProcessedCreateParams {
-  if (!params) return {};
-  const { errorMap, invalid_type_error, required_error, description } = params;
-  if (errorMap && (invalid_type_error || required_error)) {
-    throw new Error(
-      `Can't use "invalid_type_error" or "required_error" in conjunction with custom error map.`,
-    );
-  }
-  if (errorMap) return { errorMap: errorMap, description };
-  const customMap: ZodErrorMap = (iss, ctx) => {
-    const { message } = params;
-
-    if (iss.code === "invalid_enum_value") {
-      return { message: message ?? ctx.defaultError };
-    }
-    if (typeof ctx.data === "undefined") {
-      return { message: message ?? required_error ?? ctx.defaultError };
-    }
-    if (iss.code !== "invalid_type") return { message: ctx.defaultError };
-    return { message: message ?? invalid_type_error ?? ctx.defaultError };
-  };
-  return { errorMap: customMap, description };
+  return new Completable({
+    type: "custom",
+    innerType: innerType as any as z.core.$ZodType,
+    complete: complete as any,
+  }) as any;
 }

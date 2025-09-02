@@ -25,7 +25,9 @@ export type AuthorizationHandlerOptions = {
 // Parameters that must be validated in order to issue redirects.
 const ClientAuthorizationParamsSchema = z.object({
   client_id: z.string(),
-  redirect_uri: z.string().optional().refine((value) => value === undefined || URL.canParse(value), { message: "redirect_uri must be a valid URL" }),
+  redirect_uri: z.string().optional().refine((value) => value === undefined || URL.canParse(value), {
+      error: "redirect_uri must be a valid URL"
+}),
 });
 
 // Parameters that must be validated for a successful authorization request. Failure can be reported to the redirect URI.
@@ -35,7 +37,7 @@ const RequestAuthorizationParamsSchema = z.object({
   code_challenge_method: z.literal("S256"),
   scope: z.string().optional(),
   state: z.string().optional(),
-  resource: z.string().url().optional(),
+  resource: z.url().optional(),
 });
 
 export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: AuthorizationHandlerOptions): RequestHandler {
