@@ -21,6 +21,12 @@ type RemovePassthrough<T> = T extends object
         : {[K in keyof T as string extends K ? never : K]: RemovePassthrough<T[K]>}
     : T;
 
+// Adds the `jsonrpc` property to a type, to match the on-wire format of notifications.
+type WithJSONRPC<T> = T & { jsonrpc: "2.0" };
+
+// Adds the `jsonrpc` and `id` properties to a type, to match the on-wire format of requests.
+type WithJSONRPCRequest<T> = T & { jsonrpc: "2.0"; id: SDKTypes.RequestId };
+
 type IsUnknown<T> = [unknown] extends [T] ? [T] extends [unknown] ? true : false : false;
 
 // Turns {x?: unknown} into {x: unknown} but keeps {_meta?: unknown} unchanged (and leaves other optional properties unchanged, e.g. {x?: string}).
@@ -48,7 +54,7 @@ type MakeUnknownsNotOptional<T> =
       : T);
 
 function checkCancelledNotification(
-  sdk: SDKTypes.CancelledNotification,
+  sdk: WithJSONRPC<SDKTypes.CancelledNotification>,
   spec: SpecTypes.CancelledNotification
 ) {
   sdk = spec;
@@ -69,7 +75,7 @@ function checkImplementation(
   spec = sdk;
 }
 function checkProgressNotification(
-  sdk: SDKTypes.ProgressNotification,
+  sdk: WithJSONRPC<SDKTypes.ProgressNotification>,
   spec: SpecTypes.ProgressNotification
 ) {
   sdk = spec;
@@ -77,21 +83,21 @@ function checkProgressNotification(
 }
 
 function checkSubscribeRequest(
-  sdk: SDKTypes.SubscribeRequest,
+  sdk: WithJSONRPCRequest<SDKTypes.SubscribeRequest>,
   spec: SpecTypes.SubscribeRequest
 ) {
   sdk = spec;
   spec = sdk;
 }
 function checkUnsubscribeRequest(
-  sdk: SDKTypes.UnsubscribeRequest,
+  sdk: WithJSONRPCRequest<SDKTypes.UnsubscribeRequest>,
   spec: SpecTypes.UnsubscribeRequest
 ) {
   sdk = spec;
   spec = sdk;
 }
 function checkPaginatedRequest(
-  sdk: SDKTypes.PaginatedRequest,
+  sdk: WithJSONRPCRequest<SDKTypes.PaginatedRequest>,
   spec: SpecTypes.PaginatedRequest
 ) {
   sdk = spec;
@@ -105,7 +111,7 @@ function checkPaginatedResult(
   spec = sdk;
 }
 function checkListRootsRequest(
-  sdk: SDKTypes.ListRootsRequest,
+  sdk: WithJSONRPCRequest<SDKTypes.ListRootsRequest>,
   spec: SpecTypes.ListRootsRequest
 ) {
   sdk = spec;
@@ -126,7 +132,7 @@ function checkRoot(
   spec = sdk;
 }
 function checkElicitRequest(
-  sdk: RemovePassthrough<SDKTypes.ElicitRequest>,
+  sdk: WithJSONRPCRequest<RemovePassthrough<SDKTypes.ElicitRequest>>,
   spec: SpecTypes.ElicitRequest
 ) {
   sdk = spec;
@@ -140,7 +146,7 @@ function checkElicitResult(
   spec = sdk;
 }
 function checkCompleteRequest(
-  sdk: RemovePassthrough<SDKTypes.CompleteRequest>,
+  sdk: WithJSONRPCRequest<RemovePassthrough<SDKTypes.CompleteRequest>>,
   spec: SpecTypes.CompleteRequest
 ) {
   sdk = spec;
@@ -231,7 +237,7 @@ function checkClientResult(
   spec = sdk;
 }
 function checkClientNotification(
-  sdk: SDKTypes.ClientNotification,
+  sdk: WithJSONRPC<SDKTypes.ClientNotification>,
   spec: SpecTypes.ClientNotification
 ) {
   sdk = spec;
@@ -273,7 +279,7 @@ function checkTool(
   spec = sdk;
 }
 function checkListToolsRequest(
-  sdk: SDKTypes.ListToolsRequest,
+  sdk: WithJSONRPCRequest<SDKTypes.ListToolsRequest>,
   spec: SpecTypes.ListToolsRequest
 ) {
   sdk = spec;
@@ -294,42 +300,42 @@ function checkCallToolResult(
   spec = sdk;
 }
 function checkCallToolRequest(
-  sdk: SDKTypes.CallToolRequest,
+  sdk: WithJSONRPCRequest<SDKTypes.CallToolRequest>,
   spec: SpecTypes.CallToolRequest
 ) {
   sdk = spec;
   spec = sdk;
 }
 function checkToolListChangedNotification(
-  sdk: SDKTypes.ToolListChangedNotification,
+  sdk: WithJSONRPC<SDKTypes.ToolListChangedNotification>,
   spec: SpecTypes.ToolListChangedNotification
 ) {
   sdk = spec;
   spec = sdk;
 }
 function checkResourceListChangedNotification(
-  sdk: SDKTypes.ResourceListChangedNotification,
+  sdk: WithJSONRPC<SDKTypes.ResourceListChangedNotification>,
   spec: SpecTypes.ResourceListChangedNotification
 ) {
   sdk = spec;
   spec = sdk;
 }
 function checkPromptListChangedNotification(
-  sdk: SDKTypes.PromptListChangedNotification,
+  sdk: WithJSONRPC<SDKTypes.PromptListChangedNotification>,
   spec: SpecTypes.PromptListChangedNotification
 ) {
   sdk = spec;
   spec = sdk;
 }
 function checkRootsListChangedNotification(
-  sdk: SDKTypes.RootsListChangedNotification,
+  sdk: WithJSONRPC<SDKTypes.RootsListChangedNotification>,
   spec: SpecTypes.RootsListChangedNotification
 ) {
   sdk = spec;
   spec = sdk;
 }
 function checkResourceUpdatedNotification(
-  sdk: SDKTypes.ResourceUpdatedNotification,
+  sdk: WithJSONRPC<SDKTypes.ResourceUpdatedNotification>,
   spec: SpecTypes.ResourceUpdatedNotification
 ) {
   sdk = spec;
@@ -350,28 +356,28 @@ function checkCreateMessageResult(
   spec = sdk;
 }
 function checkSetLevelRequest(
-  sdk: SDKTypes.SetLevelRequest,
+  sdk: WithJSONRPCRequest<SDKTypes.SetLevelRequest>,
   spec: SpecTypes.SetLevelRequest
 ) {
   sdk = spec;
   spec = sdk;
 }
 function checkPingRequest(
-  sdk: SDKTypes.PingRequest,
+  sdk: WithJSONRPCRequest<SDKTypes.PingRequest>,
   spec: SpecTypes.PingRequest
 ) {
   sdk = spec;
   spec = sdk;
 }
 function checkInitializedNotification(
-  sdk: SDKTypes.InitializedNotification,
+  sdk: WithJSONRPC<SDKTypes.InitializedNotification>,
   spec: SpecTypes.InitializedNotification
 ) {
   sdk = spec;
   spec = sdk;
 }
 function checkListResourcesRequest(
-  sdk: SDKTypes.ListResourcesRequest,
+  sdk: WithJSONRPCRequest<SDKTypes.ListResourcesRequest>,
   spec: SpecTypes.ListResourcesRequest
 ) {
   sdk = spec;
@@ -385,7 +391,7 @@ function checkListResourcesResult(
   spec = sdk;
 }
 function checkListResourceTemplatesRequest(
-  sdk: SDKTypes.ListResourceTemplatesRequest,
+  sdk: WithJSONRPCRequest<SDKTypes.ListResourceTemplatesRequest>,
   spec: SpecTypes.ListResourceTemplatesRequest
 ) {
   sdk = spec;
@@ -399,7 +405,7 @@ function checkListResourceTemplatesResult(
   spec = sdk;
 }
 function checkReadResourceRequest(
-  sdk: SDKTypes.ReadResourceRequest,
+  sdk: WithJSONRPCRequest<SDKTypes.ReadResourceRequest>,
   spec: SpecTypes.ReadResourceRequest
 ) {
   sdk = spec;
@@ -462,7 +468,7 @@ function checkPrompt(
   spec = sdk;
 }
 function checkListPromptsRequest(
-  sdk: SDKTypes.ListPromptsRequest,
+  sdk: WithJSONRPCRequest<SDKTypes.ListPromptsRequest>,
   spec: SpecTypes.ListPromptsRequest
 ) {
   sdk = spec;
@@ -476,7 +482,7 @@ function checkListPromptsResult(
   spec = sdk;
 }
 function checkGetPromptRequest(
-  sdk: SDKTypes.GetPromptRequest,
+  sdk: WithJSONRPCRequest<SDKTypes.GetPromptRequest>,
   spec: SpecTypes.GetPromptRequest
 ) {
   sdk = spec;
@@ -588,14 +594,14 @@ function checkJSONRPCMessage(
   spec = sdk;
 }
 function checkCreateMessageRequest(
-  sdk: RemovePassthrough<SDKTypes.CreateMessageRequest>,
+  sdk: WithJSONRPCRequest<RemovePassthrough<SDKTypes.CreateMessageRequest>>,
   spec: SpecTypes.CreateMessageRequest
 ) {
   sdk = spec;
   spec = sdk;
 }
 function checkInitializeRequest(
-  sdk: RemovePassthrough<SDKTypes.InitializeRequest>,
+  sdk: WithJSONRPCRequest<RemovePassthrough<SDKTypes.InitializeRequest>>,
   spec: SpecTypes.InitializeRequest
 ) {
   sdk = spec;
@@ -623,28 +629,28 @@ function checkServerCapabilities(
   spec = sdk;
 }
 function checkClientRequest(
-  sdk: RemovePassthrough<SDKTypes.ClientRequest>,
+  sdk: WithJSONRPCRequest<RemovePassthrough<SDKTypes.ClientRequest>>,
   spec: SpecTypes.ClientRequest
 ) {
   sdk = spec;
   spec = sdk;
 }
 function checkServerRequest(
-  sdk: RemovePassthrough<SDKTypes.ServerRequest>,
+  sdk: WithJSONRPCRequest<RemovePassthrough<SDKTypes.ServerRequest>>,
   spec: SpecTypes.ServerRequest
 ) {
   sdk = spec;
   spec = sdk;
 }
 function checkLoggingMessageNotification(
-  sdk: MakeUnknownsNotOptional<SDKTypes.LoggingMessageNotification>,
+  sdk: MakeUnknownsNotOptional<WithJSONRPC<SDKTypes.LoggingMessageNotification>>,
   spec: SpecTypes.LoggingMessageNotification
 ) {
   sdk = spec;
   spec = sdk;
 }
 function checkServerNotification(
-  sdk: MakeUnknownsNotOptional<SDKTypes.ServerNotification>,
+  sdk: MakeUnknownsNotOptional<WithJSONRPC<SDKTypes.ServerNotification>>,
   spec: SpecTypes.ServerNotification
 ) {
   sdk = spec;
@@ -665,6 +671,7 @@ const SDK_TYPES_FILE  = 'src/types.ts';
 const MISSING_SDK_TYPES = [
   // These are inlined in the SDK:
   'Role',
+  'Error', // The inner error object of a JSONRPCError
 
   // These aren't supported by the SDK yet:
   // TODO: Add definitions to the SDK
@@ -685,7 +692,7 @@ describe('Spec Types', () => {
   it('should define some expected types', () => {
     expect(specTypes).toContain('JSONRPCNotification');
     expect(specTypes).toContain('ElicitResult');
-    expect(specTypes).toHaveLength(91);
+    expect(specTypes).toHaveLength(92);
   });
 
   it('should have up to date list of missing sdk types', () => {
