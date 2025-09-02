@@ -59,13 +59,13 @@ export const Completable: z.core.$constructor<Completable> = /*@__PURE__*/ z.cor
   inst.complete = def.complete;
 });
 
-export function completable<T extends z.core.SomeType>(
-  innerType: T,
+export function completable<T extends z.ZodType>(
+  schema: T,
   complete: CompleteCallback<T>,
 ): Completable<T> {
   return new Completable({
     type: "custom",
-    innerType: innerType as any as z.core.$ZodType,
-    complete: complete as any,
-  }) as any;
+    innerType: schema,
+    complete: complete,
+  }) as Completable<T>;
 }

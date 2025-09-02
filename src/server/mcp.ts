@@ -116,7 +116,6 @@ export class McpServer {
               inputSchema: tool.inputSchema
                 ? (z.toJSONSchema(tool.inputSchema, {
                   target: "draft-7",
-                  // strictUnions: true,
                 }) as Tool["inputSchema"])
                 : EMPTY_OBJECT_JSON_SCHEMA,
               annotations: tool.annotations,
@@ -125,7 +124,6 @@ export class McpServer {
             if (tool.outputSchema) {
               toolDefinition.outputSchema = z.toJSONSchema(tool.outputSchema, {
                 target: "draft-7",
-                // strictUnions: true,
               }) as Tool["outputSchema"];
             }
 
@@ -1276,7 +1274,6 @@ export type PromptCallback<
 > = Args extends PromptArgsRawShape
   ? (
     args: z.core.$InferObjectOutput<Args, Record<string, unknown>>,
-    // args: z3.objectOutputType<Args, ZodTypeAny>,
     extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
   ) => GetPromptResult | Promise<GetPromptResult>
   : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
