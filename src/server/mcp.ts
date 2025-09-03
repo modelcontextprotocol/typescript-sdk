@@ -369,7 +369,7 @@ export class McpServer {
         for (const template of Object.values(
           this._registeredResourceTemplates,
         )) {
-          if (!template.resourceTemplate.listCallback) {
+          if (!template.enabled || !template.resourceTemplate.listCallback) {
             continue;
           }
 
@@ -392,6 +392,8 @@ export class McpServer {
       async () => {
         const resourceTemplates = Object.entries(
           this._registeredResourceTemplates,
+        ).filter(
+          ([_, template]) => template.enabled,
         ).map(([name, template]) => ({
           name,
           uriTemplate: template.resourceTemplate.uriTemplate.toString(),
@@ -423,6 +425,9 @@ export class McpServer {
         for (const template of Object.values(
           this._registeredResourceTemplates,
         )) {
+          if (!template.enabled) {
+            continue;
+          }
           const variables = template.resourceTemplate.uriTemplate.match(
             uri.toString(),
           );
@@ -585,7 +590,8 @@ export class McpServer {
         undefined,
         uriOrTemplate,
         metadata,
-        readCallback as ReadResourceCallback
+        readCallback as ReadResourceCallback,
+        true
       );
 
       this.setResourceRequestHandlers();
@@ -601,7 +607,8 @@ export class McpServer {
         undefined,
         uriOrTemplate,
         metadata,
-        readCallback as ReadResourceTemplateCallback
+        readCallback as ReadResourceTemplateCallback,
+        true
       );
 
       this.setResourceRequestHandlers();
@@ -617,19 +624,19 @@ export class McpServer {
   registerResource(
     name: string,
     uriOrTemplate: string,
-    config: ResourceMetadata,
+    config: ResourceConfig,
     readCallback: ReadResourceCallback
   ): RegisteredResource;
   registerResource(
     name: string,
     uriOrTemplate: ResourceTemplate,
-    config: ResourceMetadata,
+    config: ResourceConfig,
     readCallback: ReadResourceTemplateCallback
   ): RegisteredResourceTemplate;
   registerResource(
     name: string,
     uriOrTemplate: string | ResourceTemplate,
-    config: ResourceMetadata,
+    config: ResourceConfig,
     readCallback: ReadResourceCallback | ReadResourceTemplateCallback
   ): RegisteredResource | RegisteredResourceTemplate {
     if (typeof uriOrTemplate === "string") {
@@ -637,12 +644,14 @@ export class McpServer {
         throw new Error(`Resource ${uriOrTemplate} is already registered`);
       }
 
+      const { enabled = true, ...metadata } = config;
       const registeredResource = this._createRegisteredResource(
         name,
         (config as BaseMetadata).title,
         uriOrTemplate,
-        config,
-        readCallback as ReadResourceCallback
+        metadata,
+        readCallback as ReadResourceCallback,
+        enabled
       );
 
       this.setResourceRequestHandlers();
@@ -653,12 +662,14 @@ export class McpServer {
         throw new Error(`Resource template ${name} is already registered`);
       }
 
+      const { enabled = true, ...metadata } = config;
       const registeredResourceTemplate = this._createRegisteredResourceTemplate(
         name,
         (config as BaseMetadata).title,
         uriOrTemplate,
-        config,
-        readCallback as ReadResourceTemplateCallback
+        metadata,
+        readCallback as ReadResourceTemplateCallback,
+        enabled
       );
 
       this.setResourceRequestHandlers();
@@ -672,14 +683,15 @@ export class McpServer {
     title: string | undefined,
     uri: string,
     metadata: ResourceMetadata | undefined,
-    readCallback: ReadResourceCallback
+    readCallback: ReadResourceCallback,
+    enabled: boolean = true
   ): RegisteredResource {
     const registeredResource: RegisteredResource = {
       name,
       title,
       metadata,
       readCallback,
-      enabled: true,
+      enabled,
       disable: () => registeredResource.update({ enabled: false }),
       enable: () => registeredResource.update({ enabled: true }),
       remove: () => registeredResource.update({ uri: null }),
@@ -705,14 +717,15 @@ export class McpServer {
     title: string | undefined,
     template: ResourceTemplate,
     metadata: ResourceMetadata | undefined,
-    readCallback: ReadResourceTemplateCallback
+    readCallback: ReadResourceTemplateCallback,
+    enabled: boolean = true
   ): RegisteredResourceTemplate {
     const registeredResourceTemplate: RegisteredResourceTemplate = {
       resourceTemplate: template,
       title,
       metadata,
       readCallback,
-      enabled: true,
+      enabled,
       disable: () => registeredResourceTemplate.update({ enabled: false }),
       enable: () => registeredResourceTemplate.update({ enabled: true }),
       remove: () => registeredResourceTemplate.update({ name: null }),
@@ -738,14 +751,15 @@ export class McpServer {
     title: string | undefined,
     description: string | undefined,
     argsSchema: PromptArgsRawShape | undefined,
-    callback: PromptCallback<PromptArgsRawShape | undefined>
+    callback: PromptCallback<PromptArgsRawShape | undefined>,
+    enabled: boolean = true
   ): RegisteredPrompt {
     const registeredPrompt: RegisteredPrompt = {
       title,
       description,
       argsSchema: argsSchema === undefined ? undefined : z.object(argsSchema),
       callback,
-      enabled: true,
+      enabled,
       disable: () => registeredPrompt.update({ enabled: false }),
       enable: () => registeredPrompt.update({ enabled: true }),
       remove: () => registeredPrompt.update({ name: null }),
@@ -773,7 +787,8 @@ export class McpServer {
     inputSchema: ZodRawShape | undefined,
     outputSchema: ZodRawShape | undefined,
     annotations: ToolAnnotations | undefined,
-    callback: ToolCallback<ZodRawShape | undefined>
+    callback: ToolCallback<ZodRawShape | undefined>,
+    enabled: boolean = true
   ): RegisteredTool {
     const registeredTool: RegisteredTool = {
       title,
@@ -784,7 +799,7 @@ export class McpServer {
         outputSchema === undefined ? undefined : z.object(outputSchema),
       annotations,
       callback,
-      enabled: true,
+      enabled,
       disable: () => registeredTool.update({ enabled: false }),
       enable: () => registeredTool.update({ enabled: true }),
       remove: () => registeredTool.update({ name: null }),
@@ -929,6 +944,7 @@ export class McpServer {
       inputSchema?: InputArgs;
       outputSchema?: OutputArgs;
       annotations?: ToolAnnotations;
+      enabled?: boolean;
     },
     cb: ToolCallback<InputArgs>
   ): RegisteredTool {
@@ -936,7 +952,7 @@ export class McpServer {
       throw new Error(`Tool ${name} is already registered`);
     }
 
-    const { title, description, inputSchema, outputSchema, annotations } = config;
+    const { title, description, inputSchema, outputSchema, annotations, enabled } = config;
 
     return this._createRegisteredTool(
       name,
@@ -945,7 +961,8 @@ export class McpServer {
       inputSchema,
       outputSchema,
       annotations,
-      cb as ToolCallback<ZodRawShape | undefined>
+      cb as ToolCallback<ZodRawShape | undefined>,
+      enabled
     );
   }
 
@@ -999,7 +1016,8 @@ export class McpServer {
       undefined,
       description,
       argsSchema,
-      cb
+      cb,
+      true
     );
 
     this.setPromptRequestHandlers();
@@ -1013,25 +1031,22 @@ export class McpServer {
    */
   registerPrompt<Args extends PromptArgsRawShape>(
     name: string,
-    config: {
-      title?: string;
-      description?: string;
-      argsSchema?: Args;
-    },
+    config: PromptConfig<Args>,
     cb: PromptCallback<Args>
   ): RegisteredPrompt {
     if (this._registeredPrompts[name]) {
       throw new Error(`Prompt ${name} is already registered`);
     }
 
-    const { title, description, argsSchema } = config;
+    const { title, description, argsSchema, enabled = true } = config;
 
     const registeredPrompt = this._createRegisteredPrompt(
       name,
       title,
       description,
       argsSchema,
-      cb as PromptCallback<PromptArgsRawShape | undefined>
+      cb as PromptCallback<PromptArgsRawShape | undefined>,
+      enabled
     );
 
     this.setPromptRequestHandlers();
@@ -1218,6 +1233,23 @@ function isZodTypeLike(value: unknown): value is ZodType {
  * Additional, optional information for annotating a resource.
  */
 export type ResourceMetadata = Omit<Resource, "uri" | "name">;
+
+/**
+ * Configuration for registering a resource
+ */
+export type ResourceConfig = ResourceMetadata & {
+  enabled?: boolean;
+};
+
+/**
+ * Configuration for registering a prompt  
+ */
+export type PromptConfig<Args extends PromptArgsRawShape = PromptArgsRawShape> = {
+  title?: string;
+  description?: string;
+  argsSchema?: Args;
+  enabled?: boolean;
+};
 
 /**
  * Callback to list all resources matching a given template.
