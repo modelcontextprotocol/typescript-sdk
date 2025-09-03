@@ -114,7 +114,7 @@ export class Server<
 
     if (this._capabilities.logging) {
         this.setRequestHandler(SetLevelRequestSchema, async (request, extra) => {
-            const transportSessionId: string | undefined = extra.sessionId || extra.requestInfo?.headers['mcp-session-id'] as string || undefined;
+            const transportSessionId: string | undefined = extra.sessionId || extra.requestInfo?.headers['mcp-session-id'] as string || "NO_SESSION";
             const { level } = request.params;
             const parseResult = LoggingLevelSchema.safeParse(level);
             if (transportSessionId && parseResult.success) {
@@ -134,7 +134,7 @@ export class Server<
   );
 
   // Is a message with the given level ignored in the log level set for the given session id?
-  private isMessageIgnored = (level: LoggingLevel, sessionId: string): boolean => {
+  private isMessageIgnored = (level: LoggingLevel, sessionId: string = "NO_SESSION"): boolean => {
     const currentLevel = this._loggingLevels.get(sessionId);
     return (currentLevel)
         ? this.LOG_LEVEL_SEVERITY.get(level)! < this.LOG_LEVEL_SEVERITY.get(currentLevel)!
@@ -398,7 +398,7 @@ export class Server<
      */
     async sendLoggingMessage(params: LoggingMessageNotification["params"], sessionId?: string) {
       if (this._capabilities.logging) {
-          if (!sessionId || !this.isMessageIgnored(params.level, sessionId)) {
+          if (!this.isMessageIgnored(params.level, sessionId)) {
               return this.notification({method: "notifications/message", params})
           }
       }
