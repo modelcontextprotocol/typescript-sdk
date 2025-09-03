@@ -21,7 +21,6 @@ import {
 import { Transport } from "../shared/transport.js";
 import { InMemoryTransport } from "../inMemory.js";
 import { Client } from "../client/index.js";
-import {AuthInfo} from "./auth/types.js";
 
 test("should accept latest protocol version", async () => {
   let sendPromiseResolve: (value: unknown) => void;
