@@ -898,7 +898,7 @@ const upgradeAuthTool = server.tool(
       // If we've just upgraded to 'write' permissions, we can still call 'upgradeAuth' 
       // but can only upgrade to 'admin'. 
       upgradeAuthTool.update({
-        paramSchema: { permission: z.enum(["admin"]) }, // change validation rules
+        paramsSchema: { permission: z.enum(["admin"]) }, // change validation rules
       })
     } else {
       // If we're now an admin, we no longer have anywhere to upgrade to, so fully remove that tool
