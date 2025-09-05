@@ -37,7 +37,7 @@ import {
   LoggingLevelSchema
 } from "../types.js";
 import Ajv from "ajv";
-import type { Target } from "zod-to-json-schema";
+import type { Targets } from "zod-to-json-schema";
 
 export type ServerOptions = ProtocolOptions & {
   /**
@@ -53,7 +53,7 @@ export type ServerOptions = ProtocolOptions & {
   /**
    * Optional spec for JSON Schema to allow fully compatible use with OpenAI endpoints.
    */
-  jsonSchemaSpec?: Target;
+  jsonSchemaSpec?: Targets;
 };
 
 /**
@@ -94,7 +94,7 @@ export class Server<
   private _clientVersion?: Implementation;
   private _capabilities: ServerCapabilities;
   private _instructions?: string;
-  public _jsonSchemaSpec?: Target = 'jsonSchema7';
+  public _jsonSchemaSpec?: Targets = 'jsonSchema7';
 
   /**
    * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
