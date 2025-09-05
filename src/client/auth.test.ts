@@ -1,19 +1,20 @@
 import { LATEST_PROTOCOL_VERSION } from '../types.js';
 import {
-  discoverOAuthMetadata,
-  discoverAuthorizationServerMetadata,
-  buildDiscoveryUrls,
-  startAuthorization,
-  exchangeAuthorization,
-  refreshAuthorization,
-  registerClient,
-  discoverOAuthProtectedResourceMetadata,
-  extractResourceMetadataUrl,
-  auth,
-  type OAuthClientProvider,
+    discoverOAuthMetadata,
+    discoverAuthorizationServerMetadata,
+    buildDiscoveryUrls,
+    startAuthorization,
+    exchangeAuthorization,
+    refreshAuthorization,
+    registerClient,
+    discoverOAuthProtectedResourceMetadata,
+    extractResourceMetadataUrl,
+    auth,
+    type OAuthClientProvider, startClientCredentialAuthorization,
 } from "./auth.js";
 import {ServerError} from "../server/auth/errors.js";
 import { AuthorizationServerMetadata } from '../shared/auth.js';
+import {describe} from "@jest/globals";
 
 // Mock fetch globally
 const mockFetch = jest.fn();
@@ -1265,6 +1266,64 @@ describe("OAuth Authorization", () => {
     });
   });
 
+  describe("startClientCredentialAuthorization", () => {
+      const validTokens = {
+          access_token: "access123",
+          token_type: "Bearer",
+          expires_in: 3600,
+          refresh_token: "refresh123",
+      };
+
+      const validMetadata = {
+          issuer: "https://auth.example.com",
+          authorization_endpoint: "https://auth.example.com/authorize",
+          token_endpoint: "https://auth.example.com/token",
+          response_types_supported: ["code"]
+      };
+
+      const validClientInfo = {
+          client_id: "client123",
+          client_secret: "secret123",
+          redirect_uris: ["http://localhost:3000/callback"],
+          client_name: "Test Client",
+      };
+
+      it("retrieve tokens with client credentials", async () => {
+          mockFetch.mockResolvedValueOnce({
+              ok: true,
+              status: 200,
+              json: async () => validTokens,
+          });
+
+          const tokens = await startClientCredentialAuthorization("https://auth.example.com", {
+              clientInformation: validClientInfo,
+              scope: "openid",
+              resource: new URL("https://api.example.com/mcp-server"),
+          });
+
+          expect(tokens).toEqual(validTokens);
+          expect(mockFetch).toHaveBeenCalledWith(
+              expect.objectContaining({
+                  href: "https://auth.example.com/token",
+              }),
+              expect.objectContaining({
+                  method: "POST",
+                  headers: new Headers({
+                      "Content-Type": "application/x-www-form-urlencoded",
+                  }),
+              })
+          );
+
+          const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
+          expect(body.get("grant_type")).toBe("client_credentials");
+          expect(body.get("client_id")).toBe("client123");
+          expect(body.get("client_secret")).toBe("secret123");
+          expect(body.get("scope")).toBe("openid");
+          expect(body.get("resource")).toBe("https://api.example.com/mcp-server");
+      });
+
+  })
+
   describe("refreshAuthorization", () => {
     const validTokens = {
       access_token: "newaccess123",
@@ -1506,7 +1565,7 @@ describe("OAuth Authorization", () => {
     });
   });
 
-  describe("auth function", () => {
+  describe("auth function - authorization flow", () => {
     const mockProvider: OAuthClientProvider = {
       get redirectUrl() { return "http://localhost:3000/callback"; },
       get clientMetadata() {

@@ -883,6 +883,78 @@ export async function startAuthorization(
   return { authorizationUrl, codeVerifier };
 }
 
+export async function startClientCredentialAuthorization(
+    authorizationServerUrl: string | URL,
+    {
+        metadata,
+        clientInformation,
+        scope,
+        resource,
+        addClientAuthentication,
+        fetchFn,
+    }: {
+        metadata?: AuthorizationServerMetadata;
+        clientInformation: OAuthClientInformation;
+        scope?: string;
+        resource?: URL;
+        addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
+        fetchFn?: FetchLike;
+    },
+): Promise<OAuthTokens> {
+    const grantType = "client_credentials";
+
+    const tokenUrl = metadata?.token_endpoint
+        ? new URL(metadata.token_endpoint)
+        : new URL("/token", authorizationServerUrl);
+
+    if (
+        metadata?.grant_types_supported &&
+        !metadata.grant_types_supported.includes(grantType)
+    ) {
+        throw new Error(
+            `Incompatible auth server: does not support grant type ${grantType}`,
+        );
+    }
+
+    // Exchange code for tokens
+    const headers = new Headers({
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json",
+    });
+    const params = new URLSearchParams({
+        grant_type: grantType,
+    });
+
+    if (addClientAuthentication) {
+        addClientAuthentication(headers, params, authorizationServerUrl, metadata);
+    } else {
+        // Determine and apply client authentication method
+        const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
+        const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
+
+        applyClientAuthentication(authMethod, clientInformation, headers, params);
+    }
+
+    if (resource) {
+        params.set("resource", resource.href);
+    }
+
+    if (scope) {
+        params.set("scope", scope);
+    }
+
+    const response = await (fetchFn ?? fetch)(tokenUrl, {
+        method: "POST",
+        headers,
+        body: params,
+    });
+
+    if (!response.ok) {
+        throw await parseErrorResponse(response);
+    }
+
+    return OAuthTokensSchema.parse(await response.json());
+}
 /**
  * Exchanges an authorization code for an access token with the given server.
  *
