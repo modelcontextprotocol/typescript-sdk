@@ -23,6 +23,7 @@ import {
 } from "../server/auth/errors.js";
 import { FetchLike } from "../shared/transport.js";
 
+type SupportedAuthorizationFlow = 'authorization_code' | 'client_credentials';
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
  *
@@ -45,6 +46,11 @@ export interface OAuthClientProvider {
    * Returns a OAuth2 state parameter.
    */
   state?(): string | Promise<string>;
+
+  /**
+   * Returns the authorization flow to use.
+   */
+  authFlow?(): SupportedAuthorizationFlow;
 
   /**
    * Loads information about this OAuth client, as registered already with the
