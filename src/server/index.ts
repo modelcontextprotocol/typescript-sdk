@@ -114,10 +114,10 @@ export class Server<
 
     if (this._capabilities.logging) {
         this.setRequestHandler(SetLevelRequestSchema, async (request, extra) => {
-            const transportSessionId: string | undefined = extra.sessionId || extra.requestInfo?.headers['mcp-session-id'] as string || "NO_SESSION";
+            const transportSessionId: string | undefined = extra.sessionId || extra.requestInfo?.headers['mcp-session-id'] as string;
             const { level } = request.params;
             const parseResult = LoggingLevelSchema.safeParse(level);
-            if (transportSessionId && parseResult.success) {
+            if (parseResult.success) {
                 this._loggingLevels.set(transportSessionId, parseResult.data);
             }
             return {};
@@ -126,7 +126,7 @@ export class Server<
   }
 
   // Map log levels by session id
-  private _loggingLevels = new Map<string, LoggingLevel>();
+  private _loggingLevels = new Map<string | undefined, LoggingLevel>();
 
   // Map LogLevelSchema to severity index
   private readonly LOG_LEVEL_SEVERITY = new Map(
@@ -134,7 +134,7 @@ export class Server<
   );
 
   // Is a message with the given level ignored in the log level set for the given session id?
-  private isMessageIgnored = (level: LoggingLevel, sessionId: string = "NO_SESSION"): boolean => {
+  private isMessageIgnored = (level: LoggingLevel, sessionId?: string): boolean => {
     const currentLevel = this._loggingLevels.get(sessionId);
     return (currentLevel)
         ? this.LOG_LEVEL_SEVERITY.get(level)! < this.LOG_LEVEL_SEVERITY.get(currentLevel)!
