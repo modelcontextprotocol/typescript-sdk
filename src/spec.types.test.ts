@@ -663,6 +663,13 @@ function checkLoggingLevel(
   sdk = spec;
   spec = sdk;
 }
+function checkIcon(
+  sdk: RemovePassthrough<SDKTypes.Icon>,
+  spec: SpecTypes.Icon
+) {
+  sdk = spec;
+  spec = sdk;
+}
 
 // This file is .gitignore'd, and fetched by `npm run fetch:spec-types` (called by `npm run test`)
 const SPEC_TYPES_FILE  = 'spec.types.ts';
@@ -678,6 +685,7 @@ const MISSING_SDK_TYPES = [
   'Annotations',
   'ModelHint',
   'ModelPreferences',
+  'Icons',
 ]
 
 function extractExportedTypes(source: string): string[] {
@@ -692,7 +700,7 @@ describe('Spec Types', () => {
   it('should define some expected types', () => {
     expect(specTypes).toContain('JSONRPCNotification');
     expect(specTypes).toContain('ElicitResult');
-    expect(specTypes).toHaveLength(92);
+    expect(specTypes).toHaveLength(94);
   });
 
   it('should have up to date list of missing sdk types', () => {
