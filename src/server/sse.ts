@@ -191,7 +191,7 @@ export class SSEServerTransport implements Transport {
       throw error;
     }
 
-    this.onmessage?.(parsedMessage, extra);
+    await this.onmessage?.(parsedMessage, extra);
   }
 
   async close(): Promise<void> {
