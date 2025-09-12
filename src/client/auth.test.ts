@@ -1322,6 +1322,111 @@ describe("OAuth Authorization", () => {
           expect(body.get("resource")).toBe("https://api.example.com/mcp-server");
       });
 
+      it("retrieve tokens with client credentials with auth metadata", async () => {
+          mockFetch.mockResolvedValueOnce({
+              ok: true,
+              status: 200,
+              json: async () => validTokens,
+          });
+
+          const tokens = await startClientCredentialAuthorization("https://auth2.example.com", {
+              metadata: validMetadata,
+              clientInformation: validClientInfo,
+              scope: "openid",
+              resource: new URL("https://api.example.com/mcp-server"),
+          });
+
+          expect(tokens).toEqual(validTokens);
+          expect(mockFetch).toHaveBeenCalledWith(
+              expect.objectContaining({
+                  href: "https://auth.example.com/token",
+              }),
+              expect.objectContaining({
+                  method: "POST",
+                  headers: new Headers({
+                      "Content-Type": "application/x-www-form-urlencoded",
+                  }),
+              })
+          );
+
+          const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
+          expect(body.get("grant_type")).toBe("client_credentials");
+          expect(body.get("client_id")).toBe("client123");
+          expect(body.get("client_secret")).toBe("secret123");
+          expect(body.get("scope")).toBe("openid");
+          expect(body.get("resource")).toBe("https://api.example.com/mcp-server");
+      });
+
+      it("validates token response schema", async () => {
+          mockFetch.mockResolvedValueOnce({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                  // Missing required fields
+                  access_token: "access123",
+              }),
+          });
+
+          await expect(
+              startClientCredentialAuthorization("https://auth.example.com", {
+                  clientInformation: validClientInfo,
+                  scope: "openid",
+                  resource: new URL("https://api.example.com/mcp-server"),
+              })
+          ).rejects.toThrow();
+      });
+
+      it("throws on error response", async () => {
+          mockFetch.mockResolvedValueOnce(
+              Response.json(
+                  new ServerError("Authorization failed").toResponseObject(),
+                  { status: 400 }
+              )
+          );
+
+          await expect(
+              startClientCredentialAuthorization("https://auth.example.com", {
+                  clientInformation: validClientInfo,
+                  scope: "openid",
+                  resource: new URL("https://api.example.com/mcp-server"),
+              })
+          ).rejects.toThrow("Authorization failed");
+      });
+
+      it("supports overriding the fetch function used for requests", async () => {
+          const customFetch = jest.fn().mockResolvedValue({
+              ok: true,
+              status: 200,
+              json: async () => validTokens,
+          });
+
+          const tokens = await startClientCredentialAuthorization("https://auth.example.com", {
+              clientInformation: validClientInfo,
+              scope: "openid",
+              resource: new URL("https://api.example.com/mcp-server"),
+              fetchFn: customFetch
+          });
+
+          expect(tokens).toEqual(validTokens);
+          expect(customFetch).toHaveBeenCalledWith(
+              expect.objectContaining({
+                  href: "https://auth.example.com/token",
+              }),
+              expect.objectContaining({
+                  method: "POST",
+                  headers: new Headers({
+                      "Content-Type": "application/x-www-form-urlencoded",
+                  }),
+              })
+          );
+
+          const body = customFetch.mock.calls[0][1].body as URLSearchParams;
+          expect(body.get("grant_type")).toBe("client_credentials");
+          expect(body.get("client_id")).toBe("client123");
+          expect(body.get("client_secret")).toBe("secret123");
+          expect(body.get("scope")).toBe("openid");
+          expect(body.get("resource")).toBe("https://api.example.com/mcp-server");
+      });
   })
 
   describe("refreshAuthorization", () => {
