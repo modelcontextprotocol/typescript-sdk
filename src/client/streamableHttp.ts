@@ -114,6 +114,12 @@ export type StreamableHTTPClientTransportOptions = {
    * When not provided and connecting to a server that supports session IDs, the server will generate a new session ID.
    */
   sessionId?: string;
+
+  /**
+   * If false, do not attempt to open an SSE (Server-Sent Events) connection.
+   * Default is true (attempt SSE connection).
+   */
+  attemptSSE?: boolean;
 };
 
 /**
@@ -131,6 +137,7 @@ export class StreamableHTTPClientTransport implements Transport {
   private _sessionId?: string;
   private _reconnectionOptions: StreamableHTTPReconnectionOptions;
   private _protocolVersion?: string;
+  private _attemptSSE: boolean;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -147,6 +154,7 @@ export class StreamableHTTPClientTransport implements Transport {
     this._fetch = opts?.fetch;
     this._sessionId = opts?.sessionId;
     this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
+    this._attemptSSE = opts?.attemptSSE !== false;
   }
 
   private async _authThenStart(): Promise<void> {
@@ -166,7 +174,10 @@ export class StreamableHTTPClientTransport implements Transport {
       throw new UnauthorizedError();
     }
 
-    return await this._startOrAuthSse({ resumptionToken: undefined });
+    if (this._attemptSSE) {
+      return await this._startOrAuthSse({ resumptionToken: undefined });
+    }
+    return;
   }
 
   private async _commonHeaders(): Promise<Headers> {
@@ -196,6 +207,9 @@ export class StreamableHTTPClientTransport implements Transport {
 
   private async _startOrAuthSse(options: StartSSEOptions): Promise<void> {
     const { resumptionToken } = options;
+    if (!this._attemptSSE) {
+      return;
+    }
     try {
       // Try to open an initial SSE stream with GET to listen for server messages
       // This is optional according to the spec - server may not support it
@@ -411,7 +425,9 @@ export class StreamableHTTPClientTransport implements Transport {
 
       if (resumptionToken) {
         // If we have at last event ID, we need to reconnect the SSE stream
-        this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : undefined }).catch(err => this.onerror?.(err));
+        if (this._attemptSSE) {
+          this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : undefined }).catch(err => this.onerror?.(err));
+        }
         return;
       }
 
@@ -459,7 +475,7 @@ export class StreamableHTTPClientTransport implements Transport {
       if (response.status === 202) {
         // if the accepted notification is initialized, we start the SSE stream
         // if it's supported by the server
-        if (isInitializedNotification(message)) {
+        if (isInitializedNotification(message) && this._attemptSSE) {
           // Start without a lastEventId since this is a fresh connection
           this._startOrAuthSse({ resumptionToken: undefined }).catch(err => this.onerror?.(err));
         }
