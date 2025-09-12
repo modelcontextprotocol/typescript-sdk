@@ -326,6 +326,7 @@ async function authInternal(
   },
 ): Promise<AuthResult> {
 
+  const authFlow = provider.authFlow ? provider.authFlow() : 'authorization_code';
   let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
   let authorizationServerUrl: string | URL | undefined;
   try {
@@ -420,6 +421,16 @@ async function authInternal(
 
   const state = provider.state ? await provider.state() : undefined;
 
+  if(authFlow === 'client_credentials') {
+    const newTokens = await startClientCredentialAuthorization(authorizationServerUrl, {
+        metadata,
+        clientInformation,
+        scope: scope || provider.clientMetadata.scope,
+        resource
+    })
+    await provider.saveTokens(newTokens);
+    return "AUTHORIZED"
+  }
   // Start new authorization flow
   const { authorizationUrl, codeVerifier } = await startAuthorization(authorizationServerUrl, {
     metadata,
