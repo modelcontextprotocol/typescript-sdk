@@ -420,7 +420,8 @@ async function connect(url?: string): Promise<void> {
     transport = new StreamableHTTPClientTransport(
       new URL(serverUrl),
       {
-        sessionId: sessionId
+        sessionId: sessionId,
+        // attemptSSE: false, // Set to false to disable SSE connection attempts
       }
     );
 
