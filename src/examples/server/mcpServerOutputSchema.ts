@@ -15,6 +15,9 @@ const server = new McpServer(
   }
 );
 
+const weatherConditions = ["sunny", "cloudy", "rainy", "stormy", "snowy"] as const;
+const windDirections = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
+
 // Define a tool with structured output - Weather data
 server.registerTool(
   "get_weather",
@@ -29,11 +32,11 @@ server.registerTool(
         celsius: z.number(),
         fahrenheit: z.number()
       }),
-      conditions: z.enum(["sunny", "cloudy", "rainy", "stormy", "snowy"]),
+      conditions: z.enum(weatherConditions),
       humidity: z.number().min(0).max(100),
       wind: z.object({
         speed_kmh: z.number(),
-        direction: z.string()
+        direction: z.enum(windDirections)
       })
     },
   },
@@ -43,7 +46,8 @@ server.registerTool(
     void country;
     // Simulate weather API call
     const temp_c = Math.round((Math.random() * 35 - 5) * 10) / 10;
-    const conditions = ["sunny", "cloudy", "rainy", "stormy", "snowy"][Math.floor(Math.random() * 5)] as "sunny" | "cloudy" | "rainy" | "stormy" | "snowy";
+    const conditions =
+      weatherConditions[Math.floor(Math.random() * weatherConditions.length)];
 
     const structuredContent = {
       temperature: {
@@ -54,7 +58,8 @@ server.registerTool(
       humidity: Math.round(Math.random() * 100),
       wind: {
         speed_kmh: Math.round(Math.random() * 50),
-        direction: ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.floor(Math.random() * 8)]
+        direction:
+          windDirections[Math.floor(Math.random() * windDirections.length)]
       }
     };
 
