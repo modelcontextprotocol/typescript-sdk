@@ -438,9 +438,9 @@ export class StreamableHTTPClientTransport implements Transport {
 
       if (!response.ok) {
         if (response.status === 401 && this._authProvider) {
-          // Circuit breaker: Prevent infinite auth loops caused by server incorrectly rejecting valid credentials
+          // Prevent infinite auth loop when server returns 401 after successful auth
           if (this._hasCompletedAuthFlow) {
-            throw new UnauthorizedError("Authentication loop detected. The authorization server may be incorrectly rejecting valid credentials.");
+            throw new StreamableHTTPError(401, "Server returned 401 after successful authentication");
           }
 
           this._resourceMetadataUrl = extractResourceMetadataUrl(response);
@@ -450,7 +450,7 @@ export class StreamableHTTPClientTransport implements Transport {
             throw new UnauthorizedError();
           }
 
-          // Mark that we just completed auth flow
+          // Mark that we completed auth flow
           this._hasCompletedAuthFlow = true;
           // Purposely _not_ awaited, so we don't call onerror twice
           return this.send(message);
