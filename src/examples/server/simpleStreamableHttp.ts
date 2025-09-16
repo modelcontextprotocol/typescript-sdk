@@ -21,7 +21,9 @@ const strictOAuth = process.argv.includes('--oauth-strict');
 const getServer = () => {
   const server = new McpServer({
     name: 'simple-streamable-http-server',
-    version: '1.0.0'
+    version: '1.0.0',
+    icons: [{src: './mcp.svg', sizes: '512x512', mimeType: 'image/svg+xml'}],
+    websiteUrl: 'https://github.com/modelcontextprotocol/typescript-sdk',
   }, { capabilities: { logging: {} } });
 
   // Register a simple tool that returns a greeting
@@ -58,27 +60,27 @@ const getServer = () => {
       readOnlyHint: true,
       openWorldHint: false
     },
-    async ({ name }, { sendNotification }): Promise<CallToolResult> => {
+    async ({ name }, extra): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-      await sendNotification({
-        method: "notifications/message",
-        params: { level: "debug", data: `Starting multi-greet for ${name}` }
-      });
+      await server.sendLoggingMessage({
+          level: "debug",
+          data: `Starting multi-greet for ${name}`
+      }, extra.sessionId);
 
       await sleep(1000); // Wait 1 second before first greeting
 
-      await sendNotification({
-        method: "notifications/message",
-        params: { level: "info", data: `Sending first greeting to ${name}` }
-      });
+      await server.sendLoggingMessage({
+          level: "info",
+          data: `Sending first greeting to ${name}`
+      }, extra.sessionId);
 
       await sleep(1000); // Wait another second before second greeting
 
-      await sendNotification({
-        method: "notifications/message",
-        params: { level: "info", data: `Sending second greeting to ${name}` }
-      });
+      await server.sendLoggingMessage({
+          level: "info",
+          data: `Sending second greeting to ${name}`
+      }, extra.sessionId);
 
       return {
         content: [
@@ -273,20 +275,17 @@ const getServer = () => {
       interval: z.number().describe('Interval in milliseconds between notifications').default(100),
       count: z.number().describe('Number of notifications to send (0 for 100)').default(50),
     },
-    async ({ interval, count }, { sendNotification }): Promise<CallToolResult> => {
+    async ({ interval, count }, extra): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
       let counter = 0;
 
       while (count === 0 || counter < count) {
         counter++;
         try {
-          await sendNotification({
-            method: "notifications/message",
-            params: {
-              level: "info",
-              data: `Periodic notification #${counter} at ${new Date().toISOString()}`
-            }
-          });
+            await server.sendLoggingMessage( {
+                level: "info",
+                data: `Periodic notification #${counter} at ${new Date().toISOString()}`
+            }, extra.sessionId);
         }
         catch (error) {
           console.error("Error sending notification:", error);

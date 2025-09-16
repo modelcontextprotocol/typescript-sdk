@@ -359,6 +359,7 @@ async function authInternal(
     const fullInformation = await registerClient(authorizationServerUrl, {
       metadata,
       clientMetadata: provider.clientMetadata,
+      fetchFn,
     });
 
     await provider.saveClientInformation(fullInformation);
@@ -395,6 +396,7 @@ async function authInternal(
         refreshToken: tokens.refresh_token,
         resource,
         addClientAuthentication: provider.addClientAuthentication,
+        fetchFn,
       });
 
       await provider.saveTokens(newTokens);
@@ -569,7 +571,7 @@ async function tryMetadataDiscovery(
  * Determines if fallback to root discovery should be attempted
  */
 function shouldAttemptFallback(response: Response | undefined, pathname: string): boolean {
-  return !response || response.status === 404 && pathname !== '/';
+  return !response || (response.status >= 400 && response.status < 500) && pathname !== '/';
 }
 
 /**
