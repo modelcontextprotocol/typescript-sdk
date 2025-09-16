@@ -43,6 +43,7 @@ import {
   ToolAnnotations,
   CallToolResultUnstructured,
   CallToolResultStructured,
+  LoggingMessageNotification,
 } from "../types.js";
 import { Completable, CompletableDef } from "./completable.js";
 import { UriTemplate, Variables } from "../shared/uriTemplate.js";
@@ -124,6 +125,7 @@ export class McpServer {
                 }) as Tool["inputSchema"])
                 : EMPTY_OBJECT_JSON_SCHEMA,
               annotations: tool.annotations,
+              _meta: tool._meta,
             };
 
             if (tool.outputSchema) {
@@ -774,6 +776,7 @@ export class McpServer {
     inputSchema: ZodRawShape | undefined,
     outputSchema: ZodRawShape | undefined,
     annotations: ToolAnnotations | undefined,
+    _meta: Record<string, unknown> | undefined,
     callback: ToolCallback<ZodRawShape | undefined>
   ): RegisteredTool {
     const registeredTool: RegisteredTool = {
@@ -784,6 +787,7 @@ export class McpServer {
       outputSchema:
         outputSchema === undefined ? undefined : z.object(outputSchema),
       annotations,
+      _meta,
       callback,
       enabled: true,
       disable: () => registeredTool.update({ enabled: false }),
@@ -799,6 +803,7 @@ export class McpServer {
         if (typeof updates.paramsSchema !== "undefined") registeredTool.inputSchema = z.object(updates.paramsSchema)
         if (typeof updates.callback !== "undefined") registeredTool.callback = updates.callback
         if (typeof updates.annotations !== "undefined") registeredTool.annotations = updates.annotations
+        if (typeof updates._meta !== "undefined") registeredTool._meta = updates._meta
         if (typeof updates.enabled !== "undefined") registeredTool.enabled = updates.enabled
         this.sendToolListChanged()
       },
@@ -824,7 +829,7 @@ export class McpServer {
   /**
    * Registers a tool taking either a parameter schema for validation or annotations for additional metadata.
    * This unified overload handles both `tool(name, paramsSchema, cb)` and `tool(name, annotations, cb)` cases.
-   * 
+   *
    * Note: We use a union type for the second parameter because TypeScript cannot reliably disambiguate
    * between ToolAnnotations and ZodRawShape during overload resolution, as both are plain object types.
    */
@@ -836,9 +841,9 @@ export class McpServer {
 
   /**
    * Registers a tool `name` (with a description) taking either parameter schema or annotations.
-   * This unified overload handles both `tool(name, description, paramsSchema, cb)` and 
+   * This unified overload handles both `tool(name, description, paramsSchema, cb)` and
    * `tool(name, description, annotations, cb)` cases.
-   * 
+   *
    * Note: We use a union type for the third parameter because TypeScript cannot reliably disambiguate
    * between ToolAnnotations and ZodRawShape during overload resolution, as both are plain object types.
    */
@@ -916,7 +921,7 @@ export class McpServer {
     }
     const callback = rest[0] as ToolCallback<ZodRawShape | undefined>;
 
-    return this._createRegisteredTool(name, undefined, description, inputSchema, outputSchema, annotations, callback)
+    return this._createRegisteredTool(name, undefined, description, inputSchema, outputSchema, annotations, undefined, callback)
   }
 
   /**
@@ -930,6 +935,7 @@ export class McpServer {
       inputSchema?: InputArgs;
       outputSchema?: OutputArgs;
       annotations?: ToolAnnotations;
+      _meta?: Record<string, unknown>;
     },
     cb: ToolCallback<InputArgs, OutputArgs>
   ): RegisteredTool {
@@ -937,7 +943,7 @@ export class McpServer {
       throw new Error(`Tool ${name} is already registered`);
     }
 
-    const { title, description, inputSchema, outputSchema, annotations } = config;
+    const { title, description, inputSchema, outputSchema, annotations, _meta } = config;
 
     return this._createRegisteredTool(
       name,
@@ -946,6 +952,7 @@ export class McpServer {
       inputSchema,
       outputSchema,
       annotations,
+      _meta,
       cb as ToolCallback<ZodRawShape | undefined>
     );
   }
@@ -1049,6 +1056,16 @@ export class McpServer {
     return this.server.transport !== undefined
   }
 
+  /**
+   * Sends a logging message to the client, if connected.
+   * Note: You only need to send the parameters object, not the entire JSON RPC message
+   * @see LoggingMessageNotification
+   * @param params
+   * @param sessionId optional for stateless and backward compatibility
+   */
+  async sendLoggingMessage(params: LoggingMessageNotification["params"], sessionId?: string) {
+    return this.server.sendLoggingMessage(params, sessionId);
+  }
   /**
    * Sends a resource list changed event to the client, if connected.
    */
@@ -1172,6 +1189,7 @@ export type RegisteredTool = {
   inputSchema?: AnyZodObject;
   outputSchema?: AnyZodObject;
   annotations?: ToolAnnotations;
+  _meta?: Record<string, unknown>;
   callback: ToolCallback<undefined | ZodRawShape>;
   enabled: boolean;
   enable(): void;
@@ -1184,6 +1202,7 @@ export type RegisteredTool = {
       paramsSchema?: InputArgs,
       outputSchema?: OutputArgs,
       annotations?: ToolAnnotations,
+      _meta?: Record<string, unknown>,
       callback?: ToolCallback<InputArgs>,
       enabled?: boolean
     }): void

@@ -1636,6 +1636,99 @@ describe("tool()", () => {
       ),
     ).rejects.toThrow(/Tool nonexistent-tool not found/);
   });
+
+  /***
+   * Test: Tool Registration with _meta field
+   */
+  test("should register tool with _meta field and include it in list response", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    const metaData = {
+      author: "test-author",
+      version: "1.2.3",
+      category: "utility",
+      tags: ["test", "example"]
+    };
+
+    mcpServer.registerTool(
+      "test-with-meta",
+      {
+        description: "A tool with _meta field",
+        inputSchema: { name: z.string() },
+        _meta: metaData,
+      },
+      async ({ name }) => ({
+        content: [{ type: "text", text: `Hello, ${name}!` }]
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].name).toBe("test-with-meta");
+    expect(result.tools[0].description).toBe("A tool with _meta field");
+    expect(result.tools[0]._meta).toEqual(metaData);
+  });
+
+  /***
+   * Test: Tool Registration without _meta field should have undefined _meta
+   */
+  test("should register tool without _meta field and have undefined _meta in response", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    mcpServer.registerTool(
+      "test-without-meta",
+      {
+        description: "A tool without _meta field",
+        inputSchema: { name: z.string() },
+      },
+      async ({ name }) => ({
+        content: [{ type: "text", text: `Hello, ${name}!` }]
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].name).toBe("test-without-meta");
+    expect(result.tools[0]._meta).toBeUndefined();
+  });
 });
 
 describe("resource()", () => {
