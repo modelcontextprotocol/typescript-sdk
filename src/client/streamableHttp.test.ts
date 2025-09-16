@@ -1,4 +1,4 @@
-import { StartSSEOptions, StreamableHTTPClientTransport, StreamableHTTPReconnectionOptions, StreamableHTTPError } from "./streamableHttp.js";
+import { StartSSEOptions, StreamableHTTPClientTransport, StreamableHTTPReconnectionOptions } from "./streamableHttp.js";
 import { OAuthClientProvider, UnauthorizedError } from "./auth.js";
 import { JSONRPCMessage, JSONRPCRequest } from "../types.js";
 import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from "../server/auth/errors.js";
@@ -1002,7 +1002,8 @@ describe("StreamableHTTPClientTransport", () => {
     });
   });
 
-  it("prevents infinite auth loops when server returns 401 after successful auth", async () => {
+  describe("prevent infinite recursion when server returns 401 after successful auth", () => {
+    it("should throw error when server returns 401 after successful auth", async () => {
     const message: JSONRPCMessage = {
       jsonrpc: "2.0",
       method: "test",
@@ -1063,5 +1064,6 @@ describe("StreamableHTTPClientTransport", () => {
       expires_in: 3600,
       refresh_token: "refresh-token", // Refresh token is preserved
     });
+  });
   });
 });
