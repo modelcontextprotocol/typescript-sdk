@@ -131,6 +131,7 @@ export class StreamableHTTPClientTransport implements Transport {
   private _sessionId?: string;
   private _reconnectionOptions: StreamableHTTPReconnectionOptions;
   private _protocolVersion?: string;
+  private _hasCompletedAuthFlow = false; // Circuit breaker: detect auth success followed by immediate 401
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -437,6 +438,10 @@ export class StreamableHTTPClientTransport implements Transport {
 
       if (!response.ok) {
         if (response.status === 401 && this._authProvider) {
+          // Circuit breaker: Prevent infinite auth loops caused by server incorrectly rejecting valid credentials
+          if (this._hasCompletedAuthFlow) {
+            throw new UnauthorizedError("Authentication loop detected. The authorization server may be incorrectly rejecting valid credentials.");
+          }
 
           this._resourceMetadataUrl = extractResourceMetadataUrl(response);
 
@@ -445,6 +450,8 @@ export class StreamableHTTPClientTransport implements Transport {
             throw new UnauthorizedError();
           }
 
+          // Mark that we just completed auth flow
+          this._hasCompletedAuthFlow = true;
           // Purposely _not_ awaited, so we don't call onerror twice
           return this.send(message);
         }
@@ -454,6 +461,9 @@ export class StreamableHTTPClientTransport implements Transport {
           `Error POSTing to endpoint (HTTP ${response.status}): ${text}`,
         );
       }
+
+      // Reset auth loop flag on successful response
+      this._hasCompletedAuthFlow = false;
 
       // If the response is 202 Accepted, there's no body to process
       if (response.status === 202) {
