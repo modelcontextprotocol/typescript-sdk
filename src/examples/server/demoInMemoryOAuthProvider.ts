@@ -6,7 +6,7 @@ import express, { Request, Response } from "express";
 import { AuthInfo } from '../../server/auth/types.js';
 import { createOAuthMetadata, mcpAuthRouter } from '../../server/auth/router.js';
 import { resourceUrlFromServerUrl } from '../../shared/auth-utils.js';
-import { InvalidRequestError } from 'src/server/auth/errors.js';
+import { InvalidRequestError } from '../../server/auth/errors.js';
 
 
 export class DemoInMemoryClientsStore implements OAuthRegisteredClientsStore {
