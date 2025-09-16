@@ -1002,7 +1002,7 @@ describe("StreamableHTTPClientTransport", () => {
     });
   });
 
-  it("prevents infinite auth loop when server returns 401 after successful auth", async () => {
+  it("prevents infinite auth loops when server returns 401 after successful auth", async () => {
     const message: JSONRPCMessage = {
       jsonrpc: "2.0",
       method: "test",
