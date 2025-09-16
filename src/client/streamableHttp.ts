@@ -438,7 +438,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
       if (!response.ok) {
         if (response.status === 401 && this._authProvider) {
-          // Prevent infinite auth loops when server returns 401 after successful auth
+          // Prevent infinite recursion when server returns 401 after successful auth
           if (this._hasCompletedAuthFlow) {
             throw new StreamableHTTPError(401, "Server returned 401 after successful authentication");
           }
