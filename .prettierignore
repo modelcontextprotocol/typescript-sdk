@@ -1,0 +1,10 @@
+# Ignore artifacts:
+build
+dist
+coverage
+*-lock.*
+node_modules
+**/build
+**/dist
+.github/CODEOWNERS
+pnpm-lock.yaml
