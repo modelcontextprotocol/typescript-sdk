@@ -230,7 +230,7 @@ export const IconSchema = z
  */
 export const IconsSchema = z.object({
   icons: z.array(IconSchema).optional(),
-}).strip();
+}).passthrough();
 
 /**
  * Base metadata interface for common properties across resources, tools, prompts, and implementations.
