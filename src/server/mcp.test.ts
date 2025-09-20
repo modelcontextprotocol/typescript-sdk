@@ -2111,6 +2111,11 @@ describe("resource()", () => {
       {
         description: "Test resource",
         mimeType: "text/plain",
+        annotations: {
+          audience: ["assistant"],
+          priority: 0.42,
+          lastModified: "2025-01-12T15:00:58Z"
+        }
       },
       async () => ({
         contents: [
@@ -2140,6 +2145,11 @@ describe("resource()", () => {
     expect(result.resources).toHaveLength(1);
     expect(result.resources[0].description).toBe("Test resource");
     expect(result.resources[0].mimeType).toBe("text/plain");
+    expect(result.resources[0].annotations).toEqual({
+      audience: ["assistant"],
+      priority: 0.42,
+      lastModified: "2025-01-12T15:00:58Z"
+    });
   });
 
   /***
