@@ -519,6 +519,28 @@ export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
 });
 
 /**
+ * Optional annotations providing clients additional context about a resource.
+ */
+export const ResourceAnnotationsSchema = z
+  .object({
+    /**
+     * Intended audience(s) for the resource.
+     */
+    audience: z.optional(z.array(z.enum(["user", "assistant"]))),
+
+    /**
+     * Importance hint for the resource, from 0 (least) to 1 (most).
+     */
+    priority: z.optional(z.number().min(0).max(1)),
+
+    /**
+     * ISO 8601 timestamp for the most recent modification.
+     */
+    lastModified: z.optional(z.string().datetime({ offset: true })),
+  })
+  .passthrough();
+
+/**
  * A known resource that the server is capable of reading.
  */
 export const ResourceSchema = BaseMetadataSchema.extend({
@@ -538,6 +560,11 @@ export const ResourceSchema = BaseMetadataSchema.extend({
    * The MIME type of this resource, if known.
    */
   mimeType: z.optional(z.string()),
+
+  /**
+   * Optional annotations for the client.
+   */
+  annotations: z.optional(ResourceAnnotationsSchema),
 
   /**
    * An optional list of icons for this resource.
@@ -1608,6 +1635,7 @@ export type PaginatedResult = Infer<typeof PaginatedResultSchema>;
 export type ResourceContents = Infer<typeof ResourceContentsSchema>;
 export type TextResourceContents = Infer<typeof TextResourceContentsSchema>;
 export type BlobResourceContents = Infer<typeof BlobResourceContentsSchema>;
+export type ResourceAnnotations = Infer<typeof ResourceAnnotationsSchema>;
 export type Resource = Infer<typeof ResourceSchema>;
 export type ResourceTemplate = Infer<typeof ResourceTemplateSchema>;
 export type ListResourcesRequest = Infer<typeof ListResourcesRequestSchema>;
