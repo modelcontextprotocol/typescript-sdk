@@ -95,7 +95,9 @@ describe("requireBearerAuth middleware", () => {
       token: "no-expiration-token",
       clientId: "client-123",
       scopes: ["read", "write"],
-      expiresAt
+
+      // Type does not accept possible undefined so an assertion is required for this test
+      expiresAt: expiresAt as number
     };
     mockVerifyAccessToken.mockResolvedValue(noExpirationAuthInfo);
 
@@ -146,6 +148,7 @@ describe("requireBearerAuth middleware", () => {
       token: "valid-token",
       clientId: "client-123",
       scopes: ["read"],
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
     };
     mockVerifyAccessToken.mockResolvedValue(authInfo);
 
@@ -418,6 +421,7 @@ describe("requireBearerAuth middleware", () => {
         token: "valid-token",
         clientId: "client-123",
         scopes: ["read"],
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
       };
       mockVerifyAccessToken.mockResolvedValue(authInfo);
 

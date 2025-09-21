@@ -20,7 +20,7 @@ export interface AuthInfo {
   /**
    * When the token expires (in seconds since epoch).
    */
-  expiresAt?: number;
+  expiresAt: number;
 
   /**
    * The RFC 8707 resource server identifier for which this token is valid.
