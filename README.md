@@ -1183,6 +1183,7 @@ const proxyProvider = new ProxyOAuthServerProvider({
             token,
             clientId: "123",
             scopes: ["openid", "email", "profile"],
+            expiresAt: Math.floor(Date.now() / 1000) + 3600
         }
     },
     getClient: async (client_id) => {
