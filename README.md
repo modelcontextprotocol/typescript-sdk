@@ -60,6 +60,9 @@ import { z } from "zod";
 const server = new McpServer({
   name: "demo-server",
   version: "1.0.0"
+}, {
+  // use instructions to describe the use cases your server is intended to handle
+  instructions: "This is a demo server"
 });
 
 // Add an addition tool
