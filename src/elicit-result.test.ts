@@ -5,7 +5,7 @@
  * "ElicitResultSchema violates MCP Specs" where content: null was incorrectly rejected
  * for cancel/decline responses.
  * 
- * GitHub Issue: https://github.com/modelcontextprotocol/typescript-sdk/issues/XXX
+ * GitHub Issue: https://github.com/modelcontextprotocol/typescript-sdk/issues/966
  */
 
 import { ElicitResultSchema } from "./types.js";
