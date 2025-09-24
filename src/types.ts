@@ -1301,16 +1301,18 @@ export const ElicitRequestSchema = RequestSchema.extend({
 /**
  * The client's response to an elicitation/create request from the server.
  */
-export const ElicitResultSchema = ResultSchema.extend({
-  /**
-   * The user's response action.
-   */
-  action: z.enum(["accept", "decline", "cancel"]),
-  /**
-   * The collected user input content (only present if action is "accept").
-   */
-  content: z.optional(z.record(z.string(), z.unknown())),
-});
+export const ElicitResultSchema = z.union([
+  // Accept: content required
+  ResultSchema.extend({
+    action: z.literal("accept"),
+    content: z.record(z.string(), z.unknown())
+  }),
+  // Cancel/decline: content optional and flexible
+  ResultSchema.extend({
+    action: z.enum(["decline", "cancel"]),
+    content: z.optional(z.any())
+  })
+])
 
 /* Autocomplete */
 /**
