@@ -221,6 +221,18 @@ export const IconSchema = z
   .passthrough();
 
 /**
+ * An optional list of icons for this implementation.
+ * This can be used by clients to display the implementation in a user interface.
+ * Each icon should have a `kind` property that specifies whether it is a data representation or a URL source, a `src` property that points to the icon file or data representation, and may also include a `mimeType` and `sizes` property.
+ * The `mimeType` property should be a valid MIME type for the icon file, such as "image/png" or "image/svg+xml".
+ * The `sizes` property should be a string that specifies one or more sizes at which the icon file can be used, such as "48x48" or "any" for scalable formats like SVG.
+ * The `sizes` property is optional, and if not provided, the client should assume that the icon can be used at any size.
+ */
+export const IconsSchema = z.object({
+  icons: z.array(IconSchema).optional(),
+}).passthrough();
+
+/**
  * Base metadata interface for common properties across resources, tools, prompts, and implementations.
  */
 export const BaseMetadataSchema = z
@@ -249,16 +261,7 @@ export const ImplementationSchema = BaseMetadataSchema.extend({
    * An optional URL of the website for this implementation.
    */
   websiteUrl: z.optional(z.string()),
-  /**
-   * An optional list of icons for this implementation.
-   * This can be used by clients to display the implementation in a user interface.
-   * Each icon should have a `kind` property that specifies whether it is a data representation or a URL source, a `src` property that points to the icon file or data representation, and may also include a `mimeType` and `sizes` property.
-   * The `mimeType` property should be a valid MIME type for the icon file, such as "image/png" or "image/svg+xml".
-   * The `sizes` property should be a string that specifies one or more sizes at which the icon file can be used, such as "48x48" or "any" for scalable formats like SVG.
-   * The `sizes` property is optional, and if not provided, the client should assume that the icon can be used at any size.
-   */
-  icons: z.optional(z.array(IconSchema)),
-});
+}).merge(IconsSchema);
 
 /**
  * Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
@@ -1583,6 +1586,7 @@ export type CancelledNotification = Infer<typeof CancelledNotificationSchema>;
 
 /* Base Metadata */
 export type Icon = Infer<typeof IconSchema>;
+export type Icons = Infer<typeof IconsSchema>;
 export type BaseMetadata = Infer<typeof BaseMetadataSchema>;
 
 /* Initialization */
