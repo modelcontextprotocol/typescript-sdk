@@ -304,6 +304,11 @@ export class StreamableHTTPServerTransport implements Transport {
     res.on("close", () => {
       this._streamMapping.delete(this._standaloneSseStreamId);
     });
+
+    // Add error handler for standalone SSE stream
+    res.on("error", (error) => {
+      this.onerror?.(error as Error);
+    });
   }
 
   /**
@@ -335,6 +340,11 @@ export class StreamableHTTPServerTransport implements Transport {
         }
       });
       this._streamMapping.set(streamId, res);
+
+      // Add error handler for replay stream
+      res.on("error", (error) => {
+        this.onerror?.(error as Error);
+      });
     } catch (error) {
       this.onerror?.(error as Error);
     }
@@ -524,6 +534,11 @@ export class StreamableHTTPServerTransport implements Transport {
         // Set up close handler for client disconnects
         res.on("close", () => {
           this._streamMapping.delete(streamId);
+        });
+
+        // Add error handler for stream write errors
+        res.on("error", (error) => {
+          this.onerror?.(error as Error);
         });
 
         // handle each message

@@ -201,6 +201,26 @@ export const CancelledNotificationSchema = NotificationSchema.extend({
 
 /* Base Metadata */
 /**
+ * Icon schema for use in tools, prompts, resources, and implementations.
+ */
+export const IconSchema = z
+  .object({
+    /**
+     * URL or data URI for the icon.
+     */
+    src: z.string(),
+    /**
+     * Optional MIME type for the icon.
+     */
+    mimeType: z.optional(z.string()),
+    /**
+     * Optional string specifying icon dimensions (e.g., "48x48 96x96").
+     */
+    sizes: z.optional(z.string()),
+  })
+  .passthrough();
+
+/**
  * Base metadata interface for common properties across resources, tools, prompts, and implementations.
  */
 export const BaseMetadataSchema = z
@@ -225,6 +245,19 @@ export const BaseMetadataSchema = z
  */
 export const ImplementationSchema = BaseMetadataSchema.extend({
   version: z.string(),
+  /**
+   * An optional URL of the website for this implementation.
+   */
+  websiteUrl: z.optional(z.string()),
+  /**
+   * An optional list of icons for this implementation.
+   * This can be used by clients to display the implementation in a user interface.
+   * Each icon should have a `kind` property that specifies whether it is a data representation or a URL source, a `src` property that points to the icon file or data representation, and may also include a `mimeType` and `sizes` property.
+   * The `mimeType` property should be a valid MIME type for the icon file, such as "image/png" or "image/svg+xml".
+   * The `sizes` property should be a string that specifies one or more sizes at which the icon file can be used, such as "48x48" or "any" for scalable formats like SVG.
+   * The `sizes` property is optional, and if not provided, the client should assume that the icon can be used at any size.
+   */
+  icons: z.optional(z.array(IconSchema)),
 });
 
 /**
@@ -507,6 +540,11 @@ export const ResourceSchema = BaseMetadataSchema.extend({
   mimeType: z.optional(z.string()),
 
   /**
+   * An optional list of icons for this resource.
+   */
+  icons: z.optional(z.array(IconSchema)),
+
+  /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
@@ -672,6 +710,10 @@ export const PromptSchema = BaseMetadataSchema.extend({
    * A list of arguments to use for templating the prompt.
    */
   arguments: z.optional(z.array(PromptArgumentSchema)),
+  /**
+   * An optional list of icons for this prompt.
+   */
+  icons: z.optional(z.array(IconSchema)),
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
@@ -929,6 +971,11 @@ export const ToolSchema = BaseMetadataSchema.extend({
    * Optional additional tool information.
    */
   annotations: z.optional(ToolAnnotationsSchema),
+
+  /**
+   * An optional list of icons for this tool.
+   */
+  icons: z.optional(z.array(IconSchema)),
 
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1542,6 +1589,7 @@ export type EmptyResult = Infer<typeof EmptyResultSchema>;
 export type CancelledNotification = Infer<typeof CancelledNotificationSchema>;
 
 /* Base Metadata */
+export type Icon = Infer<typeof IconSchema>;
 export type BaseMetadata = Infer<typeof BaseMetadataSchema>;
 
 /* Initialization */
