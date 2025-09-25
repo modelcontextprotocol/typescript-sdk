@@ -72,6 +72,7 @@
     "express-rate-limit": "^7.5.0",
     "pkce-challenge": "^5.0.0",
     "raw-body": "^3.0.0",
+    "ts-morph": "^26.0.0",
     "zod": "^3.23.8",
     "zod-to-json-schema": "^3.24.1"
   },
