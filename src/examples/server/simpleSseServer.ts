@@ -5,13 +5,13 @@ import { z } from 'zod';
 import { CallToolResult } from '../../types.js';
 
 /**
- * This example server demonstrates the deprecated HTTP+SSE transport 
+ * This example server demonstrates the deprecated HTTP+SSE transport
  * (protocol version 2024-11-05). It mainly used for testing backward compatible clients.
- * 
+ *
  * The server exposes two endpoints:
  * - /mcp: For establishing the SSE stream (GET)
  * - /messages: For receiving client messages (POST)
- * 
+ *
  */
 
 // Create an MCP server instance
@@ -28,18 +28,15 @@ const getServer = () => {
       interval: z.number().describe('Interval in milliseconds between notifications').default(1000),
       count: z.number().describe('Number of notifications to send').default(10),
     },
-    async ({ interval, count }, { sendNotification }): Promise<CallToolResult> => {
+    async ({ interval, count }, extra): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
       let counter = 0;
 
       // Send the initial notification
-      await sendNotification({
-        method: "notifications/message",
-        params: {
-          level: "info",
-          data: `Starting notification stream with ${count} messages every ${interval}ms`
-        }
-      });
+      await server.sendLoggingMessage({
+        level: "info",
+        data: `Starting notification stream with ${count} messages every ${interval}ms`
+      }, extra.sessionId);
 
       // Send periodic notifications
       while (counter < count) {
@@ -47,13 +44,10 @@ const getServer = () => {
         await sleep(interval);
 
         try {
-          await sendNotification({
-            method: "notifications/message",
-            params: {
+            await server.sendLoggingMessage({
               level: "info",
               data: `Notification #${counter} at ${new Date().toISOString()}`
-            }
-          });
+            }, extra.sessionId);
         }
         catch (error) {
           console.error("Error sending notification:", error);

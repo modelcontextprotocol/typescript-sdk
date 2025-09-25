@@ -15,7 +15,8 @@ import {
   ListResourcesRequestSchema,
   ListToolsRequestSchema,
   SetLevelRequestSchema,
-  ErrorCode
+  ErrorCode,
+  LoggingMessageNotification
 } from "../types.js";
 import { Transport } from "../shared/transport.js";
 import { InMemoryTransport } from "../inMemory.js";
@@ -569,7 +570,7 @@ test("should allow elicitation reject and cancel without validation", async () =
     action: "decline",
   });
 
-  // Test cancel - should not validate  
+  // Test cancel - should not validate
   await expect(
     server.elicitInput({
       message: "Please provide your name",
@@ -861,3 +862,154 @@ test("should handle request timeout", async () => {
     code: ErrorCode.RequestTimeout,
   });
 });
+
+/*
+  Test automatic log level handling for transports with and without sessionId
+ */
+test("should respect log level for transport without sessionId", async () => {
+
+    const server = new Server(
+        {
+            name: "test server",
+            version: "1.0",
+        },
+        {
+            capabilities: {
+                prompts: {},
+                resources: {},
+                tools: {},
+                logging: {},
+            },
+            enforceStrictCapabilities: true,
+        },
+    );
+
+    const client = new Client(
+        {
+            name: "test client",
+            version: "1.0",
+        },
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+    ]);
+
+    expect(clientTransport.sessionId).toEqual(undefined);
+
+    // Client sets logging level to warning
+    await client.setLoggingLevel("warning");
+
+    // This one will make it through
+    const warningParams: LoggingMessageNotification["params"] = {
+        level: "warning",
+        logger: "test server",
+        data: "Warning message",
+    };
+
+    // This one will not
+    const debugParams: LoggingMessageNotification["params"] = {
+        level: "debug",
+        logger: "test server",
+        data: "Debug message",
+    };
+
+    // Test the one that makes it through
+    clientTransport.onmessage = jest.fn().mockImplementation((message) => {
+        expect(message).toEqual({
+            jsonrpc: "2.0",
+            method: "notifications/message",
+            params: warningParams
+        });
+    });
+
+    // This one will not make it through
+    await server.sendLoggingMessage(debugParams);
+    expect(clientTransport.onmessage).not.toHaveBeenCalled();
+
+    // This one will, triggering the above test in clientTransport.onmessage
+    await server.sendLoggingMessage(warningParams);
+    expect(clientTransport.onmessage).toHaveBeenCalled();
+
+});
+
+test("should respect log level for transport with sessionId", async () => {
+
+    const server = new Server(
+        {
+            name: "test server",
+            version: "1.0",
+        },
+        {
+            capabilities: {
+                prompts: {},
+                resources: {},
+                tools: {},
+                logging: {},
+            },
+            enforceStrictCapabilities: true,
+        },
+    );
+
+    const client = new Client(
+        {
+            name: "test client",
+            version: "1.0",
+        },
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    // Add a session id to the transports
+    const SESSION_ID = "test-session-id";
+    clientTransport.sessionId = SESSION_ID;
+    serverTransport.sessionId = SESSION_ID;
+
+    expect(clientTransport.sessionId).toBeDefined();
+    expect(serverTransport.sessionId).toBeDefined();
+
+    await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+    ]);
+
+
+    // Client sets logging level to warning
+    await client.setLoggingLevel("warning");
+
+    // This one will make it through
+    const warningParams: LoggingMessageNotification["params"] = {
+        level: "warning",
+        logger: "test server",
+        data: "Warning message",
+    };
+
+    // This one will not
+    const debugParams: LoggingMessageNotification["params"] = {
+        level: "debug",
+        logger: "test server",
+        data: "Debug message",
+    };
+
+    // Test the one that makes it through
+    clientTransport.onmessage = jest.fn().mockImplementation((message) => {
+        expect(message).toEqual({
+            jsonrpc: "2.0",
+            method: "notifications/message",
+            params: warningParams
+        });
+    });
+
+    // This one will not make it through
+    await server.sendLoggingMessage(debugParams, SESSION_ID);
+    expect(clientTransport.onmessage).not.toHaveBeenCalled();
+
+    // This one will, triggering the above test in clientTransport.onmessage
+    await server.sendLoggingMessage(warningParams, SESSION_ID);
+    expect(clientTransport.onmessage).toHaveBeenCalled();
+
+});
+

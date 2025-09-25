@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/sdk",
-  "version": "1.16.0",
+  "version": "1.18.1",
   "description": "Model Context Protocol implementation for TypeScript",
   "license": "MIT",
   "author": "Anthropic, PBC (https://anthropic.com)",
@@ -19,6 +19,18 @@
     "mcp"
   ],
   "exports": {
+    ".": {
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    },
+    "./client": {
+      "import": "./dist/esm/client/index.js",
+      "require": "./dist/cjs/client/index.js"
+    },
+    "./server": {
+      "import": "./dist/esm/server/index.js",
+      "require": "./dist/cjs/server/index.js"
+    },
     "./*": {
       "import": "./dist/esm/*",
       "require": "./dist/cjs/*"
