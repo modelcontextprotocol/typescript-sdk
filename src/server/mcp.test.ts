@@ -1434,6 +1434,64 @@ describe("tool()", () => {
   });
 
   /***
+   * Test: Pass Custom Context to Tool Callback
+   */
+  test("should pass customContext to tool callback via RequestHandlerExtra", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    let receivedCustomContext: Record<string, unknown> | undefined;
+    mcpServer.tool("custom-context-test", async (extra) => {
+      receivedCustomContext = extra.customContext;
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Custom context: ${JSON.stringify(extra.customContext)}`,
+          },
+        ],
+      };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    // Use the new setCustomContext method to inject custom context
+    serverTransport.setCustomContext({
+      tenantId: "test-tenant-123",
+      featureFlags: { newFeature: true },
+      customData: "test-value"
+    });
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "custom-context-test",
+        },
+      },
+      CallToolResultSchema,
+    );
+
+    expect(receivedCustomContext).toBeDefined();
+    expect(receivedCustomContext?.tenantId).toBe("test-tenant-123");
+    expect(receivedCustomContext?.featureFlags).toEqual({ newFeature: true });
+    expect(receivedCustomContext?.customData).toBe("test-value");
+    expect(result.content && result.content[0].text).toContain("test-tenant-123");
+  });
+
+  /***
    * Test: Send Notification within Tool Call
    */
   test("should provide sendNotification within tool call", async () => {
