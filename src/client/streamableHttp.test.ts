@@ -526,7 +526,7 @@ describe("StreamableHTTPClientTransport", () => {
     await transport["_startOrAuthSse"]({});
     expect((actualReqInit.headers as Headers).get("x-custom-header")).toBe("CustomValue");
 
-    (requestInit.headers as Headers).set("X-Custom-Header","SecondCustomValue");
+    (requestInit.headers as Headers).set("X-Custom-Header", "SecondCustomValue");
 
     await transport.send({ jsonrpc: "2.0", method: "test", params: {} } as JSONRPCMessage);
     expect((actualReqInit.headers as Headers).get("x-custom-header")).toBe("SecondCustomValue");
@@ -605,7 +605,7 @@ describe("StreamableHTTPClientTransport", () => {
           maxRetries: 1,
           maxReconnectionDelay: 1000,  // Ensure it doesn't retry indefinitely
           reconnectionDelayGrowFactor: 1  // No exponential backoff for simplicity
-         }
+        }
       });
 
       const errorSpy = jest.fn();
@@ -653,7 +653,7 @@ describe("StreamableHTTPClientTransport", () => {
           maxRetries: 1,
           maxReconnectionDelay: 1000,  // Ensure it doesn't retry indefinitely
           reconnectionDelayGrowFactor: 1  // No exponential backoff for simplicity
-         }
+        }
       });
 
       const errorSpy = jest.fn();
@@ -999,6 +999,71 @@ describe("StreamableHTTPClientTransport", () => {
 
       // Global fetch should never have been called
       expect(global.fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("attemptSSE option", () => {
+    it("should not attempt SSE connection when attemptSSE is false", async () => {
+      const transport = new StreamableHTTPClientTransport(
+        new URL("http://localhost:1234/mcp"),
+        { attemptSSE: false }
+      );
+
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "initialize",
+        params: {},
+        id: "test-id"
+      };
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        headers: new Headers(),
+      });
+
+      await transport.send(message);
+
+      // Should only make one POST request, no GET request for SSE
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          method: "POST",
+        })
+      );
+    });
+
+    it("should attempt SSE connection by default when attemptSSE is not specified", async () => {
+      const transport = new StreamableHTTPClientTransport(
+        new URL("http://localhost:1234/mcp")
+      );
+
+      const message: JSONRPCMessage = {
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+        params: {}
+      };
+
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 202,
+          headers: new Headers(),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: new Headers({ "content-type": "text/event-stream" }),
+          body: new ReadableStream(),
+        });
+
+      await transport.send(message);
+
+      // Should make POST request and then GET request for SSE
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(global.fetch).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({ method: "POST" }));
+      expect(global.fetch).toHaveBeenNthCalledWith(2, expect.anything(), expect.objectContaining({ method: "GET" }));
     });
   });
 });
