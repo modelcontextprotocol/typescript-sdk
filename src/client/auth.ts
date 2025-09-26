@@ -13,6 +13,7 @@ import {
 } from "../shared/auth.js";
 import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthProtectedResourceMetadataSchema, OAuthTokensSchema } from "../shared/auth.js";
 import { checkResourceAllowed, resourceUrlFromServerUrl } from "../shared/auth-utils.js";
+import { JWTAssertionGenerator } from "../shared/jwt-utils.js";
 import {
   InvalidClientError,
   InvalidGrantError,
@@ -22,6 +23,12 @@ import {
   UnauthorizedClientError
 } from "../server/auth/errors.js";
 import { FetchLike } from "../shared/transport.js";
+import { JWTClientCredentials, JWTClientCredentialsSchema } from "../shared/auth.js";
+import {
+  InvalidJWTError,
+  UnsupportedJWTAlgorithmError,
+  ExpiredJWTError,
+} from "../server/auth/errors.js";
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
@@ -127,6 +134,14 @@ export interface OAuthClientProvider {
    * This avoids requiring the user to intervene manually.
    */
   invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier'): void | Promise<void>;
+
+  /**
+   * Provides JWT credentials for client authentication.
+   * When provided, enables JWT-based client authentication methods.
+   *
+   * @returns JWT credentials configuration or undefined if JWT authentication is not supported
+   */
+  jwtCredentials?(): JWTClientCredentials | undefined | Promise<JWTClientCredentials | undefined>;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -137,25 +152,36 @@ export class UnauthorizedError extends Error {
   }
 }
 
-type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
+type ClientAuthMethod =
+  | 'client_secret_basic'
+  | 'client_secret_post'
+  | 'client_secret_jwt'
+  | 'private_key_jwt'
+  | 'none';
 
 /**
  * Determines the best client authentication method to use based on server support and client configuration.
  *
  * Priority order (highest to lowest):
- * 1. client_secret_basic (if client secret is available)
- * 2. client_secret_post (if client secret is available)
- * 3. none (for public clients)
+ * 1. private_key_jwt (if private key is available)
+ * 2. client_secret_jwt (if client secret is available)
+ * 3. client_secret_basic (if client secret is available)
+ * 4. client_secret_post (if client secret is available)
+ * 5. none (for public clients)
  *
  * @param clientInformation - OAuth client information containing credentials
  * @param supportedMethods - Authentication methods supported by the authorization server
+ * @param jwtCredentials - Optional JWT credentials for JWT-based authentication
  * @returns The selected authentication method
  */
 function selectClientAuthMethod(
   clientInformation: OAuthClientInformation,
-  supportedMethods: string[]
+  supportedMethods: string[],
+  jwtCredentials?: JWTClientCredentials
 ): ClientAuthMethod {
   const hasClientSecret = clientInformation.client_secret !== undefined;
+  const hasJWTPrivateKey = jwtCredentials?.privateKey !== undefined;
+  const hasJWTClientSecret = jwtCredentials?.clientSecret !== undefined;
 
   // If server doesn't specify supported methods, use RFC 6749 defaults
   if (supportedMethods.length === 0) {
@@ -163,6 +189,14 @@ function selectClientAuthMethod(
   }
 
   // Try methods in priority order (most secure first)
+  if (hasJWTPrivateKey && supportedMethods.includes("private_key_jwt")) {
+    return "private_key_jwt";
+  }
+
+  if ((hasJWTClientSecret || hasClientSecret) && supportedMethods.includes("client_secret_jwt")) {
+    return "client_secret_jwt";
+  }
+
   if (hasClientSecret && supportedMethods.includes("client_secret_basic")) {
     return "client_secret_basic";
   }
@@ -185,20 +219,28 @@ function selectClientAuthMethod(
  * Implements OAuth 2.1 client authentication methods:
  * - client_secret_basic: HTTP Basic authentication (RFC 6749 Section 2.3.1)
  * - client_secret_post: Credentials in request body (RFC 6749 Section 2.3.1)
+ * - client_secret_jwt: JWT assertion with HMAC signature (RFC 7523)
+ * - private_key_jwt: JWT assertion with RSA/ECDSA signature (RFC 7523)
  * - none: Public client authentication (RFC 6749 Section 2.1)
  *
  * @param method - The authentication method to use
  * @param clientInformation - OAuth client information containing credentials
  * @param headers - HTTP headers object to modify
  * @param params - URL search parameters to modify
+ * @param tokenEndpoint - The token endpoint URL for JWT audience
+ * @param jwtCredentials - JWT credentials for JWT-based authentication
+ * @param resource - Optional MCP resource URL for resource binding
  * @throws {Error} When required credentials are missing
  */
-function applyClientAuthentication(
+export async function applyClientAuthentication(
   method: ClientAuthMethod,
   clientInformation: OAuthClientInformation,
   headers: Headers,
-  params: URLSearchParams
-): void {
+  params: URLSearchParams,
+  tokenEndpoint?: string,
+  jwtCredentials?: JWTClientCredentials,
+  resource?: URL
+): Promise<void> {
   const { client_id, client_secret } = clientInformation;
 
   switch (method) {
@@ -207,6 +249,12 @@ function applyClientAuthentication(
       return;
     case "client_secret_post":
       applyPostAuth(client_id, client_secret, params);
+      return;
+    case "client_secret_jwt":
+      await applyJWTAuth(client_id, tokenEndpoint, jwtCredentials, params, 'client_secret', resource);
+      return;
+    case "private_key_jwt":
+      await applyJWTAuth(client_id, tokenEndpoint, jwtCredentials, params, 'private_key', resource);
       return;
     case "none":
       applyPublicAuth(client_id, params);
@@ -246,6 +294,64 @@ function applyPublicAuth(clientId: string, params: URLSearchParams): void {
 }
 
 /**
+ * Applies JWT client assertion authentication (RFC 7523)
+ */
+async function applyJWTAuth(
+  clientId: string,
+  tokenEndpoint: string | undefined,
+  jwtCredentials: JWTClientCredentials | undefined,
+  params: URLSearchParams,
+  keyType: 'client_secret' | 'private_key',
+  resource?: URL
+): Promise<void> {
+  if (!tokenEndpoint) {
+    throw new Error("JWT client authentication requires a token endpoint URL");
+  }
+
+  if (!jwtCredentials) {
+    throw new Error("JWT client authentication requires JWT credentials");
+  }
+
+  // Validate that we have the right type of credentials
+  if (keyType === 'client_secret' && !jwtCredentials.clientSecret) {
+    throw new Error("client_secret_jwt authentication requires a client secret in JWT credentials");
+  }
+
+  if (keyType === 'private_key' && !jwtCredentials.privateKey) {
+    throw new Error("private_key_jwt authentication requires a private key in JWT credentials");
+  }
+
+  // Validate JWT credentials using schema
+  try {
+    JWTClientCredentialsSchema.parse(jwtCredentials);
+  } catch (error) {
+    throw new Error(`Invalid JWT credentials: ${error instanceof Error ? error.message : 'Unknown validation error'}`);
+  }
+
+  try {
+    const assertion = await JWTAssertionGenerator.generateClientAssertion(
+      clientId,
+      tokenEndpoint,
+      jwtCredentials,
+      resource
+    );
+
+    params.set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer");
+    params.set("client_assertion", assertion);
+  } catch (error) {
+    // Re-throw JWT-specific errors as-is
+    if (error instanceof InvalidJWTError ||
+      error instanceof UnsupportedJWTAlgorithmError ||
+      error instanceof ExpiredJWTError) {
+      throw error;
+    }
+
+    // Wrap other errors with context
+    throw new Error(`Failed to generate JWT client assertion: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
  * Parses an OAuth error response from a string or Response object.
  *
  * If the input is a standard OAuth2.0 error response, it will be parsed according to the spec
@@ -264,7 +370,12 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
     const result = OAuthErrorResponseSchema.parse(JSON.parse(body));
     const { error, error_description, error_uri } = result;
     const errorClass = OAUTH_ERRORS[error] || ServerError;
-    return new errorClass(error_description || '', error_uri);
+
+    const errorInstance = new (errorClass as new (message: string, errorUri?: string) => OAuthError)(
+      error_description || '',
+      error_uri
+    );
+    return errorInstance;
   } catch (error) {
     // Not a valid OAuth error response, but try to inform the user of the raw data anyway
     const errorMessage = `${statusCode ? `HTTP ${statusCode}: ` : ''}Invalid OAuth error response: ${error}. Raw body: ${body}`;
@@ -275,6 +386,10 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
 /**
  * Orchestrates the full auth flow with a server.
  *
+ * Supports both Authorization Code Grant and JWT Bearer Grant flows:
+ * - Authorization Code Grant: Provide authorizationCode
+ * - JWT Bearer Grant: Provide jwtBearerAssertion
+ *
  * This can be used as a single entry point for all authorization functionality,
  * instead of linking together the other lower-level functions in this module.
  */
@@ -283,10 +398,11 @@ export async function auth(
   options: {
     serverUrl: string | URL;
     authorizationCode?: string;
+    jwtBearerAssertion?: string;
     scope?: string;
     resourceMetadataUrl?: URL;
     fetchFn?: FetchLike;
-}): Promise<AuthResult> {
+  }): Promise<AuthResult> {
   try {
     return await authInternal(provider, options);
   } catch (error) {
@@ -308,17 +424,23 @@ async function authInternal(
   provider: OAuthClientProvider,
   { serverUrl,
     authorizationCode,
+    jwtBearerAssertion,
     scope,
     resourceMetadataUrl,
     fetchFn,
   }: {
     serverUrl: string | URL;
     authorizationCode?: string;
+    jwtBearerAssertion?: string;
     scope?: string;
     resourceMetadataUrl?: URL;
     fetchFn?: FetchLike;
   },
 ): Promise<AuthResult> {
+
+  if (authorizationCode && jwtBearerAssertion) {
+    throw new Error("Cannot use both authorizationCode and jwtBearerAssertion");
+  }
 
   let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
   let authorizationServerUrl: string | URL | undefined;
@@ -348,8 +470,8 @@ async function authInternal(
   // Handle client registration if needed
   let clientInformation = await Promise.resolve(provider.clientInformation());
   if (!clientInformation) {
-    if (authorizationCode !== undefined) {
-      throw new Error("Existing OAuth client information is required when exchanging an authorization code");
+    if (authorizationCode !== undefined || jwtBearerAssertion !== undefined) {
+      throw new Error("Existing OAuth client information is required when exchanging credentials");
     }
 
     if (!provider.saveClientInformation) {
@@ -366,7 +488,36 @@ async function authInternal(
     clientInformation = fullInformation;
   }
 
-  // Exchange authorization code for tokens
+  if (jwtBearerAssertion !== undefined || provider.jwtCredentials) {
+    const jwtCredentials = provider.jwtCredentials ? await provider.jwtCredentials() : undefined;
+
+    // Use provided assertion or generate one from credentials
+    const assertion = jwtBearerAssertion ||
+      (jwtCredentials ? await JWTAssertionGenerator.generateBearerAssertion(
+        clientInformation.client_id,
+        clientInformation.client_id,
+        authorizationServerUrl.toString(),
+        jwtCredentials,
+        resource
+      ) : undefined);
+
+    if (assertion) {
+      const tokens = await exchangeAuthorization(authorizationServerUrl, {
+        metadata,
+        clientInformation,
+        jwtBearerAssertion: assertion,
+        scope,
+        resource,
+        addClientAuthentication: provider.addClientAuthentication,
+        jwtCredentials,
+        fetchFn: fetchFn,
+      });
+
+      await provider.saveTokens(tokens);
+      return "AUTHORIZED";
+    }
+  }
+
   if (authorizationCode !== undefined) {
     const codeVerifier = await provider.codeVerifier();
     const tokens = await exchangeAuthorization(authorizationServerUrl, {
@@ -381,7 +532,7 @@ async function authInternal(
     });
 
     await provider.saveTokens(tokens);
-    return "AUTHORIZED"
+    return "AUTHORIZED";
   }
 
   const tokens = await provider.tokens();
@@ -390,17 +541,19 @@ async function authInternal(
   if (tokens?.refresh_token) {
     try {
       // Attempt to refresh the token
+      const jwtCredentials = provider.jwtCredentials ? await provider.jwtCredentials() : undefined;
       const newTokens = await refreshAuthorization(authorizationServerUrl, {
         metadata,
         clientInformation,
         refreshToken: tokens.refresh_token,
         resource,
         addClientAuthentication: provider.addClientAuthentication,
+        jwtCredentials,
         fetchFn,
       });
 
       await provider.saveTokens(newTokens);
-      return "AUTHORIZED"
+      return "AUTHORIZED";
     } catch (error) {
       // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
       if (!(error instanceof OAuthError) || error instanceof ServerError) {
@@ -426,7 +579,7 @@ async function authInternal(
 
   await provider.saveCodeVerifier(codeVerifier);
   await provider.redirectToAuthorization(authorizationUrl);
-  return "REDIRECT"
+  return "REDIRECT";
 }
 
 export async function selectResourceURL(serverUrl: string | URL, provider: OAuthClientProvider, resourceMetadata?: OAuthProtectedResourceMetadata): Promise<URL | undefined> {
@@ -635,7 +788,7 @@ export async function discoverOAuthMetadata(
   if (typeof authorizationServerUrl === 'string') {
     authorizationServerUrl = new URL(authorizationServerUrl);
   }
-  protocolVersion ??= LATEST_PROTOCOL_VERSION ;
+  protocolVersion ??= LATEST_PROTOCOL_VERSION;
 
   const response = await discoverMetadataWithFallback(
     authorizationServerUrl,
@@ -878,14 +1031,18 @@ export async function startAuthorization(
 }
 
 /**
- * Exchanges an authorization code for an access token with the given server.
+ * Exchanges authorization credentials for an access token with the given server.
+ *
+ * This function supports two OAuth grant types:
+ * 1. Authorization Code Grant (RFC 6749 Section 4.1) - when authorizationCode is provided
+ * 2. JWT Bearer Grant (RFC 7523 Section 2.1) - when jwtBearerAssertion is provided
  *
  * Supports multiple client authentication methods as specified in OAuth 2.1:
  * - Automatically selects the best authentication method based on server support
  * - Falls back to appropriate defaults when server metadata is unavailable
  *
  * @param authorizationServerUrl - The authorization server's base URL
- * @param options - Configuration object containing client info, auth code, etc.
+ * @param options - Configuration object containing grant-specific parameters
  * @returns Promise resolving to OAuth tokens
  * @throws {Error} When token exchange fails or authentication is invalid
  */
@@ -899,30 +1056,46 @@ export async function exchangeAuthorization(
     redirectUri,
     resource,
     addClientAuthentication,
+    jwtCredentials,
+    jwtBearerAssertion,
+    scope,
     fetchFn,
   }: {
     metadata?: AuthorizationServerMetadata;
     clientInformation: OAuthClientInformation;
-    authorizationCode: string;
-    codeVerifier: string;
-    redirectUri: string | URL;
+    authorizationCode?: string;
+    codeVerifier?: string;
+    redirectUri?: string | URL;
     resource?: URL;
     addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
+    jwtCredentials?: JWTClientCredentials;
+    jwtBearerAssertion?: string;
+    scope?: string;
     fetchFn?: FetchLike;
   },
 ): Promise<OAuthTokens> {
-  const grantType = "authorization_code";
+  if (jwtBearerAssertion && (authorizationCode || codeVerifier || redirectUri)) {
+    throw new Error("JWT Bearer Grant cannot be used with authorization code parameters");
+  }
+  // Get grant type based on provided options
+  const grantType =
+    // RFC 7523 Section 2.1: JWT Bearer Grant
+    jwtBearerAssertion ? "urn:ietf:params:oauth:grant-type:jwt-bearer" :
+      // RFC 6749 Section 4.1: Authorization Code Grant
+      authorizationCode && codeVerifier && redirectUri ? "authorization_code" :
+        // No set of required options were fulfilled
+        (() => { throw new Error("Missing required components to exchange for token"); })();
 
   const tokenUrl = metadata?.token_endpoint
-      ? new URL(metadata.token_endpoint)
-      : new URL("/token", authorizationServerUrl);
+    ? new URL(metadata.token_endpoint)
+    : new URL("/token", authorizationServerUrl);
 
   if (
-      metadata?.grant_types_supported &&
-      !metadata.grant_types_supported.includes(grantType)
+    metadata?.grant_types_supported &&
+    !metadata.grant_types_supported.includes(grantType)
   ) {
     throw new Error(
-        `Incompatible auth server: does not support grant type ${grantType}`,
+      `Incompatible auth server: does not support grant type ${grantType}`,
     );
   }
 
@@ -933,23 +1106,39 @@ export async function exchangeAuthorization(
   });
   const params = new URLSearchParams({
     grant_type: grantType,
-    code: authorizationCode,
-    code_verifier: codeVerifier,
-    redirect_uri: String(redirectUri),
+    ...(resource && { resource: resource.href })
   });
 
-  if (addClientAuthentication) {
-    addClientAuthentication(headers, params, authorizationServerUrl, metadata);
+  // Add grant-specific parameters
+  if (jwtBearerAssertion) {
+    // RFC 7523 Section 2.1: JWT Bearer Grant
+    params.set("assertion", jwtBearerAssertion);
+    if (scope) {
+      params.set("scope", scope);
+    }
   } else {
-    // Determine and apply client authentication method
-    const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
-    const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
-
-    applyClientAuthentication(authMethod, clientInformation, headers, params);
+    // RFC 6749 Section 4.1: Authorization Code Grant
+    params.set("code", authorizationCode!);
+    params.set("code_verifier", codeVerifier!);
+    params.set("redirect_uri", String(redirectUri!));
   }
 
-  if (resource) {
-    params.set("resource", resource.href);
+  if (addClientAuthentication) {
+    await addClientAuthentication(headers, params, authorizationServerUrl, metadata);
+  } else if (!jwtBearerAssertion) {
+    // Determine and apply client authentication method
+    const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
+    const authMethod = selectClientAuthMethod(clientInformation, supportedMethods, jwtCredentials);
+
+    await applyClientAuthentication(
+      authMethod,
+      clientInformation,
+      headers,
+      params,
+      tokenUrl.href,
+      jwtCredentials,
+      resource
+    );
   }
 
   const response = await (fetchFn ?? fetch)(tokenUrl, {
@@ -985,6 +1174,7 @@ export async function refreshAuthorization(
     refreshToken,
     resource,
     addClientAuthentication,
+    jwtCredentials,
     fetchFn,
   }: {
     metadata?: AuthorizationServerMetadata;
@@ -992,6 +1182,7 @@ export async function refreshAuthorization(
     refreshToken: string;
     resource?: URL;
     addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
+    jwtCredentials?: JWTClientCredentials;
     fetchFn?: FetchLike;
   }
 ): Promise<OAuthTokens> {
@@ -1023,13 +1214,21 @@ export async function refreshAuthorization(
   });
 
   if (addClientAuthentication) {
-    addClientAuthentication(headers, params, authorizationServerUrl, metadata);
+    await addClientAuthentication(headers, params, authorizationServerUrl, metadata);
   } else {
     // Determine and apply client authentication method
     const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
-    const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
+    const selectedMethod = selectClientAuthMethod(clientInformation, supportedMethods, jwtCredentials);
 
-    applyClientAuthentication(authMethod, clientInformation, headers, params);
+    await applyClientAuthentication(
+      selectedMethod,
+      clientInformation,
+      headers,
+      params,
+      tokenUrl.href,
+      jwtCredentials,
+      resource
+    );
   }
 
   if (resource) {
