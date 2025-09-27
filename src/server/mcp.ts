@@ -729,13 +729,11 @@ export class McpServer {
     this._registeredResourceTemplates[name] = registeredResourceTemplate;
 
     // If the resource template has any completion callbacks, enable completions capability
-    try {
-      const variableNames = template.uriTemplate.variableNames;
-      const hasCompleter = Array.isArray(variableNames) && variableNames.some((v) => !!template.completeCallback(v));
-      if (hasCompleter) {
-          this.setCompletionRequestHandler();
-      }
-    } catch { /* empty */ }
+    const variableNames = template.uriTemplate.variableNames;
+    const hasCompleter = Array.isArray(variableNames) && variableNames.some((v) => !!template.completeCallback(v));
+    if (hasCompleter) {
+      this.setCompletionRequestHandler();
+    }
 
     return registeredResourceTemplate;
   }
