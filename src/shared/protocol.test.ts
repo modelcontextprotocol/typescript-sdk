@@ -1,4 +1,4 @@
-import { ZodType, z } from "zod";
+import { ZodType, z } from "zod/v4";
 import {
   ClientCapabilities,
   ErrorCode,
