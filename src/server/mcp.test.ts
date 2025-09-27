@@ -2480,9 +2480,9 @@ describe("resource()", () => {
   });
 
 
-/***
- * Test: Registering a resource template with a complete callback should update server capabilities to advertise support for completion
- */
+ /***
+  * Test: Registering a resource template with a complete callback should update server capabilities to advertise support for completion
+  */
   test("should not advertise support for completion when a resource template without a complete callback is defined", async () => {
     const mcpServer = new McpServer({
         name: "test server",
@@ -3482,9 +3482,9 @@ describe("prompt()", () => {
   })
 
 
-   /***
-    * Test: Registering a prompt with a completable argument should update server capabilities to advertise support for completion
-    */
+  /***
+   * Test: Registering a prompt with a completable argument should update server capabilities to advertise support for completion
+   */
   test("should not advertise support for completion when a prompt without a completable argument is defined", async () => {
     const mcpServer = new McpServer({
       name: "test server",
