@@ -1008,4 +1008,69 @@ describe('StreamableHTTPClientTransport', () => {
             expect(global.fetch).not.toHaveBeenCalled();
         });
     });
+
+    describe('prevent infinite recursion when server returns 401 after successful auth', () => {
+        it('should throw error when server returns 401 after successful auth', async () => {
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'test',
+                params: {},
+                id: 'test-id'
+            };
+
+            // Mock provider with refresh token to enable token refresh flow
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'test-token',
+                token_type: 'Bearer',
+                refresh_token: 'refresh-token'
+            });
+
+            const unauthedResponse = {
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers()
+            };
+
+            (global.fetch as jest.Mock)
+                // First request - 401, triggers auth flow
+                .mockResolvedValueOnce(unauthedResponse)
+                // Resource discovery, path aware
+                .mockResolvedValueOnce(unauthedResponse)
+                // Resource discovery, root
+                .mockResolvedValueOnce(unauthedResponse)
+                // OAuth metadata discovery
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        issuer: 'http://localhost:1234',
+                        authorization_endpoint: 'http://localhost:1234/authorize',
+                        token_endpoint: 'http://localhost:1234/token',
+                        response_types_supported: ['code'],
+                        code_challenge_methods_supported: ['S256']
+                    })
+                })
+                // Token refresh succeeds
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        access_token: 'new-access-token',
+                        token_type: 'Bearer',
+                        expires_in: 3600
+                    })
+                })
+                // Retry the original request - still 401 (broken server)
+                .mockResolvedValueOnce(unauthedResponse);
+
+            await expect(transport.send(message)).rejects.toThrow('Server returned 401 after successful authentication');
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
+                access_token: 'new-access-token',
+                token_type: 'Bearer',
+                expires_in: 3600,
+                refresh_token: 'refresh-token' // Refresh token is preserved
+            });
+        });
+    });
 });

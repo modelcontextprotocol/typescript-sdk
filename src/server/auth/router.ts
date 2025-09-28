@@ -40,6 +40,12 @@ export type AuthRouterOptions = {
      */
     resourceName?: string;
 
+    /**
+     * The URL of the protected resource (RS) whose metadata we advertise.
+     * If not provided, falls back to `baseUrl` and then to `issuerUrl` (AS=RS).
+     */
+    resourceServerUrl?: URL;
+
     // Individual options per route
     authorizationOptions?: Omit<AuthorizationHandlerOptions, 'provider'>;
     clientRegistrationOptions?: Omit<ClientRegistrationHandlerOptions, 'clientsStore'>;
@@ -127,8 +133,8 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
     router.use(
         mcpAuthMetadataRouter({
             oauthMetadata,
-            // This router is used for AS+RS combo's, so the issuer is also the resource server
-            resourceServerUrl: new URL(oauthMetadata.issuer),
+            // Prefer explicit RS; otherwise fall back to AS baseUrl, then to issuer (back-compat)
+            resourceServerUrl: options.resourceServerUrl ?? options.baseUrl ?? new URL(oauthMetadata.issuer),
             serviceDocumentationUrl: options.serviceDocumentationUrl,
             scopesSupported: options.scopesSupported,
             resourceName: options.resourceName
@@ -183,7 +189,7 @@ export type AuthMetadataOptions = {
     resourceName?: string;
 };
 
-export function mcpAuthMetadataRouter(options: AuthMetadataOptions) {
+export function mcpAuthMetadataRouter(options: AuthMetadataOptions): express.Router {
     checkIssuerUrl(new URL(options.oauthMetadata.issuer));
 
     const router = express.Router();
@@ -198,9 +204,11 @@ export function mcpAuthMetadataRouter(options: AuthMetadataOptions) {
         resource_documentation: options.serviceDocumentationUrl?.href
     };
 
-    router.use('/.well-known/oauth-protected-resource', metadataHandler(protectedResourceMetadata));
+    // Serve PRM at the path-specific URL per RFC 9728
+    const rsPath = new URL(options.resourceServerUrl.href).pathname;
+    router.use(`/.well-known/oauth-protected-resource${rsPath === '/' ? '' : rsPath}`, metadataHandler(protectedResourceMetadata));
 
-    // Always add this for backwards compatibility
+    // Always add this for OAuth Authorization Server metadata per RFC 8414
     router.use('/.well-known/oauth-authorization-server', metadataHandler(options.oauthMetadata));
 
     return router;
@@ -215,8 +223,10 @@ export function mcpAuthMetadataRouter(options: AuthMetadataOptions) {
  *
  * @example
  * getOAuthProtectedResourceMetadataUrl(new URL('https://api.example.com/mcp'))
- * // Returns: 'https://api.example.com/.well-known/oauth-protected-resource'
+ * // Returns: 'https://api.example.com/.well-known/oauth-protected-resource/mcp'
  */
 export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): string {
-    return new URL('/.well-known/oauth-protected-resource', serverUrl).href;
+    const u = new URL(serverUrl.href);
+    const rsPath = u.pathname && u.pathname !== '/' ? u.pathname : '';
+    return new URL(`/.well-known/oauth-protected-resource${rsPath}`, u).href;
 }

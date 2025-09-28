@@ -131,6 +131,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _sessionId?: string;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
+    private _hasCompletedAuthFlow = false; // Circuit breaker: detect auth success followed by immediate 401
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -431,6 +432,11 @@ export class StreamableHTTPClientTransport implements Transport {
 
             if (!response.ok) {
                 if (response.status === 401 && this._authProvider) {
+                    // Prevent infinite recursion when server returns 401 after successful auth
+                    if (this._hasCompletedAuthFlow) {
+                        throw new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
+                    }
+
                     this._resourceMetadataUrl = extractResourceMetadataUrl(response);
 
                     const result = await auth(this._authProvider, {
@@ -442,6 +448,8 @@ export class StreamableHTTPClientTransport implements Transport {
                         throw new UnauthorizedError();
                     }
 
+                    // Mark that we completed auth flow
+                    this._hasCompletedAuthFlow = true;
                     // Purposely _not_ awaited, so we don't call onerror twice
                     return this.send(message);
                 }
@@ -449,6 +457,9 @@ export class StreamableHTTPClientTransport implements Transport {
                 const text = await response.text().catch(() => null);
                 throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
             }
+
+            // Reset auth loop flag on successful response
+            this._hasCompletedAuthFlow = false;
 
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {
