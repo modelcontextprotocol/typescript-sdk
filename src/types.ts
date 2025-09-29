@@ -216,7 +216,7 @@ export const IconSchema = z
     /**
      * Optional string specifying icon dimensions (e.g., "48x48 96x96").
      */
-    sizes: z.optional(z.string()),
+    sizes: z.optional(z.array(z.string())),
   })
   .passthrough();
 
@@ -543,16 +543,11 @@ export const ResourceSchema = BaseMetadataSchema.extend({
   mimeType: z.optional(z.string()),
 
   /**
-   * An optional list of icons for this resource.
-   */
-  icons: z.optional(z.array(IconSchema)),
-
-  /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
   _meta: z.optional(z.object({}).passthrough()),
-});
+}).merge(IconsSchema);
 
 /**
  * A template description for resources available on the server.
@@ -714,15 +709,11 @@ export const PromptSchema = BaseMetadataSchema.extend({
    */
   arguments: z.optional(z.array(PromptArgumentSchema)),
   /**
-   * An optional list of icons for this prompt.
-   */
-  icons: z.optional(z.array(IconSchema)),
-  /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
   _meta: z.optional(z.object({}).passthrough()),
-});
+}).merge(IconsSchema);
 
 /**
  * Sent from the client to request a list of prompts and prompt templates the server has.
@@ -976,16 +967,11 @@ export const ToolSchema = BaseMetadataSchema.extend({
   annotations: z.optional(ToolAnnotationsSchema),
 
   /**
-   * An optional list of icons for this tool.
-   */
-  icons: z.optional(z.array(IconSchema)),
-
-  /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
   _meta: z.optional(z.object({}).passthrough()),
-});
+}).merge(IconsSchema);
 
 /**
  * Sent from the client to request a list of tools the server has.
