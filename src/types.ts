@@ -214,9 +214,9 @@ export const IconSchema = z
      */
     mimeType: z.optional(z.string()),
     /**
-     * Optional string specifying icon dimensions (e.g., "48x48 96x96").
+     * Optional array of strings specifying icon dimensions (e.g., ["48x48", "96x96"]).
      */
-    sizes: z.optional(z.string()),
+    sizes: z.optional(z.array(z.string())),
   })
   .passthrough();
 
