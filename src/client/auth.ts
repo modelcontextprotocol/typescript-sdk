@@ -2,7 +2,6 @@ import pkceChallenge from "pkce-challenge";
 import { LATEST_PROTOCOL_VERSION } from "../types.js";
 import {
   OAuthClientMetadata,
-  OAuthClientInformation,
   OAuthTokens,
   OAuthMetadata,
   OAuthClientInformationFull,
@@ -51,7 +50,7 @@ export interface OAuthClientProvider {
    * server, or returns `undefined` if the client is not registered with the
    * server.
    */
-  clientInformation(): OAuthClientInformation | undefined | Promise<OAuthClientInformation | undefined>;
+  clientInformation(): OAuthClientInformationFull | undefined | Promise<OAuthClientInformationFull | undefined>;
 
   /**
    * If implemented, this permits the OAuth client to dynamically register with
@@ -139,6 +138,10 @@ export class UnauthorizedError extends Error {
 
 type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
 
+function isClientAuthMethod(method: string): method is ClientAuthMethod {
+  return ["client_secret_basic", "client_secret_post", "none"].includes(method);
+}
+
 /**
  * Determines the best client authentication method to use based on server support and client configuration.
  *
@@ -152,7 +155,7 @@ type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
  * @returns The selected authentication method
  */
 function selectClientAuthMethod(
-  clientInformation: OAuthClientInformation,
+  clientInformation: OAuthClientInformationFull,
   supportedMethods: string[]
 ): ClientAuthMethod {
   const hasClientSecret = clientInformation.client_secret !== undefined;
@@ -160,6 +163,15 @@ function selectClientAuthMethod(
   // If server doesn't specify supported methods, use RFC 6749 defaults
   if (supportedMethods.length === 0) {
     return hasClientSecret ? "client_secret_post" : "none";
+  }
+
+  // Prefer the method returned by the server during client registration if valid and supported
+  if (
+    clientInformation.token_endpoint_auth_method &&
+    isClientAuthMethod(clientInformation.token_endpoint_auth_method) &&
+    supportedMethods.includes(clientInformation.token_endpoint_auth_method)
+  ) {
+    return clientInformation.token_endpoint_auth_method;
   }
 
   // Try methods in priority order (most secure first)
@@ -195,7 +207,7 @@ function selectClientAuthMethod(
  */
 function applyClientAuthentication(
   method: ClientAuthMethod,
-  clientInformation: OAuthClientInformation,
+  clientInformation: OAuthClientInformationFull,
   headers: Headers,
   params: URLSearchParams
 ): void {
@@ -809,7 +821,7 @@ export async function startAuthorization(
     resource,
   }: {
     metadata?: AuthorizationServerMetadata;
-    clientInformation: OAuthClientInformation;
+    clientInformation: OAuthClientInformationFull;
     redirectUrl: string | URL;
     scope?: string;
     state?: string;
@@ -902,7 +914,7 @@ export async function exchangeAuthorization(
     fetchFn,
   }: {
     metadata?: AuthorizationServerMetadata;
-    clientInformation: OAuthClientInformation;
+    clientInformation: OAuthClientInformationFull;
     authorizationCode: string;
     codeVerifier: string;
     redirectUri: string | URL;
@@ -988,7 +1000,7 @@ export async function refreshAuthorization(
     fetchFn,
   }: {
     metadata?: AuthorizationServerMetadata;
-    clientInformation: OAuthClientInformation;
+    clientInformation: OAuthClientInformationFull;
     refreshToken: string;
     resource?: URL;
     addClientAuthentication?: OAuthClientProvider["addClientAuthentication"];
