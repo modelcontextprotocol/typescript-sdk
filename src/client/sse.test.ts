@@ -295,15 +295,34 @@ describe("SSEClientTransport", () => {
       expect(lastServerRequest.headers.authorization).toBe(authToken);
     });
 
-    it("passes custom headers to fetch requests", async () => {
-      const customHeaders = {
-        Authorization: "Bearer test-token",
-        "X-Custom-Header": "custom-value",
-      };
-
+    it.each([
+      {
+        description: "plain object headers",
+        headers: {
+          Authorization: "Bearer test-token",
+          "X-Custom-Header": "custom-value",
+        },
+      },
+      {
+        description: "Headers object",
+        headers: ((): HeadersInit => {
+          const h = new Headers();
+          h.set("Authorization", "Bearer test-token");
+          h.set("X-Custom-Header", "custom-value");
+          return h;
+        })(),
+      },
+      {
+        description: "array of tuples",
+        headers: ((): HeadersInit => ([
+          ["Authorization", "Bearer test-token"],
+          ["X-Custom-Header", "custom-value"],
+        ]))(),
+      },
+    ])("passes custom headers to fetch requests ($description)", async ({ headers }) => {
       transport = new SSEClientTransport(resourceBaseUrl, {
         requestInit: {
-          headers: customHeaders,
+          headers,
         },
       });
 
@@ -337,12 +356,8 @@ describe("SSEClientTransport", () => {
 
         const calledHeaders = (global.fetch as jest.Mock).mock.calls[0][1]
           .headers;
-        expect(calledHeaders.get("Authorization")).toBe(
-          customHeaders.Authorization,
-        );
-        expect(calledHeaders.get("X-Custom-Header")).toBe(
-          customHeaders["X-Custom-Header"],
-        );
+        expect(calledHeaders.get("Authorization")).toBe("Bearer test-token");
+        expect(calledHeaders.get("X-Custom-Header")).toBe("custom-value");
         expect(calledHeaders.get("content-type")).toBe("application/json");
       } finally {
         // Restore original fetch
