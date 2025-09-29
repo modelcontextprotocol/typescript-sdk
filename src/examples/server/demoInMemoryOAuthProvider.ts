@@ -6,6 +6,7 @@ import express, { Request, Response } from "express";
 import { AuthInfo } from '../../server/auth/types.js';
 import { createOAuthMetadata, mcpAuthRouter } from '../../server/auth/router.js';
 import { resourceUrlFromServerUrl } from '../../shared/auth-utils.js';
+import { InvalidRequestError } from '../../server/auth/errors.js';
 
 
 export class DemoInMemoryClientsStore implements OAuthRegisteredClientsStore {
@@ -57,7 +58,10 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
       params
     });
 
-    const targetUrl = new URL(client.redirect_uris[0]);
+    if (!client.redirect_uris.includes(params.redirectUri)) {
+      throw new InvalidRequestError("Unregistered redirect_uri");
+    }
+    const targetUrl = new URL(params.redirectUri);
     targetUrl.search = searchParams.toString();
     res.redirect(targetUrl.toString());
   }
