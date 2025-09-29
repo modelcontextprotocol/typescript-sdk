@@ -4,7 +4,7 @@ import { SSEServerTransport } from './sse.js';
 import { McpServer } from './mcp.js';
 import { createServer, type Server } from "node:http";
 import { AddressInfo } from "node:net";
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { CallToolResult, JSONRPCMessage } from 'src/types.js';
 
 const createMockResponse = () => {
