@@ -1,6 +1,7 @@
 # MCP TypeScript SDK ![NPM Version](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fsdk) ![MIT licensed](https://img.shields.io/npm/l/%40modelcontextprotocol%2Fsdk)
 
-## Table of Contents
+<details>
+<summary>Table of Contents</summary>
 
 - [Overview](#overview)
 - [Installation](#installation)
@@ -30,14 +31,15 @@
 - [Contributing](#contributing)
 - [License](#license)
 
+</details>
+
 ## Overview
 
-The Model Context Protocol allows applications to provide context for LLMs in a standardized way, separating the concerns of providing context from the actual LLM interaction. This TypeScript SDK implements the full MCP specification, making it easy to:
+The Model Context Protocol allows applications to provide context for LLMs in a standardized way, separating the concerns of providing context from the actual LLM interaction. This TypeScript SDK implements [the full MCP specification](https://modelcontextprotocol.io/specification/latest), making it easy to:
 
-- Build MCP clients that can connect to any MCP server
 - Create MCP servers that expose resources, prompts and tools
+- Build MCP clients that can connect to any MCP server
 - Use standard transports like stdio and Streamable HTTP
-- Handle all MCP protocol messages and lifecycle events
 
 ## Installation
 
@@ -45,15 +47,14 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 npm install @modelcontextprotocol/sdk
 ```
 
-> ⚠️ MCP requires Node.js v18.x or higher to work fine.
-
 ## Quick Start
 
-Let's create a simple MCP server that exposes a calculator tool and some data:
+Let's create a simple MCP server that exposes a calculator tool and some data. Save the following as `server.mjs`:
 
-```typescript
+```javascript
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import express from "express";
 import { z } from "zod";
 
 // Create an MCP server
@@ -67,18 +68,23 @@ server.registerTool("add",
   {
     title: "Addition Tool",
     description: "Add two numbers",
-    inputSchema: { a: z.number(), b: z.number() }
+    inputSchema: { a: z.number(), b: z.number() },
+    outputSchema: { result: z.number() }
   },
-  async ({ a, b }) => ({
-    content: [{ type: "text", text: String(a + b) }]
-  })
+  async ({ a, b }) => {
+    const output = { result: a + b };
+    return {
+      content: [{ type: "text", text: JSON.stringify(output) }],
+      structuredContent: output
+    };
+  }
 );
 
 // Add a dynamic greeting resource
 server.registerResource(
   "greeting",
   new ResourceTemplate("greeting://{name}", { list: undefined }),
-  { 
+  {
     title: "Greeting Resource",      // Display name for UI
     description: "Dynamic greeting generator"
   },
@@ -90,19 +96,41 @@ server.registerResource(
   })
 );
 
-// Start receiving messages on stdin and sending messages on stdout
-const transport = new StdioServerTransport();
-await server.connect(transport);
+// Set up Express and HTTP transport
+const app = express();
+app.use(express.json());
+
+app.post("/mcp", async (req, res) => {
+  // Create a new transport for each request to prevent request ID collisions
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+    enableJsonResponse: true,
+  });
+
+  res.on('close', () => {
+    transport.close();
+  });
+
+  await server.connect(transport);
+  await transport.handleRequest(req, res, req.body);
+});
+
+const port = parseInt(process.env.PORT || "3000");
+app.listen(port, () => {
+  console.log(`Demo MCP Server running on http://localhost:${port}/mcp`);
+}).on("error", (error) => {
+  console.error("Server error:", error);
+  process.exit(1);
+});
 ```
 
-## What is MCP?
+Now run the server with `node server.mjs`. You can connect to it using any MCP client that supports streamable http, such as:
+- [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector): `npx npx @modelcontextprotocol/inspector` and connect to the streamable HTTP URL `http://localhost:3000/mcp`
+- [Claude Code](https://docs.claude.com/en/docs/claude-code/mcp): `claude mcp add --transport http my-server http://localhost:3000/mcp`
+- [VS Code](https://code.visualstudio.com/docs/copilot/customization/mcp-servers): `code --add-mcp "{\"name\":\"my-server\",\"type\":\"http\",\"url\":\"http://localhost:3000/mcp\"}"`
+- [Cursor](https://cursor.com/docs/context/mcp): Click [this deeplink](cursor://anysphere.cursor-deeplink/mcp/install?name=my-server&config=eyJ1cmwiOiJodHRwOi8vbG9jYWxob3N0OjMwMDAvbWNwIn0%3D)
 
-The [Model Context Protocol (MCP)](https://modelcontextprotocol.io) lets you build servers that expose data and functionality to LLM applications in a secure, standardized way. Think of it like a web API, but specifically designed for LLM interactions. MCP servers can:
-
-- Expose data through **Resources** (think of these sort of like GET endpoints; they are used to load information into the LLM's context)
-- Provide functionality through **Tools** (sort of like POST endpoints; they are used to execute code or otherwise produce a side effect)
-- Define interaction patterns through **Prompts** (reusable templates for LLM interactions)
-- And more!
+Then try asking your agent to add two numbers using its new tool!
 
 ## Core Concepts
 
@@ -117,9 +145,92 @@ const server = new McpServer({
 });
 ```
 
+### Tools
+
+[Tools](https://modelcontextprotocol.io/specification/latest/server/tools) let LLMs take actions through your server. Tools can perform computation, fetch data and have side effects. Tools should be designed to be model-controlled - i.e. AI models will decide which tools to call, and the arguments.
+
+```typescript
+// Simple tool with parameters
+server.registerTool(
+  "calculate-bmi",
+  {
+    title: "BMI Calculator",
+    description: "Calculate Body Mass Index",
+    inputSchema: {
+      weightKg: z.number(),
+      heightM: z.number()
+    },
+    outputSchema: { bmi: z.number() }
+  },
+  async ({ weightKg, heightM }) => {
+    const output = { bmi: weightKg / (heightM * heightM) };
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(output)
+      }],
+      structuredContent: output
+    };
+  }
+);
+
+// Async tool with external API call
+server.registerTool(
+  "fetch-weather",
+  {
+    title: "Weather Fetcher",
+    description: "Get weather data for a city",
+    inputSchema: { city: z.string() }
+  },
+  async ({ city }) => {
+    const response = await fetch(`https://api.weather.com/${city}`);
+    const data = await response.text();
+    return {
+      content: [{ type: "text", text: data }]
+    };
+  }
+);
+
+// Tool that returns ResourceLinks
+server.registerTool(
+  "list-files",
+  {
+    title: "List Files",
+    description: "List project files",
+    inputSchema: { pattern: z.string() }
+  },
+  async ({ pattern }) => ({
+    content: [
+      { type: "text", text: `Found files matching "${pattern}":` },
+      // ResourceLinks let tools return references without file content
+      {
+        type: "resource_link",
+        uri: "file:///project/README.md",
+        name: "README.md",
+        mimeType: "text/markdown",
+        description: 'A README file'
+      },
+      {
+        type: "resource_link",
+        uri: "file:///project/src/index.ts",
+        name: "index.ts",
+        mimeType: "text/typescript",
+        description: 'An index file'
+      }
+    ]
+  })
+);
+```
+
+#### ResourceLinks
+
+Tools can return `ResourceLink` objects to reference resources without embedding their full content. This can be helpful for performance when dealing with large files or many resources - clients can then selectively read only the resources they need using the provided URIs.
+
 ### Resources
 
-Resources are how you expose data to LLMs. They're similar to GET endpoints in a REST API - they provide data but shouldn't perform significant computation or have side effects:
+[Resources](https://modelcontextprotocol.io/specification/latest/server/resources) can also expose data to LLMs, but unlike tools shouldn't perform significant computation or have side effects.
+
+Resources are designed to be used in an application-driven way, meaning MCP client applications can decide how to expose them. For example, a client could expose a resource picker to the human, or could expose them to the model directly.
 
 ```typescript
 // Static resource
@@ -183,85 +294,9 @@ server.registerResource(
 );
 ```
 
-### Tools
-
-Tools let LLMs take actions through your server. Unlike resources, tools are expected to perform computation and have side effects:
-
-```typescript
-// Simple tool with parameters
-server.registerTool(
-  "calculate-bmi",
-  {
-    title: "BMI Calculator",
-    description: "Calculate Body Mass Index",
-    inputSchema: {
-      weightKg: z.number(),
-      heightM: z.number()
-    }
-  },
-  async ({ weightKg, heightM }) => ({
-    content: [{
-      type: "text",
-      text: String(weightKg / (heightM * heightM))
-    }]
-  })
-);
-
-// Async tool with external API call
-server.registerTool(
-  "fetch-weather",
-  {
-    title: "Weather Fetcher",
-    description: "Get weather data for a city",
-    inputSchema: { city: z.string() }
-  },
-  async ({ city }) => {
-    const response = await fetch(`https://api.weather.com/${city}`);
-    const data = await response.text();
-    return {
-      content: [{ type: "text", text: data }]
-    };
-  }
-);
-
-// Tool that returns ResourceLinks
-server.registerTool(
-  "list-files",
-  {
-    title: "List Files",
-    description: "List project files",
-    inputSchema: { pattern: z.string() }
-  },
-  async ({ pattern }) => ({
-    content: [
-      { type: "text", text: `Found files matching "${pattern}":` },
-      // ResourceLinks let tools return references without file content
-      {
-        type: "resource_link",
-        uri: "file:///project/README.md",
-        name: "README.md",
-        mimeType: "text/markdown",
-        description: 'A README file'
-      },
-      {
-        type: "resource_link",
-        uri: "file:///project/src/index.ts",
-        name: "index.ts",
-        mimeType: "text/typescript",
-        description: 'An index file'
-      }
-    ]
-  })
-);
-```
-
-#### ResourceLinks
-
-Tools can return `ResourceLink` objects to reference resources without embedding their full content. This is essential for performance when dealing with large files or many resources - clients can then selectively read only the resources they need using the provided URIs.
-
 ### Prompts
 
-Prompts are reusable templates that help LLMs interact with your server effectively:
+[Prompts](https://modelcontextprotocol.io/specification/latest/server/prompts) are reusable templates that help humans prompt models to interact with your server. They're designed to be user-driven, and might appear as slash commands in a chat interface.
 
 ```typescript
 import { completable } from "@modelcontextprotocol/sdk/server/completable.js";
@@ -349,7 +384,7 @@ const result = await client.complete({
 
 ### Display Names and Metadata
 
-All resources, tools, and prompts support an optional `title` field for better UI presentation. The `title` is used as a display name, while `name` remains the unique identifier.
+All resources, tools, and prompts support an optional `title` field for better UI presentation. The `title` is used as a display name (e.g. 'Create a new issue'), while `name` remains the unique identifier (e.g. `create_issue`).
 
 **Note:** The `register*` methods (`registerTool`, `registerPrompt`, `registerResource`) are the recommended approach for new code. The older methods (`tool`, `prompt`, `resource`) remain available for backwards compatibility.
 
@@ -599,24 +634,54 @@ This configuration is necessary because:
 For simpler use cases where session management isn't needed:
 
 ```typescript
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import express from "express";
+import { z } from "zod";
+
 const app = express();
 app.use(express.json());
 
-app.post('/mcp', async (req: Request, res: Response) => {
-  // In stateless mode, create a new instance of transport and server for each request
-  // to ensure complete isolation. A single instance would cause request ID collisions
-  // when multiple clients connect concurrently.
-  
+// Create the MCP server once (can be reused across requests)
+const server = new McpServer({
+  name: 'example-server',
+  version: '1.0.0',
+});
+
+// Set up your tools, resources, and prompts
+server.registerTool(
+  "echo",
+  {
+    title: "Echo Tool",
+    description: "Echoes back the provided message",
+    inputSchema: { message: z.string() },
+    outputSchema: { echo: z.string() }
+  },
+  async ({ message }) => {
+    const output = { echo: `Tool echo: ${message}` };
+    return {
+      content: [{ type: "text", text: JSON.stringify(output) }],
+      structuredContent: output
+    };
+  }
+);
+
+app.post('/mcp', async (req, res) => {
+  // In stateless mode, create a new transport for each request to prevent
+  // request ID collisions. Different clients may use the same JSON-RPC request IDs,
+  // which would cause responses to be routed to the wrong HTTP connections if
+  // the transport state is shared.
+
   try {
-    const server = getServer(); 
-    const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
+    const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
+      enableJsonResponse: true,
     });
+
     res.on('close', () => {
-      console.log('Request closed');
       transport.close();
-      server.close();
     });
+
     await server.connect(transport);
     await transport.handleRequest(req, res, req.body);
   } catch (error) {
@@ -634,48 +699,13 @@ app.post('/mcp', async (req: Request, res: Response) => {
   }
 });
 
-// SSE notifications not supported in stateless mode
-app.get('/mcp', async (req: Request, res: Response) => {
-  console.log('Received GET MCP request');
-  res.writeHead(405).end(JSON.stringify({
-    jsonrpc: "2.0",
-    error: {
-      code: -32000,
-      message: "Method not allowed."
-    },
-    id: null
-  }));
-});
-
-// Session termination not needed in stateless mode
-app.delete('/mcp', async (req: Request, res: Response) => {
-  console.log('Received DELETE MCP request');
-  res.writeHead(405).end(JSON.stringify({
-    jsonrpc: "2.0",
-    error: {
-      code: -32000,
-      message: "Method not allowed."
-    },
-    id: null
-  }));
-});
-
-
-// Start the server
-const PORT = 3000;
-setupServer().then(() => {
-  app.listen(PORT, (error) => {
-    if (error) {
-      console.error('Failed to start server:', error);
-      process.exit(1);
-    }
-    console.log(`MCP Stateless Streamable HTTP Server listening on port ${PORT}`);
-  });
-}).catch(error => {
-  console.error('Failed to set up the server:', error);
+const port = parseInt(process.env.PORT || "3000");
+app.listen(port, () => {
+  console.log(`Demo MCP Server running on http://localhost:${port}/mcp`);
+}).on("error", (error) => {
+  console.error("Server error:", error);
   process.exit(1);
 });
-
 ```
 
 This stateless approach is useful for:
@@ -719,6 +749,23 @@ const server = new McpServer({
   version: "1.0.0"
 });
 
+server.registerTool(
+  "echo",
+  {
+    title: "Echo Tool",
+    description: "Echoes back the provided message",
+    inputSchema: { message: z.string() },
+    outputSchema: { echo: z.string() }
+  },
+  async ({ message }) => {
+    const output = { echo: `Tool echo: ${message}` };
+    return {
+      content: [{ type: "text", text: JSON.stringify(output) }],
+      structuredContent: output
+    };
+  }
+);
+
 server.registerResource(
   "echo",
   new ResourceTemplate("echo://{message}", { list: undefined }),
@@ -731,18 +778,6 @@ server.registerResource(
       uri: uri.href,
       text: `Resource echo: ${message}`
     }]
-  })
-);
-
-server.registerTool(
-  "echo",
-  {
-    title: "Echo Tool",
-    description: "Echoes back the provided message",
-    inputSchema: { message: z.string() }
-  },
-  async ({ message }) => ({
-    content: [{ type: "text", text: `Tool echo: ${message}` }]
   })
 );
 
