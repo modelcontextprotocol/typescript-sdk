@@ -19,30 +19,44 @@ const getServer = () => {
   });
 
   // Register a simple tool that returns a greeting
-  server.tool(
+  server.registerTool(
     'greet',
-    'A simple greeting tool',
     {
-      name: z.string().describe('Name to greet'),
+      title: 'Greeting Tool',
+      description: 'A simple greeting tool',
+      inputSchema: {
+        name: z.string().describe('Name to greet'),
+      },
+      outputSchema: {
+        greeting: z.string()
+      }
     },
     async ({ name }): Promise<CallToolResult> => {
+      const output = { greeting: `Hello, ${name}!` };
       return {
         content: [
           {
             type: 'text',
-            text: `Hello, ${name}!`,
+            text: JSON.stringify(output),
           },
         ],
+        structuredContent: output
       };
     }
   );
 
   // Register a tool that sends multiple greetings with notifications
-  server.tool(
+  server.registerTool(
     'multi-greet',
-    'A tool that sends different greetings with delays between them',
     {
-      name: z.string().describe('Name to greet'),
+      title: 'Multiple Greeting Tool',
+      description: 'A tool that sends different greetings with delays between them',
+      inputSchema: {
+        name: z.string().describe('Name to greet'),
+      },
+      outputSchema: {
+        greeting: z.string()
+      }
     },
     async ({ name }, extra): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -66,13 +80,15 @@ const getServer = () => {
         data: `Sending second greeting to ${name}`
       }, extra.sessionId);
 
+      const output = { greeting: `Good morning, ${name}!` };
       return {
         content: [
           {
             type: 'text',
-            text: `Good morning, ${name}!`,
+            text: JSON.stringify(output),
           }
         ],
+        structuredContent: output
       };
     }
   );

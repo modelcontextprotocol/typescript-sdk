@@ -26,12 +26,20 @@ const getServer = () => {
   }, { capabilities: { logging: {} } });
 
   // Register a simple tool that sends notifications over time
-  server.tool(
+  server.registerTool(
     'start-notification-stream',
-    'Starts sending periodic notifications for testing resumability',
     {
-      interval: z.number().describe('Interval in milliseconds between notifications').default(100),
-      count: z.number().describe('Number of notifications to send (0 for 100)').default(50),
+      title: 'Start Notification Stream',
+      description: 'Starts sending periodic notifications for testing resumability',
+      inputSchema: {
+        interval: z.number().describe('Interval in milliseconds between notifications').default(100),
+        count: z.number().describe('Number of notifications to send (0 for 100)').default(50),
+      },
+      outputSchema: {
+        started: z.boolean(),
+        interval: z.number(),
+        totalNotifications: z.number()
+      }
     },
     async ({ interval, count }, extra): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -52,13 +60,19 @@ const getServer = () => {
         await sleep(interval);
       }
 
+      const output = {
+        started: true,
+        interval,
+        totalNotifications: counter
+      };
       return {
         content: [
           {
             type: 'text',
-            text: `Started sending periodic notifications every ${interval}ms`,
+            text: JSON.stringify(output),
           }
         ],
+        structuredContent: output
       };
     }
   );

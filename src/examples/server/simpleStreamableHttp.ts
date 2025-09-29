@@ -35,30 +35,40 @@ const getServer = () => {
       inputSchema: {
         name: z.string().describe('Name to greet'),
       },
+      outputSchema: {
+        greeting: z.string()
+      }
     },
     async ({ name }): Promise<CallToolResult> => {
+      const output = { greeting: `Hello, ${name}!` };
       return {
         content: [
           {
             type: 'text',
-            text: `Hello, ${name}!`,
+            text: JSON.stringify(output),
           },
         ],
+        structuredContent: output
       };
     }
   );
 
   // Register a tool that sends multiple greetings with notifications (with annotations)
-  server.tool(
+  server.registerTool(
     'multi-greet',
-    'A tool that sends different greetings with delays between them',
-    {
-      name: z.string().describe('Name to greet'),
-    },
     {
       title: 'Multiple Greeting Tool',
-      readOnlyHint: true,
-      openWorldHint: false
+      description: 'A tool that sends different greetings with delays between them',
+      inputSchema: {
+        name: z.string().describe('Name to greet'),
+      },
+      outputSchema: {
+        greeting: z.string()
+      },
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: false
+      }
     },
     async ({ name }, extra): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -82,23 +92,32 @@ const getServer = () => {
           data: `Sending second greeting to ${name}`
       }, extra.sessionId);
 
+      const output = { greeting: `Good morning, ${name}!` };
       return {
         content: [
           {
             type: 'text',
-            text: `Good morning, ${name}!`,
+            text: JSON.stringify(output),
           }
         ],
+        structuredContent: output
       };
     }
   );
   // Register a tool that demonstrates elicitation (user input collection)
   // This creates a closure that captures the server instance
-  server.tool(
+  server.registerTool(
     'collect-user-info',
-    'A tool that collects user information through elicitation',
     {
-      infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect'),
+      title: 'Collect User Info',
+      description: 'A tool that collects user information through elicitation',
+      inputSchema: {
+        infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect'),
+      },
+      outputSchema: {
+        action: z.enum(['accept', 'decline', 'cancel']),
+        data: z.record(z.any()).optional()
+      }
     },
     async ({ infoType }): Promise<CallToolResult> => {
       let message: string;
@@ -201,32 +220,40 @@ const getServer = () => {
           requestedSchema,
         });
 
+        const output = {
+          action: result.action,
+          data: result.action === 'accept' ? result.content : undefined
+        };
+
         if (result.action === 'accept') {
           return {
             content: [
               {
                 type: 'text',
-                text: `Thank you! Collected ${infoType} information: ${JSON.stringify(result.content, null, 2)}`,
+                text: JSON.stringify(output),
               },
             ],
+            structuredContent: output
           };
         } else if (result.action === 'decline') {
           return {
             content: [
               {
                 type: 'text',
-                text: `No information was collected. User declined ${infoType} information request.`,
+                text: JSON.stringify(output),
               },
             ],
+            structuredContent: output
           };
         } else {
           return {
             content: [
               {
                 type: 'text',
-                text: `Information collection was cancelled by the user.`,
+                text: JSON.stringify(output),
               },
             ],
+            structuredContent: output
           };
         }
       } catch (error) {
@@ -237,6 +264,7 @@ const getServer = () => {
               text: `Error collecting ${infoType} information: ${error}`,
             },
           ],
+          isError: true
         };
       }
     }
@@ -268,12 +296,20 @@ const getServer = () => {
   );
 
   // Register a tool specifically for testing resumability
-  server.tool(
+  server.registerTool(
     'start-notification-stream',
-    'Starts sending periodic notifications for testing resumability',
     {
-      interval: z.number().describe('Interval in milliseconds between notifications').default(100),
-      count: z.number().describe('Number of notifications to send (0 for 100)').default(50),
+      title: 'Start Notification Stream',
+      description: 'Starts sending periodic notifications for testing resumability',
+      inputSchema: {
+        interval: z.number().describe('Interval in milliseconds between notifications').default(100),
+        count: z.number().describe('Number of notifications to send (0 for 100)').default(50),
+      },
+      outputSchema: {
+        started: z.boolean(),
+        interval: z.number(),
+        totalNotifications: z.number()
+      }
     },
     async ({ interval, count }, extra): Promise<CallToolResult> => {
       const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -294,13 +330,19 @@ const getServer = () => {
         await sleep(interval);
       }
 
+      const output = {
+        started: true,
+        interval,
+        totalNotifications: counter
+      };
       return {
         content: [
           {
             type: 'text',
-            text: `Started sending periodic notifications every ${interval}ms`,
+            text: JSON.stringify(output),
           }
         ],
+        structuredContent: output
       };
     }
   );
@@ -376,6 +418,14 @@ const getServer = () => {
       inputSchema: {
         includeDescriptions: z.boolean().optional().describe('Whether to include descriptions in the resource links'),
       },
+      outputSchema: {
+        count: z.number(),
+        files: z.array(z.object({
+          uri: z.string(),
+          name: z.string(),
+          mimeType: z.string()
+        }))
+      }
     },
     async ({ includeDescriptions = true }): Promise<CallToolResult> => {
       const resourceLinks: ResourceLink[] = [
@@ -402,18 +452,24 @@ const getServer = () => {
         }
       ];
 
+      const output = {
+        count: resourceLinks.length,
+        files: resourceLinks.map(link => ({
+          uri: link.uri,
+          name: link.name,
+          mimeType: link.mimeType
+        }))
+      };
+
       return {
         content: [
           {
             type: 'text',
-            text: 'Here are the available files as resource links:',
+            text: JSON.stringify(output),
           },
           ...resourceLinks,
-          {
-            type: 'text',
-            text: '\nYou can read any of these resources using their URI.',
-          }
         ],
+        structuredContent: output
       };
     }
   );
