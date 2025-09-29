@@ -214,9 +214,11 @@ export const IconSchema = z
      */
     mimeType: z.optional(z.string()),
     /**
-     * Optional string specifying icon dimensions (e.g., "48x48 96x96").
+     * Optional array of strings that specify sizes at which the icon can be used.
+     * Each string should be in WxH format (e.g., "48x48", "96x96") or "any" for scalable formats like SVG.
+     * If not provided, the client should assume that the icon can be used at any size.
      */
-    sizes: z.optional(z.string()),
+    sizes: z.optional(z.array(z.string())),
   })
   .passthrough();
 
