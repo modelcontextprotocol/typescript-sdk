@@ -1163,8 +1163,8 @@ export class ResourceTemplate {
  * Parameters will include tool arguments, if applicable, as well as other request handler context.
  *
  * The callback should return:
- * - `structuredContent` if the tool has an outputSchema defined
- * - `content` if the tool does not have an outputSchema
+ * - `structuredContent` if the tool has an outputSchema defined.
+ * - `content` if the tool does not have an outputSchema OR if an outputSchema is defined, content *SHOULD* have the serialized JSON structuredContent in a text content for backwards compatibility
  * - Both fields are optional but typically one should be provided
  */
 export type ToolCallback<InputArgs extends undefined | ZodRawShape = undefined, OutputArgs extends undefined | ZodRawShape = undefined> =
@@ -1172,16 +1172,18 @@ export type ToolCallback<InputArgs extends undefined | ZodRawShape = undefined, 
   ? (
     args: z.objectOutputType<InputArgs, ZodTypeAny>,
     extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
-  ) => OutputArgs extends ZodRawShape
-    ? CallToolResultStructured<OutputArgs> | Promise<CallToolResultStructured<OutputArgs>>
-    : OutputArgs extends undefined
-    ? CallToolResultUnstructured | Promise<CallToolResultUnstructured>
-    : never
-  : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => OutputArgs extends ZodRawShape
-    ? CallToolResultStructured<OutputArgs> | Promise<CallToolResultStructured<OutputArgs>>
-    : OutputArgs extends undefined
-    ? CallToolResultUnstructured | Promise<CallToolResultUnstructured>
-    : never;
+  ) => CallToolResultByOutputArgsType<OutputArgs>
+  : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResultByOutputArgsType<OutputArgs>;
+
+/**
+ * CallToolResult type generated based on OutputArgs.
+ */
+export type CallToolResultByOutputArgsType<OutputArgs extends undefined | ZodRawShape = undefined> =
+    OutputArgs extends ZodRawShape
+      ? CallToolResultStructured<OutputArgs> | Promise<CallToolResultStructured<OutputArgs>>
+      : OutputArgs extends undefined
+      ? CallToolResultUnstructured | Promise<CallToolResultUnstructured>
+      : never;
 
 export type RegisteredTool = {
   title?: string;

@@ -1647,7 +1647,7 @@ export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
 export type CallToolResult = Infer<typeof CallToolResultSchema>;
 export type CallToolResultUnstructured = Infer<typeof CallToolResultUnstructuredSchema>;
 export type CallToolResultStructured<OArgs extends ZodRawShape> = Infer<typeof CallToolResultStructuredSchema> & {
-  structuredContent: z.infer<z.ZodObject<OArgs, 'strip'>>;
+  structuredContent: z.infer<z.ZodObject<OArgs>>;
 }
 export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
