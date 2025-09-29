@@ -157,7 +157,7 @@ export const setupAuthServer = ({authServerUrl, mcpServerUrl, strictResource}: {
 
   const validateResource = strictResource ? (resource?: URL) => {
     if (!resource) return false;
-    const expectedResource = resourceUrlFromServerUrl(mcpServerUrl);
+    const expectedResource = resourceUrlFromServerUrl(mcpServerUrl.href);
     return resource.toString() === expectedResource.toString();
   } : undefined;
 
