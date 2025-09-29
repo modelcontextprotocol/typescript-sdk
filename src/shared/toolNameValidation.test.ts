@@ -55,8 +55,8 @@ describe('validateToolName', () => {
       expect(result.warnings).toHaveLength(0);
     });
 
-    test('should accept 128 character names', () => {
-      const name = 'a'.repeat(128);
+    test('should accept 64 character names', () => {
+      const name = 'a'.repeat(64);
       const result = validateToolName(name);
       expect(result.isValid).toBe(true);
       expect(result.warnings).toHaveLength(0);
@@ -70,11 +70,11 @@ describe('validateToolName', () => {
       expect(result.warnings).toContain('Tool name cannot be empty');
     });
 
-    test('should reject names longer than 128 characters', () => {
-      const name = 'a'.repeat(129);
+    test('should reject names longer than 64 characters', () => {
+      const name = 'a'.repeat(65);
       const result = validateToolName(name);
       expect(result.isValid).toBe(false);
-      expect(result.warnings).toContain('Tool name exceeds maximum length of 128 characters (current: 129)');
+      expect(result.warnings).toContain('Tool name exceeds maximum length of 64 characters (current: 129)');
     });
 
     test('should reject names with spaces', () => {

@@ -1,7 +1,7 @@
 /**
  * Tool name validation utilities according to SEP: Specify Format for Tool Names
  * 
- * Tool names SHOULD be between 1 and 128 characters in length (inclusive).
+ * Tool names SHOULD be between 1 and 64 characters in length (inclusive).
  * Tool names are case-sensitive.
  * Allowed characters: uppercase and lowercase ASCII letters (A-Z, a-z), digits
  * (0-9), underscore (_), dash (-), dot (.), and forward slash (/).
@@ -11,7 +11,7 @@
 /**
  * Regular expression for valid tool names according to SEP-986 specification
  */
-const TOOL_NAME_REGEX = /^[A-Za-z0-9._/-]{1,128}$/;
+const TOOL_NAME_REGEX = /^[A-Za-z0-9._/-]{1,64}$/;
 
 /**
  * Validates a tool name according to the SEP specification
@@ -32,10 +32,10 @@ export function validateToolName(name: string): {
     };
   }
   
-  if (name.length > 128) {
+  if (name.length > 64) {
     return {
       isValid: false,
-      warnings: [`Tool name exceeds maximum length of 128 characters (current: ${name.length})`]
+      warnings: [`Tool name exceeds maximum length of 64 characters (current: ${name.length})`]
     };
   }
   
