@@ -120,7 +120,7 @@ export interface StreamableHTTPServerTransportOptions {
  * - Session ID is generated and included in response headers
  * - Session ID is always included in initialization responses
  * - Requests with invalid session IDs are rejected with 404 Not Found
- * - Non-initialization requests without a session ID are rejected with 400 Bad Request
+ * - Non-initialization requests without a session ID are rejected with 401 Unauthorized
  * - State is maintained in-memory (connections, message history)
  * 
  * In stateless mode:
@@ -598,12 +598,12 @@ export class StreamableHTTPServerTransport implements Transport {
     const sessionId = req.headers["mcp-session-id"];
 
     if (!sessionId) {
-      // Non-initialization requests without a session ID should return 400 Bad Request
-      res.writeHead(400).end(JSON.stringify({
+      // Non-initialization requests without a session ID should return 401 Unauthorized
+      res.writeHead(401).end(JSON.stringify({
         jsonrpc: "2.0",
         error: {
           code: -32000,
-          message: "Bad Request: Mcp-Session-Id header is required"
+          message: "Unauthorized: Mcp-Session-Id header is required"
         },
         id: null
       }));
