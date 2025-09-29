@@ -439,6 +439,13 @@ function checkBlobResourceContents(
   sdk = spec;
   spec = sdk;
 }
+function checkResourceAnnotations(
+  sdk: RemovePassthrough<SDKTypes.ResourceAnnotations>,
+  spec: SpecTypes.Annotations
+) {
+  sdk = spec;
+  spec = sdk;
+}
 function checkResource(
   sdk: RemovePassthrough<SDKTypes.Resource>,
   spec: SpecTypes.Resource
