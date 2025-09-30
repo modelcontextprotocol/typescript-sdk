@@ -4383,4 +4383,54 @@ describe("elicitInput()", () => {
       text: "No booking made. Original date not available."
     }]);
   });
+
+  /**
+   * Test: Tool parameter validation with strict mode
+   * This test verifies that tools with strict: true reject unknown parameters,
+   * including those with incorrect capitalization.
+   */
+  test("should reject unknown parameters when strict validation is enabled", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    // Register a tool with strict validation enabled
+    mcpServer.registerTool(
+      "test-strict",
+      {
+        inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() },
+        strict: true,
+      },
+      async ({ userName, itemCount }) => ({
+        content: [{ type: "text", text: `${userName || 'none'}: ${itemCount || 0}` }],
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    // Call the tool with unknown parameters (incorrect capitalization)  
+    // With strict: true, these should now be rejected
+    await expect(client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "test-strict",
+          arguments: { username: "test", itemcount: 42 }, // Unknown parameters should cause error
+        },
+      },
+      CallToolResultSchema,
+    )).rejects.toThrow("Invalid arguments");
+  });
 });
