@@ -16,6 +16,8 @@ import {
   CreateMessageRequestSchema,
   ElicitRequestSchema,
   ListRootsRequestSchema,
+  ListPromptsRequestSchema,
+  ListResourceTemplatesRequestSchema,
   ErrorCode,
 } from "../types.js";
 import { Transport } from "../shared/transport.js";
@@ -1300,4 +1302,138 @@ describe('outputSchema validation', () => {
   });
 
 
+});
+
+test("should return empty arrays for all list methods when server has capabilities but no handlers", async () => {
+  const server = new Server(
+    {
+      name: "test server",
+      version: "1.0",
+    },
+    {
+      capabilities: {
+        prompts: {},
+        resources: {},
+        tools: {},
+      },
+    },
+  );
+
+  server.setRequestHandler(InitializeRequestSchema, (_request) => ({
+    protocolVersion: LATEST_PROTOCOL_VERSION,
+    capabilities: {
+      prompts: {},
+      resources: {},
+      tools: {},
+    },
+    serverInfo: {
+      name: "test",
+      version: "1.0",
+    },
+  }));
+
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+
+  const client = new Client(
+    {
+      name: "test client",
+      version: "1.0",
+    },
+    {
+      capabilities: {
+        sampling: {},
+      },
+    },
+  );
+
+  await Promise.all([
+    client.connect(clientTransport),
+    server.connect(serverTransport),
+  ]);
+
+  const promptsResult = await client.listPrompts();
+  const resourcesResult = await client.listResources();
+  const resourceTemplatesResult = await client.listResourceTemplates();
+  const toolsResult = await client.listTools();
+
+  expect(promptsResult.prompts).toEqual([]);
+  expect(resourcesResult.resources).toEqual([]);
+  expect(resourceTemplatesResult.resourceTemplates).toEqual([]);
+  expect(toolsResult.tools).toEqual([]);
+});
+
+test("should handle empty collections consistently across all capabilities", async () => {
+  const server = new Server(
+    {
+      name: "test server",
+      version: "1.0",
+    },
+    {
+      capabilities: {
+        prompts: {},
+        resources: {},
+        tools: {},
+      },
+    },
+  );
+
+  server.setRequestHandler(InitializeRequestSchema, (_request) => ({
+    protocolVersion: LATEST_PROTOCOL_VERSION,
+    capabilities: {
+      prompts: {},
+      resources: {},
+      tools: {},
+    },
+    serverInfo: {
+      name: "test",
+      version: "1.0",
+    },
+  }));
+
+  server.setRequestHandler(ListPromptsRequestSchema, () => ({
+    prompts: [],
+  }));
+
+  server.setRequestHandler(ListResourcesRequestSchema, () => ({
+    resources: [],
+  }));
+
+  server.setRequestHandler(ListResourceTemplatesRequestSchema, () => ({
+    resourceTemplates: [],
+  }));
+
+  server.setRequestHandler(ListToolsRequestSchema, () => ({
+    tools: [],
+  }));
+
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+
+  const client = new Client(
+    {
+      name: "test client",
+      version: "1.0",
+    },
+    {
+      capabilities: {
+        sampling: {},
+      },
+    },
+  );
+
+  await Promise.all([
+    client.connect(clientTransport),
+    server.connect(serverTransport),
+  ]);
+
+  const promptsResult = await client.listPrompts();
+  const resourcesResult = await client.listResources();
+  const resourceTemplatesResult = await client.listResourceTemplates();
+  const toolsResult = await client.listTools();
+
+  expect(promptsResult.prompts).toEqual([]);
+  expect(resourcesResult.resources).toEqual([]);
+  expect(resourceTemplatesResult.resourceTemplates).toEqual([]);
+  expect(toolsResult.tools).toEqual([]);
 });

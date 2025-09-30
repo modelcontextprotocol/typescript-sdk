@@ -366,6 +366,52 @@ export abstract class Protocol<
       );
   }
 
+ /**
+   * Default handler for requests when no specific handler is registered.
+   * Automatically returns empty arrays for standard MCP list methods.
+   */
+  private _defaultFallbackRequestHandler( request: JSONRPCRequest, transport: Transport ): SendResultT | null {
+    const method = request.method;
+    const listMethodResponses: Record<string, string> = {
+      "prompts/list": "prompts",
+      "resources/list": "resources",
+      "resources/templates/list": "resourceTemplates",
+      "tools/list": "tools",
+    };
+    const responseKey = listMethodResponses[method];
+    const result = responseKey ? { [responseKey]: [] } as SendResultT : null;
+    if (result !== null) {
+          transport
+            .send({
+              result: result,
+              jsonrpc: "2.0",
+              id: request.id,
+            })
+            .catch((error) =>
+              this._onerror(
+                new Error(`Failed to send default list response: ${error}`),
+              ),
+            );
+          return result;
+        }
+
+        transport
+          .send({
+            jsonrpc: "2.0",
+            id: request.id,
+            error: {
+              code: ErrorCode.MethodNotFound,
+              message: "Method not found",
+            },
+          })
+          .catch((error) =>
+            this._onerror(
+              new Error(`Failed to send an error response: ${error}`),
+            ),
+          );
+    return null;
+    }
+
   private _onrequest(request: JSONRPCRequest, extra?: MessageExtraInfo): void {
     const handler =
       this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
@@ -373,22 +419,12 @@ export abstract class Protocol<
     // Capture the current transport at request time to ensure responses go to the correct client
     const capturedTransport = this._transport;
 
+    if(capturedTransport === undefined) {
+      throw new Error("Error: transport not found.")
+    }
     if (handler === undefined) {
-      capturedTransport
-        ?.send({
-          jsonrpc: "2.0",
-          id: request.id,
-          error: {
-            code: ErrorCode.MethodNotFound,
-            message: "Method not found",
-          },
-        })
-        .catch((error) =>
-          this._onerror(
-            new Error(`Failed to send an error response: ${error}`),
-          ),
-        );
-      return;
+        this._defaultFallbackRequestHandler(request, capturedTransport);
+        return;
     }
 
     const abortController = new AbortController();
