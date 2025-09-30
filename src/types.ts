@@ -224,12 +224,15 @@ export const IconSchema = z
   .passthrough();
 
 /**
- * An optional list of icons for this implementation.
- * This can be used by clients to display the implementation in a user interface.
- * Each icon should have a `kind` property that specifies whether it is a data representation or a URL source, a `src` property that points to the icon file or data representation, and may also include a `mimeType` and `sizes` property.
- * The `mimeType` property should be a valid MIME type for the icon file, such as "image/png" or "image/svg+xml".
- * The `sizes` property should be a string that specifies one or more sizes at which the icon file can be used, such as "48x48" or "any" for scalable formats like SVG.
- * The `sizes` property is optional, and if not provided, the client should assume that the icon can be used at any size.
+ * Optional set of sized icons that the client can display in a user interface.
+ *
+ * Clients that support rendering icons MUST support at least the following MIME types:
+ * - `image/png` - PNG images (safe, universal compatibility)
+ * - `image/jpeg` (and `image/jpg`) - JPEG images (safe, universal compatibility)
+ *
+ * Clients that support rendering icons SHOULD also support:
+ * - `image/svg+xml` - SVG images (scalable but requires security precautions)
+ * - `image/webp` - WebP images (modern, efficient format)
  */
 export const IconsSchema = z.object({
   icons: z.array(IconSchema).optional(),
@@ -578,7 +581,7 @@ export const ResourceTemplateSchema = BaseMetadataSchema.extend({
    * for notes on _meta usage.
    */
   _meta: z.optional(z.object({}).passthrough()),
-});
+}).merge(IconsSchema);
 
 /**
  * Sent from the client to request a list of resources the server has.
