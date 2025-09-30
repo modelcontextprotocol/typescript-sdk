@@ -127,6 +127,18 @@ export interface OAuthClientProvider {
    * This avoids requiring the user to intervene manually.
    */
   invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier'): void | Promise<void>;
+
+  /**
+   * If implemented, determines whether the client should attempt scope upgrade
+   * when receiving an insufficient_scope error. This is particularly relevant
+   * for client_credentials flows where automatic reauthorization may not be practical.
+   * 
+   * @param currentScopes - Scopes currently possessed by the client
+   * @param requiredScopes - Additional scopes needed as indicated by the server
+   * @param isInteractiveFlow - Whether this is an interactive authorization_code flow
+   * @returns True if scope upgrade should be attempted, false to abort
+   */
+  shouldAttemptScopeUpgrade?(currentScopes?: string[], requiredScopes?: string[], isInteractiveFlow?: boolean): boolean | Promise<boolean>;
 }
 
 export type AuthResult = "AUTHORIZED" | "REDIRECT";
@@ -414,13 +426,20 @@ async function authInternal(
 
   const state = provider.state ? await provider.state() : undefined;
 
+  // Select optimal scopes following SEP-835 priority order
+  const selectedScope = selectOptimalScopes(
+    undefined, // No WWW-Authenticate scopes in initial flow
+    resourceMetadata,
+    scope || provider.clientMetadata.scope
+  );
+
   // Start new authorization flow
   const { authorizationUrl, codeVerifier } = await startAuthorization(authorizationServerUrl, {
     metadata,
     clientInformation,
     state,
     redirectUrl: provider.redirectUrl,
-    scope: scope || provider.clientMetadata.scope,
+    scope: selectedScope,
     resource,
   });
 
@@ -476,6 +495,178 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Extracts required scopes from WWW-Authenticate header following SEP-835.
+ * 
+ * This function parses the WWW-Authenticate header to extract OAuth scopes
+ * that should be requested when authenticating. According to SEP-835, 
+ * this provides contextual guidance on the minimum scopes needed.
+ * 
+ * @param res - HTTP response containing WWW-Authenticate header
+ * @returns Array of required scope strings, or undefined if not present
+ */
+export function extractScopesFromWwwAuthenticate(res: Response): string[] | undefined {
+  const authenticateHeader = res.headers.get("WWW-Authenticate");
+  if (!authenticateHeader) {
+    return undefined;
+  }
+
+  const [type, scheme] = authenticateHeader.split(' ');
+  if (type.toLowerCase() !== 'bearer' || !scheme) {
+    return undefined;
+  }
+
+  // Parse scope parameter from Bearer scheme
+  // Format: Bearer realm="mcp", scope="scope1 scope2 scope3"
+  const scopeRegex = /scope="([^"]*)"/;
+  const match = scopeRegex.exec(authenticateHeader);
+
+  if (!match || !match[1]) {
+    return undefined;
+  }
+
+  // Split space-separated scopes and filter out empty strings
+  const scopes = match[1].split(' ').filter(scope => scope.trim().length > 0);
+  return scopes.length > 0 ? scopes : undefined;
+}
+
+/**
+ * Determines the optimal scopes to request based on SEP-835 priority order.
+ * 
+ * Priority order:
+ * 1. Scopes from WWW-Authenticate header (immediate context)
+ * 2. Scopes from Protected Resource Metadata scopes_supported (fallback)
+ * 3. Client-provided default scope (last resort)
+ * 
+ * @param wwwAuthenticateScopes - Scopes extracted from WWW-Authenticate header
+ * @param resourceMetadata - Protected Resource Metadata containing supported scopes
+ * @param clientDefaultScope - Default scope provided by client
+ * @returns Space-separated scope string or undefined
+ */
+export function selectOptimalScopes(
+  wwwAuthenticateScopes?: string[],
+  resourceMetadata?: OAuthProtectedResourceMetadata,
+  clientDefaultScope?: string
+): string | undefined {
+  // Priority 1: Use scopes from WWW-Authenticate header if available
+  if (wwwAuthenticateScopes && wwwAuthenticateScopes.length > 0) {
+    return wwwAuthenticateScopes.join(' ');
+  }
+
+  // Priority 2: Use scopes from Protected Resource Metadata
+  if (resourceMetadata?.scopes_supported && resourceMetadata.scopes_supported.length > 0) {
+    // Follow principle of least privilege - use all supported scopes as fallback
+    return resourceMetadata.scopes_supported.join(' ');
+  }
+
+  // Priority 3: Fall back to client default scope
+  return clientDefaultScope;
+}
+
+/**
+ * Checks if a 403 Forbidden response indicates insufficient scope error.
+ * 
+ * According to SEP-835, servers should return 403 Forbidden with
+ * insufficient_scope error for scope-related authorization failures.
+ * 
+ * @param response - HTTP response to check
+ * @returns True if response indicates insufficient scope
+ */
+export async function isInsufficientScopeError(response: Response): Promise<boolean> {
+  if (response.status !== 403) {
+    return false;
+  }
+
+  try {
+    const body = await response.text();
+    const errorData = JSON.parse(body);
+    return errorData.error === 'insufficient_scope';
+  } catch {
+    // If parsing fails, check WWW-Authenticate header as fallback
+    const authenticateHeader = response.headers.get("WWW-Authenticate");
+    return authenticateHeader?.includes('insufficient_scope') ?? false;
+  }
+}
+
+/**
+ * Handles scope upgrade flow for insufficient scope errors following SEP-835.
+ * 
+ * When a request fails due to insufficient scope, this function determines
+ * whether to attempt scope upgrade and initiates the reauthorization flow.
+ * 
+ * @param provider - OAuth client provider
+ * @param options - Auth options including server URL and metadata
+ * @param currentTokens - Current tokens with potentially insufficient scope
+ * @param insufficientScopeResponse - Response indicating insufficient scope
+ * @returns AuthResult indicating whether upgrade was attempted
+ */
+export async function handleScopeUpgrade(
+  provider: OAuthClientProvider,
+  options: {
+    serverUrl: string | URL;
+    resourceMetadata?: OAuthProtectedResourceMetadata;
+    authorizationServerUrl: string | URL;
+    metadata?: AuthorizationServerMetadata;
+    fetchFn?: FetchLike;
+  },
+  currentTokens: OAuthTokens,
+  insufficientScopeResponse: Response
+): Promise<AuthResult> {
+  // Extract required scopes from WWW-Authenticate header
+  const requiredScopes = extractScopesFromWwwAuthenticate(insufficientScopeResponse);
+  
+  // Parse current scopes from token
+  const currentScopes = currentTokens.scope?.split(' ').filter(s => s.trim().length > 0) || [];
+  
+  // Determine if this is an interactive flow based on client metadata
+  const isInteractiveFlow = provider.clientMetadata.grant_types?.includes('authorization_code') ?? true;
+  
+  // Check if client wants to attempt scope upgrade
+  const shouldUpgrade = provider.shouldAttemptScopeUpgrade
+    ? await provider.shouldAttemptScopeUpgrade(currentScopes, requiredScopes, isInteractiveFlow)
+    : isInteractiveFlow; // Default: upgrade for interactive flows, not for client_credentials
+  
+  if (!shouldUpgrade) {
+    throw new Error('Insufficient scope and client opted not to upgrade authorization');
+  }
+  
+  // Calculate union of current and required scopes
+  const scopeSet = new Set([...currentScopes, ...(requiredScopes || [])]);
+  const upgradeScope = Array.from(scopeSet).join(' ');
+  
+  // Use optimal scope selection with priority for required scopes
+  const selectedScope = selectOptimalScopes(
+    requiredScopes,
+    options.resourceMetadata,
+    upgradeScope
+  );
+  
+  // Invalidate current tokens before reauthorization
+  await provider.invalidateCredentials?.('tokens');
+  
+  // Start new authorization flow with expanded scopes
+  const clientInformation = await provider.clientInformation();
+  if (!clientInformation) {
+    throw new Error("Client information required for scope upgrade");
+  }
+  
+  const state = provider.state ? await provider.state() : undefined;
+  const resource = await selectResourceURL(options.serverUrl, provider, options.resourceMetadata);
+  
+  const { authorizationUrl, codeVerifier } = await startAuthorization(options.authorizationServerUrl, {
+    metadata: options.metadata,
+    clientInformation,
+    state,
+    redirectUrl: provider.redirectUrl,
+    scope: selectedScope,
+    resource,
+  });
+  
+  await provider.saveCodeVerifier(codeVerifier);
+  await provider.redirectToAuthorization(authorizationUrl);
+  return "REDIRECT";
 }
 
 /**

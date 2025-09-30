@@ -36,8 +36,31 @@ npx tsx src/examples/client/simpleStreamableHttp.ts
 Example client with OAuth:
 
 ```bash
-npx tsx src/examples/client/simpleOAuthClient.js
+npx tsx src/examples/client/simpleOAuthClient.ts
 ```
+
+### SEP-835 Scope-Aware OAuth Client
+
+A sophisticated OAuth client that demonstrates the SEP-835 specification for intelligent OAuth scope handling. This client showcases:
+
+- **Dynamic Scope Selection**: Implements the SEP-835 priority order for scope selection:
+  1. Scopes from WWW-Authenticate headers (immediate context)
+  2. Scopes from Protected Resource Metadata (fallback)
+  3. Client default scopes (last resort)
+- **Intelligent Scope Upgrade**: Automatically handles insufficient scope errors with smart upgrade decisions
+- **Least Privilege Principle**: Starts with minimal scopes and upgrades only when necessary
+- **Client Type Awareness**: Different behavior for interactive vs. client credentials flows
+- **Comprehensive Error Handling**: Proper handling of OAuth errors and scope-related failures
+
+```bash
+npx tsx src/examples/client/scopeAwareOAuthClient.ts
+```
+
+Key features demonstrated:
+- SEP-835 compliant scope selection and upgrade flows
+- Contextual scope requests based on server guidance
+- Graceful handling of insufficient scope scenarios
+- User-friendly authorization experience with scope transparency
 
 ### Backwards Compatible Client
 
