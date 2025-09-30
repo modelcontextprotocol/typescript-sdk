@@ -12,16 +12,16 @@ jest.mock("../client/auth.js", () => {
   return {
     ...actual,
     auth: jest.fn(),
-    extractResourceMetadataUrl: jest.fn(),
+    extractWWWAuthenticateParams: jest.fn(),
   };
 });
 
-import { auth, extractResourceMetadataUrl } from "./auth.js";
+import { auth, extractWWWAuthenticateParams } from "./auth.js";
 
 const mockAuth = auth as jest.MockedFunction<typeof auth>;
-const mockExtractResourceMetadataUrl =
-  extractResourceMetadataUrl as jest.MockedFunction<
-    typeof extractResourceMetadataUrl
+const mockExtractWWWAuthenticateParams =
+  extractWWWAuthenticateParams as jest.MockedFunction<
+    typeof extractWWWAuthenticateParams
   >;
 
 describe("withOAuth", () => {
@@ -142,10 +142,13 @@ describe("withOAuth", () => {
       .mockResolvedValueOnce(unauthorizedResponse)
       .mockResolvedValueOnce(successResponse);
 
-    const mockResourceUrl = new URL(
-      "https://oauth.example.com/.well-known/oauth-protected-resource",
-    );
-    mockExtractResourceMetadataUrl.mockReturnValue(mockResourceUrl);
+    const mockWWWAuthenticateParams = {
+      resourceMetadataUrl: new URL(
+        "https://oauth.example.com/.well-known/oauth-protected-resource",
+      ),
+      scope: "read",
+    }
+    mockExtractWWWAuthenticateParams.mockReturnValue(mockWWWAuthenticateParams);
     mockAuth.mockResolvedValue("AUTHORIZED");
 
     const enhancedFetch = withOAuth(
@@ -159,7 +162,8 @@ describe("withOAuth", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(mockAuth).toHaveBeenCalledWith(mockProvider, {
       serverUrl: "https://api.example.com",
-      resourceMetadataUrl: mockResourceUrl,
+      resourceMetadataUrl: mockWWWAuthenticateParams.resourceMetadataUrl,
+      scope: mockWWWAuthenticateParams.scope,
       fetchFn: mockFetch,
     });
 
@@ -192,10 +196,13 @@ describe("withOAuth", () => {
       .mockResolvedValueOnce(unauthorizedResponse)
       .mockResolvedValueOnce(successResponse);
 
-    const mockResourceUrl = new URL(
-      "https://oauth.example.com/.well-known/oauth-protected-resource",
-    );
-    mockExtractResourceMetadataUrl.mockReturnValue(mockResourceUrl);
+    const mockWWWAuthenticateParams = {
+      resourceMetadataUrl: new URL(
+        "https://oauth.example.com/.well-known/oauth-protected-resource",
+      ),
+      scope: "read",
+    }
+    mockExtractWWWAuthenticateParams.mockReturnValue(mockWWWAuthenticateParams);
     mockAuth.mockResolvedValue("AUTHORIZED");
 
     // Test without baseUrl - should extract from request URL
@@ -207,7 +214,8 @@ describe("withOAuth", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(mockAuth).toHaveBeenCalledWith(mockProvider, {
       serverUrl: "https://api.example.com", // Should be extracted from request URL
-      resourceMetadataUrl: mockResourceUrl,
+      resourceMetadataUrl: mockWWWAuthenticateParams.resourceMetadataUrl,
+      scope: mockWWWAuthenticateParams.scope,
       fetchFn: mockFetch,
     });
 
@@ -225,7 +233,7 @@ describe("withOAuth", () => {
     });
 
     mockFetch.mockResolvedValue(new Response("Unauthorized", { status: 401 }));
-    mockExtractResourceMetadataUrl.mockReturnValue(undefined);
+    mockExtractWWWAuthenticateParams.mockReturnValue({});
     mockAuth.mockResolvedValue("REDIRECT");
 
     // Test without baseUrl
@@ -244,7 +252,7 @@ describe("withOAuth", () => {
     });
 
     mockFetch.mockResolvedValue(new Response("Unauthorized", { status: 401 }));
-    mockExtractResourceMetadataUrl.mockReturnValue(undefined);
+    mockExtractWWWAuthenticateParams.mockReturnValue({});
     mockAuth.mockRejectedValue(new Error("Network error"));
 
     const enhancedFetch = withOAuth(
@@ -266,7 +274,7 @@ describe("withOAuth", () => {
 
     // Always return 401
     mockFetch.mockResolvedValue(new Response("Unauthorized", { status: 401 }));
-    mockExtractResourceMetadataUrl.mockReturnValue(undefined);
+    mockExtractWWWAuthenticateParams.mockReturnValue({});
     mockAuth.mockResolvedValue("AUTHORIZED");
 
     const enhancedFetch = withOAuth(
@@ -383,7 +391,7 @@ describe("withOAuth", () => {
       .mockResolvedValueOnce(unauthorizedResponse)
       .mockResolvedValueOnce(successResponse);
 
-    mockExtractResourceMetadataUrl.mockReturnValue(undefined);
+    mockExtractWWWAuthenticateParams.mockReturnValue({});
     mockAuth.mockResolvedValue("AUTHORIZED");
 
     const enhancedFetch = withOAuth(mockProvider)(mockFetch);
@@ -964,8 +972,11 @@ describe("Integration Tests", () => {
       .mockResolvedValueOnce(unauthorizedResponse)
       .mockResolvedValueOnce(successResponse);
 
-    mockExtractResourceMetadataUrl.mockReturnValue(
-      new URL("https://auth.example.com/.well-known/oauth-protected-resource"),
+    mockExtractWWWAuthenticateParams.mockReturnValue(
+      {
+        resourceMetadataUrl: new URL("https://auth.example.com/.well-known/oauth-protected-resource"),
+        scope: "read",
+      }
     );
     mockAuth.mockResolvedValue("AUTHORIZED");
 
@@ -994,6 +1005,7 @@ describe("Integration Tests", () => {
       resourceMetadataUrl: new URL(
         "https://auth.example.com/.well-known/oauth-protected-resource",
       ),
+      scope: "read",
       fetchFn: mockFetch,
     });
   });
