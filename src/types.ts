@@ -214,9 +214,7 @@ export const IconSchema = z
      */
     mimeType: z.optional(z.string()),
     /**
-     * Optional array of strings that specify sizes at which the icon can be used.
-     * Each string should be in WxH format (e.g., "48x48", "96x96") or "any" for scalable formats like SVG.
-     * If not provided, the client should assume that the icon can be used at any size.
+     * Optional array of strings specifying icon dimensions (e.g., ["48x48", "96x96"]).
      */
     sizes: z.optional(z.array(z.string())),
   })
@@ -1561,6 +1559,13 @@ export interface MessageExtraInfo {
    * The authentication information.
    */
   authInfo?: AuthInfo;
+
+  /**
+   * Custom context data that can be passed through the message handling pipeline.
+   * This allows transport implementations to attach arbitrary data that will be
+   * available to request handlers.
+   */
+  customContext?: Record<string, unknown>;
 }
 
 /* JSON-RPC types */

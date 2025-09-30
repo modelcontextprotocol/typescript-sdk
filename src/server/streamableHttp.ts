@@ -143,6 +143,7 @@ export class StreamableHTTPServerTransport implements Transport {
   private _allowedHosts?: string[];
   private _allowedOrigins?: string[];
   private _enableDnsRebindingProtection: boolean;
+  private _customContext?: Record<string, unknown>;
 
   sessionId?: string;
   onclose?: () => void;
@@ -497,7 +498,12 @@ export class StreamableHTTPServerTransport implements Transport {
 
         // handle each message
         for (const message of messages) {
-          this.onmessage?.(message, { authInfo, requestInfo });
+          const enhancedExtra: MessageExtraInfo = {
+            authInfo,
+            requestInfo,
+            customContext: this._customContext
+          };
+          this.onmessage?.(message, enhancedExtra);
         }
       } else if (hasRequests) {
         // The default behavior is to use SSE streaming
@@ -537,7 +543,12 @@ export class StreamableHTTPServerTransport implements Transport {
 
         // handle each message
         for (const message of messages) {
-          this.onmessage?.(message, { authInfo, requestInfo });
+          const enhancedExtra: MessageExtraInfo = {
+            authInfo,
+            requestInfo,
+            customContext: this._customContext
+          };
+          this.onmessage?.(message, enhancedExtra);
         }
         // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
         // This will be handled by the send() method when responses are ready
@@ -762,6 +773,13 @@ export class StreamableHTTPServerTransport implements Transport {
         }
       }
     }
+  }
+
+  /**
+   * Sets custom context data that will be passed to all message handlers.
+   */
+  setCustomContext(context: Record<string, unknown>): void {
+    this._customContext = context;
   }
 }
 
