@@ -1,7 +1,7 @@
 import { EventSource, type ErrorEvent, type EventSourceInit } from "eventsource";
 import { Transport, FetchLike } from "../shared/transport.js";
 import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
-import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
+import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from "./auth.js";
 
 export class SseError extends Error {
   constructor(
@@ -64,6 +64,7 @@ export class SSEClientTransport implements Transport {
   private _abortController?: AbortController;
   private _url: URL;
   private _resourceMetadataUrl?: URL;
+  private _scope?: string;
   private _eventSourceInit?: EventSourceInit;
   private _requestInit?: RequestInit;
   private _authProvider?: OAuthClientProvider;
@@ -80,6 +81,7 @@ export class SSEClientTransport implements Transport {
   ) {
     this._url = url;
     this._resourceMetadataUrl = undefined;
+    this._scope = undefined;
     this._eventSourceInit = opts?.eventSourceInit;
     this._requestInit = opts?.requestInit;
     this._authProvider = opts?.authProvider;
@@ -93,7 +95,12 @@ export class SSEClientTransport implements Transport {
 
     let result: AuthResult;
     try {
-      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
+      result = await auth(this._authProvider, {
+        serverUrl: this._url,
+        resourceMetadataUrl: this._resourceMetadataUrl,
+        scope: this._scope,
+        fetchFn: this._fetch,
+      });
     } catch (error) {
       this.onerror?.(error as Error);
       throw error;
@@ -139,7 +146,9 @@ export class SSEClientTransport implements Transport {
             })
 
             if (response.status === 401 && response.headers.has('www-authenticate')) {
-              this._resourceMetadataUrl = extractResourceMetadataUrl(response);
+              const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+              this._resourceMetadataUrl = resourceMetadataUrl;
+              this._scope = scope;
             }
 
             return response
@@ -218,7 +227,12 @@ export class SSEClientTransport implements Transport {
       throw new UnauthorizedError("No auth provider");
     }
 
-    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
+    const result = await auth(this._authProvider, {
+      serverUrl: this._url, authorizationCode,
+      resourceMetadataUrl: this._resourceMetadataUrl,
+      scope: this._scope,
+      fetchFn: this._fetch,
+    });
     if (result !== "AUTHORIZED") {
       throw new UnauthorizedError("Failed to authorize");
     }
@@ -250,9 +264,16 @@ export class SSEClientTransport implements Transport {
       if (!response.ok) {
         if (response.status === 401 && this._authProvider) {
 
-          this._resourceMetadataUrl = extractResourceMetadataUrl(response);
+          const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+          this._resourceMetadataUrl = resourceMetadataUrl;
+          this._scope = scope;
 
-          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, fetchFn: this._fetch });
+          const result = await auth(this._authProvider, {
+            serverUrl: this._url,
+            resourceMetadataUrl: this._resourceMetadataUrl,
+            scope: this._scope,
+            fetchFn: this._fetch,
+          });
           if (result !== "AUTHORIZED") {
             throw new UnauthorizedError();
           }

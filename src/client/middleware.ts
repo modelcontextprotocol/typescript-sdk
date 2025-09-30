@@ -1,6 +1,6 @@
 import {
   auth,
-  extractResourceMetadataUrl,
+  extractWWWAuthenticateParams,
   OAuthClientProvider,
   UnauthorizedError,
 } from "./auth.js";
@@ -59,7 +59,7 @@ export const withOAuth =
       // Handle 401 responses by attempting re-authentication
       if (response.status === 401) {
         try {
-          const resourceMetadataUrl = extractResourceMetadataUrl(response);
+          const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
 
           // Use provided baseUrl or extract from request URL
           const serverUrl =
@@ -70,6 +70,7 @@ export const withOAuth =
             serverUrl,
             resourceMetadataUrl,
             fetchFn: next,
+            scope,
           });
 
           if (result === "REDIRECT") {
