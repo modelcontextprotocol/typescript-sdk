@@ -466,30 +466,40 @@ export async function selectResourceURL(
 }
 
 /**
- * Extract resource_metadata from response header.
+ * Extract resource_metadata and scope from WWW-Authenticate header.
  */
-export function extractResourceMetadataUrl(res: Response): URL | undefined {
+export function extractWWWAuthenticateParams(res: Response): { resourceMetadataUrl?: URL; scope?: string } {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
     if (!authenticateHeader) {
-        return undefined;
+        return {};
     }
 
     const [type, scheme] = authenticateHeader.split(' ');
     if (type.toLowerCase() !== 'bearer' || !scheme) {
-        return undefined;
-    }
-    const regex = /resource_metadata="([^"]*)"/;
-    const match = regex.exec(authenticateHeader);
-
-    if (!match) {
-        return undefined;
+        return {};
     }
 
-    try {
-        return new URL(match[1]);
-    } catch {
-        return undefined;
+    const resourceMetadataRegex = /resource_metadata="([^"]*)"/;
+    const resourceMetadataMatch = resourceMetadataRegex.exec(authenticateHeader);
+
+    const scopeRegex = /scope="([^"]*)"/;
+    const scopeMatch = scopeRegex.exec(authenticateHeader);
+
+    let resourceMetadataUrl: URL | undefined;
+    if (resourceMetadataMatch) {
+        try {
+            resourceMetadataUrl = new URL(resourceMetadataMatch[1]);
+        } catch {
+            // Ignore invalid URL
+        }
     }
+
+    const scope = scopeMatch?.[1] || undefined;
+
+    return {
+        resourceMetadataUrl,
+        scope
+    };
 }
 
 /**

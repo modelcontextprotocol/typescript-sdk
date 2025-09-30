@@ -1,6 +1,6 @@
 import { Transport, FetchLike } from '../shared/transport.js';
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
-import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from './auth.js';
+import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
 // Default reconnection options for StreamableHTTP connections
@@ -125,6 +125,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _abortController?: AbortController;
     private _url: URL;
     private _resourceMetadataUrl?: URL;
+    private _scope?: string;
     private _requestInit?: RequestInit;
     private _authProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
@@ -140,6 +141,7 @@ export class StreamableHTTPClientTransport implements Transport {
     constructor(url: URL, opts?: StreamableHTTPClientTransportOptions) {
         this._url = url;
         this._resourceMetadataUrl = undefined;
+        this._scope = undefined;
         this._requestInit = opts?.requestInit;
         this._authProvider = opts?.authProvider;
         this._fetch = opts?.fetch;
@@ -156,6 +158,7 @@ export class StreamableHTTPClientTransport implements Transport {
         try {
             result = await auth(this._authProvider, {
                 serverUrl: this._url,
+                scope: this._scope,
                 resourceMetadataUrl: this._resourceMetadataUrl,
                 fetchFn: this._fetch
             });
@@ -381,6 +384,7 @@ export class StreamableHTTPClientTransport implements Transport {
             serverUrl: this._url,
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
+            scope: this._scope,
             fetchFn: this._fetch
         });
         if (result !== 'AUTHORIZED') {
@@ -437,11 +441,14 @@ export class StreamableHTTPClientTransport implements Transport {
                         throw new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
                     }
 
-                    this._resourceMetadataUrl = extractResourceMetadataUrl(response);
+                    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                    this._resourceMetadataUrl = resourceMetadataUrl;
+                    this._scope = scope;
 
                     const result = await auth(this._authProvider, {
                         serverUrl: this._url,
                         resourceMetadataUrl: this._resourceMetadataUrl,
+                        scope: this._scope,
                         fetchFn: this._fetch
                     });
                     if (result !== 'AUTHORIZED') {
