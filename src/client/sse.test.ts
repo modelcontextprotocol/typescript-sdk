@@ -363,7 +363,7 @@ describe("SSEClientTransport", () => {
       mockAuthProvider = {
         get redirectUrl() { return "http://localhost/callback"; },
         get clientMetadata() { return { redirect_uris: ["http://localhost/callback"] }; },
-        clientInformation: jest.fn(() => ({ client_id: "test-client-id", client_secret: "test-client-secret" })),
+        clientInformation: jest.fn(() => ({ client_id: "test-client-id", client_secret: "test-client-secret", redirect_uris: ["http://localhost/callback"] })),
         tokens: jest.fn(),
         saveTokens: jest.fn(),
         redirectToAuthorization: jest.fn(),
@@ -1140,7 +1140,8 @@ describe("SSEClientTransport", () => {
 
       const clientInfo = config.clientRegistered ? {
         client_id: "test-client-id",
-        client_secret: "test-client-secret"
+        client_secret: "test-client-secret",
+        redirect_uris: ["http://localhost/callback"],
       } : undefined;
 
       return {
