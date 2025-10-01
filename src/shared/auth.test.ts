@@ -18,11 +18,14 @@ describe('SafeUrlSchema', () => {
 
     it('rejects invalid URLs', () => {
         expect(() => SafeUrlSchema.parse('not-a-url')).toThrow();
-        expect(() => SafeUrlSchema.parse('')).toThrow();
     });
 
     it('works with safeParse', () => {
         expect(() => SafeUrlSchema.safeParse('not-a-url')).not.toThrow();
+    });
+
+    it('works with empty string', () => {
+        expect(() => SafeUrlSchema.parse('')).not.toThrow();
     });
 });
 

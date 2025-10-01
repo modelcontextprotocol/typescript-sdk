@@ -23,7 +23,8 @@ export const SafeUrlSchema = z
             return u.protocol !== 'javascript:' && u.protocol !== 'data:' && u.protocol !== 'vbscript:';
         },
         { message: 'URL cannot use javascript:, data:, or vbscript: scheme' }
-    );
+    )
+    .or(z.literal(''));
 
 /**
  * RFC 9728 OAuth Protected Resource Metadata
