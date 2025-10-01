@@ -891,33 +891,55 @@ export class McpServer {
     // Support for this style is frozen as of protocol version 2025-03-26. Future additions
     // to tool definition should *NOT* be added.
 
-    if (typeof rest[0] === "string") {
-      description = rest.shift() as string;
+    // Find the callback first (always the last function in rest)
+    let callbackIndex = rest.length - 1;
+    while (callbackIndex >= 0 && typeof rest[callbackIndex] !== "function") {
+      callbackIndex--;
     }
 
-    // Handle the different overload combinations
-    if (rest.length > 1) {
-      // We have at least one more arg before the callback
-      const firstArg = rest[0];
+    if (callbackIndex < 0) {
+      throw new Error(`Tool ${name} registration requires a callback function`);
+    }
 
-      if (isZodRawShape(firstArg)) {
-        // We have a params schema as the first arg
-        inputSchema = rest.shift() as ZodRawShape;
+    const callback = rest[callbackIndex] as ToolCallback<ZodRawShape | undefined>;
+    // Get all args before the callback
+    const args = rest.slice(0, callbackIndex);
 
-        // Check if the next arg is potentially annotations
-        if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !(isZodRawShape(rest[0]))) {
-          // Case: tool(name, paramsSchema, annotations, cb)
-          // Or: tool(name, description, paramsSchema, annotations, cb)
-          annotations = rest.shift() as ToolAnnotations;
-        }
-      } else if (typeof firstArg === "object" && firstArg !== null) {
-        // Not a ZodRawShape, so must be annotations in this position
-        // Case: tool(name, annotations, cb)
-        // Or: tool(name, description, annotations, cb)
-        annotations = rest.shift() as ToolAnnotations;
+    // Parse args: [description?], [paramsSchema?], [annotations?]
+    // Skip undefined values and parse based on type
+    let argIndex = 0;
+
+    // Check for optional description (first string arg, skip if undefined)
+    if (argIndex < args.length) {
+      if (typeof args[argIndex] === "string") {
+        description = args[argIndex] as string;
+        argIndex++;
+      } else if (args[argIndex] === undefined) {
+        argIndex++; // Skip undefined
       }
     }
-    const callback = rest[0] as ToolCallback<ZodRawShape | undefined>;
+
+    // Check for optional paramsSchema (ZodRawShape, skip if undefined)
+    if (argIndex < args.length) {
+      if (isZodRawShape(args[argIndex])) {
+        inputSchema = args[argIndex] as ZodRawShape;
+        argIndex++;
+      } else if (args[argIndex] === undefined) {
+        argIndex++; // Skip undefined
+      }
+    }
+
+    // Check for optional annotations (non-null object that's not a ZodRawShape, skip if undefined)
+    if (argIndex < args.length) {
+      if (typeof args[argIndex] === "object" &&
+          args[argIndex] !== null &&
+          !isZodRawShape(args[argIndex])) {
+        annotations = args[argIndex] as ToolAnnotations;
+        argIndex++;
+      } else if (args[argIndex] === undefined) {
+        argIndex++; // Skip undefined
+      }
+    }
 
     return this._createRegisteredTool(name, undefined, description, inputSchema, outputSchema, annotations, undefined, callback)
   }
