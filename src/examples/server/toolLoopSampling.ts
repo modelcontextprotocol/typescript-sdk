@@ -5,7 +5,9 @@
   to intelligently search and read files in the current directory.
 
   Usage:
-    npx -y --silent tsx src/examples/server/toolLoopSampling.ts
+    npx -y @modelcontextprotocol/inspector \
+      npx -y --silent tsx src/examples/backfill/backfillSampling.ts \
+        npx -y --silent tsx src/examples/server/toolLoopSampling.ts
 
   Then connect with an MCP client and call the "fileSearch" tool with a query like:
     "Find all TypeScript files that export a Server class"
