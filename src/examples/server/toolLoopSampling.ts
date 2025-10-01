@@ -29,6 +29,17 @@ import type {
 const CWD = process.cwd();
 
 /**
+ * Interface for tracking aggregated token usage across API calls.
+ */
+interface AggregatedUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  api_calls: number;
+}
+
+/**
  * Zod schemas for validating tool inputs
  */
 const RipgrepInputSchema = z.object({
@@ -267,7 +278,7 @@ async function executeLocalTool(
 async function runToolLoop(
   server: McpServer,
   initialQuery: string
-): Promise<{ answer: string; transcript: SamplingMessage[] }> {
+): Promise<{ answer: string; transcript: SamplingMessage[]; usage: AggregatedUsage }> {
   const messages: SamplingMessage[] = [
     {
       role: "user",
@@ -277,6 +288,15 @@ async function runToolLoop(
       },
     },
   ];
+
+  // Initialize usage tracking
+  const aggregatedUsage: AggregatedUsage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+    api_calls: 0,
+  };
 
   const MAX_ITERATIONS = 10;
   let iteration = 0;
@@ -299,6 +319,16 @@ async function runToolLoop(
       tools: LOCAL_TOOLS,
       tool_choice: { mode: "auto" },
     });
+
+    // Aggregate usage statistics from the response
+    if (response._meta?.usage) {
+      const usage = response._meta.usage as any;
+      aggregatedUsage.input_tokens += usage.input_tokens || 0;
+      aggregatedUsage.output_tokens += usage.output_tokens || 0;
+      aggregatedUsage.cache_creation_input_tokens += usage.cache_creation_input_tokens || 0;
+      aggregatedUsage.cache_read_input_tokens += usage.cache_read_input_tokens || 0;
+      aggregatedUsage.api_calls += 1;
+    }
 
     // Add assistant's response to message history
     // Note that SamplingMessage.content doesn't yet support arrays, so we flatten the content into multiple messages.
@@ -364,7 +394,7 @@ async function runToolLoop(
         data: `Tool loop completed after ${iteration} iteration(s)`,
       });
 
-      return { answer, transcript: messages };
+      return { answer, transcript: messages, usage: aggregatedUsage };
     }
 
     // Unexpected response type
@@ -400,12 +430,34 @@ mcpServer.registerTool(
   },
   async ({ query }) => {
     try {
-      const { answer, transcript } = await runToolLoop(mcpServer, query);
+      const { answer, transcript, usage } = await runToolLoop(mcpServer, query);
+
+      // Calculate total input tokens
+      const totalInputTokens =
+        usage.input_tokens +
+        usage.cache_creation_input_tokens +
+        usage.cache_read_input_tokens;
+
+      // Format usage summary
+      const usageSummary =
+        `--- Token Usage Summary ---\n` +
+        `Total Input Tokens: ${totalInputTokens}\n` +
+        `  - Regular: ${usage.input_tokens}\n` +
+        `  - Cache Creation: ${usage.cache_creation_input_tokens}\n` +
+        `  - Cache Read: ${usage.cache_read_input_tokens}\n` +
+        `Total Output Tokens: ${usage.output_tokens}\n` +
+        `Total Tokens: ${totalInputTokens + usage.output_tokens}\n` +
+        `API Calls: ${usage.api_calls}`;
+
       return {
         content: [
           {
             type: "text",
             text: answer,
+          },
+          {
+            type: "text",
+            text: `\n\n${usageSummary}`,
           },
           {
             type: "text",

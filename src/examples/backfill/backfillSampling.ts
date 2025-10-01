@@ -248,6 +248,9 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                                 stopReason: stopReasonToMcp(msg.stop_reason),
                                 role: 'assistant', // Always assistant in MCP responses
                                 content: (Array.isArray(msg.content) ? msg.content : [msg.content]).map(contentToMcp),
+                                _meta: {
+                                    usage: msg.usage,
+                                },
                             },
                         });
                     } catch (error) {
