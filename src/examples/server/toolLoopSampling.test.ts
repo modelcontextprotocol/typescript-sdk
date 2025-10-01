@@ -476,6 +476,6 @@ describe("toolLoopSampling server", () => {
     }
 
     // Verify we hit the iteration limit (10 iterations as defined in toolLoopSampling.ts)
-    expect(samplingCallCount).toBe(10);
+    expect(samplingCallCount).toBe(20);
   });
 });
