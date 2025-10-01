@@ -1,4 +1,4 @@
-import { z, ZodTypeAny } from "zod";
+import { z, ZodRawShape, ZodTypeAny } from "zod";
 import { AuthInfo } from "./server/auth/types.js";
 
 export const LATEST_PROTOCOL_VERSION = "2025-06-18";
@@ -997,10 +997,7 @@ export const ListToolsResultSchema = PaginatedResultSchema.extend({
   tools: z.array(ToolSchema),
 });
 
-/**
- * The server's response to a tool call.
- */
-export const CallToolResultSchema = ResultSchema.extend({
+export const CallToolResultUnstructuredSchema = ResultSchema.extend({
   /**
    * A list of content objects that represent the result of the tool call.
    *
@@ -1008,14 +1005,6 @@ export const CallToolResultSchema = ResultSchema.extend({
    * For backwards compatibility, this field is always present, but it may be empty.
    */
   content: z.array(ContentBlockSchema).default([]),
-
-  /**
-   * An object containing structured tool output.
-   *
-   * If the Tool defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
-   */
-  structuredContent: z.object({}).passthrough().optional(),
-
   /**
    * Whether the tool call ended in an error.
    *
@@ -1032,6 +1021,17 @@ export const CallToolResultSchema = ResultSchema.extend({
    */
   isError: z.optional(z.boolean()),
 });
+
+export const CallToolResultStructuredSchema = CallToolResultUnstructuredSchema.extend({
+  /**
+   * An object containing structured tool output.
+   *
+   * If the Tool defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
+   */
+  structuredContent: z.object({}).passthrough().optional(),
+});
+
+export const CallToolResultSchema = z.union([CallToolResultUnstructuredSchema, CallToolResultStructuredSchema]);
 
 /**
  * CallToolResultSchema extended with backwards compatibility to protocol version 2024-10-07.
@@ -1643,6 +1643,10 @@ export type Tool = Infer<typeof ToolSchema>;
 export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
 export type CallToolResult = Infer<typeof CallToolResultSchema>;
+export type CallToolResultUnstructured = Infer<typeof CallToolResultUnstructuredSchema>;
+export type CallToolResultStructured<OArgs extends ZodRawShape> = Infer<typeof CallToolResultStructuredSchema> & {
+  structuredContent: z.infer<z.ZodObject<OArgs>>;
+}
 export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
 export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
