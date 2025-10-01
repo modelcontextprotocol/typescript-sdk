@@ -881,14 +881,9 @@ export const ToolResultContentSchema = z
     /**
      * The result of the tool execution.
      * Can be any JSON-serializable object.
-     * May include error information if the tool failed.
+     * Error information should be included in the content itself.
      */
     content: z.object({}).passthrough(),
-    /**
-     * If true, indicates the tool execution failed.
-     * The content should contain error details.
-     */
-    isError: z.optional(z.boolean()),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.

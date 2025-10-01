@@ -384,22 +384,20 @@ describe("Types", () => {
                     expect(result.data.type).toBe("tool_result");
                     expect(result.data.toolUseId).toBe("call_123");
                     expect(result.data.content).toEqual({ temperature: 72, condition: "sunny" });
-                    expect(result.data.isError).toBeUndefined();
                 }
             });
 
-            test("should validate tool result with error", () => {
+            test("should validate tool result with error in content", () => {
                 const toolResult = {
                     type: "tool_result",
                     toolUseId: "call_456",
-                    content: { error: "API_ERROR", message: "Service unavailable" },
-                    isError: true
+                    content: { error: "API_ERROR", message: "Service unavailable" }
                 };
 
                 const result = ToolResultContentSchema.safeParse(toolResult);
                 expect(result.success).toBe(true);
                 if (result.success) {
-                    expect(result.data.isError).toBe(true);
+                    expect(result.data.content).toEqual({ error: "API_ERROR", message: "Service unavailable" });
                 }
             });
 
