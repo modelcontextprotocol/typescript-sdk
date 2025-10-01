@@ -796,32 +796,6 @@ describe("OAuth Authorization", () => {
       expect(calls[1][0].toString()).toBe("https://auth.example.com/.well-known/oauth-authorization-server");
     });
 
-    it("throws error when OIDC provider does not support S256 PKCE", async () => {
-      // OAuth discovery fails
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
-
-      // OpenID Connect discovery succeeds but without S256 support
-      const invalidOpenIdMetadata = {
-        ...validOpenIdMetadata,
-        code_challenge_methods_supported: ["plain"], // Missing S256
-      };
-
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => invalidOpenIdMetadata,
-      });
-
-      await expect(
-        discoverAuthorizationServerMetadata(
-          "https://auth.example.com"
-        )
-      ).rejects.toThrow("does not support S256 code challenge method required by MCP specification");
-    });
-
     it("continues on 4xx errors", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
@@ -936,6 +910,17 @@ describe("OAuth Authorization", () => {
       code_challenge_methods_supported: ["S256"],
     };
 
+    const validOpenIdMetadata = {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/auth",
+      token_endpoint: "https://auth.example.com/token",
+      jwks_uri: "https://auth.example.com/jwks",
+      subject_types_supported: ["public"],
+      id_token_signing_alg_values_supported: ["RS256"],
+      response_types_supported: ["code"],
+      code_challenge_methods_supported: ["S256"],
+    };
+
     const validClientInfo = {
       client_id: "client123",
       client_secret: "secret123",
@@ -1033,11 +1018,11 @@ describe("OAuth Authorization", () => {
       expect(authorizationUrl.searchParams.get("prompt")).toBe("consent");
     });
 
-    it("uses metadata authorization_endpoint when provided", async () => {
+    it.each([validMetadata, validOpenIdMetadata])("uses metadata authorization_endpoint when provided", async (baseMetadata) => {
       const { authorizationUrl } = await startAuthorization(
         "https://auth.example.com",
         {
-          metadata: validMetadata,
+          metadata: baseMetadata,
           clientInformation: validClientInfo,
           redirectUrl: "http://localhost:3000/callback",
         }
@@ -1048,9 +1033,9 @@ describe("OAuth Authorization", () => {
       );
     });
 
-    it("validates response type support", async () => {
+    it.each([validMetadata, validOpenIdMetadata])("validates response type support", async (baseMetadata) => {
       const metadata = {
-        ...validMetadata,
+        ...baseMetadata,
         response_types_supported: ["token"], // Does not support 'code'
       };
 
@@ -1063,9 +1048,28 @@ describe("OAuth Authorization", () => {
       ).rejects.toThrow(/does not support response type/);
     });
 
-    it("validates PKCE support", async () => {
+    // https://github.com/modelcontextprotocol/typescript-sdk/issues/832
+    it.each([validMetadata, validOpenIdMetadata])("assumes supported code challenge methods includes S256 if absent", async (baseMetadata) => {
       const metadata = {
-        ...validMetadata,
+        ...baseMetadata,
+        response_types_supported: ["code"],
+        code_challenge_methods_supported: undefined
+      };
+
+      const { authorizationUrl } = await startAuthorization("https://auth.example.com", {
+        metadata,
+        clientInformation: validClientInfo,
+        redirectUrl: "http://localhost:3000/callback",
+      })
+
+      expect(authorizationUrl.toString()).toMatch(
+        /^https:\/\/auth\.example\.com\/auth\?.+&code_challenge_method=S256/
+      );
+    });
+
+    it.each([validMetadata, validOpenIdMetadata])("validates supported code challenge methods includes S256 if present", async (baseMetadata) => {
+      const metadata = {
+        ...baseMetadata,
         response_types_supported: ["code"],
         code_challenge_methods_supported: ["plain"], // Does not support 'S256'
       };
