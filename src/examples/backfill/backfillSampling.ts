@@ -3,7 +3,7 @@
     
     Usage:
       npx -y @modelcontextprotocol/inspector \
-        npx -y --silent tsx src/examples/backfill/backfillSampling.ts \
+        npx -y --silent tsx src/examples/backfill/backfillSampling.ts -- \
           npx -y --silent @modelcontextprotocol/server-everything
 */
 
@@ -28,6 +28,8 @@ import {
   isJSONRPCNotification,
 } from "../../types.js";
 import { Transport } from "../../shared/transport.js";
+
+const DEFAULT_MAX_TOKENS = process.env.DEFAULT_MAX_TOKENS ? parseInt(process.env.DEFAULT_MAX_TOKENS) : 1000;
 
 // TODO: move to SDK
 
@@ -124,22 +126,21 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                         message.params.capabilities.sampling = {}
                         message.params._meta = {...(message.params._meta ?? {}), ...backfillMeta};
                     }
-                } else if (isCreateMessageRequest(message) && !clientSupportsSampling) {
-                    if (message.params.includeContext !== 'none') {
+                } else if (isCreateMessageRequest(message)) {
+                    if ((message.params.includeContext ?? 'none') !== 'none') {
+                        const errorMessage = "includeContext != none not supported by MCP sampling backfill"
+                        console.error(`[proxy]: ${errorMessage}`);
                         source.transport.send({
                             jsonrpc: "2.0",
                             id: message.id,
                             error: {
                                 code: -32601, // Method not found
-                                message: "includeContext != none not supported by MCP sampling backfill",
+                                message: errorMessage,
                             },
                         }, {relatedRequestId: message.id});
                         return;
                     }
                     
-                    message.params.metadata;
-                    message.params.modelPreferences;
-
                     try {
                         // message.params.
                         const msg = await api.messages.create({
@@ -154,9 +155,10 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                                 role,
                                 content: [contentFromMcp(content)]
                             })),
-                            max_tokens: message.params.maxTokens,
+                            max_tokens: message.params.maxTokens ?? DEFAULT_MAX_TOKENS,
                             temperature: message.params.temperature,
                             stop_sequences: message.params.stopSequences,
+                            ...(message.params.metadata ?? {}),
                         });
 
                         if (msg.content.length !== 1) {
@@ -174,6 +176,8 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                             },
                         });
                     } catch (error) {
+                        console.error(`[proxy]: Error processing message: ${(error as Error).message}`);
+
                         source.transport.send({
                             jsonrpc: "2.0",
                             id: message.id,
