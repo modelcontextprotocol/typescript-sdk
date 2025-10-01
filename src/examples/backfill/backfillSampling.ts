@@ -16,6 +16,7 @@ import {
     ToolChoiceAuto,
     ToolChoiceAny,
     ToolChoiceTool,
+    ToolChoiceNone,
 } from "@anthropic-ai/sdk/resources/messages.js";
 import { StdioServerTransport } from '../../server/stdio.js';
 import { StdioClientTransport } from '../../client/stdio.js';
@@ -73,17 +74,19 @@ function toolToClaudeFormat(tool: Tool): ClaudeTool {
 /**
  * Converts MCP ToolChoice to Claude API tool_choice format
  */
-function toolChoiceToClaudeFormat(toolChoice: CreateMessageRequest['params']['tool_choice']): ToolChoiceAuto | ToolChoiceAny | ToolChoiceTool | undefined {
-    if (!toolChoice) {
-        return undefined;
+function toolChoiceToClaudeFormat(toolChoice: CreateMessageRequest['params']['toolChoice']): ToolChoiceAuto | ToolChoiceAny | ToolChoiceNone | ToolChoiceTool | undefined {
+    switch (toolChoice?.mode) {
+        case "auto":
+            return { type: "auto", disable_parallel_tool_use: toolChoice.disable_parallel_tool_use };
+        case "required":
+            return { type: "any", disable_parallel_tool_use: toolChoice.disable_parallel_tool_use };
+        case "none":
+            return { type: "none" };
+        case undefined:
+            return undefined;
+        default:
+            throw new Error(`Unsupported toolChoice mode: ${toolChoice}`);
     }
-
-    if (toolChoice.mode === "required") {
-        return { type: "any", disable_parallel_tool_use: toolChoice.disable_parallel_tool_use };
-    }
-
-    // "auto" or undefined defaults to auto
-    return { type: "auto", disable_parallel_tool_use: toolChoice.disable_parallel_tool_use };
 }
 
 function contentToMcp(content: ContentBlock): CreateMessageResult['content'] {
@@ -225,9 +228,11 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                     }
                     
                     try {
-                        // Convert MCP tools to Claude API format if provided
-                        const tools = message.params.tools?.map(toolToClaudeFormat);
-                        const tool_choice = toolChoiceToClaudeFormat(message.params.tool_choice);
+                        // Note that having tools + tool_choice = 'none' does not disable tools, unlike in OpenAI's API.
+                        // We forcibly empty out the tools list in that case, which messes with the prompt caching.
+                        const tools = message.params.toolChoice?.mode === 'none' ? undefined
+                            : message.params.tools?.map(toolToClaudeFormat);
+                        const tool_choice = toolChoiceToClaudeFormat(message.params.toolChoice);
 
                         const msg = await api.messages.create({
                             model: pickModel(message.params.modelPreferences),

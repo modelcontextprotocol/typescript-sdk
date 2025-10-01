@@ -1227,7 +1227,7 @@ export const ToolChoiceSchema = z
      * - "auto": Model decides whether to use tools (default)
      * - "required": Model MUST use at least one tool before completing
      */
-    mode: z.optional(z.enum(["auto", "required"])),
+    mode: z.optional(z.enum(["auto", "required", "none"])),
     /**
      * If true, model should not use multiple tools in parallel.
      * Some models may ignore this hint.
@@ -1331,7 +1331,7 @@ export const CreateMessageRequestSchema = RequestSchema.extend({
      * Controls tool usage behavior.
      * Requires clientCapabilities.sampling.tools and tools parameter.
      */
-    tool_choice: z.optional(ToolChoiceSchema),
+    toolChoice: z.optional(ToolChoiceSchema),
   }),
 });
 
@@ -1353,7 +1353,7 @@ export const CreateMessageResultSchema = ResultSchema.extend({
    * - "other": Other provider-specific reason
    */
   stopReason: z.optional(
-    z.enum(["endTurn", "stopSequence", "maxTokens", "toolUse", "refusal", "other"]).or(z.string()),
+    z.enum(["endTurn", "stopSequence", "maxTokens", "toolUse"]).or(z.string()),
   ),
   /**
    * The role is always "assistant" in responses from the LLM.

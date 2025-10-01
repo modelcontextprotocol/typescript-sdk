@@ -24,6 +24,8 @@ import type {
   Tool,
   ToolCallContent,
   CreateMessageResult,
+  CreateMessageRequest,
+  ToolResultContent,
 } from "../../types.js";
 
 const CWD = process.cwd();
@@ -298,7 +300,7 @@ async function runToolLoop(
     api_calls: 0,
   };
 
-  const MAX_ITERATIONS = 10;
+  const MAX_ITERATIONS = 20;
   let iteration = 0;
 
   const systemPrompt =
@@ -306,18 +308,22 @@ async function runToolLoop(
     "You have access to ripgrep (for searching) and read (for reading file contents). " +
     "Use ripgrep to find relevant files, then read them to provide accurate answers. " +
     "All paths are relative to the current working directory. " +
-    "Be concise and focus on providing the most relevant information.";
+    "Be concise and focus on providing the most relevant information." +
+    "You will be allowed up to " + MAX_ITERATIONS + " iterations of tool use to find the information needed. When you have enough information or reach the last iteration, provide a final answer.";
 
+  let request: CreateMessageRequest["params"] | undefined
+  let response: CreateMessageResult | undefined
   while (iteration < MAX_ITERATIONS) {
     iteration++;
 
     // Request message from LLM with available tools
-    const response: CreateMessageResult = await server.server.createMessage({
+    response = await server.server.createMessage(request = {
       messages,
       systemPrompt,
       maxTokens: 4000,
-      tools: LOCAL_TOOLS,
-      tool_choice: { mode: "auto" },
+      tools: iteration < MAX_ITERATIONS ? LOCAL_TOOLS : undefined,
+      // Don't allow tool calls at the last iteration: finish with an answer no matter what!
+      tool_choice: { mode: iteration < MAX_ITERATIONS ? "auto" : "none" },
     });
 
     // Aggregate usage statistics from the response
@@ -337,72 +343,61 @@ async function runToolLoop(
       content: response.content,
     });
 
-    // Check if LLM wants to use tools
     if (response.stopReason === "toolUse") {
-      // Extract all tool_use content blocks
       const contentArray = Array.isArray(response.content) ? response.content : [response.content];
       const toolCalls = contentArray.filter(
         (content): content is ToolCallContent => content.type === "tool_use"
       );
 
-      // Log iteration with tool invocation count
       await server.sendLoggingMessage({
         level: "info",
         data: `Loop iteration ${iteration}: ${toolCalls.length} tool invocation(s) requested`,
       });
 
-      // Execute all tools in parallel
-      const toolResultPromises = toolCalls.map(async (toolCall) => {
+      const toolResults: ToolResultContent[] = await Promise.all(toolCalls.map(async (toolCall) => {
         const result = await executeLocalTool(server, toolCall.name, toolCall.input);
+        return { 
+          type: "tool_result",
+          toolUseId: toolCall.id,
+          content: result,
+        }
+      }))
 
-        return { toolCall, result };
+      messages.push({
+        role: "user",
+        content: iteration < MAX_ITERATIONS ? toolResults : [
+          ...toolResults,
+          {
+            type: "text",
+            text: "Using the information retrieved from the tools, please now provide a concise final answer to the original question (last iteration of the tool loop).",
+          }
+        ],
       });
-
-      const toolResults = await Promise.all(toolResultPromises);
-
-      // Add all tool results to message history
-      for (const { toolCall, result } of toolResults) {
-        messages.push({
-          role: "user",
-          content: {
-            type: "tool_result",
-            toolUseId: toolCall.id,
-            content: result,
-          },
-        });
+    } else if (response.stopReason === "endTurn") {
+      const contentArray = Array.isArray(response.content) ? response.content : [response.content];
+      const unexpectedBlocks = contentArray.filter(content => content.type !== "text");
+      if (unexpectedBlocks.length > 0) {
+        throw new Error(`Expected text content in final answer, but got: ${unexpectedBlocks.map(b => b.type).join(", ")}`);
       }
-
-      // Continue the loop to get next response
-      continue;
-    }
-
-    // LLM provided final answer (no tool use)
-    // Extract all text content blocks and concatenate them
-    const contentArray = Array.isArray(response.content) ? response.content : [response.content];
-    const textBlocks = contentArray.filter(
-      (content): content is { type: "text"; text: string } => content.type === "text"
-    );
-
-    if (textBlocks.length > 0) {
-      const answer = textBlocks.map(block => block.text).join("\n\n");
-
-      // Log completion
+      
       await server.sendLoggingMessage({
         level: "info",
         data: `Tool loop completed after ${iteration} iteration(s)`,
       });
 
-      return { answer, transcript: messages, usage: aggregatedUsage };
+      return {
+        answer: contentArray.map(block => block.text).join("\n\n"),
+        transcript: messages,
+        usage: aggregatedUsage
+      };
+    } else if (response?.stopReason === "maxTokens") {
+      throw new Error("LLM response hit max tokens limit");
+    } else {
+      throw new Error(`Unsupported stop reason: ${response.stopReason}`);
     }
-
-    // Unexpected response type
-    const contentTypes = contentArray.map(c => c.type).join(", ");
-    throw new Error(
-      `Unexpected response content types: ${contentTypes}`
-    );
   }
 
-  throw new Error(`Tool loop exceeded maximum iterations (${MAX_ITERATIONS})`);
+  throw new Error(`Tool loop exceeded maximum iterations (${MAX_ITERATIONS}); request: ${JSON.stringify(request)}\nresponse: ${JSON.stringify(response)}`);
 }
 
 // Create and configure MCP server
