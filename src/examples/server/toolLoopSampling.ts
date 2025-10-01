@@ -204,7 +204,7 @@ async function executeLocalTool(
 async function runToolLoop(
   server: McpServer,
   initialQuery: string
-): Promise<string> {
+): Promise<{ answer: string; transcript: SamplingMessage[] }> {
   const messages: SamplingMessage[] = [
     {
       role: "user",
@@ -238,50 +238,78 @@ async function runToolLoop(
     });
 
     // Add assistant's response to message history
-    messages.push({
-      role: "assistant",
-      content: response.content,
-    });
-
-    // Check if LLM wants to use a tool
-    if (response.stopReason === "toolUse") {
-      const toolCall = response.content as ToolCallContent;
-
-      console.error(
-        `[toolLoop] LLM requested tool: ${toolCall.name} with input:`,
-        JSON.stringify(toolCall.input, null, 2)
-      );
-
-      // Execute the requested tool locally
-      const toolResult = await executeLocalTool(toolCall.name, toolCall.input);
-
-      console.error(
-        `[toolLoop] Tool result:`,
-        JSON.stringify(toolResult, null, 2)
-      );
-
-      // Add tool result to message history
+    // Note that SamplingMessage.content doesn't yet support arrays, so we flatten the content into multiple messages.
+    for (const content of (Array.isArray(response.content) ? response.content : [response.content])) {
       messages.push({
-        role: "user",
-        content: {
-          type: "tool_result",
-          toolUseId: toolCall.id,
-          content: toolResult,
-        },
+        role: "assistant",
+        content,
       });
+    }
+
+    // Check if LLM wants to use tools
+    if (response.stopReason === "toolUse") {
+      // Extract all tool_use content blocks
+      const contentArray = Array.isArray(response.content) ? response.content : [response.content];
+      const toolCalls = contentArray.filter(
+        (content): content is ToolCallContent => content.type === "tool_use"
+      );
+
+      console.error(
+        `[toolLoop] LLM requested ${toolCalls.length} tool(s):`,
+        toolCalls.map(tc => `${tc.name}`).join(", ")
+      );
+
+      // Execute all tools in parallel
+      const toolResultPromises = toolCalls.map(async (toolCall) => {
+        console.error(
+          `[toolLoop] Executing tool: ${toolCall.name} with input:`,
+          JSON.stringify(toolCall.input, null, 2)
+        );
+
+        const result = await executeLocalTool(toolCall.name, toolCall.input);
+
+        console.error(
+          `[toolLoop] Tool ${toolCall.name} result:`,
+          JSON.stringify(result, null, 2)
+        );
+
+        return { toolCall, result };
+      });
+
+      const toolResults = await Promise.all(toolResultPromises);
+
+      // Add all tool results to message history
+      for (const { toolCall, result } of toolResults) {
+        messages.push({
+          role: "user",
+          content: {
+            type: "tool_result",
+            toolUseId: toolCall.id,
+            content: result,
+          },
+        });
+      }
 
       // Continue the loop to get next response
       continue;
     }
 
-    // LLM provided final answer
-    if (response.content.type === "text") {
-      return response.content.text;
+    // LLM provided final answer (no tool use)
+    // Extract all text content blocks and concatenate them
+    const contentArray = Array.isArray(response.content) ? response.content : [response.content];
+    const textBlocks = contentArray.filter(
+      (content): content is { type: "text"; text: string } => content.type === "text"
+    );
+
+    if (textBlocks.length > 0) {
+      const answer = textBlocks.map(block => block.text).join("\n\n");
+      return { answer, transcript: messages };
     }
 
     // Unexpected response type
+    const contentTypes = contentArray.map(c => c.type).join(", ");
     throw new Error(
-      `Unexpected response content type: ${response.content.type}`
+      `Unexpected response content types: ${contentTypes}`
     );
   }
 
@@ -313,15 +341,20 @@ mcpServer.registerTool(
     try {
       console.error(`[fileSearch] Processing query: ${query}`);
 
-      const result = await runToolLoop(mcpServer, query);
+      const { answer, transcript } = await runToolLoop(mcpServer, query);
 
-      console.error(`[fileSearch] Final result: ${result.substring(0, 200)}...`);
+      console.error(`[fileSearch] Final answer: ${answer.substring(0, 200)}...`);
+      console.error(`[fileSearch] Transcript length: ${transcript.length} messages`);
 
       return {
         content: [
           {
             type: "text",
-            text: result,
+            text: answer,
+          },
+          {
+            type: "text",
+            text: `\n\n--- Debug Transcript (${transcript.length} messages) ---\n${JSON.stringify(transcript, null, 2)}`,
           },
         ],
       };
