@@ -228,6 +228,12 @@ async function runToolLoop(
   while (iteration < MAX_ITERATIONS) {
     iteration++;
 
+    // Log iteration start
+    await server.sendLoggingMessage({
+      level: "info",
+      data: `Tool loop iteration ${iteration}/${MAX_ITERATIONS}`,
+    });
+
     // Request message from LLM with available tools
     const response: CreateMessageResult = await server.server.createMessage({
       messages,
@@ -253,6 +259,13 @@ async function runToolLoop(
       const toolCalls = contentArray.filter(
         (content): content is ToolCallContent => content.type === "tool_use"
       );
+
+      // Log tool invocations
+      const toolNames = toolCalls.map(tc => tc.name).join(", ");
+      await server.sendLoggingMessage({
+        level: "info",
+        data: `Executing ${toolCalls.length} tool(s): ${toolNames}`,
+      });
 
       console.error(
         `[toolLoop] LLM requested ${toolCalls.length} tool(s):`,
@@ -303,6 +316,13 @@ async function runToolLoop(
 
     if (textBlocks.length > 0) {
       const answer = textBlocks.map(block => block.text).join("\n\n");
+
+      // Log completion
+      await server.sendLoggingMessage({
+        level: "info",
+        data: `Tool loop completed after ${iteration} iteration(s)`,
+      });
+
       return { answer, transcript: messages };
     }
 
