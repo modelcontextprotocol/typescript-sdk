@@ -1,7 +1,7 @@
 /*
   This example demonstrates a tool loop using MCP sampling with locally defined tools.
 
-  It exposes a "fileSearch" tool that uses an LLM with ripgrep and read capabilities
+  It exposes a "localResearch" tool that uses an LLM with ripgrep and read capabilities
   to intelligently search and read files in the current directory.
 
   Usage:
@@ -9,7 +9,7 @@
       npx -y --silent tsx src/examples/backfill/backfillSampling.ts -- \
         npx -y --silent tsx src/examples/server/toolLoopSampling.ts
 
-  Then connect with an MCP client and call the "fileSearch" tool with a query like:
+  Then connect with an MCP client and call the "localResearch" tool with a query like:
     "Find all TypeScript files that export a Server class"
 */
 
@@ -406,9 +406,9 @@ const mcpServer = new McpServer({
   version: "1.0.0",
 });
 
-// Register the fileSearch tool that uses sampling with a tool loop
+// Register the localResearch tool that uses sampling with a tool loop
 mcpServer.registerTool(
-  "fileSearch",
+  "localResearch",
   {
     description:
       "Search for information in files using an AI assistant with ripgrep and file reading capabilities. " +

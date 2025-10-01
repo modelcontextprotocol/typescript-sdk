@@ -1,7 +1,7 @@
 /**
  * Tests for toolLoopSampling.ts
  *
- * These tests verify that the fileSearch tool correctly implements a tool loop
+ * These tests verify that the localResearch tool correctly implements a tool loop
  * by simulating an LLM that makes ripgrep and read tool calls.
  */
 
@@ -140,12 +140,12 @@ describe("toolLoopSampling server", () => {
     // Connect client to server
     await client.connect(transport);
 
-    // Call the fileSearch tool
+    // Call the localResearch tool
     const result = await client.request(
       {
         method: "tools/call",
         params: {
-          name: "fileSearch",
+          name: "localResearch",
           arguments: {
             query: "Find the McpServer class definition",
           },
@@ -236,12 +236,12 @@ describe("toolLoopSampling server", () => {
 
     await client.connect(transport);
 
-    // Call the fileSearch tool
+    // Call the localResearch tool
     const result = await client.request(
       {
         method: "tools/call",
         params: {
-          name: "fileSearch",
+          name: "localResearch",
           arguments: {
             query: "Search outside current directory",
           },
@@ -325,7 +325,7 @@ describe("toolLoopSampling server", () => {
       {
         method: "tools/call",
         params: {
-          name: "fileSearch",
+          name: "localResearch",
           arguments: {
             query: "Use unknown tool",
           },
@@ -409,7 +409,7 @@ describe("toolLoopSampling server", () => {
       {
         method: "tools/call",
         params: {
-          name: "fileSearch",
+          name: "localResearch",
           arguments: {
             query: "Test malformed input",
           },
@@ -451,12 +451,12 @@ describe("toolLoopSampling server", () => {
 
     await client.connect(transport);
 
-    // Call fileSearch with infinite loop scenario
+    // Call localResearch with infinite loop scenario
     const result = await client.request(
       {
         method: "tools/call",
         params: {
-          name: "fileSearch",
+          name: "localResearch",
           arguments: {
             query: "Infinite loop test",
           },
