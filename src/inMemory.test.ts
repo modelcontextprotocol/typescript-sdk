@@ -118,4 +118,59 @@ describe("InMemoryTransport", () => {
     await serverTransport.start();
     expect(receivedMessage).toEqual(message);
   });
+
+  test("should handle double close idempotently", async () => {
+    let clientCloseCount = 0;
+    let serverCloseCount = 0;
+
+    clientTransport.onclose = () => {
+      clientCloseCount++;
+    };
+
+    serverTransport.onclose = () => {
+      serverCloseCount++;
+    };
+
+    await clientTransport.close();
+    await clientTransport.close(); // Second close should be idempotent
+
+    expect(clientCloseCount).toBe(1);
+    expect(serverCloseCount).toBe(1);
+  });
+
+  test("should handle concurrent close from both sides", async () => {
+    let clientCloseCount = 0;
+    let serverCloseCount = 0;
+
+    clientTransport.onclose = () => {
+      clientCloseCount++;
+    };
+
+    serverTransport.onclose = () => {
+      serverCloseCount++;
+    };
+
+    // Close both sides concurrently
+    await Promise.all([
+      clientTransport.close(),
+      serverTransport.close()
+    ]);
+
+    expect(clientCloseCount).toBe(1);
+    expect(serverCloseCount).toBe(1);
+  });
+
+  test("should reject send after close from either side", async () => {
+    await serverTransport.close();
+
+    // Both sides should reject sends
+    await expect(
+      clientTransport.send({ jsonrpc: "2.0", method: "test", id: 1 })
+    ).rejects.toThrow("Not connected");
+
+    await expect(
+      serverTransport.send({ jsonrpc: "2.0", method: "test", id: 2 })
+    ).rejects.toThrow("Not connected");
+  });
+
 });
