@@ -38,6 +38,8 @@ const RipgrepInputSchema = z.object({
 
 const ReadInputSchema = z.object({
   path: z.string(),
+  startLineInclusive: z.number().int().positive().optional(),
+  endLineInclusive: z.number().int().positive().optional(),
 });
 
 /**
@@ -61,10 +63,16 @@ function ensureSafePath(inputPath: string): string {
  * Returns search results as a string.
  */
 async function executeRipgrep(
+  server: McpServer,
   pattern: string,
   path: string
 ): Promise<{ output?: string; error?: string }> {
   try {
+    await server.sendLoggingMessage({
+      level: "info",
+      data: `Searching pattern "${pattern}" under ${path}`,
+    });
+
     const safePath = ensureSafePath(path);
 
     return new Promise((resolve) => {
@@ -108,15 +116,54 @@ async function executeRipgrep(
 }
 
 /**
- * Reads a file from the filesystem.
+ * Reads a file from the filesystem, optionally within a line range.
  * Returns file contents as a string.
  */
 async function executeRead(
-  path: string
+  server: McpServer,
+  path: string,
+  startLineInclusive?: number,
+  endLineInclusive?: number
 ): Promise<{ content?: string; error?: string }> {
   try {
+    // Log the read operation
+    if (startLineInclusive !== undefined || endLineInclusive !== undefined) {
+      await server.sendLoggingMessage({
+        level: "info",
+        data: `Reading file ${path} (lines ${startLineInclusive ?? 1}-${endLineInclusive ?? "end"})`,
+      });
+    } else {
+      await server.sendLoggingMessage({
+        level: "info",
+        data: `Reading file ${path}`,
+      });
+    }
+
     const safePath = ensureSafePath(path);
     const content = await readFile(safePath, "utf-8");
+    const lines = content.split("\n");
+
+    // If line range specified, extract only those lines
+    if (startLineInclusive !== undefined || endLineInclusive !== undefined) {
+      const start = (startLineInclusive ?? 1) - 1; // Convert to 0-indexed
+      const end = endLineInclusive ?? lines.length; // Default to end of file
+
+      if (start < 0 || start >= lines.length) {
+        return { error: `Start line ${startLineInclusive} is out of bounds (file has ${lines.length} lines)` };
+      }
+      if (end < start) {
+        return { error: `End line ${endLineInclusive} is before start line ${startLineInclusive}` };
+      }
+
+      const selectedLines = lines.slice(start, end);
+      // Add line numbers to output
+      const numberedContent = selectedLines
+        .map((line, idx) => `${start + idx + 1}: ${line}`)
+        .join("\n");
+
+      return { content: numberedContent };
+    }
+
     return { content };
   } catch (error) {
     return {
@@ -151,13 +198,23 @@ const LOCAL_TOOLS: Tool[] = [
   {
     name: "read",
     description:
-      "Read the contents of a file. Use this to examine files found by ripgrep.",
+      "Read the contents of a file. Use this to examine files found by ripgrep. " +
+      "You can optionally specify a line range to read only specific lines. " +
+      "Tip: When ripgrep finds matches, note the line numbers and request a few lines before and after for context.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
           description: "The file path to read (relative to current directory)",
+        },
+        startLineInclusive: {
+          type: "number",
+          description: "Optional: First line to read (1-indexed, inclusive). Use with endLineInclusive to read a specific range.",
+        },
+        endLineInclusive: {
+          type: "number",
+          description: "Optional: Last line to read (1-indexed, inclusive). If not specified, reads to end of file.",
         },
       },
       required: ["path"],
@@ -169,6 +226,7 @@ const LOCAL_TOOLS: Tool[] = [
  * Executes a local tool and returns the result.
  */
 async function executeLocalTool(
+  server: McpServer,
   toolName: string,
   toolInput: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
@@ -176,11 +234,16 @@ async function executeLocalTool(
     switch (toolName) {
       case "ripgrep": {
         const validated = RipgrepInputSchema.parse(toolInput);
-        return await executeRipgrep(validated.pattern, validated.path);
+        return await executeRipgrep(server, validated.pattern, validated.path);
       }
       case "read": {
         const validated = ReadInputSchema.parse(toolInput);
-        return await executeRead(validated.path);
+        return await executeRead(
+          server,
+          validated.path,
+          validated.startLineInclusive,
+          validated.endLineInclusive
+        );
       }
       default:
         return { error: `Unknown tool: ${toolName}` };
@@ -228,12 +291,6 @@ async function runToolLoop(
   while (iteration < MAX_ITERATIONS) {
     iteration++;
 
-    // Log iteration start
-    await server.sendLoggingMessage({
-      level: "info",
-      data: `Tool loop iteration ${iteration}/${MAX_ITERATIONS}`,
-    });
-
     // Request message from LLM with available tools
     const response: CreateMessageResult = await server.server.createMessage({
       messages,
@@ -260,11 +317,10 @@ async function runToolLoop(
         (content): content is ToolCallContent => content.type === "tool_use"
       );
 
-      // Log tool invocations
-      const toolNames = toolCalls.map(tc => tc.name).join(", ");
+      // Log iteration with tool invocation count
       await server.sendLoggingMessage({
         level: "info",
-        data: `Executing ${toolCalls.length} tool(s): ${toolNames}`,
+        data: `Loop iteration ${iteration}: ${toolCalls.length} tool invocation(s) requested`,
       });
 
       console.error(
@@ -279,7 +335,7 @@ async function runToolLoop(
           JSON.stringify(toolCall.input, null, 2)
         );
 
-        const result = await executeLocalTool(toolCall.name, toolCall.input);
+        const result = await executeLocalTool(server, toolCall.name, toolCall.input);
 
         console.error(
           `[toolLoop] Tool ${toolCall.name} result:`,
