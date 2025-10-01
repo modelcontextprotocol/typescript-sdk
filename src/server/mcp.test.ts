@@ -925,6 +925,7 @@ describe("tool()", () => {
 
     // Testing internal robustness: even if someone bypasses TypeScript and passes undefined
     // the callback should still be found at the correct position
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (mcpServer.tool as any)(
       "test",
       "A tool description",
@@ -987,6 +988,7 @@ describe("tool()", () => {
     });
 
     // Testing: tool(name, undefined, schema, callback)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (mcpServer.tool as any)(
       "test",
       undefined, // description is undefined
@@ -1047,6 +1049,7 @@ describe("tool()", () => {
     });
 
     // Testing: tool(name, description, undefined, annotations, callback)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (mcpServer.tool as any)(
       "test",
       "A tool description",
