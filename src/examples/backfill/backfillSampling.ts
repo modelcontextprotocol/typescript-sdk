@@ -8,7 +8,15 @@
 */
 
 import { Anthropic } from "@anthropic-ai/sdk";
-import { Base64ImageSource, ContentBlock, ContentBlockParam, MessageParam, Tool as ClaudeTool, ToolChoiceAuto, ToolChoiceAny, ToolChoiceTool } from "@anthropic-ai/sdk/resources/messages.js";
+import {
+    Base64ImageSource,
+    ContentBlock,
+    ContentBlockParam,
+    Tool as ClaudeTool,
+    ToolChoiceAuto,
+    ToolChoiceAny,
+    ToolChoiceTool,
+} from "@anthropic-ai/sdk/resources/messages.js";
 import { StdioServerTransport } from '../../server/stdio.js';
 import { StdioClientTransport } from '../../client/stdio.js';
 import {
@@ -28,9 +36,6 @@ import {
   isJSONRPCNotification,
   Tool,
   ToolCallContent,
-  ToolResultContent,
-  UserMessage,
-  AssistantMessage,
 } from "../../types.js";
 import { Transport } from "../../shared/transport.js";
 
@@ -89,14 +94,29 @@ function contentToMcp(content: ContentBlock): CreateMessageResult['content'] {
                 input: content.input,
             } as ToolCallContent;
         default:
-            throw new Error(`Unsupported content type: ${(content as any).type}`);
+            throw new Error(`[contentToMcp] Unsupported content type: ${(content as any).type}`);
     }
 }
 
-function contentFromMcp(content: UserMessage['content'] | AssistantMessage['content']): ContentBlockParam {
+function stopReasonToMcp(reason: string | null): CreateMessageResult['stopReason'] {
+    switch (reason) {
+        case 'max_tokens':
+            return 'maxTokens';
+        case 'stop_sequence':
+            return 'stopSequence';
+        case 'tool_use':
+            return 'toolUse';
+        case 'end_turn':
+            return 'endTurn';
+        default:
+            return 'other';
+    }
+}
+
+function contentFromMcp(content: CreateMessageRequest['params']['messages'][number]['content']): ContentBlockParam {
     switch (content.type) {
         case 'text':
-            return { type: 'text', text: content.text };
+            return {type: 'text', text: content.text};
         case 'image':
             return {
                 type: 'image',
@@ -107,15 +127,21 @@ function contentFromMcp(content: UserMessage['content'] | AssistantMessage['cont
                 },
             };
         case 'tool_result':
-            // MCP ToolResultContent to Claude API tool_result
             return {
                 type: 'tool_result',
                 tool_use_id: content.toolUseId,
-                content: JSON.stringify(content.content),
+                content: JSON.stringify(content.content), // TODO
+            };
+        case 'tool_use':
+            return {
+                type: 'tool_use',
+                id: content.id,
+                name: content.name,
+                input: content.input,
             };
         case 'audio':
         default:
-            throw new Error(`Unsupported content type: ${(content as any).type}`);
+            throw new Error(`[contentFromMcp] Unsupported content type: ${(content as any).type}`);
     }
 }
 
@@ -166,23 +192,30 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
             console.error(`[proxy]: Message from ${source.name} transport: ${JSON.stringify(message)}; extra: ${JSON.stringify(extra)}`);
 
             if (isJSONRPCRequest(message)) {
+
+                const sendInternalError = (errorMessage: string) => {
+                    console.error(`[proxy -> ${source.name}]: Error: ${errorMessage}`);
+                    source.transport.send({
+                        jsonrpc: "2.0",
+                        id: message.id,
+                        error: {
+                            code: -32603, // Internal error
+                            message: errorMessage,
+                        },
+                    }, {relatedRequestId: message.id});
+                };
+
+                console.error(`[proxy]: Detected JSON-RPC request: ${JSON.stringify(message)}`);
                 if (isInitializeRequest(message)) {
+                    console.error(`[proxy]: Detected Initialize request: ${JSON.stringify(message)}`);
                     if (!(clientSupportsSampling = !!message.params.capabilities.sampling)) {
                         message.params.capabilities.sampling = {}
                         message.params._meta = {...(message.params._meta ?? {}), ...backfillMeta};
                     }
-                } else if (isCreateMessageRequest(message)) {
+                } else if (isCreateMessageRequest(message)) {// && !clientSupportsSampling) {
+                    console.error(`[proxy]: Detected CreateMessage request: ${JSON.stringify(message)}`);
                     if ((message.params.includeContext ?? 'none') !== 'none') {
-                        const errorMessage = "includeContext != none not supported by MCP sampling backfill"
-                        console.error(`[proxy]: ${errorMessage}`);
-                        source.transport.send({
-                            jsonrpc: "2.0",
-                            id: message.id,
-                            error: {
-                                code: -32601, // Method not found
-                                message: errorMessage,
-                            },
-                        }, {relatedRequestId: message.id});
+                        sendInternalError("includeContext != none not supported by MCP sampling backfill");
                         return;
                     }
                     
@@ -199,7 +232,7 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                                     text: message.params.systemPrompt
                                 },
                             ],
-                            messages: message.params.messages.map(({role, content}) => (<MessageParam>{
+                            messages: message.params.messages.map(({role, content}) => ({
                                 role,
                                 content: [contentFromMcp(content)]
                             })),
@@ -211,41 +244,16 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                             ...(message.params.metadata ?? {}),
                         });
 
-                        // Claude can return multiple content blocks (e.g., text + tool_use)
-                        // MCP currently supports single content block per message
-                        // Priority: tool_use > text > other
-                        let responseContent: CreateMessageResult['content'];
-                        const toolUseBlock = msg.content.find(block => block.type === 'tool_use');
-                        if (toolUseBlock) {
-                            responseContent = contentToMcp(toolUseBlock);
-                        } else {
-                            // Fall back to first content block (typically text)
-                            if (msg.content.length === 0) {
-                                throw new Error('Claude API returned no content blocks');
-                            }
-                            responseContent = contentToMcp(msg.content[0]);
-                        }
-
-                        // Map stop reasons from Claude to MCP format
-                        let stopReason: CreateMessageResult['stopReason'] = msg.stop_reason as any;
-                        if (msg.stop_reason === 'tool_use') {
-                            stopReason = 'toolUse';
-                        } else if (msg.stop_reason === 'max_tokens') {
-                            stopReason = 'maxTokens';
-                        } else if (msg.stop_reason === 'end_turn') {
-                            stopReason = 'endTurn';
-                        } else if (msg.stop_reason === 'stop_sequence') {
-                            stopReason = 'stopSequence';
-                        }
+                        console.error(`[proxy]: Claude API response: ${JSON.stringify(msg)}`);
 
                         source.transport.send(<JSONRPCResponse>{
                             jsonrpc: "2.0",
                             id: message.id,
                             result: <CreateMessageResult>{
                                 model: msg.model,
-                                stopReason: stopReason,
+                                stopReason: stopReasonToMcp(msg.stop_reason),
                                 role: 'assistant', // Always assistant in MCP responses
-                                content: responseContent,
+                                content: (Array.isArray(msg.content) ? msg.content : [msg.content]).map(contentToMcp),
                             },
                         });
                     } catch (error) {
@@ -261,9 +269,6 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                         }, {relatedRequestId: message.id});
                     }
                     return;
-                // } else if (isElicitRequest(message) && !clientSupportsElicitation) {
-                //     // TODO: form
-                //     return;
                 }
             } else if (isJSONRPCNotification(message)) {
                 if (isInitializedNotification(message) && source.name === 'server') {

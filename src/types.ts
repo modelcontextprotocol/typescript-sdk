@@ -1358,11 +1358,21 @@ export const CreateMessageResultSchema = ResultSchema.extend({
   /**
    * Response content. May be ToolCallContent if stopReason is "toolUse".
    */
-  content: z.discriminatedUnion("type", [
-    TextContentSchema,
-    ImageContentSchema,
-    AudioContentSchema,
-    ToolCallContentSchema,
+  content: z.union([
+    z.discriminatedUnion("type", [
+      TextContentSchema,
+      ImageContentSchema,
+      AudioContentSchema,
+      ToolCallContentSchema,
+    ]),
+    z.array(
+      z.discriminatedUnion("type", [
+        TextContentSchema,
+        ImageContentSchema,
+        AudioContentSchema,
+        ToolCallContentSchema,
+      ]),
+    )
   ]),
 });
 
