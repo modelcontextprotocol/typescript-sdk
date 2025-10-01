@@ -119,6 +119,7 @@ export class McpServer {
               description: tool.description,
               inputSchema: tool.inputSchema
                 ? (zodToJsonSchema(tool.inputSchema, {
+                  target: this.server._jsonSchemaSpec,
                   strictUnions: true,
                 }) as Tool["inputSchema"])
                 : EMPTY_OBJECT_JSON_SCHEMA,
