@@ -2,9 +2,10 @@
     This example implements an stdio MCP proxy that backfills sampling requests using the Claude API.
     
     Usage:
-        npx -y @modelcontextprotocol/inspector \
-            npx -y --silent tsx src/examples/backfill/backfillSampling.ts \
-                npx -y --silent @modelcontextprotocol/server-everything
+      npx -y @modelcontextprotocol/inspector \
+        npx -y --silent tsx src/examples/backfill/backfillSampling.ts \
+          npx -y --silent @modelcontextprotocol/server-everything
+          /Users/ochafik/code/modelcontextprotocol-servers/src/everything/run-stdio.sh
 */
 
 import { Anthropic } from "@anthropic-ai/sdk";
