@@ -38,6 +38,8 @@ import {
   ToolCallContent,
   LoggingMessageNotification,
   JSONRPCNotification,
+  AssistantMessageContent,
+  UserMessageContent,
 } from "../../types.js";
 import { Transport } from "../../shared/transport.js";
 
@@ -115,7 +117,8 @@ function stopReasonToMcp(reason: string | null): CreateMessageResult['stopReason
     }
 }
 
-function contentBlockFromMcp(content: any): ContentBlockParam {
+
+function contentBlockFromMcp(content: AssistantMessageContent | UserMessageContent): ContentBlockParam {
     switch (content.type) {
         case 'text':
             return {type: 'text', text: content.text};

@@ -1237,18 +1237,20 @@ export const ToolChoiceSchema = z
   })
   .passthrough();
 
+export const UserMessageContentSchema = z.discriminatedUnion("type", [
+  TextContentSchema,
+  ImageContentSchema,
+  AudioContentSchema,
+  ToolResultContentSchema,
+]);
+
 /**
  * A message from the user (server) in a sampling conversation.
  */
 export const UserMessageSchema = z
   .object({
     role: z.literal("user"),
-    content: z.discriminatedUnion("type", [
-      TextContentSchema,
-      ImageContentSchema,
-      AudioContentSchema,
-      ToolResultContentSchema,
-    ]),
+    content: z.union([UserMessageContentSchema, z.array(UserMessageContentSchema)]),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
@@ -1257,18 +1259,20 @@ export const UserMessageSchema = z
   })
   .passthrough();
 
+export const AssistantMessageContentSchema = z.discriminatedUnion("type", [
+  TextContentSchema,
+  ImageContentSchema,
+  AudioContentSchema,
+  ToolCallContentSchema,
+]);
+
 /**
  * A message from the assistant (LLM) in a sampling conversation.
  */
 export const AssistantMessageSchema = z
   .object({
     role: z.literal("assistant"),
-    content: z.discriminatedUnion("type", [
-      TextContentSchema,
-      ImageContentSchema,
-      AudioContentSchema,
-      ToolCallContentSchema,
-    ]),
+    content: z.union([AssistantMessageContentSchema, z.array(AssistantMessageContentSchema)]),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
@@ -1358,22 +1362,7 @@ export const CreateMessageResultSchema = ResultSchema.extend({
   /**
    * Response content. May be ToolCallContent if stopReason is "toolUse".
    */
-  content: z.union([
-    z.discriminatedUnion("type", [
-      TextContentSchema,
-      ImageContentSchema,
-      AudioContentSchema,
-      ToolCallContentSchema,
-    ]),
-    z.array(
-      z.discriminatedUnion("type", [
-        TextContentSchema,
-        ImageContentSchema,
-        AudioContentSchema,
-        ToolCallContentSchema,
-      ]),
-    )
-  ]),
+  content: z.union([AssistantMessageContentSchema, z.array(AssistantMessageContentSchema)]),
 });
 
 /* Elicitation */
@@ -1827,6 +1816,8 @@ export type AssistantMessage = Infer<typeof AssistantMessageSchema>;
 export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
 export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
 export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
+export type AssistantMessageContent = Infer<typeof AssistantMessageContentSchema>;
+export type UserMessageContent = Infer<typeof UserMessageContentSchema>;
 
 /* Elicitation */
 export type BooleanSchema = Infer<typeof BooleanSchemaSchema>;
