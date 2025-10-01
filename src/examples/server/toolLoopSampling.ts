@@ -331,13 +331,11 @@ async function runToolLoop(
     }
 
     // Add assistant's response to message history
-    // Note that SamplingMessage.content doesn't yet support arrays, so we flatten the content into multiple messages.
-    for (const content of (Array.isArray(response.content) ? response.content : [response.content])) {
-      messages.push({
-        role: "assistant",
-        content,
-      });
-    }
+    // SamplingMessage now supports arrays of content
+    messages.push({
+      role: "assistant",
+      content: response.content,
+    });
 
     // Check if LLM wants to use tools
     if (response.stopReason === "toolUse") {

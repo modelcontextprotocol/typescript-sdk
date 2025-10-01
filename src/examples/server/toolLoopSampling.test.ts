@@ -68,8 +68,12 @@ describe("toolLoopSampling server", () => {
         const messages = request.params.messages;
         const lastMessage = messages[messages.length - 1];
 
+        // Helper to get content as array
+        const getContentArray = (content: any) => Array.isArray(content) ? content : [content];
+        const lastContent = getContentArray(lastMessage.content)[0];
+
         console.error(
-          `[test] Sampling call ${samplingCallCount}, messages: ${messages.length}, last message type: ${lastMessage.content.type}`
+          `[test] Sampling call ${samplingCallCount}, messages: ${messages.length}, last message type: ${lastContent.type}`
         );
 
         // First call: Return tool_use for ripgrep
@@ -93,7 +97,7 @@ describe("toolLoopSampling server", () => {
         // Second call: After getting ripgrep results, return tool_use for read
         if (samplingCallCount === 2) {
           // Verify we got a tool result
-          expect(lastMessage.content.type).toBe("tool_result");
+          expect(lastContent.type).toBe("tool_result");
 
           return {
             model: "test-model",
@@ -113,7 +117,7 @@ describe("toolLoopSampling server", () => {
         // Third call: After getting read results, return final answer
         if (samplingCallCount === 3) {
           // Verify we got another tool result
-          expect(lastMessage.content.type).toBe("tool_result");
+          expect(lastContent.type).toBe("tool_result");
 
           return {
             model: "test-model",
@@ -196,10 +200,12 @@ describe("toolLoopSampling server", () => {
 
         // Second call: Should receive error in tool result
         if (samplingCallCount === 2) {
-          expect(lastMessage.content.type).toBe("tool_result");
-          if (lastMessage.content.type === "tool_result") {
+          const getContentArray = (content: any) => Array.isArray(content) ? content : [content];
+          const lastContent = getContentArray(lastMessage.content)[0];
+          expect(lastContent.type).toBe("tool_result");
+          if (lastContent.type === "tool_result") {
             // Verify error is present in tool result
-            const content = lastMessage.content.content as Record<
+            const content = lastContent.content as Record<
               string,
               unknown
             >;
@@ -281,9 +287,11 @@ describe("toolLoopSampling server", () => {
 
         // Second call: Should receive error in tool result
         if (samplingCallCount === 2) {
-          expect(lastMessage.content.type).toBe("tool_result");
-          if (lastMessage.content.type === "tool_result") {
-            const content = lastMessage.content.content as Record<
+          const getContentArray = (content: any) => Array.isArray(content) ? content : [content];
+          const lastContent = getContentArray(lastMessage.content)[0];
+          expect(lastContent.type).toBe("tool_result");
+          if (lastContent.type === "tool_result") {
+            const content = lastContent.content as Record<
               string,
               unknown
             >;
@@ -362,9 +370,11 @@ describe("toolLoopSampling server", () => {
 
         // Second call: Should receive validation error
         if (samplingCallCount === 2) {
-          expect(lastMessage.content.type).toBe("tool_result");
-          if (lastMessage.content.type === "tool_result") {
-            const content = lastMessage.content.content as Record<
+          const getContentArray = (content: any) => Array.isArray(content) ? content : [content];
+          const lastContent = getContentArray(lastMessage.content)[0];
+          expect(lastContent.type).toBe("tool_result");
+          if (lastContent.type === "tool_result") {
+            const content = lastContent.content as Record<
               string,
               unknown
             >;

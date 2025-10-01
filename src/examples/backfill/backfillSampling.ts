@@ -115,7 +115,7 @@ function stopReasonToMcp(reason: string | null): CreateMessageResult['stopReason
     }
 }
 
-function contentFromMcp(content: CreateMessageRequest['params']['messages'][number]['content']): ContentBlockParam {
+function contentBlockFromMcp(content: any): ContentBlockParam {
     switch (content.type) {
         case 'text':
             return {type: 'text', text: content.text};
@@ -143,8 +143,14 @@ function contentFromMcp(content: CreateMessageRequest['params']['messages'][numb
             };
         case 'audio':
         default:
-            throw new Error(`[contentFromMcp] Unsupported content type: ${(content as any).type}`);
+            throw new Error(`[contentBlockFromMcp] Unsupported content type: ${(content as any).type}`);
     }
+}
+
+function contentFromMcp(content: CreateMessageRequest['params']['messages'][number]['content']): ContentBlockParam[] {
+    // Handle both single content block and arrays
+    const contentArray = Array.isArray(content) ? content : [content];
+    return contentArray.map(contentBlockFromMcp);
 }
 
 export type NamedTransport<T extends Transport = Transport> = {
@@ -230,7 +236,7 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                             ],
                             messages: message.params.messages.map(({role, content}) => ({
                                 role,
-                                content: [contentFromMcp(content)]
+                                content: contentFromMcp(content)
                             })),
                             max_tokens: message.params.maxTokens ?? DEFAULT_MAX_TOKENS,
                             temperature: message.params.temperature,
