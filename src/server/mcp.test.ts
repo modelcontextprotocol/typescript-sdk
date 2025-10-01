@@ -909,6 +909,193 @@ describe("tool()", () => {
   });
 
   /***
+   * Test: Internal Robustness - Tool Registration Parameter Parsing
+   * Tests that internal parsing logic correctly handles edge cases even when
+   * TypeScript types are bypassed (e.g., via loose tsconfig or type assertions)
+   */
+  test("should correctly parse callback position when undefined is passed in annotations position", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    // Testing internal robustness: even if someone bypasses TypeScript and passes undefined
+    // the callback should still be found at the correct position
+    (mcpServer.tool as any)(
+      "test",
+      "A tool description",
+      { name: z.string() },
+      undefined, // Not officially supported, but internal logic should handle it
+      async ({ name }: { name: string }) => ({
+        content: [{ type: "text", text: `Hello, ${name}!` }]
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].name).toBe("test");
+    expect(result.tools[0].description).toBe("A tool description");
+    expect(result.tools[0].inputSchema).toMatchObject({
+      type: "object",
+      properties: { name: { type: "string" } }
+    });
+    expect(result.tools[0].annotations).toBeUndefined();
+
+    // Verify that the callback was correctly identified and works
+    const callResult = await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "test",
+          arguments: { name: "World" }
+        }
+      },
+      CallToolResultSchema,
+    );
+
+    expect(callResult.content).toHaveLength(1);
+    expect((callResult.content[0] as TextContent).text).toBe("Hello, World!");
+  });
+
+  /***
+   * Test: Internal Robustness - Description Undefined
+   */
+  test("should correctly parse when description is undefined", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    // Testing: tool(name, undefined, schema, callback)
+    (mcpServer.tool as any)(
+      "test",
+      undefined, // description is undefined
+      { name: z.string() },
+      async ({ name }: { name: string }) => ({
+        content: [{ type: "text", text: `Hello, ${name}!` }]
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].name).toBe("test");
+    expect(result.tools[0].description).toBeUndefined();
+    expect(result.tools[0].inputSchema).toMatchObject({
+      type: "object",
+      properties: { name: { type: "string" } }
+    });
+
+    // Verify callback works
+    const callResult = await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "test",
+          arguments: { name: "World" }
+        }
+      },
+      CallToolResultSchema,
+    );
+
+    expect(callResult.content).toHaveLength(1);
+    expect((callResult.content[0] as TextContent).text).toBe("Hello, World!");
+  });
+
+  /***
+   * Test: Internal Robustness - ParamsSchema Undefined
+   */
+  test("should correctly parse when paramsSchema is undefined", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    const client = new Client({
+      name: "test client",
+      version: "1.0",
+    });
+
+    // Testing: tool(name, description, undefined, annotations, callback)
+    (mcpServer.tool as any)(
+      "test",
+      "A tool description",
+      undefined, // paramsSchema is undefined
+      { title: "Test Tool" },
+      async () => ({
+        content: [{ type: "text", text: "No params" }]
+      })
+    );
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      mcpServer.server.connect(serverTransport),
+    ]);
+
+    const result = await client.request(
+      { method: "tools/list" },
+      ListToolsResultSchema,
+    );
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].name).toBe("test");
+    expect(result.tools[0].description).toBe("A tool description");
+    expect(result.tools[0].annotations?.title).toBe("Test Tool");
+    expect(result.tools[0].inputSchema).toMatchObject({
+      type: "object",
+      properties: {}
+    });
+
+    // Verify callback works
+    const callResult = await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "test",
+          arguments: {}
+        }
+      },
+      CallToolResultSchema,
+    );
+
+    expect(callResult.content).toHaveLength(1);
+    expect((callResult.content[0] as TextContent).text).toBe("No params");
+  });
+
+  /***
    * Test: Tool Argument Validation
    */
   test("should validate tool args", async () => {
