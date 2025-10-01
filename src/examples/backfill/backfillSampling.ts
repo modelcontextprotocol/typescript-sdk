@@ -9,7 +9,7 @@
 */
 
 import { Anthropic } from "@anthropic-ai/sdk";
-import { Base64ImageSource, ContentBlock, ContentBlockParam, MessageParam } from "@anthropic-ai/sdk/resources/messages.js";
+import { Base64ImageSource, ContentBlock, ContentBlockParam, MessageParam, Tool as ClaudeTool, ToolChoiceAuto, ToolChoiceAny, ToolChoiceTool } from "@anthropic-ai/sdk/resources/messages.js";
 import { StdioServerTransport } from '../../server/stdio.js';
 import { StdioClientTransport } from '../../client/stdio.js';
 import {
@@ -27,6 +27,11 @@ import {
   CallToolRequest,
   CallToolRequestSchema,
   isJSONRPCNotification,
+  Tool,
+  ToolCallContent,
+  ToolResultContent,
+  UserMessage,
+  AssistantMessage,
 } from "../../types.js";
 import { Transport } from "../../shared/transport.js";
 
@@ -44,20 +49,53 @@ const isElicitRequest: (value: unknown) => value is ElicitRequest =
 const isCreateMessageRequest: (value: unknown) => value is CreateMessageRequest =
     ((value: any) => CreateMessageRequestSchema.safeParse(value).success) as any;
 
+/**
+ * Converts MCP Tool definition to Claude API tool format
+ */
+function toolToClaudeFormat(tool: Tool): ClaudeTool {
+    return {
+        name: tool.name,
+        description: tool.description || "",
+        input_schema: tool.inputSchema,
+    };
+}
 
-function contentToMcp(content: ContentBlock): CreateMessageResult['content'][number] {
+/**
+ * Converts MCP ToolChoice to Claude API tool_choice format
+ */
+function toolChoiceToClaudeFormat(toolChoice: CreateMessageRequest['params']['tool_choice']): ToolChoiceAuto | ToolChoiceAny | ToolChoiceTool | undefined {
+    if (!toolChoice) {
+        return undefined;
+    }
+
+    if (toolChoice.mode === "required") {
+        return { type: "any", disable_parallel_tool_use: toolChoice.disable_parallel_tool_use };
+    }
+
+    // "auto" or undefined defaults to auto
+    return { type: "auto", disable_parallel_tool_use: toolChoice.disable_parallel_tool_use };
+}
+
+function contentToMcp(content: ContentBlock): CreateMessageResult['content'] {
     switch (content.type) {
         case 'text':
-            return {type: 'text', text: content.text};
+            return { type: 'text', text: content.text };
+        case 'tool_use':
+            return {
+                type: 'tool_use',
+                id: content.id,
+                name: content.name,
+                input: content.input,
+            } as ToolCallContent;
         default:
-            throw new Error(`Unsupported content type: ${content.type}`);
+            throw new Error(`Unsupported content type: ${(content as any).type}`);
     }
 }
 
-function contentFromMcp(content: CreateMessageRequest['params']['messages'][number]['content']): ContentBlockParam {
+function contentFromMcp(content: UserMessage['content'] | AssistantMessage['content']): ContentBlockParam {
     switch (content.type) {
         case 'text':
-            return {type: 'text', text: content.text};
+            return { type: 'text', text: content.text };
         case 'image':
             return {
                 type: 'image',
@@ -67,9 +105,16 @@ function contentFromMcp(content: CreateMessageRequest['params']['messages'][numb
                     type: 'base64',
                 },
             };
+        case 'tool_result':
+            // MCP ToolResultContent to Claude API tool_result
+            return {
+                type: 'tool_result',
+                tool_use_id: content.toolUseId,
+                content: JSON.stringify(content.content),
+            };
         case 'audio':
         default:
-            throw new Error(`Unsupported content type: ${content.type}`);
+            throw new Error(`Unsupported content type: ${(content as any).type}`);
     }
 }
 
@@ -142,7 +187,10 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                     message.params.modelPreferences;
 
                     try {
-                        // message.params.
+                        // Convert MCP tools to Claude API format if provided
+                        const tools = message.params.tools?.map(toolToClaudeFormat);
+                        const tool_choice = toolChoiceToClaudeFormat(message.params.tool_choice);
+
                         const msg = await api.messages.create({
                             model: pickModel(message.params.modelPreferences),
                             system: message.params.systemPrompt === undefined ? undefined : [
@@ -158,10 +206,36 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                             max_tokens: message.params.maxTokens,
                             temperature: message.params.temperature,
                             stop_sequences: message.params.stopSequences,
+                            // Add tool calling support
+                            tools: tools && tools.length > 0 ? tools : undefined,
+                            tool_choice: tool_choice,
                         });
 
-                        if (msg.content.length !== 1) {
-                            throw new Error(`Expected exactly one content item in the response, got ${msg.content.length}`);
+                        // Claude can return multiple content blocks (e.g., text + tool_use)
+                        // MCP currently supports single content block per message
+                        // Priority: tool_use > text > other
+                        let responseContent: CreateMessageResult['content'];
+                        const toolUseBlock = msg.content.find(block => block.type === 'tool_use');
+                        if (toolUseBlock) {
+                            responseContent = contentToMcp(toolUseBlock);
+                        } else {
+                            // Fall back to first content block (typically text)
+                            if (msg.content.length === 0) {
+                                throw new Error('Claude API returned no content blocks');
+                            }
+                            responseContent = contentToMcp(msg.content[0]);
+                        }
+
+                        // Map stop reasons from Claude to MCP format
+                        let stopReason: CreateMessageResult['stopReason'] = msg.stop_reason as any;
+                        if (msg.stop_reason === 'tool_use') {
+                            stopReason = 'toolUse';
+                        } else if (msg.stop_reason === 'max_tokens') {
+                            stopReason = 'maxTokens';
+                        } else if (msg.stop_reason === 'end_turn') {
+                            stopReason = 'endTurn';
+                        } else if (msg.stop_reason === 'stop_sequence') {
+                            stopReason = 'stopSequence';
                         }
 
                         source.transport.send(<JSONRPCResponse>{
@@ -169,9 +243,9 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                             id: message.id,
                             result: <CreateMessageResult>{
                                 model: msg.model,
-                                stopReason: msg.stop_reason,
-                                role: msg.role,
-                                content: contentToMcp(msg.content[0]),
+                                stopReason: stopReason,
+                                role: 'assistant', // Always assistant in MCP responses
+                                content: responseContent,
                             },
                         });
                     } catch (error) {
