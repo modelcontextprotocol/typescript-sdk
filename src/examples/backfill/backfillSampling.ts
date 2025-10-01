@@ -36,6 +36,8 @@ import {
   isJSONRPCNotification,
   Tool,
   ToolCallContent,
+  LoggingMessageNotification,
+  JSONRPCNotification,
 } from "../../types.js";
 import { Transport } from "../../shared/transport.js";
 
@@ -185,12 +187,9 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
     }
 
     let clientSupportsSampling: boolean | undefined;
-    // let clientSupportsElicitation: boolean | undefined;
 
     const propagateMessage = (source: NamedTransport, target: NamedTransport) => {
         source.transport.onmessage = async (message, extra) => {
-            console.error(`[proxy]: Message from ${source.name} transport: ${JSON.stringify(message)}; extra: ${JSON.stringify(extra)}`);
-
             if (isJSONRPCRequest(message)) {
 
                 const sendInternalError = (errorMessage: string) => {
@@ -205,15 +204,12 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                     }, {relatedRequestId: message.id});
                 };
 
-                console.error(`[proxy]: Detected JSON-RPC request: ${JSON.stringify(message)}`);
                 if (isInitializeRequest(message)) {
-                    console.error(`[proxy]: Detected Initialize request: ${JSON.stringify(message)}`);
                     if (!(clientSupportsSampling = !!message.params.capabilities.sampling)) {
                         message.params.capabilities.sampling = {}
                         message.params._meta = {...(message.params._meta ?? {}), ...backfillMeta};
                     }
                 } else if (isCreateMessageRequest(message)) {// && !clientSupportsSampling) {
-                    console.error(`[proxy]: Detected CreateMessage request: ${JSON.stringify(message)}`);
                     if ((message.params.includeContext ?? 'none') !== 'none') {
                         sendInternalError("includeContext != none not supported by MCP sampling backfill");
                         return;
@@ -244,8 +240,6 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                             ...(message.params.metadata ?? {}),
                         });
 
-                        console.error(`[proxy]: Claude API response: ${JSON.stringify(msg)}`);
-
                         source.transport.send(<JSONRPCResponse>{
                             jsonrpc: "2.0",
                             id: message.id,
@@ -257,16 +251,7 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                             },
                         });
                     } catch (error) {
-                        console.error(`[proxy]: Error processing message: ${(error as Error).message}`);
-
-                        source.transport.send({
-                            jsonrpc: "2.0",
-                            id: message.id,
-                            error: {
-                                code: -32601, // Method not found
-                                message: `Error processing message: ${(error as Error).message}`,
-                            },
-                        }, {relatedRequestId: message.id});
+                        sendInternalError(`Error processing message: ${(error as Error).message}`);
                     }
                     return;
                 }
@@ -282,7 +267,15 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                 const relatedRequestId = isCancelledNotification(message)? message.params.requestId : undefined;
                 await target.transport.send(message, {relatedRequestId});
             } catch (error) {
-                console.error(`[proxy]: Error sending message to ${target.name}:`, error);
+                source.transport.send(<JSONRPCNotification & LoggingMessageNotification>{
+                    jsonrpc: "2.0",
+                    method: "notifications/message",
+                    params: {
+                        type: "log_message",
+                        level: "error",
+                        message: `Error sending message to ${target.name}: ${(error as Error).message}`,
+                    }
+                });
             }
         };
     };
