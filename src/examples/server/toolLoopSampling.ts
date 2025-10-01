@@ -323,24 +323,9 @@ async function runToolLoop(
         data: `Loop iteration ${iteration}: ${toolCalls.length} tool invocation(s) requested`,
       });
 
-      console.error(
-        `[toolLoop] LLM requested ${toolCalls.length} tool(s):`,
-        toolCalls.map(tc => `${tc.name}`).join(", ")
-      );
-
       // Execute all tools in parallel
       const toolResultPromises = toolCalls.map(async (toolCall) => {
-        console.error(
-          `[toolLoop] Executing tool: ${toolCall.name} with input:`,
-          JSON.stringify(toolCall.input, null, 2)
-        );
-
         const result = await executeLocalTool(server, toolCall.name, toolCall.input);
-
-        console.error(
-          `[toolLoop] Tool ${toolCall.name} result:`,
-          JSON.stringify(result, null, 2)
-        );
 
         return { toolCall, result };
       });
@@ -415,13 +400,7 @@ mcpServer.registerTool(
   },
   async ({ query }) => {
     try {
-      console.error(`[fileSearch] Processing query: ${query}`);
-
       const { answer, transcript } = await runToolLoop(mcpServer, query);
-
-      console.error(`[fileSearch] Final answer: ${answer.substring(0, 200)}...`);
-      console.error(`[fileSearch] Transcript length: ${transcript.length} messages`);
-
       return {
         content: [
           {
@@ -435,15 +414,12 @@ mcpServer.registerTool(
         ],
       };
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
-      console.error(`[fileSearch] Error: ${errorMessage}`);
-
       return {
         content: [
           {
             type: "text",
-            text: `Error performing file search: ${errorMessage}`,
+            text: error instanceof Error ? error.message : `${error}`,
+            isError: true,
           },
         ],
       };
