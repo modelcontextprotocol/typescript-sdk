@@ -20,7 +20,7 @@ export const SafeUrlSchema = z.string().url()
       return u.protocol !== 'javascript:' && u.protocol !== 'data:' && u.protocol !== 'vbscript:';
     },
     { message: "URL cannot use javascript:, data:, or vbscript: scheme" }
-);
+).or(z.literal(""));
 
 
 /**
