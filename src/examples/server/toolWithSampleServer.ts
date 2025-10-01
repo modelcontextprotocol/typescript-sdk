@@ -34,11 +34,21 @@ mcpServer.registerTool(
       maxTokens: 500,
     });
 
+    // Extract all text content blocks from the response
+    const parts: string[] = [];
+    for (const content of Array.isArray(response.content) ? response.content : [response.content]) {
+      if (content.type === "text") {
+        parts.push(content.text);
+      } else {
+        throw new Error(`Unexpected content type: ${content.type}`);
+      }
+    }
+
     return {
       content: [
         {
           type: "text",
-          text: response.content.type === "text" ? response.content.text : "Unable to generate summary",
+          text: parts.join('\n'),
         },
       ],
     };
