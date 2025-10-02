@@ -1062,6 +1062,17 @@ export class McpServer {
     }
 
     /**
+     * Removes a tool from the server by name.
+     * Does nothing if the tool is not registered.
+     */
+    removeTool(name: string) {
+        const tool = this._registeredTools[name];
+        if (tool) {
+        tool.update({ name: null });
+        }
+    };
+
+    /**
      * Registers a zero-argument prompt `name`, which will run the given function when the client calls it.
      * @deprecated Use `registerPrompt` instead.
      */
