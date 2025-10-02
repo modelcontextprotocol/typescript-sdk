@@ -222,6 +222,10 @@ describe("ResourceTemplate", () => {
 });
 
 describe("tool()", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   /***
    * Test: Zero-Argument Tool Registration
    */
@@ -1725,6 +1729,44 @@ describe("tool()", () => {
     expect(result.tools).toHaveLength(1);
     expect(result.tools[0].name).toBe("test-without-meta");
     expect(result.tools[0]._meta).toBeUndefined();
+  });
+
+  test("should validate tool names according to SEP specification", () => {
+    // Create a new server instance for this test
+    const testServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+    
+    // Spy on console.warn to verify warnings are logged
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    
+    // Test valid tool names
+    testServer.registerTool("valid-tool-name", {
+      description: "A valid tool name"
+    }, async () => ({ content: [{ type: "text", text: "Success" }] }));
+    
+    // Test tool name with warnings (starts with dash)
+    testServer.registerTool("-warning-tool", {
+      description: "A tool name that generates warnings"
+    }, async () => ({ content: [{ type: "text", text: "Success" }] }));
+    
+    // Test invalid tool name (contains spaces)
+    testServer.registerTool("invalid tool name", {
+      description: "An invalid tool name"
+    }, async () => ({ content: [{ type: "text", text: "Success" }] }));
+    
+    // Verify that warnings were issued (both for warnings and validation failures)
+    expect(warnSpy).toHaveBeenCalled();
+    
+    // Verify specific warning content
+    const warningCalls = warnSpy.mock.calls.map(call => call.join(' '));
+    expect(warningCalls.some(call => call.includes('Tool name starts or ends with a dash'))).toBe(true);
+    expect(warningCalls.some(call => call.includes('Tool name contains spaces'))).toBe(true);
+    expect(warningCalls.some(call => call.includes('Tool name contains invalid characters'))).toBe(true);
+    
+    // Clean up spies
+    warnSpy.mockRestore();
   });
 });
 
