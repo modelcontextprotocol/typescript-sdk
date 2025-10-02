@@ -380,7 +380,7 @@ export abstract class Protocol<
           id: request.id,
           error: {
             code: ErrorCode.MethodNotFound,
-            message: "Method not found",
+            message: `Method '${request.method}' not found`,
           },
         })
         .catch((error) =>
