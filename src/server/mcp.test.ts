@@ -529,6 +529,60 @@ describe("tool()", () => {
   });
 
   /***
+   * Test: Tool self removal
+   */
+  test("should remove tool when using tool.remove()", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    // Register initial tool
+    const tool = mcpServer.tool("test", async () => ({
+      content: [
+        {
+          type: "text",
+          text: "Test response",
+        },
+      ],
+    }));
+
+    expect(mcpServer['_registeredTools']['test']).toBeDefined();
+
+    // Now delete the tool
+    tool.remove();
+
+    expect(mcpServer['_registeredTools']['test']).toBeUndefined();
+  });
+
+  /***
+   * Test: Tool server removal
+   */
+  test("should remove tool when using server.removeTool(...)", async () => {
+    const mcpServer = new McpServer({
+      name: "test server",
+      version: "1.0",
+    });
+
+    // Register initial tool
+    mcpServer.tool("test", async () => ({
+      content: [
+        {
+          type: "text",
+          text: "Test response",
+        },
+      ],
+    }));
+
+    expect(mcpServer['_registeredTools']['test']).toBeDefined();
+
+    // Now delete the tool
+    mcpServer.removeTool("test");
+
+    expect(mcpServer['_registeredTools']['test']).toBeUndefined();
+  });
+
+  /***
    * Test: Tool Registration with Parameters
    */
   test("should register tool with params", async () => {
