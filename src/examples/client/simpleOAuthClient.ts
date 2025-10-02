@@ -32,7 +32,8 @@ class InMemoryOAuthClientProvider implements OAuthClientProvider {
   constructor(
     private readonly _redirectUrl: string | URL,
     private readonly _clientMetadata: OAuthClientMetadata,
-    onRedirect?: (url: URL) => void
+    onRedirect?: (url: URL) => void,
+    private readonly _clientMetadataUrl?: string | URL,
   ) {
     this._onRedirect = onRedirect || ((url) => {
       console.log(`Redirect to: ${url.toString()}`);
@@ -50,6 +51,12 @@ class InMemoryOAuthClientProvider implements OAuthClientProvider {
   }
 
   clientInformation(): OAuthClientInformation | undefined {
+    if (this._clientMetadataUrl) {
+      console.log("Using client ID metadata URL");
+      return {
+        client_id: this._clientMetadataUrl.toString(),
+      }
+    }
     return this._clientInformation;
   }
 
@@ -231,7 +238,8 @@ class InteractiveOAuthClient {
         console.log(`📌 OAuth redirect handler called - opening browser`);
         console.log(`Opening browser to: ${redirectUrl.toString()}`);
         this.openBrowser(redirectUrl.toString());
-      }
+      },
+      'https://pcarleton--c1073a0b670949da87f3911be7feb5d5.web.val.run/mcp.json',
     );
     console.log('🔐 OAuth provider created');
 
