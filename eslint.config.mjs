@@ -9,19 +9,17 @@ export default tseslint.config(
     ...tseslint.configs.recommended,
     {
         linterOptions: {
-            reportUnusedDisableDirectives: false,
+            reportUnusedDisableDirectives: false
         },
         rules: {
-            "@typescript-eslint/no-unused-vars": ["error",
-                { "argsIgnorePattern": "^_" }
-            ]
+            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }]
         }
     },
     {
-        files: ["src/client/**/*.ts", "src/server/**/*.ts"],
-        ignores: ["**/*.test.ts"],
+        files: ['src/client/**/*.ts', 'src/server/**/*.ts'],
+        ignores: ['**/*.test.ts'],
         rules: {
-            "no-console": "error"
+            'no-console': 'error'
         }
     },
     eslintConfigPrettier
