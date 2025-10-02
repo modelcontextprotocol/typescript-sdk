@@ -49,9 +49,9 @@ npm install @modelcontextprotocol/sdk
 
 ## Quick Start
 
-Let's create a simple MCP server that exposes a calculator tool and some data. Save the following as `server.mjs`:
+Let's create a simple MCP server that exposes a calculator tool and some data. Save the following as `server.ts`:
 
-```javascript
+```typescript
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express from "express";
@@ -124,8 +124,10 @@ app.listen(port, () => {
 });
 ```
 
-Now run the server with `node server.mjs`. You can connect to it using any MCP client that supports streamable http, such as:
-- [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector): `npx npx @modelcontextprotocol/inspector` and connect to the streamable HTTP URL `http://localhost:3000/mcp`
+Install the deps with `npm install @modelcontextprotocol/sdk express zod@3`, and run with `npx -y tsx server.ts`.
+
+You can connect to it using any MCP client that supports streamable http, such as:
+- [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector): `npx @modelcontextprotocol/inspector` and connect to the streamable HTTP URL `http://localhost:3000/mcp`
 - [Claude Code](https://docs.claude.com/en/docs/claude-code/mcp): `claude mcp add --transport http my-server http://localhost:3000/mcp`
 - [VS Code](https://code.visualstudio.com/docs/copilot/customization/mcp-servers): `code --add-mcp "{\"name\":\"my-server\",\"type\":\"http\",\"url\":\"http://localhost:3000/mcp\"}"`
 - [Cursor](https://cursor.com/docs/context/mcp): Click [this deeplink](cursor://anysphere.cursor-deeplink/mcp/install?name=my-server&config=eyJ1cmwiOiJodHRwOi8vbG9jYWxob3N0OjMwMDAvbWNwIn0%3D)
