@@ -5,7 +5,8 @@ import {
     ContentBlockSchema,
     PromptMessageSchema,
     CallToolResultSchema,
-    CompleteRequestSchema
+    CompleteRequestSchema,
+    RootSchema
 } from './types.js';
 
 describe('Types', () => {
@@ -308,6 +309,36 @@ describe('Types', () => {
                     '{tenant}': 'acme-corp',
                     '{resource}': 'users'
                 });
+            }
+        });
+    });
+
+    describe('Root', () => {
+        test('should validate roots with file:// URIs', () => {
+            const root = {
+                uri: 'file:///users/test/project',
+                name: 'Test Root'
+            };
+
+            const result = RootSchema.safeParse(root);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.uri).toBe('file:///users/test/project');
+                expect(result.data.name).toBe('Test Root');
+            }
+        });
+
+        test('should validate roots with non-file URI schemes', () => {
+            const root = {
+                uri: 'https://github.com/owner/repo',
+                name: 'GitHub Repo'
+            };
+
+            const result = RootSchema.safeParse(root);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.uri).toBe('https://github.com/owner/repo');
+                expect(result.data.name).toBe('GitHub Repo');
             }
         });
     });

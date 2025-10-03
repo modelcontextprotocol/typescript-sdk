@@ -1365,9 +1365,10 @@ export const CompleteResultSchema = ResultSchema.extend({
 export const RootSchema = z
     .object({
         /**
-         * The URI identifying the root. This *must* start with file:// for now.
+         * The URI identifying the root. Can be any valid URI scheme (e.g., file://, https://, s3://, git://).
+         * Servers should document which URI schemes they support and handle unsupported schemes gracefully.
          */
-        uri: z.string().startsWith('file://'),
+        uri: z.string(),
         /**
          * An optional name for the root.
          */
