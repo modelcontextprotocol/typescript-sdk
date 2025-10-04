@@ -277,6 +277,36 @@ export class Server<
         return this._capabilities;
     }
 
+    private prepareElicitationSchema(schema: ElicitRequest['params']['requestedSchema']): ElicitRequest['params']['requestedSchema'] {
+        const clonedSchema = JSON.parse(JSON.stringify(schema)) as ElicitRequest['params']['requestedSchema'];
+
+        const properties = clonedSchema.properties ?? {};
+        for (const propertySchema of Object.values(properties)) {
+            if (!propertySchema || typeof propertySchema !== 'object') {
+                continue;
+            }
+
+            const enumValues = (propertySchema as { enum?: string[] }).enum;
+            const allowCustom = (propertySchema as { allowCustom?: boolean }).allowCustom;
+
+            if (!allowCustom || !Array.isArray(enumValues) || enumValues.length === 0) {
+                continue;
+            }
+
+            const propertyRecord = propertySchema as Record<string, unknown>;
+            const customBranch = { ...propertyRecord };
+            delete customBranch.enum;
+            delete customBranch.enumNames;
+            delete customBranch.allowCustom;
+
+            propertyRecord.anyOf = [{ enum: enumValues }, customBranch];
+            delete propertyRecord.enum;
+            delete propertyRecord.allowCustom;
+        }
+
+        return clonedSchema;
+    }
+
     async ping() {
         return this.request({ method: 'ping' }, EmptyResultSchema);
     }
@@ -293,7 +323,8 @@ export class Server<
             try {
                 const ajv = new Ajv();
 
-                const validate = ajv.compile(params.requestedSchema);
+                const schemaForValidation = this.prepareElicitationSchema(params.requestedSchema);
+                const validate = ajv.compile(schemaForValidation);
                 const isValid = validate(result.content);
 
                 if (!isValid) {
