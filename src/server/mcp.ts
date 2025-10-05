@@ -1066,10 +1066,10 @@ export class McpServer {
      * Does nothing if the tool is not registered.
      */
     enableTool(name: string) {
-      const tool = this._registeredTools[name];
-      if (tool) {
-        tool.enable();
-      }
+        const tool = this._registeredTools[name];
+        if (tool) {
+            tool.enable();
+        }
     };
   
     /**
@@ -1077,10 +1077,10 @@ export class McpServer {
      * Does nothing if the tool is not registered.
      */
     disableTool(name: string) {
-      const tool = this._registeredTools[name];
-      if (tool) {
-        tool.disable();
-      }
+        const tool = this._registeredTools[name];
+        if (tool) {
+            tool.disable();
+        }
     };
   
     /**
@@ -1088,10 +1088,10 @@ export class McpServer {
      * Does nothing if the tool is not registered.
      */
     updateTool<InputArgs extends ZodRawShapeCompat, OutputArgs extends ZodRawShapeCompat>(name: string, updates: ToolUpdates<InputArgs, OutputArgs>) {
-      const tool = this._registeredTools[name];
-      if (tool) {
-        tool.update(updates);
-      }
+        const tool = this._registeredTools[name];
+        if (tool) {
+            tool.update(updates);
+        }
     };
   
     /**
