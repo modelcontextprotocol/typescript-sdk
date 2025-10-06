@@ -1,5 +1,11 @@
 import { describe, it, expect } from '@jest/globals';
-import { SafeUrlSchema, OAuthMetadataSchema, OpenIdProviderMetadataSchema, OAuthClientMetadataSchema } from './auth.js';
+import {
+    SafeUrlSchema,
+    OAuthMetadataSchema,
+    OpenIdProviderMetadataSchema,
+    OAuthClientMetadataSchema,
+    OptionalSafeUrlSchema
+} from './auth.js';
 
 describe('SafeUrlSchema', () => {
     it('accepts valid HTTPS URLs', () => {
@@ -18,14 +24,17 @@ describe('SafeUrlSchema', () => {
 
     it('rejects invalid URLs', () => {
         expect(() => SafeUrlSchema.parse('not-a-url')).toThrow();
+        expect(() => SafeUrlSchema.parse('')).toThrow();
     });
 
     it('works with safeParse', () => {
         expect(() => SafeUrlSchema.safeParse('not-a-url')).not.toThrow();
     });
+});
 
-    it('works with empty string', () => {
-        expect(() => SafeUrlSchema.parse('')).not.toThrow();
+describe('OptionalSafeUrlSchema', () => {
+    it('accepts empty string and transforms it to undefined', () => {
+        expect(OptionalSafeUrlSchema.parse('')).toBe(undefined);
     });
 });
 

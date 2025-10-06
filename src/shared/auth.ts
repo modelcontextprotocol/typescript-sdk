@@ -23,8 +23,7 @@ export const SafeUrlSchema = z
             return u.protocol !== 'javascript:' && u.protocol !== 'data:' && u.protocol !== 'vbscript:';
         },
         { message: 'URL cannot use javascript:, data:, or vbscript: scheme' }
-    )
-    .or(z.literal(''));
+    );
 
 /**
  * RFC 9728 OAuth Protected Resource Metadata
@@ -153,6 +152,11 @@ export const OAuthErrorResponseSchema = z.object({
 });
 
 /**
+ * Optional version of SafeUrlSchema that allows empty string for retrocompatibility on tos_uri and logo_uri
+ */
+export const OptionalSafeUrlSchema = SafeUrlSchema.optional().or(z.literal('').transform(() => undefined));
+
+/**
  * RFC 7591 OAuth 2.0 Dynamic Client Registration metadata
  */
 export const OAuthClientMetadataSchema = z
@@ -163,10 +167,10 @@ export const OAuthClientMetadataSchema = z
         response_types: z.array(z.string()).optional(),
         client_name: z.string().optional(),
         client_uri: SafeUrlSchema.optional(),
-        logo_uri: SafeUrlSchema.optional(),
+        logo_uri: OptionalSafeUrlSchema,
         scope: z.string().optional(),
         contacts: z.array(z.string()).optional(),
-        tos_uri: SafeUrlSchema.optional(),
+        tos_uri: OptionalSafeUrlSchema,
         policy_uri: z.string().optional(),
         jwks_uri: SafeUrlSchema.optional(),
         jwks: z.any().optional(),
