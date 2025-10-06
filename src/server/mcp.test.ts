@@ -14,7 +14,8 @@ import {
     LoggingMessageNotificationSchema,
     Notification,
     TextContent,
-    ElicitRequestSchema
+    ElicitRequestSchema,
+    CreateMessageResultSchema
 } from '../types.js';
 import { ResourceTemplate } from './mcp.js';
 import { completable } from './completable.js';
@@ -323,21 +324,27 @@ describe('Context', () => {
     const logLevelsThroughContext = ['debug', 'info', 'warning', 'error'] as const;
 
     //it.each for each log level, test that logging message is sent to client
-    it.each(logLevelsThroughContext)('should send logging message to client for %s level from Context', async (level) => {
-        const mcpServer = new McpServer({ name: 'ctx-test', version: '1.0' }, {
-            capabilities: {
-                logging: {}
+    it.each(logLevelsThroughContext)('should send logging message to client for %s level from Context', async level => {
+        const mcpServer = new McpServer(
+            { name: 'ctx-test', version: '1.0' },
+            {
+                capabilities: {
+                    logging: {}
+                }
             }
-        });
-        const client = new Client({ name: 'ctx-client', version: '1.0' }, {
-            capabilities: {
-                logging: {}
+        );
+        const client = new Client(
+            { name: 'ctx-client', version: '1.0' },
+            {
+                capabilities: {
+                    logging: {}
+                }
             }
-        });
+        );
 
         let seen = 0;
 
-        client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
+        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
             seen++;
             expect(notification.params.level).toBe(level);
             expect(notification.params.data).toBe('Test message');
@@ -346,20 +353,22 @@ describe('Context', () => {
             return;
         });
 
-
         mcpServer.tool('ctx-log-test', { name: z.string() }, async (_args: { name: string }, extra) => {
             await extra[level]('Test message', { test: 'test' }, 'sample-session-id');
-            await extra.log({
-                level,
-                data: 'Test message',
-                logger: 'test-logger-namespace'
-            }, 'sample-session-id');
+            await extra.log(
+                {
+                    level,
+                    data: 'Test message',
+                    logger: 'test-logger-namespace'
+                },
+                'sample-session-id'
+            );
             return { content: [{ type: 'text', text: 'ok' }] };
         });
 
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
-        
+
         const result = await client.request(
             {
                 method: 'tools/call',

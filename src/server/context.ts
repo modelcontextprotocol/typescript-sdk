@@ -1,6 +1,5 @@
 import {
     CreateMessageRequest,
-    CreateMessageResultSchema,
     ElicitRequest,
     ElicitResultSchema,
     LoggingMessageNotification,
@@ -109,11 +108,7 @@ export class Context<
      * Sends a request to sample an LLM via the client.
      */
     public requestSampling(params: CreateMessageRequest['params'], options?: RequestOptions) {
-        const request: CreateMessageRequest = {
-            method: 'sampling/createMessage',
-            params
-        };
-        return this.server.request(request, CreateMessageResultSchema, { ...options, relatedRequestId: this.requestId });
+        return this.server.createMessage(params, options);
     }
 
     /**
