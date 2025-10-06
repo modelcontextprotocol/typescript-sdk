@@ -6,7 +6,7 @@
 
   Usage:
     npx -y @modelcontextprotocol/inspector \
-      npx -y --silent tsx src/examples/backfill/backfillSampling.ts -- \
+      npx -- -y --silent tsx src/examples/backfill/backfillSampling.ts \
         npx -y --silent tsx src/examples/server/toolLoopSampling.ts
 
   Then connect with an MCP client and call the "localResearch" tool with a query like:
@@ -25,7 +25,8 @@ import type {
   ToolCallContent,
   CreateMessageResult,
   CreateMessageRequest,
-  ToolResultContent,
+  ToolResultContent, 
+  CallToolResult,
 } from "../../types.js";
 
 const CWD = process.cwd();
@@ -71,6 +72,19 @@ function ensureSafePath(inputPath: string): string {
   return resolved;
 }
 
+
+function makeErrorCallToolResult(error: any): CallToolResult {
+  return {
+    content: [
+      {
+        type: "text",
+        text: error instanceof Error ? `${error.message}\n${error.stack}` : `${error}`,
+      },
+    ],
+    isError: true,
+  }
+}
+
 /**
  * Executes ripgrep to search for a pattern in files.
  * Returns search results as a string.
@@ -79,7 +93,7 @@ async function executeRipgrep(
   server: McpServer,
   pattern: string,
   path: string
-): Promise<{ output?: string; error?: string }> {
+): Promise<CallToolResult> {
   try {
     await server.sendLoggingMessage({
       level: "info",
@@ -88,45 +102,34 @@ async function executeRipgrep(
 
     const safePath = ensureSafePath(path);
 
-    return new Promise((resolve) => {
-      const rg = spawn("rg", [
-        "--json",
-        "--max-count", "50",
-        "--",
-        pattern,
-        safePath,
-      ]);
+    const output = await new Promise<string>((resolve, reject) => {
+      const command = ["rg", "--json", "--max-count", "50", "--", pattern, safePath];
+      const rg = spawn(command[0], command.slice(1));
 
       let stdout = "";
       let stderr = "";
-
-      rg.stdout.on("data", (data) => {
-        stdout += data.toString();
-      });
-
-      rg.stderr.on("data", (data) => {
-        stderr += data.toString();
-      });
-
+      rg.stdout.on("data", (data) => stdout += data.toString());
+      rg.stderr.on("data", (data) => stderr += data.toString());
       rg.on("close", (code) => {
         if (code === 0 || code === 1) {
           // code 1 means no matches, which is fine
-          resolve({ output: stdout || "No matches found" });
+          resolve(stdout || "No matches found");
         } else {
-          resolve({ error: stderr || `ripgrep exited with code ${code}` });
+          reject(new Error(`ripgrep exited with code ${code}:\n${stderr}`));
         }
       });
-
-      rg.on("error", (err) => {
-        resolve({ error: `Failed to execute ripgrep: ${err.message}` });
-      });
+      rg.on("error", err => reject(new Error(`Failed to start \`${command.map(a => a.indexOf(' ') >= 0 ? `"${a}"` : a).join(' ')}\`: ${err.message}\n${stderr}`)));
     });
-  } catch (error) {
+    const structuredContent = { output };
     return {
-      error: error instanceof Error ? error.message : "Unknown error",
+      content: [{ type: "text", text: JSON.stringify(structuredContent) }],
+      structuredContent,
     };
+  } catch (error) {
+    return makeErrorCallToolResult(error);
   }
 }
+
 
 /**
  * Reads a file from the filesystem, optionally within a line range.
@@ -137,7 +140,7 @@ async function executeRead(
   path: string,
   startLineInclusive?: number,
   endLineInclusive?: number
-): Promise<{ content?: string; error?: string }> {
+): Promise<CallToolResult> {
   try {
     // Log the read operation
     if (startLineInclusive !== undefined || endLineInclusive !== undefined) {
@@ -153,35 +156,39 @@ async function executeRead(
     }
 
     const safePath = ensureSafePath(path);
-    const content = await readFile(safePath, "utf-8");
-    const lines = content.split("\n");
+    const fileContent = await readFile(safePath, "utf-8");
+    if (typeof fileContent !== "string") {
+      throw new Error(`Result of reading file ${path} is not text: ${fileContent}`);
+    }
+    
+    let content = fileContent;
 
     // If line range specified, extract only those lines
     if (startLineInclusive !== undefined || endLineInclusive !== undefined) {
+      const lines = fileContent.split("\n");
+      
       const start = (startLineInclusive ?? 1) - 1; // Convert to 0-indexed
       const end = endLineInclusive ?? lines.length; // Default to end of file
 
       if (start < 0 || start >= lines.length) {
-        return { error: `Start line ${startLineInclusive} is out of bounds (file has ${lines.length} lines)` };
+        throw new Error(`Start line ${startLineInclusive} is out of bounds (file has ${lines.length} lines)`);
       }
       if (end < start) {
-        return { error: `End line ${endLineInclusive} is before start line ${startLineInclusive}` };
+        throw new Error(`End line ${endLineInclusive} is before start line ${startLineInclusive}`);
       }
 
-      const selectedLines = lines.slice(start, end);
-      // Add line numbers to output
-      const numberedContent = selectedLines
-        .map((line, idx) => `${start + idx + 1}: ${line}`)
-        .join("\n");
-
-      return { content: numberedContent };
+      content = lines.slice(start, end)
+          .map((line, idx) => `${start + idx + 1}: ${line}`)
+          .join("\n");
     }
 
-    return { content };
-  } catch (error) {
+    const structuredContent = { content }
     return {
-      error: error instanceof Error ? error.message : "Unknown error",
+      content: [{ type: "text", text: JSON.stringify(structuredContent) }],
+      structuredContent,
     };
+  } catch (error) {
+    return makeErrorCallToolResult(error);
   }
 }
 
@@ -242,7 +249,7 @@ async function executeLocalTool(
   server: McpServer,
   toolName: string,
   toolInput: Record<string, unknown>
-): Promise<Record<string, unknown>> {
+): Promise<CallToolResult> {
   try {
     switch (toolName) {
       case "ripgrep": {
@@ -259,17 +266,13 @@ async function executeLocalTool(
         );
       }
       default:
-        return { error: `Unknown tool: ${toolName}` };
+        return makeErrorCallToolResult(`Unknown tool: ${toolName}`);
     }
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return {
-        error: `Invalid input for tool '${toolName}': ${error.errors.map(e => e.message).join(", ")}`,
-      };
+      return makeErrorCallToolResult(`Invalid input for tool '${toolName}': ${error.errors.map(e => e.message).join(", ")}`);
     }
-    return {
-      error: error instanceof Error ? error.message : "Unknown error during tool execution",
-    };
+    return makeErrorCallToolResult(error);
   }
 }
 
@@ -356,10 +359,12 @@ async function runToolLoop(
 
       const toolResults: ToolResultContent[] = await Promise.all(toolCalls.map(async (toolCall) => {
         const result = await executeLocalTool(server, toolCall.name, toolCall.input);
-        return { 
+        return <ToolResultContent>{ 
           type: "tool_result",
           toolUseId: toolCall.id,
-          content: result,
+          content: result.content,
+          structuredContent: result.structuredContent,
+          isError: result.isError,
         }
       }))
 
@@ -416,12 +421,14 @@ mcpServer.registerTool(
     inputSchema: {
       query: z
         .string()
+        .default("describe main classes")
         .describe(
           "A natural language query describing what to search for (e.g., 'Find all TypeScript files that export a Server class')"
         ),
+      maxIterations: z.number().int().positive().optional().default(20).describe("Maximum number of tool use iterations (default 20)"),
     },
   },
-  async ({ query }) => {
+  async ({ query, maxIterations }) => {
     try {
       const { answer, transcript, usage } = await runToolLoop(mcpServer, query);
 
@@ -459,15 +466,7 @@ mcpServer.registerTool(
         ],
       };
     } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: error instanceof Error ? error.message : `${error}`,
-            isError: true,
-          },
-        ],
-      };
+      return makeErrorCallToolResult(error);
     }
   }
 );
