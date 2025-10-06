@@ -875,24 +875,6 @@ describe('tool()', () => {
             })
         );
 
-        mcpServer.registerTool(
-            'test (new api)',
-            {
-                inputSchema: {
-                    name: z.string(),
-                    value: z.number()
-                }
-            },
-            async ({ name, value }) => ({
-                content: [
-                    {
-                        type: 'text',
-                        text: `${name}: ${value}`
-                    }
-                ]
-            })
-        );
-
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
@@ -911,23 +893,15 @@ describe('tool()', () => {
                 },
                 CallToolResultSchema
             )
-        ).rejects.toThrow(/Invalid arguments/);
-
-        await expect(
-            client.request(
+        ).resolves.toStrictEqual({
+            content: [
                 {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test (new api)',
-                        arguments: {
-                            name: 'test',
-                            value: 'not a number'
-                        }
-                    }
-                },
-                CallToolResultSchema
-            )
-        ).rejects.toThrow(/Invalid arguments/);
+                    type: 'text',
+                    text: expect.stringMatching(/Invalid arguments for tool test/)
+                }
+            ],
+            isError: true
+        });
     });
 
     /***
