@@ -1,5 +1,6 @@
 import { z, ZodTypeAny } from "zod";
 import { AuthInfo } from "./server/auth/types.js";
+import { is } from "@babel/types";
 
 export const LATEST_PROTOCOL_VERSION = "2025-06-18";
 export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = "2025-03-26";
@@ -867,32 +868,6 @@ export const ToolCallContentSchema = z
   .passthrough();
 
 /**
- * The result of a tool execution, provided by the user (server).
- * Represents the outcome of invoking a tool requested via ToolCallContent.
- */
-export const ToolResultContentSchema = z
-  .object({
-    type: z.literal("tool_result"),
-    /**
-     * The ID of the tool call this result corresponds to.
-     * Must match a ToolCallContent.id from a previous assistant message.
-     */
-    toolUseId: z.string(),
-    /**
-     * The result of the tool execution.
-     * Can be any JSON-serializable object.
-     * Error information should be included in the content itself.
-     */
-    content: z.object({}).passthrough(),
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.optional(z.object({}).passthrough()),
-  })
-  .passthrough();
-
-/**
  * The contents of a resource, embedded into a prompt or tool call result.
  */
 export const EmbeddedResourceSchema = z
@@ -1236,6 +1211,18 @@ export const ToolChoiceSchema = z
     disable_parallel_tool_use: z.optional(z.boolean()),
   })
   .passthrough();
+
+/**
+ * The result of a tool execution, provided by the user (server).
+ * Represents the outcome of invoking a tool requested via ToolCallContent.
+ */
+export const ToolResultContentSchema = z.object({
+  type: z.literal("tool_result"),
+  toolUseId: z.string().describe("The unique identifier for the corresponding tool call."),
+  content: z.array(z.union([TextContentSchema, ImageContentSchema])),
+  structuredContent: z.object({}).passthrough().optional(),
+  isError: z.optional(z.boolean()),
+})
 
 export const UserMessageContentSchema = z.discriminatedUnion("type", [
   TextContentSchema,
