@@ -1,5 +1,5 @@
 /*
-    This example implements an stdio MCP proxy that backfills sampling requests using the Claude API.
+    This example implements an stdio MCP proxy that backfills context-agnostic sampling requests using the Claude API.
     
     Usage:
       npx -y @modelcontextprotocol/inspector \
