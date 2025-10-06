@@ -260,6 +260,8 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                             : message.params.tools?.map(toolToClaudeFormat);
                         const tool_choice = toolChoiceToClaudeFormat(message.params.toolChoice);
 
+                        // TODO: switch to streaming if maxTokens is too large
+                        // "Streaming is required when max_tokens is greater than 21,333 tokens"
                         const msg = await api.messages.create({
                             model: pickModel(message.params.modelPreferences),
                             system: message.params.systemPrompt === undefined ? undefined : [
