@@ -20,6 +20,9 @@ import { ResourceTemplate } from './mcp.js';
 import { completable } from './completable.js';
 import { UriTemplate } from '../shared/uriTemplate.js';
 import { getDisplayName } from '../shared/metadataUtils.js';
+import { Context } from './context.js';
+import { Server } from './index.js';
+import { RequestContext } from '../shared/requestContext.js';
 
 describe('McpServer', () => {
     /***
@@ -167,6 +170,157 @@ describe('McpServer', () => {
     });
 });
 
+describe('Context', () => {
+    /***
+     * Test: `extra` provided to callbacks is Context (parameterized)
+     */
+    type Seen = { isContext: boolean; hasRequestId: boolean };
+    const contextCases: Array<[string, (mcpServer: McpServer, seen: Seen) => void | Promise<void>, (client: Client) => Promise<unknown>]> =
+        [
+            [
+                'tool',
+                (mcpServer, seen) => {
+                    mcpServer.tool(
+                        'ctx-tool',
+                        {
+                            name: z.string()
+                        },
+                        (_args: { name: string }, extra) => {
+                            seen.isContext = extra instanceof Context;
+                            seen.hasRequestId = !!extra.requestId;
+                            return { content: [{ type: 'text', text: 'ok' }] };
+                        }
+                    );
+                },
+                client =>
+                    client.request(
+                        {
+                            method: 'tools/call',
+                            params: {
+                                name: 'ctx-tool',
+                                arguments: {
+                                    name: 'ctx-tool-name'
+                                }
+                            }
+                        },
+                        CallToolResultSchema
+                    )
+            ],
+            [
+                'resource',
+                (mcpServer, seen) => {
+                    mcpServer.resource('ctx-resource', 'test://res/1', async (_uri, extra) => {
+                        seen.isContext = extra instanceof Context;
+                        seen.hasRequestId = !!extra.requestId;
+                        return { contents: [{ uri: 'test://res/1', mimeType: 'text/plain', text: 'hello' }] };
+                    });
+                },
+                client => client.request({ method: 'resources/read', params: { uri: 'test://res/1' } }, ReadResourceResultSchema)
+            ],
+            [
+                'resource template list',
+                (mcpServer, seen) => {
+                    const tmpl = new ResourceTemplate('test://items/{id}', {
+                        list: async extra => {
+                            seen.isContext = extra instanceof Context;
+                            seen.hasRequestId = !!extra.requestId;
+                            return { resources: [] };
+                        }
+                    });
+                    mcpServer.resource('ctx-template', tmpl, async (_uri, _vars, _extra) => ({ contents: [] }));
+                },
+                client => client.request({ method: 'resources/list', params: {} }, ListResourcesResultSchema)
+            ],
+            [
+                'prompt',
+                (mcpServer, seen) => {
+                    mcpServer.prompt('ctx-prompt', {}, async (_args, extra) => {
+                        seen.isContext = extra instanceof Context;
+                        seen.hasRequestId = !!extra.requestId;
+                        return { messages: [] };
+                    });
+                },
+                client => client.request({ method: 'prompts/get', params: { name: 'ctx-prompt', arguments: {} } }, GetPromptResultSchema)
+            ]
+        ];
+
+    test.each(contextCases)('should pass Context as extra to %s callbacks', async (_kind, register, trigger) => {
+        const mcpServer = new McpServer({ name: 'ctx-test', version: '1.0' });
+        const client = new Client({ name: 'ctx-client', version: '1.0' });
+
+        const seen: Seen = { isContext: false, hasRequestId: false };
+
+        await register(mcpServer, seen);
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+        await trigger(client);
+
+        expect(seen.isContext).toBe(true);
+        expect(seen.hasRequestId).toBe(true);
+    });
+
+    test('should allow typed lifespanContext access in tool callback', async () => {
+        const mcpServer = new McpServer(
+            { name: 'ctx-test', version: '1.0' },
+            {
+                lifespan: {
+                    userId: 'user-123',
+                    attempt: 0
+                }
+            }
+        );
+        const client = new Client({ name: 'ctx-client', version: '1.0' });
+
+        // Register a tool that reads/writes typed lifespanContext
+        mcpServer.tool('lifespan-tool', { name: z.string() }, async (_args: { name: string }, extra) => {
+            expect(extra).toBeInstanceOf(Context);
+
+            // Demonstrate type-safe access to lifespanContext
+            const lc = extra.requestCtx.lifespanContext;
+
+            // Typed writes
+            lc.userId = 'user-123';
+            lc.attempt = lc.attempt + 1;
+
+            // Typed read
+            const userId: string = lc.userId;
+
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: JSON.stringify({ userId, attempt: lc.attempt })
+                    }
+                ]
+            };
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+        const result = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'lifespan-tool',
+                    arguments: {
+                        name: 'sample-name'
+                    }
+                }
+            },
+            CallToolResultSchema
+        );
+
+        expect(result.content).toBeDefined();
+        const text = (result.content![0] as TextContent).text;
+        const parsed = JSON.parse(text) as { userId: string; attempt: number };
+        expect(parsed.userId).toBe('user-123');
+        expect(parsed.attempt).toBe(1);
+    });
+});
+
 describe('ResourceTemplate', () => {
     /***
      * Test: ResourceTemplate Creation with String Pattern
@@ -200,17 +354,23 @@ describe('ResourceTemplate', () => {
         const template = new ResourceTemplate('test://{id}', { list });
         expect(template.listCallback).toBe(list);
 
-        const abortController = new AbortController();
-        const result = await template.listCallback?.({
-            signal: abortController.signal,
-            requestId: 'not-implemented',
-            sendRequest: () => {
-                throw new Error('Not implemented');
-            },
-            sendNotification: () => {
-                throw new Error('Not implemented');
-            }
+        const server = new Server({
+            name: 'test server',
+            version: '1.0'
         });
+
+        const abortController = new AbortController();
+        const ctx = new Context({
+            server: server,
+            requestCtx: new RequestContext({
+                signal: abortController.signal,
+                requestId: 'not-implemented',
+                lifespanContext: undefined,
+                protocol: server
+            })
+        });
+
+        const result = await template.listCallback?.(ctx);
         expect(result?.resources).toHaveLength(1);
         expect(list).toHaveBeenCalled();
     });

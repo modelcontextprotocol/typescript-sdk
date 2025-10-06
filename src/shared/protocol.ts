@@ -360,16 +360,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const abortController = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abortController);
 
-        const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
-            signal: abortController.signal,
-            sessionId: capturedTransport?.sessionId,
-            _meta: request.params?._meta,
-            sendNotification: notification => this.notification(notification, { relatedRequestId: request.id }),
-            sendRequest: (r, resultSchema, options?) => this.request(r, resultSchema, { ...options, relatedRequestId: request.id }),
-            authInfo: extra?.authInfo,
-            requestId: request.id,
-            requestInfo: extra?.requestInfo
-        };
+        const fullExtra = this.createRequestExtra(request, abortController, capturedTransport, extra);
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         Promise.resolve()
@@ -405,6 +396,28 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             .finally(() => {
                 this._requestHandlerAbortControllers.delete(request.id);
             });
+    }
+
+    /**
+     * Creates the RequestHandlerExtra passed to handlers. Subclasses may override to
+     * provide a richer context object as long as it satisfies the same structural contract.
+     */
+    protected createRequestExtra(
+        request: JSONRPCRequest,
+        abortController: AbortController,
+        capturedTransport: Transport | undefined,
+        extra?: MessageExtraInfo
+    ): RequestHandlerExtra<SendRequestT, SendNotificationT> {
+        return {
+            signal: abortController.signal,
+            sessionId: capturedTransport?.sessionId,
+            _meta: request.params?._meta,
+            sendNotification: notification => this.notification(notification, { relatedRequestId: request.id }),
+            sendRequest: (r, resultSchema, options?) => this.request(r, resultSchema, { ...options, relatedRequestId: request.id }),
+            authInfo: extra?.authInfo,
+            requestId: request.id,
+            requestInfo: extra?.requestInfo
+        } as RequestHandlerExtra<SendRequestT, SendNotificationT>;
     }
 
     private _onprogress(notification: ProgressNotification): void {
