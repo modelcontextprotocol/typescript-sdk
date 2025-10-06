@@ -46,8 +46,16 @@ import {
   ElicitResult,
   ElicitResultSchema, 
 TextContent,
+ListToolsResult,
+ListToolsResultSchema,
+ListToolsRequest,
+CallToolResultSchema,
+CallToolResult,
+ResourceUpdatedNotification,
+ToolListChangedNotificationSchema,
 } from "../../types.js";
 import { Transport } from "../../shared/transport.js";
+import { Server } from "src/server/index.js";
 
 const DEFAULT_MAX_TOKENS = process.env.DEFAULT_MAX_TOKENS ? parseInt(process.env.DEFAULT_MAX_TOKENS) : 1000;
 
@@ -77,6 +85,76 @@ function toolToClaudeFormat(tool: Tool): ClaudeTool {
         description: tool.description || "",
         input_schema: tool.inputSchema,
     };
+}
+
+class CallableTool {
+    constructor(private tool: Tool, private server: Server) {}
+
+    async call(input: Record<string, unknown>): Promise<CallToolResult> {
+        // Server validates input and output
+        const request: CallToolRequest = {
+            method: 'tools/call',
+            params: {
+                name: this.tool.name,
+                arguments: input,
+            },
+        };
+        return await this.server.request(request, CallToolResultSchema);
+    }
+
+    // Expose tool metadata for reference
+    get name() { return this.tool.name; }
+    get description() { return this.tool.description; }
+    get inputSchema() { return this.tool.inputSchema; }
+    get outputSchema() { return this.tool.outputSchema; }
+}
+
+export class CallableTools {
+    private cache = new Map<string, CallableTool | undefined>();
+    private results: Promise<ListToolsResult>[] = [];
+
+    constructor(private server: Server) {
+        server.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+            this.results = [];
+            this.cache.clear();
+        });
+    }
+
+    async find(name: string): Promise<CallableTool | undefined> {
+        if (this.cache.has(name)) {
+            return this.cache.get(name);
+        }
+
+        const getCursor = async () => this.results.length > 0 ? (await this.results[this.results.length - 1])?.nextCursor : undefined;
+        const fetchNext = (cursor?: string) => this.server.request(<ListToolsRequest>{
+            method: 'tools/list',
+            params: { cursor },
+        }, ListToolsResultSchema);
+
+        for (const result of this.results) {
+            const tool = (await result).tools.find(t => t.name === name);
+            if (tool) {
+                const callable = new CallableTool(tool, this.server);
+                this.cache.set(name, callable);
+                return callable;
+            }
+        }
+
+        let cursor: string | undefined;
+        while (this.results.length == 0 || (cursor = await getCursor()) !== undefined) {
+            const result = fetchNext(cursor);
+            this.results.push(result);
+            const tool = (await result).tools.find(t => t.name === name);
+            if (tool) {
+                const callable = new CallableTool(tool, this.server);
+                this.cache.set(name, callable);
+                return callable;
+            }
+        }
+
+        this.cache.set(name, undefined);
+        return undefined;
+    }
 }
 
 /**
