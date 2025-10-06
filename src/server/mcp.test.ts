@@ -14,8 +14,7 @@ import {
     LoggingMessageNotificationSchema,
     Notification,
     TextContent,
-    ElicitRequestSchema,
-    CreateMessageResultSchema
+    ElicitRequestSchema
 } from '../types.js';
 import { ResourceTemplate } from './mcp.js';
 import { completable } from './completable.js';
