@@ -12,6 +12,8 @@ import {
     Base64ImageSource,
     ContentBlock,
     ContentBlockParam,
+    TextBlockParam,
+    ImageBlockParam,
     Tool as ClaudeTool,
     ToolChoiceAuto,
     ToolChoiceAny,
@@ -41,6 +43,9 @@ import {
   JSONRPCNotification,
   AssistantMessageContent,
   UserMessageContent,
+  ElicitResult,
+  ElicitResultSchema, 
+TextContent,
 } from "../../types.js";
 import { Transport } from "../../shared/transport.js";
 
@@ -56,6 +61,9 @@ const isCallToolRequest: (value: unknown) => value is CallToolRequest =
 
 const isElicitRequest: (value: unknown) => value is ElicitRequest =
     ((value: any) => ElicitRequestSchema.safeParse(value).success) as any;
+    
+const isElicitResult: (value: unknown) => value is ElicitResult =
+    ((value: any) => ElicitResultSchema.safeParse(value).success) as any;
     
 const isCreateMessageRequest: (value: unknown) => value is CreateMessageRequest =
     ((value: any) => CreateMessageRequestSchema.safeParse(value).success) as any;
@@ -115,8 +123,10 @@ function stopReasonToMcp(reason: string | null): CreateMessageResult['stopReason
             return 'toolUse';
         case 'end_turn':
             return 'endTurn';
+        case null:
+            return undefined;
         default:
-            return 'other';
+            throw new Error(`[stopReasonToMcp] Unsupported stop reason: ${reason}`);
     }
 }
 
@@ -138,7 +148,23 @@ function contentBlockFromMcp(content: AssistantMessageContent | UserMessageConte
             return {
                 type: 'tool_result',
                 tool_use_id: content.toolUseId,
-                content: JSON.stringify(content.content), // TODO
+                content: content.content.map(c => {
+                    if (c.type === 'text') {
+                        return {type: 'text', text: c.text};
+                    } else if (c.type === 'image') {
+                        return {
+                            type: 'image',
+                            source: {
+                                type: 'base64',
+                                data: c.data,
+                                media_type: c.mimeType as Base64ImageSource['media_type'],
+                            },
+                        };
+                    } else {
+                        throw new Error(`[contentBlockFromMcp] Unsupported content type in tool_result: ${c.type}`);
+                    }
+                }),
+                is_error: content.isError,
             };
         case 'tool_use':
             return {
