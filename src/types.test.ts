@@ -341,5 +341,15 @@ describe('Types', () => {
                 expect(result.data.name).toBe('GitHub Repo');
             }
         });
+
+        test('should reject invalid URIs', () => {
+            const invalidRoot = {
+                uri: '/home/modelcontextprotocol/project',
+                name: 'Invalid Root'
+            };
+
+            const result = RootSchema.safeParse(invalidRoot);
+            expect(result.success).toBe(false);
+        });
     });
 });

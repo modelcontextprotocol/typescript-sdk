@@ -1368,7 +1368,7 @@ export const RootSchema = z
          * The URI identifying the root. Can be any valid URI scheme (e.g., file://, https://, s3://, git://).
          * Servers should document which URI schemes they support and handle unsupported schemes gracefully.
          */
-        uri: z.string(),
+        uri: z.string().url(),
         /**
          * An optional name for the root.
          */
