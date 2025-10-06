@@ -884,9 +884,10 @@ describe('tool()', () => {
         expect(result.tools[0].name).toBe('test');
         expect(result.tools[0].description).toBe('A tool description');
 
-        const callResult = await client.callTool('test', { name: 'World' });
+        const callResult = await client.callTool({ name: 'test', arguments: { name: 'World' } });
         expect(callResult.content).toHaveLength(1);
-        expect(callResult.content[0]).toMatchObject({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expect((callResult.content as any)[0]).toMatchObject({
             type: 'text',
             text: 'Hello, World!'
         });
@@ -929,9 +930,10 @@ describe('tool()', () => {
         expect(result.tools[0].name).toBe('test');
         expect(result.tools[0].description).toBeUndefined();
 
-        const callResult = await client.callTool('test', { name: 'World' });
+        const callResult = await client.callTool({ name: 'test', arguments: { name: 'World' } });
         expect(callResult.content).toHaveLength(1);
-        expect(callResult.content[0]).toMatchObject({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expect((callResult.content as any)[0]).toMatchObject({
             type: 'text',
             text: 'Hello, World!'
         });
@@ -983,9 +985,10 @@ describe('tool()', () => {
             readOnlyHint: true
         });
 
-        const callResult = await client.callTool('test', {});
+        const callResult = await client.callTool({ name: 'test' });
         expect(callResult.content).toHaveLength(1);
-        expect(callResult.content[0]).toMatchObject({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expect((callResult.content as any)[0]).toMatchObject({
             type: 'text',
             text: 'Hello!'
         });
