@@ -902,7 +902,7 @@ export class McpServer {
      * @returns True if the server is connected
      */
     isConnected() {
-        return this.server.transport !== undefined;
+        return this.server.transportMap.size > 0;
     }
 
     /**

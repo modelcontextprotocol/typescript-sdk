@@ -93,6 +93,11 @@ export type RequestOptions = {
      * If not specified, there is no maximum total timeout.
      */
     maxTotalTimeout?: number;
+
+    /**
+     * Specify the transport sent for the session ID from the transport, if available.
+     */
+    sessionId?: string;
 } & TransportSendOptions;
 
 /**
@@ -103,6 +108,11 @@ export type NotificationOptions = {
      * May be used to indicate to the transport which incoming request to associate this outgoing notification with.
      */
     relatedRequestId?: RequestId;
+
+    /**
+     * Session ID from the transport, if available.
+     */
+    sessionId?: string;
 };
 
 /**
@@ -167,12 +177,13 @@ type TimeoutInfo = {
     onTimeout: () => void;
 };
 
+const DEFAULT_TRANSPROT_KEY = '__default_transport__';
+
 /**
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
  */
 export abstract class Protocol<SendRequestT extends Request, SendNotificationT extends Notification, SendResultT extends Result> {
-    private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<
         string,
@@ -184,7 +195,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
-
+    // client only has one transport, server will have multiple
+    private _transportMap: Map<string, Transport> = new Map();
     /**
      * Callback for when the connection is closed for any reason.
      *
@@ -275,26 +287,45 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * The Protocol object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
-        this._transport = transport;
-        const _onclose = this.transport?.onclose;
-        this._transport.onclose = () => {
+        const _onclose = transport.onclose;
+
+        const originalOnSessionInitialized = transport.onsessioninitialized;
+        transport.onsessioninitialized = async (sessionId: string) => {
+            await originalOnSessionInitialized?.(sessionId);
+            if (sessionId) {
+                this._transportMap.set(sessionId, transport);
+            }
+        }
+
+        const originalOnSessionClosed = transport.onsessionclosed;
+        transport.onsessionclosed = async (sessionId: string) => {
+            await originalOnSessionClosed?.(sessionId);
+            if (sessionId) {
+                this._transportMap.delete(sessionId);
+            }
+        }
+
+        // client init has only one transport, not invoke onsessioninitialized
+        this._transportMap.set(DEFAULT_TRANSPROT_KEY, transport);
+
+        transport.onclose = () => {
             _onclose?.();
-            this._onclose();
+            this._onclose(transport.sessionId);
         };
 
-        const _onerror = this.transport?.onerror;
-        this._transport.onerror = (error: Error) => {
+        const _onerror = transport.onerror;
+        transport.onerror = (error: Error) => {
             _onerror?.(error);
             this._onerror(error);
         };
-
-        const _onmessage = this._transport?.onmessage;
-        this._transport.onmessage = (message, extra) => {
+    
+        const _onmessage = transport?.onmessage;
+        transport.onmessage = (message, extra) => {
             _onmessage?.(message, extra);
             if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
                 this._onresponse(message);
             } else if (isJSONRPCRequest(message)) {
-                this._onrequest(message, extra);
+                this._onrequest(message, extra, transport.sessionId);
             } else if (isJSONRPCNotification(message)) {
                 this._onnotification(message);
             } else {
@@ -302,15 +333,19 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             }
         };
 
-        await this._transport.start();
+        await transport.start();
     }
 
-    private _onclose(): void {
+    private _onclose(sessionId?: string): void {
+        if (sessionId) {
+            this._transportMap.delete(sessionId);
+        } else {
+            this._transportMap.delete(DEFAULT_TRANSPROT_KEY)
+        }
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
         this._pendingDebouncedNotifications.clear();
-        this._transport = undefined;
         this.onclose?.();
 
         const error = new McpError(ErrorCode.ConnectionClosed, 'Connection closed');
@@ -337,11 +372,20 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             .catch(error => this._onerror(new Error(`Uncaught error in notification handler: ${error}`)));
     }
 
-    private _onrequest(request: JSONRPCRequest, extra?: MessageExtraInfo): void {
-        const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
+    get transportMap() {
+        return this._transportMap;
+    }
 
+    private _onrequest(request: JSONRPCRequest, extra?: MessageExtraInfo, sessionId?: string): void {
+        const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
+        let transport: Transport;
+        if (sessionId && this._transportMap.has(sessionId)) {
+            transport = this._transportMap.get(sessionId)!;
+        } else {
+            transport = this._transportMap.get(DEFAULT_TRANSPROT_KEY)!;
+        }
         // Capture the current transport at request time to ensure responses go to the correct client
-        const capturedTransport = this._transport;
+        const capturedTransport = transport;
 
         if (handler === undefined) {
             capturedTransport
@@ -452,15 +496,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         }
     }
 
-    get transport(): Transport | undefined {
-        return this._transport;
-    }
-
     /**
      * Closes the connection.
      */
     async close(): Promise<void> {
-        await this._transport?.close();
+        for (const transport of this._transportMap.values()) {
+            await transport.close();
+        }
     }
 
     /**
@@ -490,10 +532,16 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * Do not use this method to emit notifications! Use notification() instead.
      */
     request<T extends ZodType<object>>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<z.infer<T>> {
-        const { relatedRequestId, resumptionToken, onresumptiontoken } = options ?? {};
+        const { relatedRequestId, resumptionToken, onresumptiontoken, sessionId } = options ?? {};
 
+        let transport = this._transportMap.get(DEFAULT_TRANSPROT_KEY);
+
+        if (sessionId) {
+            transport = this._transportMap.get(sessionId);
+        }
+        
         return new Promise((resolve, reject) => {
-            if (!this._transport) {
+            if (!transport) {
                 reject(new Error('Not connected'));
                 return;
             }
@@ -527,7 +575,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 this._progressHandlers.delete(messageId);
                 this._cleanupTimeout(messageId);
 
-                this._transport
+                transport
                     ?.send(
                         {
                             jsonrpc: '2.0',
@@ -570,7 +618,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
-            this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
+            transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
                 this._cleanupTimeout(messageId);
                 reject(error);
             });
@@ -581,7 +629,16 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * Emits a notification, which is a one-way message that does not expect a response.
      */
     async notification(notification: SendNotificationT, options?: NotificationOptions): Promise<void> {
-        if (!this._transport) {
+
+        let transports: Transport[] = Array.from(this._transportMap.values());
+
+        if (options?.sessionId && this._transportMap.has(options.sessionId)) {
+            transports = [
+                this._transportMap.get(options.sessionId)!
+            ];
+        }
+
+        if (transports.length === 0) {
             throw new Error('Not connected');
         }
 
@@ -606,9 +663,16 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             Promise.resolve().then(() => {
                 // Un-mark the notification so the next one can be scheduled.
                 this._pendingDebouncedNotifications.delete(notification.method);
+                let transports: Transport[] = Array.from(this._transportMap.values());
+
+                if (options?.sessionId && this._transportMap.has(options.sessionId)) {
+                    transports = [
+                        this._transportMap.get(options.sessionId)!
+                    ];
+                }
 
                 // SAFETY CHECK: If the connection was closed while this was pending, abort.
-                if (!this._transport) {
+                if (transports.length === 0) {
                     return;
                 }
 
@@ -618,7 +682,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 };
                 // Send the notification, but don't await it here to avoid blocking.
                 // Handle potential errors with a .catch().
-                this._transport?.send(jsonrpcNotification, options).catch(error => this._onerror(error));
+                for (const transport of transports) {
+                    transport?.send(jsonrpcNotification, options).catch(error => this._onerror(error));
+                }
             });
 
             // Return immediately.
@@ -630,7 +696,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             jsonrpc: '2.0'
         };
 
-        await this._transport.send(jsonrpcNotification, options);
+        for (const transport of transports) {
+            await transport.send(jsonrpcNotification, options);
+        }
     }
 
     /**

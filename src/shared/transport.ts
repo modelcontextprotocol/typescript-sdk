@@ -82,4 +82,14 @@ export interface Transport {
      * Sets the protocol version used for the connection (called when the initialize response is received).
      */
     setProtocolVersion?: (version: string) => void;
+    
+    /**
+     * Callback for when a session is initialized.
+     */
+    onsessioninitialized?: (sessionId: string) => void | Promise<void>;
+
+    /**
+     * Callback for when a session is closed.
+     */
+    onsessionclosed?: (sessionId: string) => void | Promise<void>;
 }

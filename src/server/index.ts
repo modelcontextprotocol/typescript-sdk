@@ -131,7 +131,7 @@ export class Server<
      * The new capabilities will be merged with any existing capabilities previously given (e.g., at initialization).
      */
     public registerCapabilities(capabilities: ServerCapabilities): void {
-        if (this.transport) {
+        if (this.transportMap.size > 0) {
             throw new Error('Cannot register capabilities after connecting to transport');
         }
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
@@ -277,8 +277,8 @@ export class Server<
         return this._capabilities;
     }
 
-    async ping() {
-        return this.request({ method: 'ping' }, EmptyResultSchema);
+    async ping(sessionId?: string) {
+        return this.request({ method: 'ping' }, EmptyResultSchema, { sessionId });
     }
 
     async createMessage(params: CreateMessageRequest['params'], options?: RequestOptions) {
@@ -327,7 +327,7 @@ export class Server<
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
         if (this._capabilities.logging) {
             if (!this.isMessageIgnored(params.level, sessionId)) {
-                return this.notification({ method: 'notifications/message', params });
+                return this.notification({ method: 'notifications/message', params }, { sessionId});
             }
         }
     }

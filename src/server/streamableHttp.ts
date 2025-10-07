@@ -155,8 +155,6 @@ export class StreamableHTTPServerTransport implements Transport {
     private _enableJsonResponse: boolean = false;
     private _standaloneSseStreamId: string = '_GET_stream';
     private _eventStore?: EventStore;
-    private _onsessioninitialized?: (sessionId: string) => void | Promise<void>;
-    private _onsessionclosed?: (sessionId: string) => void | Promise<void>;
     private _allowedHosts?: string[];
     private _allowedOrigins?: string[];
     private _enableDnsRebindingProtection: boolean;
@@ -165,13 +163,15 @@ export class StreamableHTTPServerTransport implements Transport {
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
+    onsessioninitialized?: (sessionId: string) => void | Promise<void>;
+    onsessionclosed?: (sessionId: string) => void | Promise<void>;
 
     constructor(options: StreamableHTTPServerTransportOptions) {
         this.sessionIdGenerator = options.sessionIdGenerator;
         this._enableJsonResponse = options.enableJsonResponse ?? false;
         this._eventStore = options.eventStore;
-        this._onsessioninitialized = options.onsessioninitialized;
-        this._onsessionclosed = options.onsessionclosed;
+        this.onsessioninitialized = options.onsessioninitialized;
+        this.onsessionclosed = options.onsessionclosed;
         this._allowedHosts = options.allowedHosts;
         this._allowedOrigins = options.allowedOrigins;
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
@@ -502,8 +502,11 @@ export class StreamableHTTPServerTransport implements Transport {
 
                 // If we have a session ID and an onsessioninitialized handler, call it immediately
                 // This is needed in cases where the server needs to keep track of multiple sessions
-                if (this.sessionId && this._onsessioninitialized) {
-                    await Promise.resolve(this._onsessioninitialized(this.sessionId));
+                if (this.sessionId && this.onsessioninitialized) {
+                    await Promise.resolve(this.onsessioninitialized(this.sessionId));
+                    for (const message of messages) {
+                        this.onmessage?.(message, { authInfo, requestInfo });
+                    }
                 }
             }
             if (!isInitializationRequest) {
@@ -600,7 +603,7 @@ export class StreamableHTTPServerTransport implements Transport {
         if (!this.validateProtocolVersion(req, res)) {
             return;
         }
-        await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
+        await Promise.resolve(this.onsessionclosed?.(this.sessionId!));
         await this.close();
         res.writeHead(200).end();
     }

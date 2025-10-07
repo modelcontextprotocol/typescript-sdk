@@ -103,7 +103,7 @@ export class Client<
      * The new capabilities will be merged with any existing capabilities previously given (e.g., at initialization).
      */
     public registerCapabilities(capabilities: ClientCapabilities): void {
-        if (this.transport) {
+        if (this.transportMap.size > 0) {
             throw new Error('Cannot register capabilities after connecting to transport');
         }
 
