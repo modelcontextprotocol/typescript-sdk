@@ -30,6 +30,16 @@ export interface SSEServerTransportOptions {
      * Default is false for backwards compatibility.
      */
     enableDnsRebindingProtection?: boolean;
+
+    /**
+     * Callback for when a session is initialized.
+     */
+    onsessioninitialized?: (sessionId: string) => void;
+
+    /**
+     * Callback for when a session is closed.
+     */
+    onsessionclosed?: (sessionId: string) => void;
 }
 
 /**
@@ -44,6 +54,8 @@ export class SSEServerTransport implements Transport {
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
+    onsessioninitialized?: (sessionId: string) => void | Promise<void>;
+    onsessionclosed?: (sessionId: string) => void | Promise<void>;
 
     /**
      * Creates a new SSE server transport, which will direct the client to POST messages to the relative or absolute URL identified by `_endpoint`.
@@ -55,6 +67,8 @@ export class SSEServerTransport implements Transport {
     ) {
         this._sessionId = randomUUID();
         this._options = options || { enableDnsRebindingProtection: false };
+        this.onsessioninitialized = options?.onsessioninitialized;
+        this.onsessionclosed = options?.onsessionclosed;
     }
 
     /**
@@ -95,6 +109,7 @@ export class SSEServerTransport implements Transport {
         if (this._sseResponse) {
             throw new Error('SSEServerTransport already started! If using Server class, note that connect() calls start() automatically.');
         }
+        await this.onsessioninitialized?.(this._sessionId);
 
         this.res.writeHead(200, {
             'Content-Type': 'text/event-stream',
@@ -191,6 +206,7 @@ export class SSEServerTransport implements Transport {
     async close(): Promise<void> {
         this._sseResponse?.end();
         this._sseResponse = undefined;
+        await this.onsessioninitialized?.(this._sessionId);
         this.onclose?.();
     }
 
