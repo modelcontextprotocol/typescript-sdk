@@ -1126,8 +1126,8 @@ const devTool = server.registerTool(
 );
 
 // Lenient validation (default) - maintains backwards compatibility with existing clients
-const prodTool = server.registerTool(
-    'prod-tool',
+const lenientTool = server.registerTool(
+    'lenient-tool',
     {
         inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() },
         strictInputSchemaValidation: false // Accept extra parameters for backwards compatibility with clients that may send additional fields
