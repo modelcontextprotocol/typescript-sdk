@@ -1,5 +1,5 @@
-import { Client } from '../client/index.js'
-import { SSEClientTransport } from '../client/sse.js'
+import { Client } from '../client/index.js';
+import { SSEClientTransport } from '../client/sse.js';
 import { StreamableHTTPClientTransport } from '../client/streamableHttp.js';
 import express, { Request, Response } from 'express';
 import { McpServer } from '../server/mcp.js';
@@ -8,7 +8,7 @@ import { InMemoryEventStore } from '../examples/shared/inMemoryEventStore.js';
 import { StreamableHTTPServerTransport } from '../server/streamableHttp.js';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import * as http from "http";
+import * as http from 'http';
 import cors from 'cors';
 import { isInitializeRequest } from '../types.js';
 
@@ -20,26 +20,27 @@ const server = new McpServer(
     { capabilities: { logging: {} } }
 );
 
-server.registerTool('sayHello', {
-    description: 'Says hello to the user',
-    inputSchema: {
-        name: z.string().describe('Name to include in greeting')
+server.registerTool(
+    'sayHello',
+    {
+        description: 'Says hello to the user',
+        inputSchema: {
+            name: z.string().describe('Name to include in greeting')
+        }
     },
-}, async ({ name }) => {
-    return {
-        content: [{ type: 'text', text: 'Hello, ' + name + '!' }]
+    async ({ name }) => {
+        return {
+            content: [{ type: 'text', text: 'Hello, ' + name + '!' }]
+        };
     }
-});
+);
 
 const transports: Record<string, StreamableHTTPServerTransport | SSEServerTransport> = {};
 
 let expressServer: http.Server;
 
-
-
 describe.only('multipleLinks.test.js', () => {
     beforeAll(async () => {
-
         const app = express();
         app.use(express.json());
 
@@ -111,7 +112,6 @@ describe.only('multipleLinks.test.js', () => {
                 }
             }
         });
-
 
         app.all('/mcp', async (req: Request, res: Response) => {
             console.log(`Received ${req.method} request to /mcp`);
@@ -192,7 +192,6 @@ describe.only('multipleLinks.test.js', () => {
             }
         });
 
-
         app.post('/stateless/mcp', async (req: Request, res: Response) => {
             try {
                 const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
@@ -266,7 +265,6 @@ describe.only('multipleLinks.test.js', () => {
         });
         await serverReady;
     });
-
 
     afterAll(async () => {
         console.log('Shutting down server...');

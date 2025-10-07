@@ -327,7 +327,7 @@ export class Server<
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
         if (this._capabilities.logging) {
             if (!this.isMessageIgnored(params.level, sessionId)) {
-                return this.notification({ method: 'notifications/message', params }, { sessionId});
+                return this.notification({ method: 'notifications/message', params }, { sessionId });
             }
         }
     }

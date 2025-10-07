@@ -82,7 +82,7 @@ export interface Transport {
      * Sets the protocol version used for the connection (called when the initialize response is received).
      */
     setProtocolVersion?: (version: string) => void;
-    
+
     /**
      * Callback for when a session is initialized.
      */

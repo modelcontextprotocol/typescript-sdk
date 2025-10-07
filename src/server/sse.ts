@@ -31,16 +31,15 @@ export interface SSEServerTransportOptions {
      */
     enableDnsRebindingProtection?: boolean;
 
-
     /**
      * Callback for when a session is initialized.
      */
-    onsessioninitialized?: (sessionId: string) => void
+    onsessioninitialized?: (sessionId: string) => void;
 
     /**
      * Callback for when a session is closed.
      */
-    onsessionclosed?: (sessionId: string) => void
+    onsessionclosed?: (sessionId: string) => void;
 }
 
 /**
@@ -57,7 +56,6 @@ export class SSEServerTransport implements Transport {
     onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
     onsessioninitialized?: (sessionId: string) => void | Promise<void>;
     onsessionclosed?: (sessionId: string) => void | Promise<void>;
-
 
     /**
      * Creates a new SSE server transport, which will direct the client to POST messages to the relative or absolute URL identified by `_endpoint`.

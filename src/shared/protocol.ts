@@ -295,7 +295,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             if (sessionId) {
                 this._transportMap.set(sessionId, transport);
             }
-        }
+        };
 
         const originalOnSessionClosed = transport.onsessionclosed;
         transport.onsessionclosed = async (sessionId: string) => {
@@ -303,7 +303,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             if (sessionId) {
                 this._transportMap.delete(sessionId);
             }
-        }
+        };
 
         // client init has only one transport, not invoke onsessioninitialized
         this._transportMap.set(DEFAULT_TRANSPROT_KEY, transport);
@@ -318,7 +318,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             _onerror?.(error);
             this._onerror(error);
         };
-    
+
         const _onmessage = transport?.onmessage;
         transport.onmessage = (message, extra) => {
             _onmessage?.(message, extra);
@@ -340,7 +340,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         if (sessionId) {
             this._transportMap.delete(sessionId);
         } else {
-            this._transportMap.delete(DEFAULT_TRANSPROT_KEY)
+            this._transportMap.delete(DEFAULT_TRANSPROT_KEY);
         }
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
@@ -409,7 +409,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             sessionId: capturedTransport?.sessionId,
             _meta: request.params?._meta,
             sendNotification: notification => this.notification(notification, { relatedRequestId: request.id, sessionId }),
-            sendRequest: (r, resultSchema, options?) => this.request(r, resultSchema, { ...options, relatedRequestId: request.id, sessionId }),
+            sendRequest: (r, resultSchema, options?) =>
+                this.request(r, resultSchema, { ...options, relatedRequestId: request.id, sessionId }),
             authInfo: extra?.authInfo,
             requestId: request.id,
             requestInfo: extra?.requestInfo
@@ -539,7 +540,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         if (sessionId) {
             transport = this._transportMap.get(sessionId);
         }
-        
+
         return new Promise((resolve, reject) => {
             if (!transport) {
                 reject(new Error('Not connected'));
@@ -629,13 +630,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * Emits a notification, which is a one-way message that does not expect a response.
      */
     async notification(notification: SendNotificationT, options?: NotificationOptions): Promise<void> {
-
         let transports: Transport[] = Array.from(this._transportMap.values());
 
         if (options?.sessionId && this._transportMap.has(options.sessionId)) {
-            transports = [
-                this._transportMap.get(options.sessionId)!
-            ];
+            transports = [this._transportMap.get(options.sessionId)!];
         }
 
         if (transports.length === 0) {
@@ -666,9 +664,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 let transports: Transport[] = Array.from(this._transportMap.values());
 
                 if (options?.sessionId && this._transportMap.has(options.sessionId)) {
-                    transports = [
-                        this._transportMap.get(options.sessionId)!
-                    ];
+                    transports = [this._transportMap.get(options.sessionId)!];
                 }
 
                 // SAFETY CHECK: If the connection was closed while this was pending, abort.
