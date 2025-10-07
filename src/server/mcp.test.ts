@@ -4141,7 +4141,7 @@ describe('elicitInput()', () => {
             'test-strict',
             {
                 inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() },
-                strict: true
+                strictInputSchemaValidation: true
             },
             async ({ userName, itemCount }) => ({
                 content: [{ type: 'text', text: `${userName || 'none'}: ${itemCount || 0}` }]

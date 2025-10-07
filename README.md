@@ -1118,13 +1118,13 @@ Control how tools handle parameter validation errors and unexpected inputs:
 // Strict validation - catches typos and unexpected parameters immediately
 const devTool = server.registerTool("dev-tool", {
   inputSchema: { userName: z.string(), itemCount: z.number() },
-  strict: true  // Reject { username: "test", itemcount: 42 }
+  strictInputSchemaValidation: true  // Reject { username: "test", itemcount: 42 }
 }, handler);
 
 // Lenient validation (default) - maintains backwards compatibility with existing clients
 const prodTool = server.registerTool("prod-tool", {
   inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() },
-  strict: false  // Accept extra parameters for backwards compatibility with clients that may send additional fields
+  strictInputSchemaValidation: false  // Accept extra parameters for backwards compatibility with clients that may send additional fields
 }, handler);
 ```
 
@@ -1133,7 +1133,7 @@ const prodTool = server.registerTool("prod-tool", {
 - Production APIs: Ensure clients send only expected parameters  
 - Security-sensitive tools: Prevent injection of unexpected data
 
-**Note:** The `strict` parameter is only available in `registerTool()`. The legacy `tool()` method uses lenient validation for backward compatibility.
+**Note:** The `strictInputSchemaValidation` parameter is only available in `registerTool()`. The legacy `tool()` method uses lenient validation for backward compatibility.
 
 ### Low-Level Server
 
