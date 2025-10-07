@@ -4086,7 +4086,7 @@ describe('elicitInput()', () => {
         ]);
     });
 
-    test('should fail: tool with incorrect parameter capitalization is not rejected', async () => {
+    test('should accept unknown parameters when strict validation is disabled (default)', async () => {
         const mcpServer = new McpServer({
             name: 'test server',
             version: '1.0'
@@ -4098,7 +4098,7 @@ describe('elicitInput()', () => {
         });
 
         mcpServer.registerTool(
-            'test-strict',
+            'test-lenient',
             {
                 inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() }
             },
@@ -4115,15 +4115,15 @@ describe('elicitInput()', () => {
             {
                 method: 'tools/call',
                 params: {
-                    name: 'test-strict',
+                    name: 'test-lenient',
                     arguments: { username: 'test', itemcount: 42 }
                 }
             },
             CallToolResultSchema
         );
 
-        expect(result.isError).toBe(true);
-        expect(result.content[0].text).toContain('Invalid arguments');
+        expect(result.isError).toBeUndefined();
+        expect(result.content[0].text).toBe('none: 0');
     });
 
     test('should reject unknown parameters when strict validation is enabled', async () => {
