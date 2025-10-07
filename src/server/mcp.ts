@@ -654,7 +654,12 @@ export class McpServer {
         const registeredTool: RegisteredTool = {
             title,
             description,
-            inputSchema: inputSchema === undefined ? undefined : strictInputSchemaValidation === true ? z.object(inputSchema).strict() : z.object(inputSchema),
+            inputSchema:
+                inputSchema === undefined
+                    ? undefined
+                    : strictInputSchemaValidation === true
+                      ? z.object(inputSchema).strict()
+                      : z.object(inputSchema),
             outputSchema: outputSchema === undefined ? undefined : z.object(outputSchema),
             annotations,
             _meta,

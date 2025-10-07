@@ -1116,21 +1116,30 @@ Control how tools handle parameter validation errors and unexpected inputs:
 
 ```typescript
 // Strict validation - catches typos and unexpected parameters immediately
-const devTool = server.registerTool("dev-tool", {
-  inputSchema: { userName: z.string(), itemCount: z.number() },
-  strictInputSchemaValidation: true  // Reject { username: "test", itemcount: 42 }
-}, handler);
+const devTool = server.registerTool(
+    'dev-tool',
+    {
+        inputSchema: { userName: z.string(), itemCount: z.number() },
+        strictInputSchemaValidation: true // Reject { username: "test", itemcount: 42 }
+    },
+    handler
+);
 
 // Lenient validation (default) - maintains backwards compatibility with existing clients
-const prodTool = server.registerTool("prod-tool", {
-  inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() },
-  strictInputSchemaValidation: false  // Accept extra parameters for backwards compatibility with clients that may send additional fields
-}, handler);
+const prodTool = server.registerTool(
+    'prod-tool',
+    {
+        inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() },
+        strictInputSchemaValidation: false // Accept extra parameters for backwards compatibility with clients that may send additional fields
+    },
+    handler
+);
 ```
 
 **When to use strict validation:**
+
 - Development and testing: Catch parameter name typos early
-- Production APIs: Ensure clients send only expected parameters  
+- Production APIs: Ensure clients send only expected parameters
 - Security-sensitive tools: Prevent injection of unexpected data
 
 **Note:** The `strictInputSchemaValidation` parameter is only available in `registerTool()`. The legacy `tool()` method uses lenient validation for backward compatibility.
