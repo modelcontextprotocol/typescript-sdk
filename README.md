@@ -1115,16 +1115,16 @@ server.registerTool("tool3", ...).disable();
 Control how tools handle parameter validation errors and unexpected inputs:
 
 ```typescript
-// Strict validation for development - catches typos immediately  
+// Strict validation - catches typos and unexpected parameters immediately
 const devTool = server.registerTool("dev-tool", {
   inputSchema: { userName: z.string(), itemCount: z.number() },
   strict: true  // Reject { username: "test", itemcount: 42 }
 }, handler);
 
-// Lenient validation for production - handles client variations gracefully
+// Lenient validation (default) - maintains backwards compatibility with existing clients
 const prodTool = server.registerTool("prod-tool", {
   inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() },
-  strict: false  // Accept extra parameters (default behavior)  
+  strict: false  // Accept extra parameters for backwards compatibility with clients that may send additional fields
 }, handler);
 ```
 
