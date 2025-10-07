@@ -158,8 +158,8 @@ export class StreamableHTTPClientTransport implements Transport {
         try {
             result = await auth(this._authProvider, {
                 serverUrl: this._url,
-                scope: this._scope,
                 resourceMetadataUrl: this._resourceMetadataUrl,
+                scope: this._scope,
                 fetchFn: this._fetch
             });
         } catch (error) {

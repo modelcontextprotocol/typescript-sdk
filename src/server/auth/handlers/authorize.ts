@@ -120,14 +120,6 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
             let requestedScopes: string[] = [];
             if (scope !== undefined) {
                 requestedScopes = scope.split(' ');
-                const allowedScopes = new Set(client.scope?.split(' '));
-
-                // Check each requested scope against allowed scopes
-                for (const scope of requestedScopes) {
-                    if (!allowedScopes.has(scope)) {
-                        throw new InvalidScopeError(`Client was not registered with scope ${scope}`);
-                    }
-                }
             }
 
             // All validation passed, proceed with authorization
