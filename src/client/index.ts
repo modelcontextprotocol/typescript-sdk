@@ -38,7 +38,7 @@ import {
     ErrorCode,
     McpError
 } from '../types.js';
-import { Validator } from '@cfworker/json-schema';
+import { Validator, Schema } from '@cfworker/json-schema';
 
 export type ClientOptions = ProtocolOptions & {
     /**
@@ -377,7 +377,7 @@ export class Client<
             // If the tool has an outputSchema, create and cache the validator
             if (tool.outputSchema) {
                 try {
-                    const validator = new Validator(tool.outputSchema as any, '2020-12');
+                    const validator = new Validator(tool.outputSchema as Schema, '2020-12');
                     this._cachedToolOutputValidators.set(tool.name, validator);
                 } catch {
                     // Ignore schema compilation errors
