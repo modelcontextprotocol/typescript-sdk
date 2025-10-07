@@ -408,8 +408,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             signal: abortController.signal,
             sessionId: capturedTransport?.sessionId,
             _meta: request.params?._meta,
-            sendNotification: notification => this.notification(notification, { relatedRequestId: request.id }),
-            sendRequest: (r, resultSchema, options?) => this.request(r, resultSchema, { ...options, relatedRequestId: request.id }),
+            sendNotification: notification => this.notification(notification, { relatedRequestId: request.id, sessionId }),
+            sendRequest: (r, resultSchema, options?) => this.request(r, resultSchema, { ...options, relatedRequestId: request.id, sessionId }),
             authInfo: extra?.authInfo,
             requestId: request.id,
             requestInfo: extra?.requestInfo

@@ -334,9 +334,6 @@ describe.only('multipleLinks.test.js', () => {
 
         await firstClient.connect(firstTransport);
 
-        // @ts-ignore
-        console.log('firstTransport', firstTransport._sessionId);
-
         const secondClient = new Client({
             name: 'test-second-client',
             version: '1.0.0'
@@ -345,9 +342,6 @@ describe.only('multipleLinks.test.js', () => {
         const secondTransport = new StreamableHTTPClientTransport(new URL('http://localhost:3002/mcp'));
 
         await secondClient.connect(secondTransport);
-
-        // @ts-ignore
-        console.log('secondTransport', secondTransport._sessionId);
 
         await firstClient.callTool({
             name: 'sayHello',
