@@ -14,7 +14,7 @@ output:
     - execution_info # Print `EXECUTE > ...` logging
     - skips # Print "skip" (i.e. no files matched)
 
-pre-commit:
+pre-push:
     follow: true
     parallel: true
     jobs:
