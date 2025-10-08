@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach } from 'vitest';
 import { metadataHandler } from './metadata.js';
 import { OAuthMetadata } from '../../../shared/auth.js';
 import express from 'express';

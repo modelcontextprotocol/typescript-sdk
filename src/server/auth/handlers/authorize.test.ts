@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { authorizationHandler, AuthorizationHandlerOptions } from './authorize.js';
 import { OAuthServerProvider, AuthorizationParams } from '../provider.js';
 import { OAuthRegisteredClientsStore } from '../clients.js';
@@ -252,7 +253,7 @@ describe('Authorization Handler', () => {
 
     describe('Resource parameter validation', () => {
         it('propagates resource parameter', async () => {
-            const mockProviderWithResource = jest.spyOn(mockProvider, 'authorize');
+            const mockProviderWithResource = vi.spyOn(mockProvider, 'authorize');
 
             const response = await supertest(app).get('/authorize').query({
                 client_id: 'valid-client',

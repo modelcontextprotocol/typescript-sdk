@@ -1,5 +1,5 @@
 import http from 'http';
-import { jest } from '@jest/globals';
+import { describe, it, expect, beforeEach, vi, Mocked } from 'vitest';
 import { SSEServerTransport } from './sse.js';
 import { McpServer } from './mcp.js';
 import { createServer, type Server } from 'node:http';
@@ -9,13 +9,13 @@ import { CallToolResult, JSONRPCMessage } from 'src/types.js';
 
 const createMockResponse = () => {
     const res = {
-        writeHead: jest.fn<http.ServerResponse['writeHead']>().mockReturnThis(),
-        write: jest.fn<http.ServerResponse['write']>().mockReturnThis(),
-        on: jest.fn<http.ServerResponse['on']>().mockReturnThis(),
-        end: jest.fn<http.ServerResponse['end']>().mockReturnThis()
+        writeHead: vi.fn<http.ServerResponse['writeHead']>().mockReturnThis(),
+        write: vi.fn<http.ServerResponse['write']>().mockReturnThis(),
+        on: vi.fn<http.ServerResponse['on']>().mockReturnThis(),
+        end: vi.fn<http.ServerResponse['end']>().mockReturnThis()
     };
 
-    return res as unknown as jest.Mocked<http.ServerResponse>;
+    return res as unknown as Mocked<http.ServerResponse>;
 };
 
 const createMockRequest = ({ headers = {}, body }: { headers?: Record<string, string>; body?: string } = {}) => {
@@ -25,7 +25,7 @@ const createMockRequest = ({ headers = {}, body }: { headers?: Record<string, st
         auth: {
             token: 'test-token'
         },
-        on: jest.fn<http.IncomingMessage['on']>().mockImplementation((event, listener) => {
+        on: vi.fn<http.IncomingMessage['on']>().mockImplementation((event, listener) => {
             const mockListener = listener as unknown as (...args: unknown[]) => void;
             if (event === 'data') {
                 mockListener(Buffer.from(body || '') as unknown as Error);
@@ -41,8 +41,8 @@ const createMockRequest = ({ headers = {}, body }: { headers?: Record<string, st
             }
             return mockReq;
         }),
-        listeners: jest.fn<http.IncomingMessage['listeners']>(),
-        removeListener: jest.fn<http.IncomingMessage['removeListener']>()
+        listeners: vi.fn<http.IncomingMessage['listeners']>(),
+        removeListener: vi.fn<http.IncomingMessage['removeListener']>()
     } as unknown as http.IncomingMessage;
 
     return mockReq;
@@ -344,7 +344,7 @@ describe('SSEServerTransport', () => {
             const transport = new SSEServerTransport(endpoint, mockRes);
             await transport.start();
 
-            transport.onerror = jest.fn();
+            transport.onerror = vi.fn();
             const error = 'Unsupported content-type: text/plain';
             await expect(transport.handlePostMessage(mockReq, mockRes)).resolves.toBe(undefined);
             expect(mockRes.writeHead).toHaveBeenCalledWith(400);
@@ -368,7 +368,7 @@ describe('SSEServerTransport', () => {
             const transport = new SSEServerTransport(endpoint, mockRes);
             await transport.start();
 
-            transport.onmessage = jest.fn();
+            transport.onmessage = vi.fn();
             await transport.handlePostMessage(mockReq, mockRes);
             expect(mockRes.writeHead).toHaveBeenCalledWith(400);
             expect(transport.onmessage).not.toHaveBeenCalled();
@@ -395,7 +395,7 @@ describe('SSEServerTransport', () => {
             const transport = new SSEServerTransport(endpoint, mockRes);
             await transport.start();
 
-            transport.onmessage = jest.fn();
+            transport.onmessage = vi.fn();
             await transport.handlePostMessage(mockReq, mockRes);
             expect(mockRes.writeHead).toHaveBeenCalledWith(202);
             expect(mockRes.end).toHaveBeenCalledWith('Accepted');
@@ -430,7 +430,7 @@ describe('SSEServerTransport', () => {
             const endpoint = '/messages';
             const transport = new SSEServerTransport(endpoint, mockRes);
             await transport.start();
-            transport.onclose = jest.fn();
+            transport.onclose = vi.fn();
             await transport.close();
             expect(transport.onclose).toHaveBeenCalled();
         });
@@ -450,7 +450,7 @@ describe('SSEServerTransport', () => {
 
     describe('DNS rebinding protection', () => {
         beforeEach(() => {
-            jest.clearAllMocks();
+            vi.clearAllMocks();
         });
 
         describe('Host header validation', () => {

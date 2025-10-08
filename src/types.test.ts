@@ -1,3 +1,4 @@
+import { describe, test, expect } from 'vitest';
 import {
     LATEST_PROTOCOL_VERSION,
     SUPPORTED_PROTOCOL_VERSIONS,

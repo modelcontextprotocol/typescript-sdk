@@ -1,10 +1,9 @@
+import { describe, it, expect } from 'vitest';
 import { Server } from '../server/index.js';
 import { StdioServerTransport } from '../server/stdio.js';
 
 describe('Process cleanup', () => {
-    jest.setTimeout(5000); // 5 second timeout
-
-    it('should exit cleanly after closing transport', async () => {
+    it('should exit cleanly after closing transport', { timeout: 5000 }, async () => {
         const server = new Server(
             {
                 name: 'test-server',

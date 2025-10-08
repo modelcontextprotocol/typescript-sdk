@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { resourceUrlFromServerUrl, checkResourceAllowed } from './auth-utils.js';
 
 describe('auth-utils', () => {

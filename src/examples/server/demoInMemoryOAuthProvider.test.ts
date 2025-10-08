@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Response } from 'express';
 import { DemoInMemoryAuthProvider, DemoInMemoryClientsStore } from './demoInMemoryOAuthProvider.js';
 import { AuthorizationParams } from '../../server/auth/provider.js';
@@ -11,7 +12,7 @@ describe('DemoInMemoryAuthProvider', () => {
     const createMockResponse = (): Response & { getRedirectUrl: () => string } => {
         let capturedRedirectUrl: string | undefined;
 
-        const mockRedirect = jest.fn().mockImplementation((url: string | number, status?: number) => {
+        const mockRedirect = vi.fn().mockImplementation((url: string | number, status?: number) => {
             if (typeof url === 'string') {
                 capturedRedirectUrl = url;
             } else if (typeof status === 'string') {
@@ -22,9 +23,9 @@ describe('DemoInMemoryAuthProvider', () => {
 
         const mockResponse = {
             redirect: mockRedirect,
-            status: jest.fn().mockReturnThis(),
-            json: jest.fn().mockReturnThis(),
-            send: jest.fn().mockReturnThis(),
+            status: vi.fn().mockReturnThis(),
+            json: vi.fn().mockReturnThis(),
+            send: vi.fn().mockReturnThis(),
             getRedirectUrl: () => {
                 if (capturedRedirectUrl === undefined) {
                     throw new Error('No redirect URL was captured. Ensure redirect() was called first.');
@@ -234,7 +235,7 @@ describe('DemoInMemoryAuthProvider', () => {
         });
 
         it('should validate resource when validateResource is provided', async () => {
-            const validateResource = jest.fn().mockReturnValue(false);
+            const validateResource = vi.fn().mockReturnValue(false);
             const strictProvider = new DemoInMemoryAuthProvider(validateResource);
 
             const params: AuthorizationParams = {

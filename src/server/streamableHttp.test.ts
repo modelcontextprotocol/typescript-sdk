@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server, IncomingMessage, ServerResponse } from 'node:http';
 import { createServer as netCreateServer, AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
@@ -882,7 +883,7 @@ describe('StreamableHTTPServerTransport', () => {
             sessionId = await initializeServer();
 
             // Spy on console.warn to verify warning is logged
-            const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
             // Send request with different but supported protocol version
             const response = await fetch(baseUrl, {
@@ -1516,7 +1517,7 @@ describe('StreamableHTTPServerTransport in stateless mode', () => {
 // Test onsessionclosed callback
 describe('StreamableHTTPServerTransport onsessionclosed callback', () => {
     it('should call onsessionclosed callback when session is closed via DELETE', async () => {
-        const mockCallback = jest.fn();
+        const mockCallback = vi.fn();
 
         // Create server with onsessionclosed callback
         const result = await createTestServer({
@@ -1578,7 +1579,7 @@ describe('StreamableHTTPServerTransport onsessionclosed callback', () => {
     });
 
     it('should not call onsessionclosed callback for invalid session DELETE', async () => {
-        const mockCallback = jest.fn();
+        const mockCallback = vi.fn();
 
         // Create server with onsessionclosed callback
         const result = await createTestServer({
@@ -1609,7 +1610,7 @@ describe('StreamableHTTPServerTransport onsessionclosed callback', () => {
     });
 
     it('should call onsessionclosed callback with correct session ID when multiple sessions exist', async () => {
-        const mockCallback = jest.fn();
+        const mockCallback = vi.fn();
 
         // Create first server
         const result1 = await createTestServer({
@@ -1773,7 +1774,7 @@ describe('StreamableHTTPServerTransport async callbacks', () => {
     });
 
     it('should propagate errors from async onsessioninitialized callback', async () => {
-        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
         // Create server with async onsessioninitialized callback that throws
         const result = await createTestServer({
@@ -1796,7 +1797,7 @@ describe('StreamableHTTPServerTransport async callbacks', () => {
     });
 
     it('should propagate errors from async onsessionclosed callback', async () => {
-        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
         // Create server with async onsessionclosed callback that throws
         const result = await createTestServer({

@@ -1,3 +1,4 @@
+import { test, expect } from 'vitest';
 import { JSONRPCMessage } from '../types.js';
 import { StdioClientTransport, StdioServerParameters } from './stdio.js';
 
