@@ -7,6 +7,13 @@
   Usage:
     npx -y @modelcontextprotocol/inspector npm --  --silent run examples:tool-loop
 
+    # Or dockerized:
+    rm -fR node_modules
+    docker run --rm -v $PWD:/src -w /src node:latest npm i
+    npx -y @modelcontextprotocol/inspector -- \
+      docker run --rm -i -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" -v $PWD:/src -w /src node:latest \
+        npm run --silent examples:tool-loop
+
   Then connect with an MCP client and call the "localResearch" tool with a query like:
     "Find all TypeScript files that export a Server class"
 */
