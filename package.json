@@ -19,8 +19,8 @@
     "mcp"
   ],
   "bin": {
-    "backfill-sampling": "./dist/esm/examples/backfill/backfillSampling.js",
-    "example-tool-loop": "./dist/esm/bin/examples-tool-loop.js"
+    "backfill-sampling": "./dist/backfillSampling.js",
+    "example-tool-loop": "./dist/toolLoopSampling.js"
   },
   "exports": {
     ".": {
@@ -53,13 +53,15 @@
   "scripts": {
     "prepare": "npm run build",
     "fetch:spec-types": "curl -o spec.types.ts https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/refs/heads/main/schema/draft/schema.ts",
-    "build": "npm run build:esm && npm run build:cjs",
+    "build": "npm run build:esm && npm run build:cjs && npm run build:backfill-sampling && npm run build:example-tool-loop",
     "build:esm": "mkdir -p dist/esm && echo '{\"type\": \"module\"}' > dist/esm/package.json && tsc -p tsconfig.prod.json",
     "build:esm:w": "npm run build:esm -- -w",
     "build:cjs": "mkdir -p dist/cjs && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json && tsc -p tsconfig.cjs.json",
     "build:cjs:w": "npm run build:cjs -- -w",
     "examples:simple-server:w": "tsx --watch src/examples/server/simpleStreamableHttp.ts --oauth",
     "examples:tool-loop": "tsx examples/backfill/backfillSampling.ts tsx examples/server/toolLoopSampling.ts",
+    "build:backfill-sampling": "bun build examples/backfill/backfillSampling.ts --outdir=dist --banner '#!/usr/bin/env node' --target=node --minify && shx chmod +x dist/backfillSampling.js",
+    "build:example-tool-loop": "bun build examples/server/toolLoopSampling.ts --outdir=dist --banner '#!/usr/bin/env node' --target=node --minify && shx chmod +x dist/toolLoopSampling.js",
     "prepack": "npm run build:esm && npm run build:cjs",
     "lint": "eslint src/",
     "test": "npm run fetch:spec-types && jest",
@@ -98,6 +100,7 @@
     "eslint": "^9.8.0",
     "jest": "^29.7.0",
     "json-schema-to-zod": "^2.6.1",
+    "shx": "^0.4.0",
     "supertest": "^7.0.0",
     "ts-jest": "^29.2.4",
     "tsx": "^4.16.5",
