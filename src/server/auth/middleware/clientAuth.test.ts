@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach } from 'vitest';
 import { authenticateClient, ClientAuthenticationMiddlewareOptions } from './clientAuth.js';
 import { OAuthRegisteredClientsStore } from '../clients.js';
 import { OAuthClientInformationFull } from '../../../shared/auth.js';

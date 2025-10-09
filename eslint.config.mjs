@@ -17,7 +17,7 @@ export default tseslint.config(
     },
     {
         files: ['src/client/**/*.ts', 'src/server/**/*.ts'],
-        ignores: ['**/*.test.ts'],
+        ignores: ['**/*.bench.ts', '**/*.test.ts'],
         rules: {
             'no-console': 'error'
         }

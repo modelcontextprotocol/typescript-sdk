@@ -1,34 +1,36 @@
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
+import type { Mock, MockedFunction } from 'vitest';
 import { StdioClientTransport, getDefaultEnvironment } from './stdio.js';
 import spawn from 'cross-spawn';
 import { JSONRPCMessage } from '../types.js';
 import { ChildProcess } from 'node:child_process';
 
 // mock cross-spawn
-jest.mock('cross-spawn');
-const mockSpawn = spawn as jest.MockedFunction<typeof spawn>;
+vi.mock('cross-spawn');
+const mockSpawn = spawn as unknown as MockedFunction<typeof spawn>;
 
 describe('StdioClientTransport using cross-spawn', () => {
     beforeEach(() => {
         // mock cross-spawn's return value
         mockSpawn.mockImplementation(() => {
             const mockProcess: {
-                on: jest.Mock;
-                stdin?: { on: jest.Mock; write: jest.Mock };
-                stdout?: { on: jest.Mock };
+                on: Mock;
+                stdin?: { on: Mock; write: Mock };
+                stdout?: { on: Mock };
                 stderr?: null;
             } = {
-                on: jest.fn((event: string, callback: () => void) => {
+                on: vi.fn((event: string, callback: () => void) => {
                     if (event === 'spawn') {
                         callback();
                     }
                     return mockProcess;
                 }),
                 stdin: {
-                    on: jest.fn(),
-                    write: jest.fn().mockReturnValue(true)
+                    on: vi.fn(),
+                    write: vi.fn().mockReturnValue(true)
                 },
                 stdout: {
-                    on: jest.fn()
+                    on: vi.fn()
                 },
                 stderr: null
             };
@@ -37,7 +39,7 @@ describe('StdioClientTransport using cross-spawn', () => {
     });
 
     afterEach(() => {
-        jest.clearAllMocks();
+        vi.clearAllMocks();
     });
 
     test('should call cross-spawn correctly', async () => {
@@ -105,30 +107,30 @@ describe('StdioClientTransport using cross-spawn', () => {
 
         // get the mock process object
         const mockProcess: {
-            on: jest.Mock;
+            on: Mock;
             stdin: {
-                on: jest.Mock;
-                write: jest.Mock;
-                once: jest.Mock;
+                on: Mock;
+                write: Mock;
+                once: Mock;
             };
             stdout: {
-                on: jest.Mock;
+                on: Mock;
             };
             stderr: null;
         } = {
-            on: jest.fn((event: string, callback: () => void) => {
+            on: vi.fn((event: string, callback: () => void) => {
                 if (event === 'spawn') {
                     callback();
                 }
                 return mockProcess;
             }),
             stdin: {
-                on: jest.fn(),
-                write: jest.fn().mockReturnValue(true),
-                once: jest.fn()
+                on: vi.fn(),
+                write: vi.fn().mockReturnValue(true),
+                once: vi.fn()
             },
             stdout: {
-                on: jest.fn()
+                on: vi.fn()
             },
             stderr: null
         };

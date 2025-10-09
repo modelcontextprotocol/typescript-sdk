@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 /**
  * This contains:
  * - Static type checks to verify the Spec's types are compatible with the SDK's types

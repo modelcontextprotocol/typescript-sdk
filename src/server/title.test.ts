@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { Server } from './index.js';
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';

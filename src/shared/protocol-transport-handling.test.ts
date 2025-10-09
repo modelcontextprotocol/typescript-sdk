@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach } from '@jest/globals';
+import { describe, expect, test, beforeEach } from 'vitest';
 import { Protocol } from './protocol.js';
 import { Transport } from './transport.js';
 import { Request, Notification, Result, JSONRPCMessage } from '../types.js';

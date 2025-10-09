@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
@@ -170,7 +171,7 @@ describe('Transport resumability', () => {
         expect(sessionId).toBeDefined();
 
         // Start a long-running notification stream with tracking of lastEventId
-        const onLastEventIdUpdate = jest.fn((eventId: string) => {
+        const onLastEventIdUpdate = vi.fn((eventId: string) => {
             lastEventId = eventId;
         });
         expect(lastEventId).toBeUndefined();

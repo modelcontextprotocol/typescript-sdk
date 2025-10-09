@@ -1,3 +1,4 @@
+import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { McpServer } from './mcp.js';
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';
@@ -193,7 +194,7 @@ describe('ResourceTemplate', () => {
      * Test: ResourceTemplate with List Callback
      */
     test('should create ResourceTemplate with list callback', async () => {
-        const list = jest.fn().mockResolvedValue({
+        const list = vi.fn().mockResolvedValue({
             resources: [{ name: 'Test', uri: 'test://example' }]
         });
 
@@ -3872,15 +3873,15 @@ describe('Tool title precedence', () => {
 });
 
 describe('elicitInput()', () => {
-    const checkAvailability = jest.fn().mockResolvedValue(false);
-    const findAlternatives = jest.fn().mockResolvedValue([]);
-    const makeBooking = jest.fn().mockResolvedValue('BOOKING-123');
+    const checkAvailability = vi.fn().mockResolvedValue(false);
+    const findAlternatives = vi.fn().mockResolvedValue([]);
+    const makeBooking = vi.fn().mockResolvedValue('BOOKING-123');
 
     let mcpServer: McpServer;
     let client: Client;
 
     beforeEach(() => {
-        jest.clearAllMocks();
+        vi.clearAllMocks();
 
         // Create server with restaurant booking tool
         mcpServer = new McpServer({

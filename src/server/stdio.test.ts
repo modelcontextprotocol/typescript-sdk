@@ -1,3 +1,4 @@
+import { test, expect, beforeEach } from 'vitest';
 import { Readable, Writable } from 'node:stream';
 import { ReadBuffer, serializeMessage } from '../shared/stdio.js';
 import { JSONRPCMessage } from '../types.js';

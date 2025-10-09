@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable no-constant-binary-expression */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
+import { describe, test, expect, vi } from 'vitest';
 import { Client } from './index.js';
 import { z } from 'zod';
 import {
@@ -27,9 +28,9 @@ import { InMemoryTransport } from '../inMemory.js';
  */
 test('should initialize with matching protocol version', async () => {
     const clientTransport: Transport = {
-        start: jest.fn().mockResolvedValue(undefined),
-        close: jest.fn().mockResolvedValue(undefined),
-        send: jest.fn().mockImplementation(message => {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockImplementation(message => {
             if (message.method === 'initialize') {
                 clientTransport.onmessage?.({
                     jsonrpc: '2.0',
@@ -86,9 +87,9 @@ test('should initialize with matching protocol version', async () => {
 test('should initialize with supported older protocol version', async () => {
     const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
     const clientTransport: Transport = {
-        start: jest.fn().mockResolvedValue(undefined),
-        close: jest.fn().mockResolvedValue(undefined),
-        send: jest.fn().mockImplementation(message => {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockImplementation(message => {
             if (message.method === 'initialize') {
                 clientTransport.onmessage?.({
                     jsonrpc: '2.0',
@@ -136,9 +137,9 @@ test('should initialize with supported older protocol version', async () => {
  */
 test('should reject unsupported protocol version', async () => {
     const clientTransport: Transport = {
-        start: jest.fn().mockResolvedValue(undefined),
-        close: jest.fn().mockResolvedValue(undefined),
-        send: jest.fn().mockImplementation(message => {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockImplementation(message => {
             if (message.method === 'initialize') {
                 clientTransport.onmessage?.({
                     jsonrpc: '2.0',
