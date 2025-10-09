@@ -18,6 +18,10 @@
     "modelcontextprotocol",
     "mcp"
   ],
+  "bin": {
+    "backfill-sampling": "./dist/esm/examples/backfill/backfillSampling.js",
+    "example-tool-loop": "./dist/esm/examples/server/toolLoopSampling.js"
+  },
   "exports": {
     ".": {
       "import": "./dist/esm/index.js",
@@ -55,7 +59,7 @@
     "build:cjs": "mkdir -p dist/cjs && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json && tsc -p tsconfig.cjs.json",
     "build:cjs:w": "npm run build:cjs -- -w",
     "examples:simple-server:w": "tsx --watch src/examples/server/simpleStreamableHttp.ts --oauth",
-    "examples:tool-loop": "node dist/esm/examples/backfill/backfillSampling.js node dist/esm/examples/server/toolLoopSampling.js",
+    "examples:tool-loop": "tsx examples/backfill/backfillSampling.ts tsx examples/server/toolLoopSampling.ts",
     "prepack": "npm run build:esm && npm run build:cjs",
     "lint": "eslint src/",
     "test": "npm run fetch:spec-types && jest",
