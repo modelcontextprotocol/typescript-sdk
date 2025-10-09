@@ -28,35 +28,37 @@ import {
     PromptArgument,
     GetPromptResult,
     ReadResourceResult,
-    ServerRequest,
-    ServerNotification,
     ToolAnnotations,
-    LoggingMessageNotification
+    LoggingMessageNotification,
+    Result,
+    Notification,
+    Request
 } from '../types.js';
 import { Completable, CompletableDef } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
-import { RequestHandlerExtra } from '../shared/protocol.js';
 import { Transport } from '../shared/transport.js';
+import { Context } from './context.js';
+import type { LifespanContext } from 'src/shared/requestContext.js';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * Server instance available via the `server` property.
  */
-export class McpServer {
+export class McpServer<LifespanContextT extends LifespanContext | undefined = undefined> {
     /**
      * The underlying Server instance, useful for advanced operations like sending notifications.
      */
-    public readonly server: Server;
+    public readonly server: Server<Request, Notification, Result, LifespanContextT>;
 
-    private _registeredResources: { [uri: string]: RegisteredResource } = {};
+    private _registeredResources: { [uri: string]: RegisteredResource<LifespanContextT> } = {};
     private _registeredResourceTemplates: {
-        [name: string]: RegisteredResourceTemplate;
+        [name: string]: RegisteredResourceTemplate<LifespanContextT>;
     } = {};
-    private _registeredTools: { [name: string]: RegisteredTool } = {};
-    private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    private _registeredTools: { [name: string]: RegisteredTool<LifespanContextT> } = {};
+    private _registeredPrompts: { [name: string]: RegisteredPrompt<LifespanContextT> } = {};
 
-    constructor(serverInfo: Implementation, options?: ServerOptions) {
+    constructor(serverInfo: Implementation, options?: ServerOptions<LifespanContextT>) {
         this.server = new Server(serverInfo, options);
     }
 
@@ -144,7 +146,7 @@ export class McpServer {
                 }
 
                 const args = parseResult.data;
-                const cb = tool.callback as ToolCallback<ZodRawShape>;
+                const cb = tool.callback as ToolCallback<ZodRawShape, LifespanContextT>;
                 try {
                     result = await Promise.resolve(cb(args, extra));
                 } catch (error) {
@@ -159,7 +161,7 @@ export class McpServer {
                     };
                 }
             } else {
-                const cb = tool.callback as ToolCallback<undefined>;
+                const cb = tool.callback as ToolCallback<undefined, LifespanContextT>;
                 try {
                     result = await Promise.resolve(cb(extra));
                 } catch (error) {
@@ -408,10 +410,10 @@ export class McpServer {
                 }
 
                 const args = parseResult.data;
-                const cb = prompt.callback as PromptCallback<PromptArgsRawShape>;
+                const cb = prompt.callback as PromptCallback<PromptArgsRawShape, LifespanContextT>;
                 return await Promise.resolve(cb(args, extra));
             } else {
-                const cb = prompt.callback as PromptCallback<undefined>;
+                const cb = prompt.callback as PromptCallback<undefined, LifespanContextT>;
                 return await Promise.resolve(cb(extra));
             }
         });
@@ -424,35 +426,48 @@ export class McpServer {
     /**
      * Registers a resource `name` at a fixed URI, which will use the given callback to respond to read requests.
      */
-    resource(name: string, uri: string, readCallback: ReadResourceCallback): RegisteredResource;
+    resource(name: string, uri: string, readCallback: ReadResourceCallback): RegisteredResource<LifespanContextT>;
 
     /**
      * Registers a resource `name` at a fixed URI with metadata, which will use the given callback to respond to read requests.
      */
-    resource(name: string, uri: string, metadata: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
+    resource(
+        name: string,
+        uri: string,
+        metadata: ResourceMetadata,
+        readCallback: ReadResourceCallback
+    ): RegisteredResource<LifespanContextT>;
 
     /**
      * Registers a resource `name` with a template pattern, which will use the given callback to respond to read requests.
      */
-    resource(name: string, template: ResourceTemplate, readCallback: ReadResourceTemplateCallback): RegisteredResourceTemplate;
+    resource(
+        name: string,
+        template: ResourceTemplate<LifespanContextT>,
+        readCallback: ReadResourceTemplateCallback<LifespanContextT>
+    ): RegisteredResourceTemplate<LifespanContextT>;
 
     /**
      * Registers a resource `name` with a template pattern and metadata, which will use the given callback to respond to read requests.
      */
     resource(
         name: string,
-        template: ResourceTemplate,
+        template: ResourceTemplate<LifespanContextT>,
         metadata: ResourceMetadata,
-        readCallback: ReadResourceTemplateCallback
-    ): RegisteredResourceTemplate;
+        readCallback: ReadResourceTemplateCallback<LifespanContextT>
+    ): RegisteredResourceTemplate<LifespanContextT>;
 
-    resource(name: string, uriOrTemplate: string | ResourceTemplate, ...rest: unknown[]): RegisteredResource | RegisteredResourceTemplate {
+    resource(
+        name: string,
+        uriOrTemplate: string | ResourceTemplate<LifespanContextT>,
+        ...rest: unknown[]
+    ): RegisteredResource<LifespanContextT> | RegisteredResourceTemplate<LifespanContextT> {
         let metadata: ResourceMetadata | undefined;
         if (typeof rest[0] === 'object') {
             metadata = rest.shift() as ResourceMetadata;
         }
 
-        const readCallback = rest[0] as ReadResourceCallback | ReadResourceTemplateCallback;
+        const readCallback = rest[0] as ReadResourceCallback<LifespanContextT> | ReadResourceTemplateCallback<LifespanContextT>;
 
         if (typeof uriOrTemplate === 'string') {
             if (this._registeredResources[uriOrTemplate]) {
@@ -464,7 +479,7 @@ export class McpServer {
                 undefined,
                 uriOrTemplate,
                 metadata,
-                readCallback as ReadResourceCallback
+                readCallback as ReadResourceCallback<LifespanContextT>
             );
 
             this.setResourceRequestHandlers();
@@ -480,7 +495,7 @@ export class McpServer {
                 undefined,
                 uriOrTemplate,
                 metadata,
-                readCallback as ReadResourceTemplateCallback
+                readCallback as ReadResourceTemplateCallback<LifespanContextT>
             );
 
             this.setResourceRequestHandlers();
@@ -493,19 +508,24 @@ export class McpServer {
      * Registers a resource with a config object and callback.
      * For static resources, use a URI string. For dynamic resources, use a ResourceTemplate.
      */
-    registerResource(name: string, uriOrTemplate: string, config: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
     registerResource(
         name: string,
-        uriOrTemplate: ResourceTemplate,
+        uriOrTemplate: string,
         config: ResourceMetadata,
-        readCallback: ReadResourceTemplateCallback
-    ): RegisteredResourceTemplate;
+        readCallback: ReadResourceCallback<LifespanContextT>
+    ): RegisteredResource<LifespanContextT>;
     registerResource(
         name: string,
-        uriOrTemplate: string | ResourceTemplate,
+        uriOrTemplate: ResourceTemplate<LifespanContextT>,
         config: ResourceMetadata,
-        readCallback: ReadResourceCallback | ReadResourceTemplateCallback
-    ): RegisteredResource | RegisteredResourceTemplate {
+        readCallback: ReadResourceTemplateCallback<LifespanContextT>
+    ): RegisteredResourceTemplate<LifespanContextT>;
+    registerResource(
+        name: string,
+        uriOrTemplate: string | ResourceTemplate<LifespanContextT>,
+        config: ResourceMetadata,
+        readCallback: ReadResourceCallback<LifespanContextT> | ReadResourceTemplateCallback<LifespanContextT>
+    ): RegisteredResource<LifespanContextT> | RegisteredResourceTemplate<LifespanContextT> {
         if (typeof uriOrTemplate === 'string') {
             if (this._registeredResources[uriOrTemplate]) {
                 throw new Error(`Resource ${uriOrTemplate} is already registered`);
@@ -516,7 +536,7 @@ export class McpServer {
                 (config as BaseMetadata).title,
                 uriOrTemplate,
                 config,
-                readCallback as ReadResourceCallback
+                readCallback as ReadResourceCallback<LifespanContextT>
             );
 
             this.setResourceRequestHandlers();
@@ -532,7 +552,7 @@ export class McpServer {
                 (config as BaseMetadata).title,
                 uriOrTemplate,
                 config,
-                readCallback as ReadResourceTemplateCallback
+                readCallback as ReadResourceTemplateCallback<LifespanContextT>
             );
 
             this.setResourceRequestHandlers();
@@ -546,9 +566,9 @@ export class McpServer {
         title: string | undefined,
         uri: string,
         metadata: ResourceMetadata | undefined,
-        readCallback: ReadResourceCallback
-    ): RegisteredResource {
-        const registeredResource: RegisteredResource = {
+        readCallback: ReadResourceCallback<LifespanContextT>
+    ): RegisteredResource<LifespanContextT> {
+        const registeredResource: RegisteredResource<LifespanContextT> = {
             name,
             title,
             metadata,
@@ -577,11 +597,11 @@ export class McpServer {
     private _createRegisteredResourceTemplate(
         name: string,
         title: string | undefined,
-        template: ResourceTemplate,
+        template: ResourceTemplate<LifespanContextT>,
         metadata: ResourceMetadata | undefined,
-        readCallback: ReadResourceTemplateCallback
-    ): RegisteredResourceTemplate {
-        const registeredResourceTemplate: RegisteredResourceTemplate = {
+        readCallback: ReadResourceTemplateCallback<LifespanContextT>
+    ): RegisteredResourceTemplate<LifespanContextT> {
+        const registeredResourceTemplate: RegisteredResourceTemplate<LifespanContextT> = {
             resourceTemplate: template,
             title,
             metadata,
@@ -612,9 +632,9 @@ export class McpServer {
         title: string | undefined,
         description: string | undefined,
         argsSchema: PromptArgsRawShape | undefined,
-        callback: PromptCallback<PromptArgsRawShape | undefined>
-    ): RegisteredPrompt {
-        const registeredPrompt: RegisteredPrompt = {
+        callback: PromptCallback<PromptArgsRawShape | undefined, LifespanContextT>
+    ): RegisteredPrompt<LifespanContextT> {
+        const registeredPrompt: RegisteredPrompt<LifespanContextT> = {
             title,
             description,
             argsSchema: argsSchema === undefined ? undefined : z.object(argsSchema),
@@ -648,9 +668,9 @@ export class McpServer {
         outputSchema: ZodRawShape | undefined,
         annotations: ToolAnnotations | undefined,
         _meta: Record<string, unknown> | undefined,
-        callback: ToolCallback<ZodRawShape | undefined>
-    ): RegisteredTool {
-        const registeredTool: RegisteredTool = {
+        callback: ToolCallback<ZodRawShape | undefined, LifespanContextT>
+    ): RegisteredTool<LifespanContextT> {
+        const registeredTool: RegisteredTool<LifespanContextT> = {
             title,
             description,
             inputSchema: inputSchema === undefined ? undefined : z.object(inputSchema),
@@ -688,12 +708,12 @@ export class McpServer {
     /**
      * Registers a zero-argument tool `name`, which will run the given function when the client calls it.
      */
-    tool(name: string, cb: ToolCallback): RegisteredTool;
+    tool(name: string, cb: ToolCallback<undefined, LifespanContextT>): RegisteredTool<LifespanContextT>;
 
     /**
      * Registers a zero-argument tool `name` (with a description) which will run the given function when the client calls it.
      */
-    tool(name: string, description: string, cb: ToolCallback): RegisteredTool;
+    tool(name: string, description: string, cb: ToolCallback<undefined, LifespanContextT>): RegisteredTool<LifespanContextT>;
 
     /**
      * Registers a tool taking either a parameter schema for validation or annotations for additional metadata.
@@ -702,7 +722,11 @@ export class McpServer {
      * Note: We use a union type for the second parameter because TypeScript cannot reliably disambiguate
      * between ToolAnnotations and ZodRawShape during overload resolution, as both are plain object types.
      */
-    tool<Args extends ZodRawShape>(name: string, paramsSchemaOrAnnotations: Args | ToolAnnotations, cb: ToolCallback<Args>): RegisteredTool;
+    tool<Args extends ZodRawShape>(
+        name: string,
+        paramsSchemaOrAnnotations: Args | ToolAnnotations,
+        cb: ToolCallback<Args, LifespanContextT>
+    ): RegisteredTool<LifespanContextT>;
 
     /**
      * Registers a tool `name` (with a description) taking either parameter schema or annotations.
@@ -716,13 +740,19 @@ export class McpServer {
         name: string,
         description: string,
         paramsSchemaOrAnnotations: Args | ToolAnnotations,
-        cb: ToolCallback<Args>
-    ): RegisteredTool;
+        cb: ToolCallback<Args, LifespanContextT>
+    ): RegisteredTool<LifespanContextT>;
 
     /**
      * Registers a tool with both parameter schema and annotations.
      */
-    tool<Args extends ZodRawShape>(name: string, paramsSchema: Args, annotations: ToolAnnotations, cb: ToolCallback<Args>): RegisteredTool;
+    // tool<Args extends ZodRawShape>(name: string, paramsSchema: Args, annotations: ToolAnnotations, cb: ToolCallback<Args>): RegisteredTool;
+    tool<Args extends ZodRawShape>(
+        name: string,
+        paramsSchema: Args,
+        annotations: ToolAnnotations,
+        cb: ToolCallback<Args, LifespanContextT>
+    ): RegisteredTool<LifespanContextT>;
 
     /**
      * Registers a tool with description, parameter schema, and annotations.
@@ -732,13 +762,13 @@ export class McpServer {
         description: string,
         paramsSchema: Args,
         annotations: ToolAnnotations,
-        cb: ToolCallback<Args>
-    ): RegisteredTool;
+        cb: ToolCallback<Args, LifespanContextT>
+    ): RegisteredTool<LifespanContextT>;
 
     /**
      * tool() implementation. Parses arguments passed to overrides defined above.
      */
-    tool(name: string, ...rest: unknown[]): RegisteredTool {
+    tool(name: string, ...rest: unknown[]): RegisteredTool<LifespanContextT> {
         if (this._registeredTools[name]) {
             throw new Error(`Tool ${name} is already registered`);
         }
@@ -778,7 +808,7 @@ export class McpServer {
                 annotations = rest.shift() as ToolAnnotations;
             }
         }
-        const callback = rest[0] as ToolCallback<ZodRawShape | undefined>;
+        const callback = rest[0] as ToolCallback<ZodRawShape | undefined, LifespanContextT>;
 
         return this._createRegisteredTool(name, undefined, description, inputSchema, outputSchema, annotations, undefined, callback);
     }
@@ -796,40 +826,35 @@ export class McpServer {
             annotations?: ToolAnnotations;
             _meta?: Record<string, unknown>;
         },
-        cb: ToolCallback<InputArgs>
-    ): RegisteredTool {
+        cb: ToolCallback<InputArgs, LifespanContextT>
+    ): RegisteredTool<LifespanContextT> {
         if (this._registeredTools[name]) {
             throw new Error(`Tool ${name} is already registered`);
         }
 
         const { title, description, inputSchema, outputSchema, annotations, _meta } = config;
 
-        return this._createRegisteredTool(
-            name,
-            title,
-            description,
-            inputSchema,
-            outputSchema,
-            annotations,
-            _meta,
-            cb as ToolCallback<ZodRawShape | undefined>
-        );
+        return this._createRegisteredTool(name, title, description, inputSchema, outputSchema, annotations, _meta, cb);
     }
 
     /**
      * Registers a zero-argument prompt `name`, which will run the given function when the client calls it.
      */
-    prompt(name: string, cb: PromptCallback): RegisteredPrompt;
+    prompt(name: string, cb: PromptCallback<undefined, LifespanContextT>): RegisteredPrompt<LifespanContextT>;
 
     /**
      * Registers a zero-argument prompt `name` (with a description) which will run the given function when the client calls it.
      */
-    prompt(name: string, description: string, cb: PromptCallback): RegisteredPrompt;
+    prompt(name: string, description: string, cb: PromptCallback<undefined, LifespanContextT>): RegisteredPrompt<LifespanContextT>;
 
     /**
      * Registers a prompt `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
      */
-    prompt<Args extends PromptArgsRawShape>(name: string, argsSchema: Args, cb: PromptCallback<Args>): RegisteredPrompt;
+    prompt<Args extends PromptArgsRawShape>(
+        name: string,
+        argsSchema: Args,
+        cb: PromptCallback<Args, LifespanContextT>
+    ): RegisteredPrompt<LifespanContextT>;
 
     /**
      * Registers a prompt `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
@@ -838,10 +863,10 @@ export class McpServer {
         name: string,
         description: string,
         argsSchema: Args,
-        cb: PromptCallback<Args>
-    ): RegisteredPrompt;
+        cb: PromptCallback<Args, LifespanContextT>
+    ): RegisteredPrompt<LifespanContextT>;
 
-    prompt(name: string, ...rest: unknown[]): RegisteredPrompt {
+    prompt(name: string, ...rest: unknown[]): RegisteredPrompt<LifespanContextT> {
         if (this._registeredPrompts[name]) {
             throw new Error(`Prompt ${name} is already registered`);
         }
@@ -856,7 +881,7 @@ export class McpServer {
             argsSchema = rest.shift() as PromptArgsRawShape;
         }
 
-        const cb = rest[0] as PromptCallback<PromptArgsRawShape | undefined>;
+        const cb = rest[0] as PromptCallback<PromptArgsRawShape | undefined, LifespanContextT>;
         const registeredPrompt = this._createRegisteredPrompt(name, undefined, description, argsSchema, cb);
 
         this.setPromptRequestHandlers();
@@ -875,21 +900,15 @@ export class McpServer {
             description?: string;
             argsSchema?: Args;
         },
-        cb: PromptCallback<Args>
-    ): RegisteredPrompt {
+        cb: PromptCallback<Args, LifespanContextT>
+    ): RegisteredPrompt<LifespanContextT> {
         if (this._registeredPrompts[name]) {
             throw new Error(`Prompt ${name} is already registered`);
         }
 
         const { title, description, argsSchema } = config;
 
-        const registeredPrompt = this._createRegisteredPrompt(
-            name,
-            title,
-            description,
-            argsSchema,
-            cb as PromptCallback<PromptArgsRawShape | undefined>
-        );
+        const registeredPrompt = this._createRegisteredPrompt(name, title, description, argsSchema, cb);
 
         this.setPromptRequestHandlers();
         this.sendPromptListChanged();
@@ -957,7 +976,7 @@ export type CompleteResourceTemplateCallback = (
  * A resource template combines a URI pattern with optional functionality to enumerate
  * all resources matching that pattern.
  */
-export class ResourceTemplate {
+export class ResourceTemplate<LifespanContextT extends LifespanContext | undefined = undefined> {
     private _uriTemplate: UriTemplate;
 
     constructor(
@@ -966,7 +985,7 @@ export class ResourceTemplate {
             /**
              * A callback to list all resources matching this template. This is required to specified, even if `undefined`, to avoid accidentally forgetting resource listing.
              */
-            list: ListResourcesCallback | undefined;
+            list: ListResourcesCallback<LifespanContextT> | undefined;
 
             /**
              * An optional callback to autocomplete variables within the URI template. Useful for clients and users to discover possible values.
@@ -989,7 +1008,7 @@ export class ResourceTemplate {
     /**
      * Gets the list callback, if one was provided.
      */
-    get listCallback(): ListResourcesCallback | undefined {
+    get listCallback(): ListResourcesCallback<LifespanContextT> | undefined {
         return this._callbacks.list;
     }
 
@@ -1011,21 +1030,27 @@ export class ResourceTemplate {
  * - `content` if the tool does not have an outputSchema
  * - Both fields are optional but typically one should be provided
  */
-export type ToolCallback<Args extends undefined | ZodRawShape = undefined> = Args extends ZodRawShape
-    ? (
-          args: z.objectOutputType<Args, ZodTypeAny>,
-          extra: RequestHandlerExtra<ServerRequest, ServerNotification>
-      ) => CallToolResult | Promise<CallToolResult>
-    : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
+type LifespanLike = LifespanContext | undefined;
+export type ToolCallbackWithArgs<L extends LifespanLike = undefined, A extends ZodRawShape = ZodRawShape> = (
+    args: z.objectOutputType<A, ZodTypeAny>,
+    extra: Context<L>
+) => CallToolResult | Promise<CallToolResult>;
 
-export type RegisteredTool = {
+export type ToolCallbackNoArgs<L extends LifespanLike = undefined> = (extra: Context<L>) => CallToolResult | Promise<CallToolResult>;
+
+export type ToolCallback<
+    Args extends undefined | ZodRawShape = undefined,
+    LifespanContextT extends LifespanLike = undefined
+> = Args extends ZodRawShape ? ToolCallbackWithArgs<LifespanContextT, Args> : ToolCallbackNoArgs<LifespanContextT>;
+
+export type RegisteredTool<LifespanContextT extends LifespanLike = undefined> = {
     title?: string;
     description?: string;
     inputSchema?: AnyZodObject;
     outputSchema?: AnyZodObject;
     annotations?: ToolAnnotations;
     _meta?: Record<string, unknown>;
-    callback: ToolCallback<undefined | ZodRawShape>;
+    callback: ToolCallbackWithArgs<LifespanContextT> | ToolCallbackNoArgs<LifespanContextT>;
     enabled: boolean;
     enable(): void;
     disable(): void;
@@ -1037,7 +1062,7 @@ export type RegisteredTool = {
         outputSchema?: OutputArgs;
         annotations?: ToolAnnotations;
         _meta?: Record<string, unknown>;
-        callback?: ToolCallback<InputArgs>;
+        callback?: ToolCallback<InputArgs, LifespanContextT>;
         enabled?: boolean;
     }): void;
     remove(): void;
@@ -1078,23 +1103,23 @@ export type ResourceMetadata = Omit<Resource, 'uri' | 'name'>;
 /**
  * Callback to list all resources matching a given template.
  */
-export type ListResourcesCallback = (
-    extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+export type ListResourcesCallback<LifespanContextT extends LifespanContext | undefined = undefined> = (
+    extra: Context<LifespanContextT>
 ) => ListResourcesResult | Promise<ListResourcesResult>;
 
 /**
  * Callback to read a resource at a given URI.
  */
-export type ReadResourceCallback = (
+export type ReadResourceCallback<LifespanContextT extends LifespanContext | undefined = undefined> = (
     uri: URL,
-    extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+    extra: Context<LifespanContextT>
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
-export type RegisteredResource = {
+export type RegisteredResource<LifespanContextT extends LifespanContext | undefined = undefined> = {
     name: string;
     title?: string;
     metadata?: ResourceMetadata;
-    readCallback: ReadResourceCallback;
+    readCallback: ReadResourceCallback<LifespanContextT>;
     enabled: boolean;
     enable(): void;
     disable(): void;
@@ -1103,7 +1128,7 @@ export type RegisteredResource = {
         title?: string;
         uri?: string | null;
         metadata?: ResourceMetadata;
-        callback?: ReadResourceCallback;
+        callback?: ReadResourceCallback<LifespanContextT>;
         enabled?: boolean;
     }): void;
     remove(): void;
@@ -1112,26 +1137,26 @@ export type RegisteredResource = {
 /**
  * Callback to read a resource at a given URI, following a filled-in URI template.
  */
-export type ReadResourceTemplateCallback = (
+export type ReadResourceTemplateCallback<LifespanContextT extends LifespanContext | undefined = undefined> = (
     uri: URL,
     variables: Variables,
-    extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+    extra: Context<LifespanContextT>
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
-export type RegisteredResourceTemplate = {
-    resourceTemplate: ResourceTemplate;
+export type RegisteredResourceTemplate<LifespanContextT extends LifespanContext | undefined = undefined> = {
+    resourceTemplate: ResourceTemplate<LifespanContextT>;
     title?: string;
     metadata?: ResourceMetadata;
-    readCallback: ReadResourceTemplateCallback;
+    readCallback: ReadResourceTemplateCallback<LifespanContextT>;
     enabled: boolean;
     enable(): void;
     disable(): void;
     update(updates: {
         name?: string | null;
         title?: string;
-        template?: ResourceTemplate;
+        template?: ResourceTemplate<LifespanContextT>;
         metadata?: ResourceMetadata;
-        callback?: ReadResourceTemplateCallback;
+        callback?: ReadResourceTemplateCallback<LifespanContextT>;
         enabled?: boolean;
     }): void;
     remove(): void;
@@ -1141,18 +1166,18 @@ type PromptArgsRawShape = {
     [k: string]: ZodType<string, ZodTypeDef, string> | ZodOptional<ZodType<string, ZodTypeDef, string>>;
 };
 
-export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefined> = Args extends PromptArgsRawShape
-    ? (
-          args: z.objectOutputType<Args, ZodTypeAny>,
-          extra: RequestHandlerExtra<ServerRequest, ServerNotification>
-      ) => GetPromptResult | Promise<GetPromptResult>
-    : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
+export type PromptCallback<
+    Args extends undefined | PromptArgsRawShape = undefined,
+    LifespanContextT extends LifespanContext | undefined = undefined
+> = Args extends PromptArgsRawShape
+    ? (args: z.objectOutputType<Args, ZodTypeAny>, extra: Context<LifespanContextT>) => GetPromptResult | Promise<GetPromptResult>
+    : (extra: Context<LifespanContextT>) => GetPromptResult | Promise<GetPromptResult>;
 
-export type RegisteredPrompt = {
+export type RegisteredPrompt<LifespanContextT extends LifespanContext | undefined = undefined> = {
     title?: string;
     description?: string;
     argsSchema?: ZodObject<PromptArgsRawShape>;
-    callback: PromptCallback<undefined | PromptArgsRawShape>;
+    callback: PromptCallback<undefined | PromptArgsRawShape, LifespanContextT>;
     enabled: boolean;
     enable(): void;
     disable(): void;
@@ -1161,7 +1186,7 @@ export type RegisteredPrompt = {
         title?: string;
         description?: string;
         argsSchema?: Args;
-        callback?: PromptCallback<Args>;
+        callback?: PromptCallback<Args, LifespanContextT>;
         enabled?: boolean;
     }): void;
     remove(): void;
