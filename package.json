@@ -55,7 +55,7 @@
     "build:cjs": "mkdir -p dist/cjs && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json && tsc -p tsconfig.cjs.json",
     "build:cjs:w": "npm run build:cjs -- -w",
     "examples:simple-server:w": "tsx --watch src/examples/server/simpleStreamableHttp.ts --oauth",
-    "examples:tool-loop": "tsx src/examples/backfill/backfillSampling.ts tsx src/examples/server/toolLoopSampling.ts",
+    "examples:tool-loop": "node dist/esm/examples/backfill/backfillSampling.js node dist/esm/examples/server/toolLoopSampling.js",
     "prepack": "npm run build:esm && npm run build:cjs",
     "lint": "eslint src/",
     "test": "npm run fetch:spec-types && jest",
