@@ -20,7 +20,7 @@
   ],
   "bin": {
     "backfill-sampling": "./dist/esm/examples/backfill/backfillSampling.js",
-    "example-tool-loop": "./dist/esm/examples/server/toolLoopSampling.js"
+    "example-tool-loop": "./dist/esm/bin/examples-tool-loop.js"
   },
   "exports": {
     ".": {
