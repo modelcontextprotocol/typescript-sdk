@@ -17,7 +17,7 @@ import type {
   ServerNotification,
 } from "../../types.js";
 import { ToolRegistry } from "./toolRegistry.js";
-import { ToolResultContent } from "../../../dist/esm/types.js";
+import { ToolResultContent } from "../../types.js";
 
 /**
  * Interface for tracking aggregated token usage across API calls.

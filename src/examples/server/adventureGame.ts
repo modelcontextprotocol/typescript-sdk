@@ -44,7 +44,7 @@ import type {
   ServerNotification, 
 ElicitRequest,
 } from "../../types.js";
-import { ElicitResultSchema } from "../../../dist/esm/types.js";
+import { ElicitResultSchema } from "../../types.js";
 import { ToolRegistry } from "./toolRegistry.js";
 import { runToolLoop, BreakToolLoopError } from "./toolLoop.js" 
 
