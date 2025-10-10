@@ -1,8 +1,6 @@
 /*
-  This example demonstrates a tool loop using MCP sampling with locally defined tools.
-
-  It exposes a "localResearch" tool that uses an LLM with ripgrep and read capabilities
-  to intelligently search and read files in the current directory.
+  This example demonstrates a role play game server that uses MCP sampling and elicitation
+  to implement "choose your own adventure" games.
 
   Usage:
     npx -y @modelcontextprotocol/inspector \
