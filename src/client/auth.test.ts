@@ -863,7 +863,8 @@ describe('OAuth Authorization', () => {
             const calls = mockFetch.mock.calls;
             const [, options] = calls[0];
             expect(options.headers).toEqual({
-                'MCP-Protocol-Version': '2025-01-01'
+                'MCP-Protocol-Version': '2025-01-01',
+                Accept: 'application/json'
             });
         });
 

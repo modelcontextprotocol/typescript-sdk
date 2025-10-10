@@ -738,7 +738,10 @@ export async function discoverAuthorizationServerMetadata(
         protocolVersion?: string;
     } = {}
 ): Promise<AuthorizationServerMetadata | undefined> {
-    const headers = { 'MCP-Protocol-Version': protocolVersion };
+    const headers = {
+        'MCP-Protocol-Version': protocolVersion,
+        Accept: 'application/json'
+    };
 
     // Get the list of URLs to try
     const urlsToTry = buildDiscoveryUrls(authorizationServerUrl);
