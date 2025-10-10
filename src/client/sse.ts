@@ -57,6 +57,7 @@ export type SSEClientTransportOptions = {
 /**
  * Client transport for SSE: this will connect to a server using Server-Sent Events for receiving
  * messages and make separate POST requests for sending messages.
+ * @deprecated SSEClientTransport is deprecated. Prefer to use StreamableHTTPClientTransport where possible instead. Note that because some servers are still using SSE, clients may need to support both transports during the migration period.
  */
 export class SSEClientTransport implements Transport {
     private _eventSource?: EventSource;

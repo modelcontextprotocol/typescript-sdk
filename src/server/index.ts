@@ -69,6 +69,7 @@ export type ServerOptions = ProtocolOptions & {
  *   version: "1.0.0"
  * })
  * ```
+ * @deprecated Use `McpServer` instead for the high-level API. Only use `Server` for advanced use cases.
  */
 export class Server<
     RequestT extends Request = Request,
