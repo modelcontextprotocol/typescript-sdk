@@ -6,7 +6,7 @@ import { URL } from 'node:url';
 import { exec } from 'node:child_process';
 import { Client } from '../../client/index.js';
 import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
-import { OAuthClientInformation, OAuthClientInformationFull, OAuthClientMetadata, OAuthTokens } from '../../shared/auth.js';
+import { OAuthClientInformationFull, OAuthClientMetadata, OAuthTokens } from '../../shared/auth.js';
 import { CallToolRequest, ListToolsRequest, CallToolResultSchema, ListToolsResultSchema } from '../../types.js';
 import { OAuthClientProvider, UnauthorizedError } from '../../client/auth.js';
 
@@ -46,7 +46,7 @@ class InMemoryOAuthClientProvider implements OAuthClientProvider {
         return this._clientMetadata;
     }
 
-    clientInformation(): OAuthClientInformation | undefined {
+    clientInformation(): OAuthClientInformationFull | undefined {
         return this._clientInformation;
     }
 
