@@ -11,17 +11,12 @@
       npx -y --silent tsx src/examples/backfill/backfillSampling.ts \
       npx -y --silent tsx src/examples/server/adventureGame.ts
 
-    # Or dockerized:
-    rm -fR node_modules
-    docker run --rm -v $PWD:/src -w /src node:latest npm i
+    # Or dockerized, without cloning this repo:
+    export SEP1577_PACKAGE="git://github.com/modelcontextprotocol/typescript-sdk.git#ochafik/sep1577"
     npx -y @modelcontextprotocol/inspector -- \
-      docker run --rm -i -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
-        -v $PWD:/src -w /src \
-        $( echo "
-          FROM node:latest
-          RUN apt update && apt install ripgrep
-        " | docker build -q -f - . ) \
-          npm run --silent examples:adventure-game
+      docker run --rm -i -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" node:latest \
+        npx -y --silent "'--package=$SEP1577_PACKAGE'" -- backfill-sampling \
+        npx -y --silent "'--package=$SEP1577_PACKAGE'" -- example-adventure-game
 
   Then connect with an MCP client and call the "localResearch" tool with a query like:
     "Find all TypeScript files that export a Server class"

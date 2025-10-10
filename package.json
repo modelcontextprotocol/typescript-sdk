@@ -54,7 +54,7 @@
   "scripts": {
     "prepare": "npm run build",
     "fetch:spec-types": "curl -o spec.types.ts https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/refs/heads/main/schema/draft/schema.ts",
-    "build": "npm run build:esm && npm run build:cjs && npm run build:backfill-sampling && npm run build:example-local-researcher",
+    "build": "npm run build:esm && npm run build:cjs && npm run build:backfill-sampling && npm run build:example-local-researcher && npm run build:example-adventure-game",
     "build:esm": "mkdir -p dist/esm && echo '{\"type\": \"module\"}' > dist/esm/package.json && tsc -p tsconfig.prod.json",
     "build:esm:w": "npm run build:esm -- -w",
     "build:cjs": "mkdir -p dist/cjs && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json && tsc -p tsconfig.cjs.json",
