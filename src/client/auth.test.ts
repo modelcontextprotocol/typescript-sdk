@@ -1587,7 +1587,8 @@ describe('OAuth Authorization', () => {
             // Mock provider methods for authorization flow
             (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
                 client_id: 'test-client',
-                client_secret: 'test-secret'
+                client_secret: 'test-secret',
+                redirect_uris: ['http://localhost:3000/callback']
             });
             (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
             (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
@@ -1657,7 +1658,8 @@ describe('OAuth Authorization', () => {
             // Mock provider methods for token exchange
             (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
                 client_id: 'test-client',
-                client_secret: 'test-secret'
+                client_secret: 'test-secret',
+                redirect_uris: ['http://localhost:3000/callback']
             });
             (mockProvider.codeVerifier as jest.Mock).mockResolvedValue('test-verifier');
             (mockProvider.saveTokens as jest.Mock).mockResolvedValue(undefined);
@@ -1723,7 +1725,8 @@ describe('OAuth Authorization', () => {
             // Mock provider methods for token refresh
             (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
                 client_id: 'test-client',
-                client_secret: 'test-secret'
+                client_secret: 'test-secret',
+                redirect_uris: ['http://localhost:3000/callback']
             });
             (mockProvider.tokens as jest.Mock).mockResolvedValue({
                 access_token: 'old-access',
@@ -1789,7 +1792,8 @@ describe('OAuth Authorization', () => {
             // Mock provider methods
             (providerWithCustomValidation.clientInformation as jest.Mock).mockResolvedValue({
                 client_id: 'test-client',
-                client_secret: 'test-secret'
+                client_secret: 'test-secret',
+                redirect_uris: ['http://localhost:3000/callback']
             });
             (providerWithCustomValidation.tokens as jest.Mock).mockResolvedValue(undefined);
             (providerWithCustomValidation.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
@@ -1844,7 +1848,8 @@ describe('OAuth Authorization', () => {
             // Mock provider methods
             (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
                 client_id: 'test-client',
-                client_secret: 'test-secret'
+                client_secret: 'test-secret',
+                redirect_uris: ['http://localhost:3000/callback']
             });
             (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
             (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
@@ -1902,7 +1907,8 @@ describe('OAuth Authorization', () => {
             // Mock provider methods
             (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
                 client_id: 'test-client',
-                client_secret: 'test-secret'
+                client_secret: 'test-secret',
+                redirect_uris: ['http://localhost:3000/callback']
             });
             (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
             (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
@@ -1969,7 +1975,8 @@ describe('OAuth Authorization', () => {
             // Mock provider methods for token exchange
             (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
                 client_id: 'test-client',
-                client_secret: 'test-secret'
+                client_secret: 'test-secret',
+                redirect_uris: ['http://localhost:3000/callback']
             });
             (mockProvider.codeVerifier as jest.Mock).mockResolvedValue('test-verifier');
             (mockProvider.saveTokens as jest.Mock).mockResolvedValue(undefined);
@@ -2032,7 +2039,8 @@ describe('OAuth Authorization', () => {
             // Mock provider methods for token refresh
             (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
                 client_id: 'test-client',
-                client_secret: 'test-secret'
+                client_secret: 'test-secret',
+                redirect_uris: ['http://localhost:3000/callback']
             });
             (mockProvider.tokens as jest.Mock).mockResolvedValue({
                 access_token: 'old-access',
@@ -2093,7 +2101,8 @@ describe('OAuth Authorization', () => {
             // Mock provider methods
             (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
                 client_id: 'test-client',
-                client_secret: 'test-secret'
+                client_secret: 'test-secret',
+                redirect_uris: ['http://localhost:3000/callback']
             });
             (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
             (mockProvider.saveCodeVerifier as jest.Mock).mockResolvedValue(undefined);
@@ -2155,7 +2164,8 @@ describe('OAuth Authorization', () => {
                 },
                 clientInformation: jest.fn().mockResolvedValue({
                     client_id: 'client123',
-                    client_secret: 'secret123'
+                    client_secret: 'secret123',
+                    redirect_uris: ['http://localhost:3000/callback']
                 }),
                 tokens: jest.fn().mockResolvedValue(undefined),
                 saveTokens: jest.fn(),
