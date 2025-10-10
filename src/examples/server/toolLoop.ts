@@ -17,6 +17,7 @@ import type {
   ServerNotification,
 } from "../../types.js";
 import { ToolRegistry } from "./toolRegistry.js";
+import { ToolResultContent } from "../../../dist/esm/types.js";
 
 /**
  * Interface for tracking aggregated token usage across API calls.
@@ -29,6 +30,13 @@ interface AggregatedUsage {
   api_calls: number;
 }
 
+export class BreakToolLoopError extends Error {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+
 /**
  * Runs a tool loop using sampling.
  * Continues until the LLM provides a final answer.
@@ -40,13 +48,14 @@ export async function runToolLoop(
         registry: ToolRegistry,
         maxIterations?: number,
         systemPrompt?: string,
+        defaultToolChoice?: CreateMessageRequest["params"]['toolChoice']
     },
     extra: RequestHandlerExtra<ServerRequest, ServerNotification>
 ): Promise<{ answer: string; transcript: SamplingMessage[]; usage: AggregatedUsage }> {
   const messages: SamplingMessage[] = [...options.initialMessages];
 
   // Initialize usage tracking
-  const aggregatedUsage: AggregatedUsage = {
+  const usage: AggregatedUsage = {
     input_tokens: 0,
     output_tokens: 0,
     cache_creation_input_tokens: 0,
@@ -56,6 +65,8 @@ export async function runToolLoop(
 
   let iteration = 0;
   const maxIterations = options.maxIterations ?? Number.POSITIVE_INFINITY;
+
+  const defaultToolChoice = options.defaultToolChoice ?? {mode: "auto"};
 
   let request: CreateMessageRequest["params"] | undefined
   let response: CreateMessageResult | undefined
@@ -69,17 +80,17 @@ export async function runToolLoop(
       maxTokens: 4000,
       tools: iteration < maxIterations ? options.registry.tools : undefined,
       // Don't allow tool calls at the last iteration: finish with an answer no matter what!
-      tool_choice: { mode: iteration < maxIterations ? "auto" : "none" },
+      tool_choice: iteration < maxIterations ? defaultToolChoice : { mode: "none" },
     });
 
     // Aggregate usage statistics from the response
     if (response._meta?.usage) {
-      const usage = response._meta.usage as any;
-      aggregatedUsage.input_tokens += usage.input_tokens || 0;
-      aggregatedUsage.output_tokens += usage.output_tokens || 0;
-      aggregatedUsage.cache_creation_input_tokens += usage.cache_creation_input_tokens || 0;
-      aggregatedUsage.cache_read_input_tokens += usage.cache_read_input_tokens || 0;
-      aggregatedUsage.api_calls += 1;
+      const responseUsage = response._meta.usage as any;
+      usage.input_tokens += responseUsage.input_tokens || 0;
+      usage.output_tokens += responseUsage.output_tokens || 0;
+      usage.cache_creation_input_tokens += responseUsage.cache_creation_input_tokens || 0;
+      usage.cache_read_input_tokens += responseUsage.cache_read_input_tokens || 0;
+      usage.api_calls += 1;
     }
 
     // Add assistant's response to message history
@@ -100,7 +111,16 @@ export async function runToolLoop(
         data: `Loop iteration ${iteration}: ${toolCalls.length} tool invocation(s) requested`,
       });
 
-      const toolResults = await options.registry.callTools(toolCalls, extra);
+      let toolResults: ToolResultContent[];
+      try {
+        toolResults = await options.registry.callTools(toolCalls, extra);
+      } catch (error) {
+        if (error instanceof BreakToolLoopError) {
+            return {answer: `${error.message}`, transcript: messages, usage};
+        }
+        console.log(error);
+        throw new Error(`Tool call failed: ${error}`)
+      }
 
       messages.push({
         role: "user",
@@ -127,7 +147,7 @@ export async function runToolLoop(
       return {
         answer: contentArray.map(block => block.text).join("\n\n"),
         transcript: messages,
-        usage: aggregatedUsage
+        usage
       };
     } else if (response?.stopReason === "maxTokens") {
       throw new Error("LLM response hit max tokens limit");
