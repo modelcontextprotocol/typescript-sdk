@@ -435,7 +435,7 @@ mcpServer.registerTool(
   }
 );
 
-if (process.env.REGISTER_TOOLS) {
+if (process.env.REGISTER_TOOLS === "1") {
   registry.register(mcpServer);
 }
 
