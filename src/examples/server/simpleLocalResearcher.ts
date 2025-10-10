@@ -7,11 +7,11 @@
   Usage:
     npx -y @modelcontextprotocol/inspector \
       npx -- -y --silent tsx src/examples/backfill/backfillSampling.ts \
-        npx -y --silent tsx src/examples/server/toolLoopSampling.ts
+        npx -y --silent tsx src/examples/server/simpleLocalResearcher.ts
 
     claude mcp add sampling_with_tools -- \
       npx -y --silent tsx src/examples/backfill/backfillSampling.ts \
-      npx -y --silent tsx src/examples/server/toolLoopSampling.ts
+      npx -y --silent tsx src/examples/server/simpleLocalResearcher.ts
 
     # Or dockerized:
     rm -fR node_modules
@@ -48,70 +48,10 @@ import type {
   ServerRequest,
   ServerNotification,
 } from "../../types.js";
-import { zodToJsonSchema } from "zod-to-json-schema";
-
-
-class ToolRegistry {
-  readonly tools: Tool[]
-
-  constructor(private toolDefinitions: {[name: string]: Pick<RegisteredTool, 'title' | 'description' | 'inputSchema' | 'outputSchema' | 'annotations' | '_meta' | 'callback'> }) {
-    this.tools = Object.entries(this.toolDefinitions).map(([name, tool]) => (<Tool>{
-      name,
-      title: tool.title,
-      description: tool.description,
-      inputSchema: tool.inputSchema ? zodToJsonSchema(tool.inputSchema) : undefined,
-      outputSchema: tool.outputSchema ? zodToJsonSchema(tool.outputSchema) : undefined,
-      annotations: tool.annotations,
-      _meta: tool._meta,
-    }));
-  }
-
-  register(server: McpServer) {
-    for (const [name, tool] of Object.entries(this.toolDefinitions)) {
-      server.registerTool(name, {
-        title: tool.title,
-        description: tool.description,
-        inputSchema: tool.inputSchema?.shape,
-        outputSchema: tool.outputSchema?.shape,
-        annotations: tool.annotations,
-        _meta: tool._meta,
-      }, tool.callback);
-    }
-  }
-  
-  async callTools(toolCalls: ToolCallContent[], extra: RequestHandlerExtra<ServerRequest, ServerNotification>): Promise<ToolResultContent[]> {
-      return Promise.all(toolCalls.map(async ({ name, id, input }) => {
-          const tool = this.toolDefinitions[name];
-          if (!tool) {
-          throw new Error(`Tool ${name} not found`);
-          }
-          try {
-            return <ToolResultContent>{
-                type: "tool_result",
-                toolUseId: id,
-                // Copies fields: content, structuredContent?, isError?
-                ...await tool.callback(input as any, extra),
-            };
-          } catch (error) {
-              throw new Error(`Tool ${name} failed: ${error instanceof Error ? `${error.message}\n${error.stack}` : error}`);
-          }
-      }));
-  }
-}
-
+import { ToolRegistry } from "./toolRegistry.js";
+import { runToolLoop } from './toolLoop.js';
 
 const CWD = process.cwd();
-
-/**
- * Interface for tracking aggregated token usage across API calls.
- */
-interface AggregatedUsage {
-  input_tokens: number;
-  output_tokens: number;
-  cache_creation_input_tokens: number;
-  cache_read_input_tokens: number;
-  api_calls: number;
-}
 
 /**
  * Zod schemas for validating tool inputs
@@ -247,128 +187,6 @@ const registry = new ToolRegistry({
   }
 });
 
-/**
- * Runs a tool loop using sampling.
- * Continues until the LLM provides a final answer.
- */
-async function runToolLoop(
-  server: McpServer,
-  initialQuery: string,
-  registry: ToolRegistry,
-  extra: RequestHandlerExtra<ServerRequest, ServerNotification>
-): Promise<{ answer: string; transcript: SamplingMessage[]; usage: AggregatedUsage }> {
-  const messages: SamplingMessage[] = [
-    {
-      role: "user",
-      content: {
-        type: "text",
-        text: initialQuery,
-      },
-    },
-  ];
-
-  // Initialize usage tracking
-  const aggregatedUsage: AggregatedUsage = {
-    input_tokens: 0,
-    output_tokens: 0,
-    cache_creation_input_tokens: 0,
-    cache_read_input_tokens: 0,
-    api_calls: 0,
-  };
-
-  const MAX_ITERATIONS = 20;
-  let iteration = 0;
-
-  const systemPrompt =
-    "You are a helpful assistant that searches through files to answer questions. " +
-    "You have access to ripgrep (for searching) and read (for reading file contents). " +
-    "Use ripgrep to find relevant files, then read them to provide accurate answers. " +
-    "All paths are relative to the current working directory. " +
-    "Be concise and focus on providing the most relevant information." +
-    "You will be allowed up to " + MAX_ITERATIONS + " iterations of tool use to find the information needed. When you have enough information or reach the last iteration, provide a final answer.";
-
-  let request: CreateMessageRequest["params"] | undefined
-  let response: CreateMessageResult | undefined
-  while (iteration < MAX_ITERATIONS) {
-    iteration++;
-
-    // Request message from LLM with available tools
-    response = await server.server.createMessage(request = {
-      messages,
-      systemPrompt,
-      maxTokens: 4000,
-      tools: iteration < MAX_ITERATIONS ? registry.tools : undefined,
-      // Don't allow tool calls at the last iteration: finish with an answer no matter what!
-      tool_choice: { mode: iteration < MAX_ITERATIONS ? "auto" : "none" },
-    });
-
-    // Aggregate usage statistics from the response
-    if (response._meta?.usage) {
-      const usage = response._meta.usage as any;
-      aggregatedUsage.input_tokens += usage.input_tokens || 0;
-      aggregatedUsage.output_tokens += usage.output_tokens || 0;
-      aggregatedUsage.cache_creation_input_tokens += usage.cache_creation_input_tokens || 0;
-      aggregatedUsage.cache_read_input_tokens += usage.cache_read_input_tokens || 0;
-      aggregatedUsage.api_calls += 1;
-    }
-
-    // Add assistant's response to message history
-    // SamplingMessage now supports arrays of content
-    messages.push({
-      role: "assistant",
-      content: response.content,
-    });
-
-    if (response.stopReason === "toolUse") {
-      const contentArray = Array.isArray(response.content) ? response.content : [response.content];
-      const toolCalls = contentArray.filter(
-        (content): content is ToolCallContent => content.type === "tool_use"
-      );
-
-      await server.sendLoggingMessage({
-        level: "info",
-        data: `Loop iteration ${iteration}: ${toolCalls.length} tool invocation(s) requested`,
-      });
-
-      const toolResults = await registry.callTools(toolCalls, extra);
-
-      messages.push({
-        role: "user",
-        content: iteration < MAX_ITERATIONS ? toolResults : [
-          ...toolResults,
-          {
-            type: "text",
-            text: "Using the information retrieved from the tools, please now provide a concise final answer to the original question (last iteration of the tool loop).",
-          }
-        ],
-      });
-    } else if (response.stopReason === "endTurn") {
-      const contentArray = Array.isArray(response.content) ? response.content : [response.content];
-      const unexpectedBlocks = contentArray.filter(content => content.type !== "text");
-      if (unexpectedBlocks.length > 0) {
-        throw new Error(`Expected text content in final answer, but got: ${unexpectedBlocks.map(b => b.type).join(", ")}`);
-      }
-      
-      await server.sendLoggingMessage({
-        level: "info",
-        data: `Tool loop completed after ${iteration} iteration(s)`,
-      });
-
-      return {
-        answer: contentArray.map(block => block.text).join("\n\n"),
-        transcript: messages,
-        usage: aggregatedUsage
-      };
-    } else if (response?.stopReason === "maxTokens") {
-      throw new Error("LLM response hit max tokens limit");
-    } else {
-      throw new Error(`Unsupported stop reason: ${response.stopReason}`);
-    }
-  }
-
-  throw new Error(`Tool loop exceeded maximum iterations (${MAX_ITERATIONS}); request: ${JSON.stringify(request)}\nresponse: ${JSON.stringify(response)}`);
-}
-
 // Create and configure MCP server
 const mcpServer = new McpServer({
   name: "tool-loop-sampling-server",
@@ -394,7 +212,26 @@ mcpServer.registerTool(
   },
   async ({ query, maxIterations }, extra) => {
     try {
-      const { answer, transcript, usage } = await runToolLoop(mcpServer, query, registry, extra);
+      const MAX_ITERATIONS = 20;
+      const { answer, transcript, usage } = await runToolLoop({
+        initialMessages: [{
+          role: "user",
+          content: {
+            type: "text",
+            text: query,
+          },
+        }],
+        systemPrompt:
+          "You are a helpful assistant that searches through files to answer questions. " +
+          "You have access to ripgrep (for searching) and read (for reading file contents). " +
+          "Use ripgrep to find relevant files, then read them to provide accurate answers. " +
+          "All paths are relative to the current working directory. " +
+          "Be concise and focus on providing the most relevant information." +
+          "You will be allowed up to " + MAX_ITERATIONS + " iterations of tool use to find the information needed. When you have enough information or reach the last iteration, provide a final answer.",
+        maxIterations: MAX_ITERATIONS,
+        server: mcpServer,
+        registry,
+      }, extra);
 
       // Calculate total input tokens
       const totalInputTokens =
