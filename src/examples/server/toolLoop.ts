@@ -118,7 +118,7 @@ export async function runToolLoop(
         if (error instanceof BreakToolLoopError) {
             return {answer: `${error.message}`, transcript: messages, usage};
         }
-        console.log(error);
+        console.error(error);
         throw new Error(`Tool call failed: ${error}`)
       }
 
