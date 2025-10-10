@@ -5,21 +5,33 @@
   to intelligently search and read files in the current directory.
 
   Usage:
-    npx -y @modelcontextprotocol/inspector npm --  --silent run examples:tool-loop
+    npx -y @modelcontextprotocol/inspector \
+      npx -- -y --silent tsx src/examples/backfill/backfillSampling.ts \
+        npx -y --silent tsx src/examples/server/toolLoopSampling.ts
+
+    claude mcp add sampling_with_tools -- \
+      npx -y --silent tsx src/examples/backfill/backfillSampling.ts \
+      npx -y --silent tsx src/examples/server/toolLoopSampling.ts
 
     # Or dockerized:
     rm -fR node_modules
     docker run --rm -v $PWD:/src -w /src node:latest npm i
     npx -y @modelcontextprotocol/inspector -- \
-      docker run --rm -i -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" -v $PWD:/src -w /src node:latest \
-        npm run --silent examples:tool-loop
+      docker run --rm -i -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
+        -v $PWD:/src -w /src \
+        $( echo "
+          FROM node:latest
+          RUN apt update && apt install ripgrep
+        " | docker build -q -f - . ) \
+          npm run --silent examples:tool-loop
 
   Then connect with an MCP client and call the "localResearch" tool with a query like:
     "Find all TypeScript files that export a Server class"
 */
 
-import { McpServer } from "../../server/mcp.js";
+import { McpServer,RegisteredTool,  } from "../../server/mcp.js";
 import { StdioServerTransport } from "../../server/stdio.js";
+import { RequestHandlerExtra } from "../../shared/protocol.js";
 import { z } from "zod";
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -32,7 +44,61 @@ import type {
   CreateMessageRequest,
   ToolResultContent, 
   CallToolResult,
+  RequestId,
+  ServerRequest,
+  ServerNotification,
 } from "../../types.js";
+import { zodToJsonSchema } from "zod-to-json-schema";
+
+
+class ToolRegistry {
+  readonly tools: Tool[]
+
+  constructor(private toolDefinitions: {[name: string]: Pick<RegisteredTool, 'title' | 'description' | 'inputSchema' | 'outputSchema' | 'annotations' | '_meta' | 'callback'> }) {
+    this.tools = Object.entries(this.toolDefinitions).map(([name, tool]) => (<Tool>{
+      name,
+      title: tool.title,
+      description: tool.description,
+      inputSchema: tool.inputSchema ? zodToJsonSchema(tool.inputSchema) : undefined,
+      outputSchema: tool.outputSchema ? zodToJsonSchema(tool.outputSchema) : undefined,
+      annotations: tool.annotations,
+      _meta: tool._meta,
+    }));
+  }
+
+  register(server: McpServer) {
+    for (const [name, tool] of Object.entries(this.toolDefinitions)) {
+      server.registerTool(name, {
+        title: tool.title,
+        description: tool.description,
+        inputSchema: tool.inputSchema?.shape,
+        outputSchema: tool.outputSchema?.shape,
+        annotations: tool.annotations,
+        _meta: tool._meta,
+      }, tool.callback);
+    }
+  }
+  
+  async callTools(toolCalls: ToolCallContent[], extra: RequestHandlerExtra<ServerRequest, ServerNotification>): Promise<ToolResultContent[]> {
+      return Promise.all(toolCalls.map(async ({ name, id, input }) => {
+          const tool = this.toolDefinitions[name];
+          if (!tool) {
+          throw new Error(`Tool ${name} not found`);
+          }
+          try {
+            return <ToolResultContent>{
+                type: "tool_result",
+                toolUseId: id,
+                // Copies fields: content, structuredContent?, isError?
+                ...await tool.callback(input as any, extra),
+            };
+          } catch (error) {
+              throw new Error(`Tool ${name} failed: ${error instanceof Error ? `${error.message}\n${error.stack}` : error}`);
+          }
+      }));
+  }
+}
+
 
 const CWD = process.cwd();
 
@@ -90,196 +156,96 @@ function makeErrorCallToolResult(error: any): CallToolResult {
   }
 }
 
-/**
- * Executes ripgrep to search for a pattern in files.
- * Returns search results as a string.
- */
-async function executeRipgrep(
-  server: McpServer,
-  pattern: string,
-  path: string
-): Promise<CallToolResult> {
-  try {
-    await server.sendLoggingMessage({
-      level: "info",
-      data: `Searching pattern "${pattern}" under ${path}`,
-    });
-
-    const safePath = ensureSafePath(path);
-
-    const output = await new Promise<string>((resolve, reject) => {
-      const command = ["rg", "--json", "--max-count", "50", "--", pattern, safePath];
-      const rg = spawn(command[0], command.slice(1));
-
-      let stdout = "";
-      let stderr = "";
-      rg.stdout.on("data", (data) => stdout += data.toString());
-      rg.stderr.on("data", (data) => stderr += data.toString());
-      rg.on("close", (code) => {
-        if (code === 0 || code === 1) {
-          // code 1 means no matches, which is fine
-          resolve(stdout || "No matches found");
-        } else {
-          reject(new Error(`ripgrep exited with code ${code}:\n${stderr}`));
-        }
-      });
-      rg.on("error", err => reject(new Error(`Failed to start \`${command.map(a => a.indexOf(' ') >= 0 ? `"${a}"` : a).join(' ')}\`: ${err.message}\n${stderr}`)));
-    });
-    const structuredContent = { output };
-    return {
-      content: [{ type: "text", text: JSON.stringify(structuredContent) }],
-      structuredContent,
-    };
-  } catch (error) {
-    return makeErrorCallToolResult(error);
-  }
-}
-
-
-/**
- * Reads a file from the filesystem, optionally within a line range.
- * Returns file contents as a string.
- */
-async function executeRead(
-  server: McpServer,
-  path: string,
-  startLineInclusive?: number,
-  endLineInclusive?: number
-): Promise<CallToolResult> {
-  try {
-    // Log the read operation
-    if (startLineInclusive !== undefined || endLineInclusive !== undefined) {
-      await server.sendLoggingMessage({
-        level: "info",
-        data: `Reading file ${path} (lines ${startLineInclusive ?? 1}-${endLineInclusive ?? "end"})`,
-      });
-    } else {
-      await server.sendLoggingMessage({
-        level: "info",
-        data: `Reading file ${path}`,
-      });
-    }
-
-    const safePath = ensureSafePath(path);
-    const fileContent = await readFile(safePath, "utf-8");
-    if (typeof fileContent !== "string") {
-      throw new Error(`Result of reading file ${path} is not text: ${fileContent}`);
-    }
-    
-    let content = fileContent;
-
-    // If line range specified, extract only those lines
-    if (startLineInclusive !== undefined || endLineInclusive !== undefined) {
-      const lines = fileContent.split("\n");
-      
-      const start = (startLineInclusive ?? 1) - 1; // Convert to 0-indexed
-      const end = endLineInclusive ?? lines.length; // Default to end of file
-
-      if (start < 0 || start >= lines.length) {
-        throw new Error(`Start line ${startLineInclusive} is out of bounds (file has ${lines.length} lines)`);
-      }
-      if (end < start) {
-        throw new Error(`End line ${endLineInclusive} is before start line ${startLineInclusive}`);
-      }
-
-      content = lines.slice(start, end)
-          .map((line, idx) => `${start + idx + 1}: ${line}`)
-          .join("\n");
-    }
-
-    const structuredContent = { content }
-    return {
-      content: [{ type: "text", text: JSON.stringify(structuredContent) }],
-      structuredContent,
-    };
-  } catch (error) {
-    return makeErrorCallToolResult(error);
-  }
-}
-
-/**
- * Defines the local tools available to the LLM during sampling.
- */
-const LOCAL_TOOLS: Tool[] = [
-  {
-    name: "ripgrep",
+const registry = new ToolRegistry({
+  ripgrep: {
     description:
       "Search for a pattern in files using ripgrep. Returns matching lines with file paths and line numbers.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pattern: {
-          type: "string",
-          description: "The regex pattern to search for",
-        },
-        path: {
-          type: "string",
-          description: "The file or directory path to search in (relative to current directory)",
-        },
-      },
-      required: ["pattern", "path"],
-    },
+    inputSchema: z.object({
+        pattern: z.string().describe("The regex pattern to search for"),
+        path: z.string().describe("The file or directory path to search in (relative to current directory)"),
+    }),
+    callback: async ({pattern, path}, extra) => {
+      try {
+        const safePath = ensureSafePath(path);
+
+        const output = await new Promise<string>((resolve, reject) => {
+          const command = ["rg", "--json", "--max-count", "50", "--", pattern, safePath];
+          const rg = spawn(command[0], command.slice(1));
+
+          let stdout = "";
+          let stderr = "";
+          rg.stdout.on("data", (data) => stdout += data.toString());
+          rg.stderr.on("data", (data) => stderr += data.toString());
+          rg.on("close", (code) => {
+            if (code === 0 || code === 1) {
+              // code 1 means no matches, which is fine
+              resolve(stdout || "No matches found");
+            } else {
+              reject(new Error(`ripgrep exited with code ${code}:\n${stderr}`));
+            }
+          });
+          rg.on("error", err => reject(new Error(`Failed to start \`${command.map(a => a.indexOf(' ') >= 0 ? `"${a}"` : a).join(' ')}\`: ${err.message}\n${stderr}`)));
+        });
+        const structuredContent = { output };
+        return {
+          content: [{ type: "text", text: JSON.stringify(structuredContent) }],
+          structuredContent,
+        };
+      } catch (error) {
+        return makeErrorCallToolResult(error);
+      }
+    }
   },
-  {
-    name: "read",
+  read: {
     description:
       "Read the contents of a file. Use this to examine files found by ripgrep. " +
       "You can optionally specify a line range to read only specific lines. " +
       "Tip: When ripgrep finds matches, note the line numbers and request a few lines before and after for context.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        path: {
-          type: "string",
-          description: "The file path to read (relative to current directory)",
-        },
-        startLineInclusive: {
-          type: "number",
-          description: "Optional: First line to read (1-indexed, inclusive). Use with endLineInclusive to read a specific range.",
-        },
-        endLineInclusive: {
-          type: "number",
-          description: "Optional: Last line to read (1-indexed, inclusive). If not specified, reads to end of file.",
-        },
-      },
-      required: ["path"],
-    },
-  },
-];
+    inputSchema: z.object({
+      path: z.string().describe("The file path to read (relative to current directory)"),
+      startLineInclusive: z.number().optional().describe("Optional: First line to read (1-indexed, inclusive). Use with endLineInclusive to read a specific range."),
+      endLineInclusive: z.number().optional().describe("Optional: Last line to read (1-indexed, inclusive). If not specified, reads to end of file."),
+    }),
+    callback: async ({path, startLineInclusive, endLineInclusive}, _extra) => {
+      try {
+        const safePath = ensureSafePath(path);
+        const fileContent = await readFile(safePath, "utf-8");
+        if (typeof fileContent !== "string") {
+          throw new Error(`Result of reading file ${path} is not text: ${fileContent}`);
+        }
+        
+        let content = fileContent;
 
-/**
- * Executes a local tool and returns the result.
- */
-async function executeLocalTool(
-  server: McpServer,
-  toolName: string,
-  toolInput: Record<string, unknown>
-): Promise<CallToolResult> {
-  try {
-    switch (toolName) {
-      case "ripgrep": {
-        const validated = RipgrepInputSchema.parse(toolInput);
-        return await executeRipgrep(server, validated.pattern, validated.path);
+        // If line range specified, extract only those lines
+        if (startLineInclusive !== undefined || endLineInclusive !== undefined) {
+          const lines = fileContent.split("\n");
+          
+          const start = (startLineInclusive ?? 1) - 1; // Convert to 0-indexed
+          const end = endLineInclusive ?? lines.length; // Default to end of file
+
+          if (start < 0 || start >= lines.length) {
+            throw new Error(`Start line ${startLineInclusive} is out of bounds (file has ${lines.length} lines)`);
+          }
+          if (end < start) {
+            throw new Error(`End line ${endLineInclusive} is before start line ${startLineInclusive}`);
+          }
+
+          content = lines.slice(start, end)
+              .map((line, idx) => `${start + idx + 1}: ${line}`)
+              .join("\n");
+        }
+
+        const structuredContent = { content }
+        return {
+          content: [{ type: "text", text: JSON.stringify(structuredContent) }],
+          structuredContent,
+        };
+      } catch (error) {
+        return makeErrorCallToolResult(error);
       }
-      case "read": {
-        const validated = ReadInputSchema.parse(toolInput);
-        return await executeRead(
-          server,
-          validated.path,
-          validated.startLineInclusive,
-          validated.endLineInclusive
-        );
-      }
-      default:
-        return makeErrorCallToolResult(`Unknown tool: ${toolName}`);
     }
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return makeErrorCallToolResult(`Invalid input for tool '${toolName}': ${error.errors.map(e => e.message).join(", ")}`);
-    }
-    return makeErrorCallToolResult(error);
   }
-}
+});
 
 /**
  * Runs a tool loop using sampling.
@@ -287,7 +253,9 @@ async function executeLocalTool(
  */
 async function runToolLoop(
   server: McpServer,
-  initialQuery: string
+  initialQuery: string,
+  registry: ToolRegistry,
+  extra: RequestHandlerExtra<ServerRequest, ServerNotification>
 ): Promise<{ answer: string; transcript: SamplingMessage[]; usage: AggregatedUsage }> {
   const messages: SamplingMessage[] = [
     {
@@ -329,7 +297,7 @@ async function runToolLoop(
       messages,
       systemPrompt,
       maxTokens: 4000,
-      tools: iteration < MAX_ITERATIONS ? LOCAL_TOOLS : undefined,
+      tools: iteration < MAX_ITERATIONS ? registry.tools : undefined,
       // Don't allow tool calls at the last iteration: finish with an answer no matter what!
       tool_choice: { mode: iteration < MAX_ITERATIONS ? "auto" : "none" },
     });
@@ -362,16 +330,7 @@ async function runToolLoop(
         data: `Loop iteration ${iteration}: ${toolCalls.length} tool invocation(s) requested`,
       });
 
-      const toolResults: ToolResultContent[] = await Promise.all(toolCalls.map(async (toolCall) => {
-        const result = await executeLocalTool(server, toolCall.name, toolCall.input);
-        return <ToolResultContent>{ 
-          type: "tool_result",
-          toolUseId: toolCall.id,
-          content: result.content,
-          structuredContent: result.structuredContent,
-          isError: result.isError,
-        }
-      }))
+      const toolResults = await registry.callTools(toolCalls, extra);
 
       messages.push({
         role: "user",
@@ -433,9 +392,9 @@ mcpServer.registerTool(
       maxIterations: z.number().int().positive().optional().default(20).describe("Maximum number of tool use iterations (default 20)"),
     },
   },
-  async ({ query, maxIterations }) => {
+  async ({ query, maxIterations }, extra) => {
     try {
-      const { answer, transcript, usage } = await runToolLoop(mcpServer, query);
+      const { answer, transcript, usage } = await runToolLoop(mcpServer, query, registry, extra);
 
       // Calculate total input tokens
       const totalInputTokens =
@@ -475,6 +434,10 @@ mcpServer.registerTool(
     }
   }
 );
+
+if (process.env.REGISTER_TOOLS) {
+  registry.register(mcpServer);
+}
 
 async function main() {
   const transport = new StdioServerTransport();
