@@ -47,6 +47,13 @@ export class Completable<T extends ZodTypeAny> extends ZodType<T['_output'], Com
     };
 }
 
+// Runtime type guard to detect Completable-wrapped Zod types across versions
+export function isCompletable<T extends ZodTypeAny = ZodTypeAny>(value: unknown): value is Completable<T> {
+    if (value === null || typeof value !== "object") return false;
+    const obj = value as { _def?: { typeName?: unknown } };
+    return obj._def?.typeName === McpZodTypeKind.Completable;
+}
+
 /**
  * Wraps a Zod type to provide autocompletion capabilities. Useful for, e.g., prompt arguments in MCP.
  */

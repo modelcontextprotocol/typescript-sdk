@@ -2286,6 +2286,45 @@ describe('resource()', () => {
     });
 
     /***
+     * Test: Registering a resource template without a complete callback should not update server capabilities to advertise support for completion
+     */
+    test("should not advertise support for completion when a resource template without a complete callback is defined", async () => {
+        const mcpServer = new McpServer({
+            name: "test server",
+            version: "1.0",
+        });
+        const client = new Client({
+            name: "test client",
+            version: "1.0",
+        });
+
+        mcpServer.resource(
+            "test",
+            new ResourceTemplate("test://resource/{category}", {
+                list: undefined,
+            }),
+            async () => ({
+                contents: [
+                    {
+                        uri: "test://resource/test",
+                        text: "Test content",
+                    },
+                ],
+            }),
+        );
+
+        const [clientTransport, serverTransport] =
+            InMemoryTransport.createLinkedPair();
+
+        await Promise.all([
+            client.connect(clientTransport),
+            mcpServer.server.connect(serverTransport),
+        ]);
+
+        expect(client.getServerCapabilities()).not.toHaveProperty("completions")
+    })
+
+    /***
      * Test: Registering a resource template with a complete callback should update server capabilities to advertise support for completion
      */
     test('should advertise support for completion when a resource template with a complete callback is defined', async () => {
@@ -3138,6 +3177,50 @@ describe('prompt()', () => {
     });
 
     /***
+     * Test: Registering a prompt without a completable argument should not update server capabilities to advertise support for completion
+     */
+    test("should not advertise support for completion when a prompt without a completable argument is defined", async () => {
+        const mcpServer = new McpServer({
+            name: "test server",
+            version: "1.0",
+        });
+        const client = new Client({
+            name: "test client",
+            version: "1.0",
+        });
+
+        mcpServer.prompt(
+            "test-prompt",
+            {
+                name: z.string()
+            },
+            async ({ name }) => ({
+                messages: [
+                    {
+                        role: "assistant",
+                        content: {
+                            type: "text",
+                            text: `Hello ${name}`,
+                        },
+                    },
+                ],
+            }),
+        );
+
+        const [clientTransport, serverTransport] =
+            InMemoryTransport.createLinkedPair();
+
+        await Promise.all([
+            client.connect(clientTransport),
+            mcpServer.server.connect(serverTransport),
+        ]);
+
+        const capabilities = client.getServerCapabilities()||{};
+        const keys = Object.keys(capabilities);
+        expect(keys).not.toContain('completions');
+    })
+
+    /***
      * Test: Registering a prompt with a completable argument should update server capabilities to advertise support for completion
      */
     test('should advertise support for completion when a prompt with a completable argument is defined', async () => {
@@ -3172,7 +3255,7 @@ describe('prompt()', () => {
 
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-        expect(client.getServerCapabilities()).toMatchObject({ completions: {} });
+        expect(client.getServerCapabilities()).toMatchObject({ completions: {}, "prompts": {"listChanged": true} });
     });
 
     /***
