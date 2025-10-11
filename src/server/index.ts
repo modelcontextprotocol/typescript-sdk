@@ -31,7 +31,7 @@ import {
     SetLevelRequestSchema,
     LoggingLevelSchema
 } from '../types.js';
-import Ajv from 'ajv';
+import { Validator } from '@cfworker/json-schema';
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -291,15 +291,15 @@ export class Server<
         // Validate the response content against the requested schema if action is "accept"
         if (result.action === 'accept' && result.content) {
             try {
-                const ajv = new Ajv();
+                const validator = new Validator(params.requestedSchema, '2020-12');
+                const validationResult = validator.validate(result.content);
 
-                const validate = ajv.compile(params.requestedSchema);
-                const isValid = validate(result.content);
+                if (!validationResult.valid) {
+                    const errorMessages = validationResult.errors.map(error => `${error.instanceLocation}: ${error.error}`).join('; ');
 
-                if (!isValid) {
                     throw new McpError(
                         ErrorCode.InvalidParams,
-                        `Elicitation response content does not match requested schema: ${ajv.errorsText(validate.errors)}`
+                        `Elicitation response content does not match requested schema: ${errorMessages}`
                     );
                 }
             } catch (error) {
