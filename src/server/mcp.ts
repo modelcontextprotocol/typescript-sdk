@@ -603,7 +603,7 @@ export class McpServer {
 
         // If the resource template has any completion callbacks, enable completions capability
         const variableNames = template.uriTemplate.variableNames;
-        const hasCompleter = Array.isArray(variableNames) && variableNames.some((v) => !!template.completeCallback(v));
+        const hasCompleter = Array.isArray(variableNames) && variableNames.some(v => !!template.completeCallback(v));
         if (hasCompleter) {
             this.setCompletionRequestHandler();
         }
@@ -644,7 +644,7 @@ export class McpServer {
 
         // If any argument uses a Completable schema, enable completions capability
         if (argsSchema) {
-            const hasCompletable = Object.values(argsSchema).some((field) => {
+            const hasCompletable = Object.values(argsSchema).some(field => {
                 const inner: unknown = field instanceof ZodOptional ? field._def?.innerType : field;
                 return isCompletable(inner);
             });
