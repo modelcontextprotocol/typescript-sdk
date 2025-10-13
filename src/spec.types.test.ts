@@ -5,12 +5,12 @@
  * - Runtime checks to verify each Spec type has a static check
  *   (note: a few don't have SDK types, see MISSING_SDK_TYPES below)
  */
-import * as SDKTypes from './types.js';
-import * as SpecTypes from '../spec.types.js';
-import fs from 'node:fs';
+import * as SpecTypes from "./spec.types.js";
+import fs from "node:fs";
+import { z } from "zod";
 
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-unsafe-function-type */
+import * as Schemas from "./schemas.js";
+
 
 // Removes index signatures added by ZodObject.passthrough().
 type RemovePassthrough<T> = T extends object
@@ -27,7 +27,7 @@ type RemovePassthrough<T> = T extends object
 type WithJSONRPC<T> = T & { jsonrpc: '2.0' };
 
 // Adds the `jsonrpc` and `id` properties to a type, to match the on-wire format of requests.
-type WithJSONRPCRequest<T> = T & { jsonrpc: '2.0'; id: SDKTypes.RequestId };
+type WithJSONRPCRequest<T> = T & { jsonrpc: '2.0'; id: z.infer<typeof Schemas.RequestIdSchema> };
 
 type IsUnknown<T> = [unknown] extends [T] ? ([T] extends [unknown] ? true : false) : false;
 
@@ -63,431 +63,690 @@ type MakeUnknownsNotOptional<T> =
           : T;
 
 const sdkTypeChecks = {
-    CancelledNotification: (sdk: WithJSONRPC<SDKTypes.CancelledNotification>, spec: SpecTypes.CancelledNotification) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    BaseMetadata: (sdk: RemovePassthrough<SDKTypes.BaseMetadata>, spec: SpecTypes.BaseMetadata) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    Implementation: (sdk: RemovePassthrough<SDKTypes.Implementation>, spec: SpecTypes.Implementation) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ProgressNotification: (sdk: WithJSONRPC<SDKTypes.ProgressNotification>, spec: SpecTypes.ProgressNotification) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    SubscribeRequest: (sdk: WithJSONRPCRequest<SDKTypes.SubscribeRequest>, spec: SpecTypes.SubscribeRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    UnsubscribeRequest: (sdk: WithJSONRPCRequest<SDKTypes.UnsubscribeRequest>, spec: SpecTypes.UnsubscribeRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    PaginatedRequest: (sdk: WithJSONRPCRequest<SDKTypes.PaginatedRequest>, spec: SpecTypes.PaginatedRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    PaginatedResult: (sdk: SDKTypes.PaginatedResult, spec: SpecTypes.PaginatedResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListRootsRequest: (sdk: WithJSONRPCRequest<SDKTypes.ListRootsRequest>, spec: SpecTypes.ListRootsRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListRootsResult: (sdk: RemovePassthrough<SDKTypes.ListRootsResult>, spec: SpecTypes.ListRootsResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    Root: (sdk: RemovePassthrough<SDKTypes.Root>, spec: SpecTypes.Root) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ElicitRequest: (sdk: WithJSONRPCRequest<RemovePassthrough<SDKTypes.ElicitRequest>>, spec: SpecTypes.ElicitRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ElicitResult: (sdk: RemovePassthrough<SDKTypes.ElicitResult>, spec: SpecTypes.ElicitResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    CompleteRequest: (sdk: WithJSONRPCRequest<RemovePassthrough<SDKTypes.CompleteRequest>>, spec: SpecTypes.CompleteRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    CompleteResult: (sdk: SDKTypes.CompleteResult, spec: SpecTypes.CompleteResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ProgressToken: (sdk: SDKTypes.ProgressToken, spec: SpecTypes.ProgressToken) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    Cursor: (sdk: SDKTypes.Cursor, spec: SpecTypes.Cursor) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    Request: (sdk: SDKTypes.Request, spec: SpecTypes.Request) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    Result: (sdk: SDKTypes.Result, spec: SpecTypes.Result) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    RequestId: (sdk: SDKTypes.RequestId, spec: SpecTypes.RequestId) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    JSONRPCRequest: (sdk: SDKTypes.JSONRPCRequest, spec: SpecTypes.JSONRPCRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    JSONRPCNotification: (sdk: SDKTypes.JSONRPCNotification, spec: SpecTypes.JSONRPCNotification) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    JSONRPCResponse: (sdk: SDKTypes.JSONRPCResponse, spec: SpecTypes.JSONRPCResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    EmptyResult: (sdk: SDKTypes.EmptyResult, spec: SpecTypes.EmptyResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    Notification: (sdk: SDKTypes.Notification, spec: SpecTypes.Notification) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ClientResult: (sdk: SDKTypes.ClientResult, spec: SpecTypes.ClientResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ClientNotification: (sdk: WithJSONRPC<SDKTypes.ClientNotification>, spec: SpecTypes.ClientNotification) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ServerResult: (sdk: SDKTypes.ServerResult, spec: SpecTypes.ServerResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ResourceTemplateReference: (sdk: RemovePassthrough<SDKTypes.ResourceTemplateReference>, spec: SpecTypes.ResourceTemplateReference) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    PromptReference: (sdk: RemovePassthrough<SDKTypes.PromptReference>, spec: SpecTypes.PromptReference) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ToolAnnotations: (sdk: RemovePassthrough<SDKTypes.ToolAnnotations>, spec: SpecTypes.ToolAnnotations) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    Tool: (sdk: RemovePassthrough<SDKTypes.Tool>, spec: SpecTypes.Tool) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListToolsRequest: (sdk: WithJSONRPCRequest<SDKTypes.ListToolsRequest>, spec: SpecTypes.ListToolsRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListToolsResult: (sdk: RemovePassthrough<SDKTypes.ListToolsResult>, spec: SpecTypes.ListToolsResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    CallToolResult: (sdk: RemovePassthrough<SDKTypes.CallToolResult>, spec: SpecTypes.CallToolResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    CallToolRequest: (sdk: WithJSONRPCRequest<SDKTypes.CallToolRequest>, spec: SpecTypes.CallToolRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ToolListChangedNotification: (sdk: WithJSONRPC<SDKTypes.ToolListChangedNotification>, spec: SpecTypes.ToolListChangedNotification) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ResourceListChangedNotification: (
-        sdk: WithJSONRPC<SDKTypes.ResourceListChangedNotification>,
-        spec: SpecTypes.ResourceListChangedNotification
-    ) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    PromptListChangedNotification: (
-        sdk: WithJSONRPC<SDKTypes.PromptListChangedNotification>,
-        spec: SpecTypes.PromptListChangedNotification
-    ) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    RootsListChangedNotification: (
-        sdk: WithJSONRPC<SDKTypes.RootsListChangedNotification>,
-        spec: SpecTypes.RootsListChangedNotification
-    ) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ResourceUpdatedNotification: (sdk: WithJSONRPC<SDKTypes.ResourceUpdatedNotification>, spec: SpecTypes.ResourceUpdatedNotification) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    SamplingMessage: (sdk: RemovePassthrough<SDKTypes.SamplingMessage>, spec: SpecTypes.SamplingMessage) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    CreateMessageResult: (sdk: RemovePassthrough<SDKTypes.CreateMessageResult>, spec: SpecTypes.CreateMessageResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    SetLevelRequest: (sdk: WithJSONRPCRequest<SDKTypes.SetLevelRequest>, spec: SpecTypes.SetLevelRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    PingRequest: (sdk: WithJSONRPCRequest<SDKTypes.PingRequest>, spec: SpecTypes.PingRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    InitializedNotification: (sdk: WithJSONRPC<SDKTypes.InitializedNotification>, spec: SpecTypes.InitializedNotification) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListResourcesRequest: (sdk: WithJSONRPCRequest<SDKTypes.ListResourcesRequest>, spec: SpecTypes.ListResourcesRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListResourcesResult: (sdk: RemovePassthrough<SDKTypes.ListResourcesResult>, spec: SpecTypes.ListResourcesResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListResourceTemplatesRequest: (
-        sdk: WithJSONRPCRequest<SDKTypes.ListResourceTemplatesRequest>,
-        spec: SpecTypes.ListResourceTemplatesRequest
-    ) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListResourceTemplatesResult: (
-        sdk: RemovePassthrough<SDKTypes.ListResourceTemplatesResult>,
-        spec: SpecTypes.ListResourceTemplatesResult
-    ) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ReadResourceRequest: (sdk: WithJSONRPCRequest<SDKTypes.ReadResourceRequest>, spec: SpecTypes.ReadResourceRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ReadResourceResult: (sdk: RemovePassthrough<SDKTypes.ReadResourceResult>, spec: SpecTypes.ReadResourceResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ResourceContents: (sdk: RemovePassthrough<SDKTypes.ResourceContents>, spec: SpecTypes.ResourceContents) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    TextResourceContents: (sdk: RemovePassthrough<SDKTypes.TextResourceContents>, spec: SpecTypes.TextResourceContents) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    BlobResourceContents: (sdk: RemovePassthrough<SDKTypes.BlobResourceContents>, spec: SpecTypes.BlobResourceContents) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    Resource: (sdk: RemovePassthrough<SDKTypes.Resource>, spec: SpecTypes.Resource) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ResourceTemplate: (sdk: RemovePassthrough<SDKTypes.ResourceTemplate>, spec: SpecTypes.ResourceTemplate) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    PromptArgument: (sdk: RemovePassthrough<SDKTypes.PromptArgument>, spec: SpecTypes.PromptArgument) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    Prompt: (sdk: RemovePassthrough<SDKTypes.Prompt>, spec: SpecTypes.Prompt) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListPromptsRequest: (sdk: WithJSONRPCRequest<SDKTypes.ListPromptsRequest>, spec: SpecTypes.ListPromptsRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListPromptsResult: (sdk: RemovePassthrough<SDKTypes.ListPromptsResult>, spec: SpecTypes.ListPromptsResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    GetPromptRequest: (sdk: WithJSONRPCRequest<SDKTypes.GetPromptRequest>, spec: SpecTypes.GetPromptRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    TextContent: (sdk: RemovePassthrough<SDKTypes.TextContent>, spec: SpecTypes.TextContent) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ImageContent: (sdk: RemovePassthrough<SDKTypes.ImageContent>, spec: SpecTypes.ImageContent) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    AudioContent: (sdk: RemovePassthrough<SDKTypes.AudioContent>, spec: SpecTypes.AudioContent) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    EmbeddedResource: (sdk: RemovePassthrough<SDKTypes.EmbeddedResource>, spec: SpecTypes.EmbeddedResource) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ResourceLink: (sdk: RemovePassthrough<SDKTypes.ResourceLink>, spec: SpecTypes.ResourceLink) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ContentBlock: (sdk: RemovePassthrough<SDKTypes.ContentBlock>, spec: SpecTypes.ContentBlock) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    PromptMessage: (sdk: RemovePassthrough<SDKTypes.PromptMessage>, spec: SpecTypes.PromptMessage) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    GetPromptResult: (sdk: RemovePassthrough<SDKTypes.GetPromptResult>, spec: SpecTypes.GetPromptResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    BooleanSchema: (sdk: RemovePassthrough<SDKTypes.BooleanSchema>, spec: SpecTypes.BooleanSchema) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    StringSchema: (sdk: RemovePassthrough<SDKTypes.StringSchema>, spec: SpecTypes.StringSchema) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    NumberSchema: (sdk: RemovePassthrough<SDKTypes.NumberSchema>, spec: SpecTypes.NumberSchema) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    EnumSchema: (sdk: RemovePassthrough<SDKTypes.EnumSchema>, spec: SpecTypes.EnumSchema) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    PrimitiveSchemaDefinition: (sdk: RemovePassthrough<SDKTypes.PrimitiveSchemaDefinition>, spec: SpecTypes.PrimitiveSchemaDefinition) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    JSONRPCError: (sdk: SDKTypes.JSONRPCError, spec: SpecTypes.JSONRPCError) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    JSONRPCMessage: (sdk: SDKTypes.JSONRPCMessage, spec: SpecTypes.JSONRPCMessage) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    CreateMessageRequest: (
-        sdk: WithJSONRPCRequest<RemovePassthrough<SDKTypes.CreateMessageRequest>>,
-        spec: SpecTypes.CreateMessageRequest
-    ) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    InitializeRequest: (sdk: WithJSONRPCRequest<RemovePassthrough<SDKTypes.InitializeRequest>>, spec: SpecTypes.InitializeRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    InitializeResult: (sdk: RemovePassthrough<SDKTypes.InitializeResult>, spec: SpecTypes.InitializeResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ClientCapabilities: (sdk: RemovePassthrough<SDKTypes.ClientCapabilities>, spec: SpecTypes.ClientCapabilities) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ServerCapabilities: (sdk: RemovePassthrough<SDKTypes.ServerCapabilities>, spec: SpecTypes.ServerCapabilities) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ClientRequest: (sdk: WithJSONRPCRequest<RemovePassthrough<SDKTypes.ClientRequest>>, spec: SpecTypes.ClientRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ServerRequest: (sdk: WithJSONRPCRequest<RemovePassthrough<SDKTypes.ServerRequest>>, spec: SpecTypes.ServerRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    LoggingMessageNotification: (
-        sdk: MakeUnknownsNotOptional<WithJSONRPC<SDKTypes.LoggingMessageNotification>>,
-        spec: SpecTypes.LoggingMessageNotification
-    ) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ServerNotification: (sdk: MakeUnknownsNotOptional<WithJSONRPC<SDKTypes.ServerNotification>>, spec: SpecTypes.ServerNotification) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    LoggingLevel: (sdk: SDKTypes.LoggingLevel, spec: SpecTypes.LoggingLevel) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    Icon: (sdk: RemovePassthrough<SDKTypes.Icon>, spec: SpecTypes.Icon) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    Icons: (sdk: RemovePassthrough<SDKTypes.Icons>, spec: SpecTypes.Icons) => {
-        sdk = spec;
-        spec = sdk;
-    }
+  CancelledNotification: (
+    specType: SpecTypes.CancelledNotification,
+    inferredType: WithJSONRPC<z.infer<typeof Schemas.CancelledNotificationSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  BaseMetadata: (
+    specType: SpecTypes.BaseMetadata,
+    inferredType: z.infer<typeof Schemas.BaseMetadataSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  Implementation: (
+    specType: SpecTypes.Implementation,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.ImplementationSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ProgressNotification: (
+    specType: SpecTypes.ProgressNotification,
+    inferredType: WithJSONRPC<z.infer<typeof Schemas.ProgressNotificationSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  SubscribeRequest: (
+    specType: SpecTypes.SubscribeRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.SubscribeRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  UnsubscribeRequest: (
+    specType: SpecTypes.UnsubscribeRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.UnsubscribeRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  PaginatedRequest: (
+    specType: SpecTypes.PaginatedRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.PaginatedRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  PaginatedResult: (
+    specType: SpecTypes.PaginatedResult,
+    inferredType: z.infer<typeof Schemas.PaginatedResultSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ListRootsRequest: (
+    specType: SpecTypes.ListRootsRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.ListRootsRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ListRootsResult: (
+    specType: SpecTypes.ListRootsResult,
+    inferredType: z.infer<typeof Schemas.ListRootsResultSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  Root: (
+    specType: SpecTypes.Root,
+    inferredType: z.infer<typeof Schemas.RootSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ElicitRequest: (
+    specType: SpecTypes.ElicitRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.ElicitRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ElicitResult: (
+    specType: SpecTypes.ElicitResult,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.ElicitResultSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  CompleteRequest: (
+    specType: SpecTypes.CompleteRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.CompleteRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  CompleteResult: (
+    specType: SpecTypes.CompleteResult,
+    inferredType: z.infer<typeof Schemas.CompleteResultSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ProgressToken: (
+    specType: SpecTypes.ProgressToken,
+    inferredType: z.infer<typeof Schemas.ProgressTokenSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  Cursor: (
+    specType: SpecTypes.Cursor,
+    inferredType: z.infer<typeof Schemas.CursorSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  Request: (
+    specType: SpecTypes.Request,
+    inferredType: z.infer<typeof Schemas.RequestSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  Result: (
+    specType: SpecTypes.Result,
+    inferredType: z.infer<typeof Schemas.ResultSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  RequestId: (
+    specType: SpecTypes.RequestId,
+    inferredType: z.infer<typeof Schemas.RequestIdSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  JSONRPCRequest: (
+    specType: SpecTypes.JSONRPCRequest,
+    inferredType: z.infer<typeof Schemas.JSONRPCRequestSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  JSONRPCNotification: (
+    specType: SpecTypes.JSONRPCNotification,
+    inferredType: z.infer<typeof Schemas.JSONRPCNotificationSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  JSONRPCResponse: (
+    specType: SpecTypes.JSONRPCResponse,
+    inferredType: z.infer<typeof Schemas.JSONRPCResponseSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  EmptyResult: (
+    specType: SpecTypes.EmptyResult,
+    inferredType: z.infer<typeof Schemas.EmptyResultSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  Notification: (
+    specType: SpecTypes.Notification,
+    inferredType: z.infer<typeof Schemas.NotificationSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ClientResult: (
+    specType: SpecTypes.ClientResult,
+    inferredType: z.infer<typeof Schemas.ClientResultSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ClientNotification: (
+    specType: SpecTypes.ClientNotification,
+    inferredType: WithJSONRPC<z.infer<typeof Schemas.ClientNotificationSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ServerResult: (
+    specType: SpecTypes.ServerResult,
+    inferredType: z.infer<typeof Schemas.ServerResultSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ResourceTemplateReference: (
+    specType: SpecTypes.ResourceTemplateReference,
+    inferredType: z.infer<typeof Schemas.ResourceTemplateReferenceSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  PromptReference: (
+    specType: SpecTypes.PromptReference,
+    inferredType: z.infer<typeof Schemas.PromptReferenceSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ToolAnnotations: (
+    specType: SpecTypes.ToolAnnotations,
+    inferredType: z.infer<typeof Schemas.ToolAnnotationsSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  Tool: (
+    specType: SpecTypes.Tool,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.ToolSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ListToolsRequest: (
+    specType: SpecTypes.ListToolsRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.ListToolsRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ListToolsResult: (
+    specType: SpecTypes.ListToolsResult,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.ListToolsResultSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  CallToolResult: (
+    specType: SpecTypes.CallToolResult,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.CallToolResultSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  CallToolRequest: (
+    specType: SpecTypes.CallToolRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.CallToolRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ToolListChangedNotification: (
+    specType: SpecTypes.ToolListChangedNotification,
+    inferredType: WithJSONRPC<z.infer<typeof Schemas.ToolListChangedNotificationSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ResourceListChangedNotification: (
+    specType: SpecTypes.ResourceListChangedNotification,
+    inferredType: WithJSONRPC<z.infer<typeof Schemas.ResourceListChangedNotificationSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  PromptListChangedNotification: (
+    specType: SpecTypes.PromptListChangedNotification,
+    inferredType: WithJSONRPC<z.infer<typeof Schemas.PromptListChangedNotificationSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  RootsListChangedNotification: (
+    specType: SpecTypes.RootsListChangedNotification,
+    inferredType: WithJSONRPC<z.infer<typeof Schemas.RootsListChangedNotificationSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ResourceUpdatedNotification: (
+    specType: SpecTypes.ResourceUpdatedNotification,
+    inferredType: WithJSONRPC<z.infer<typeof Schemas.ResourceUpdatedNotificationSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  SamplingMessage: (
+    specType: SpecTypes.SamplingMessage,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.SamplingMessageSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  CreateMessageResult: (
+    specType: SpecTypes.CreateMessageResult,
+    inferredType: z.infer<typeof Schemas.CreateMessageResultSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  SetLevelRequest: (
+    specType: SpecTypes.SetLevelRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.SetLevelRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  PingRequest: (
+    specType: SpecTypes.PingRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.PingRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  InitializedNotification: (
+    specType: SpecTypes.InitializedNotification,
+    inferredType: WithJSONRPC<z.infer<typeof Schemas.InitializedNotificationSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ListResourcesRequest: (
+    specType: SpecTypes.ListResourcesRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.ListResourcesRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ListResourcesResult: (
+    specType: SpecTypes.ListResourcesResult,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.ListResourcesResultSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ListResourceTemplatesRequest: (
+    specType: SpecTypes.ListResourceTemplatesRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.ListResourceTemplatesRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ListResourceTemplatesResult: (
+    specType: SpecTypes.ListResourceTemplatesResult,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.ListResourceTemplatesResultSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ReadResourceRequest: (
+    specType: SpecTypes.ReadResourceRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.ReadResourceRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ReadResourceResult: (
+    specType: SpecTypes.ReadResourceResult,
+    inferredType: z.infer<typeof Schemas.ReadResourceResultSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ResourceContents: (
+    specType: SpecTypes.ResourceContents,
+    inferredType: z.infer<typeof Schemas.ResourceContentsSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  TextResourceContents: (
+    specType: SpecTypes.TextResourceContents,
+    inferredType: z.infer<typeof Schemas.TextResourceContentsSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  BlobResourceContents: (
+    specType: SpecTypes.BlobResourceContents,
+    inferredType: z.infer<typeof Schemas.BlobResourceContentsSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  Resource: (
+    specType: SpecTypes.Resource,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.ResourceSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ResourceTemplate: (
+    specType: SpecTypes.ResourceTemplate,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.ResourceTemplateSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  PromptArgument: (
+    specType: SpecTypes.PromptArgument,
+    inferredType: z.infer<typeof Schemas.PromptArgumentSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  Prompt: (
+    specType: SpecTypes.Prompt,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.PromptSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ListPromptsRequest: (
+    specType: SpecTypes.ListPromptsRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.ListPromptsRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ListPromptsResult: (
+    specType: SpecTypes.ListPromptsResult,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.ListPromptsResultSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  GetPromptRequest: (
+    specType: SpecTypes.GetPromptRequest,
+    inferredType: WithJSONRPCRequest<z.infer<typeof Schemas.GetPromptRequestSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  TextContent: (
+    specType: SpecTypes.TextContent,
+    inferredType: z.infer<typeof Schemas.TextContentSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ImageContent: (
+    specType: SpecTypes.ImageContent,
+    inferredType: z.infer<typeof Schemas.ImageContentSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  AudioContent: (
+    specType: SpecTypes.AudioContent,
+    inferredType: z.infer<typeof Schemas.AudioContentSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  EmbeddedResource: (
+    specType: SpecTypes.EmbeddedResource,
+    inferredType: z.infer<typeof Schemas.EmbeddedResourceSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ResourceLink: (
+    specType: SpecTypes.ResourceLink,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.ResourceLinkSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ContentBlock: (
+    specType: SpecTypes.ContentBlock,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.ContentBlockSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  PromptMessage: (
+    specType: SpecTypes.PromptMessage,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.PromptMessageSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  GetPromptResult: (
+    specType: SpecTypes.GetPromptResult,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.GetPromptResultSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  BooleanSchema: (
+    specType: SpecTypes.BooleanSchema,
+    inferredType: z.infer<typeof Schemas.BooleanSchemaSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  StringSchema: (
+    specType: SpecTypes.StringSchema,
+    inferredType: z.infer<typeof Schemas.StringSchemaSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  NumberSchema: (
+    specType: SpecTypes.NumberSchema,
+    inferredType: z.infer<typeof Schemas.NumberSchemaSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  EnumSchema: (
+    specType: SpecTypes.EnumSchema,
+    inferredType: z.infer<typeof Schemas.EnumSchemaSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  PrimitiveSchemaDefinition: (
+    specType: SpecTypes.PrimitiveSchemaDefinition,
+    inferredType: z.infer<typeof Schemas.PrimitiveSchemaDefinitionSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  JSONRPCError: (
+    specType: SpecTypes.JSONRPCError,
+    inferredType: z.infer<typeof Schemas.JSONRPCErrorSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  JSONRPCMessage: (
+    specType: SpecTypes.JSONRPCMessage,
+    inferredType: z.infer<typeof Schemas.JSONRPCMessageSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  CreateMessageRequest: (
+    specType: SpecTypes.CreateMessageRequest,
+    inferredType: RemovePassthrough<WithJSONRPCRequest<z.infer<typeof Schemas.CreateMessageRequestSchema>>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  InitializeRequest: (
+    specType: SpecTypes.InitializeRequest,
+    inferredType: RemovePassthrough<WithJSONRPCRequest<z.infer<typeof Schemas.InitializeRequestSchema>>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  InitializeResult: (
+    specType: SpecTypes.InitializeResult,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.InitializeResultSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ClientCapabilities: (
+    specType: SpecTypes.ClientCapabilities,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.ClientCapabilitiesSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ServerCapabilities: (
+    specType: SpecTypes.ServerCapabilities,
+    inferredType: z.infer<typeof Schemas.ServerCapabilitiesSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ClientRequest: (
+    specType: SpecTypes.ClientRequest,
+    inferredType: RemovePassthrough<WithJSONRPCRequest<z.infer<typeof Schemas.ClientRequestSchema>>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ServerRequest: (
+    specType: SpecTypes.ServerRequest,
+    inferredType: RemovePassthrough<WithJSONRPCRequest<z.infer<typeof Schemas.ServerRequestSchema>>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  LoggingMessageNotification: (
+    specType: SpecTypes.LoggingMessageNotification,
+    inferredType: MakeUnknownsNotOptional<WithJSONRPC<z.infer<typeof Schemas.LoggingMessageNotificationSchema>>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  ServerNotification: (
+    specType: SpecTypes.ServerNotification,
+    inferredType: MakeUnknownsNotOptional<WithJSONRPC<z.infer<typeof Schemas.ServerNotificationSchema>>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  LoggingLevel: (
+    specType: SpecTypes.LoggingLevel,
+    inferredType: z.infer<typeof Schemas.LoggingLevelSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  Icon: (
+    specType: SpecTypes.Icon,
+    inferredType: z.infer<typeof Schemas.IconSchema>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
+  Icons: (
+    specType: SpecTypes.Icons,
+    inferredType: RemovePassthrough<z.infer<typeof Schemas.IconsSchema>>,
+  ) => {
+    inferredType = specType;
+    specType = inferredType;
+  },
 };
 
 // This file is .gitignore'd, and fetched by `npm run fetch:spec-types` (called by `npm run test`)
-const SPEC_TYPES_FILE = 'spec.types.ts';
-const SDK_TYPES_FILE = 'src/types.ts';
+const SPEC_TYPES_FILE = "spec.types.ts";
+const SDK_TYPES_FILE = "src/types.ts";
 
 const MISSING_SDK_TYPES = [
-    // These are inlined in the SDK:
-    'Role',
-    'Error', // The inner error object of a JSONRPCError
+  // These are inlined in the SDK:
+  "Role",
+  "Error", // The inner error object of a JSONRPCError
 
-    // These aren't supported by the SDK yet:
-    // TODO: Add definitions to the SDK
-    'Annotations',
-    'ModelHint',
-    'ModelPreferences'
+  // These aren't supported by the SDK yet:
+  // TODO: Add definitions to the SDK
+  "Annotations",
+  "ModelHint",
+  "ModelPreferences",
 ];
 
 function extractExportedTypes(source: string): string[] {
-    return [...source.matchAll(/export\s+(?:interface|class|type)\s+(\w+)\b/g)].map(m => m[1]);
+  return [
+    ...source.matchAll(/export\s+(?:interface|class|type)\s+(\w+)\b/g),
+  ].map((m) => m[1]);
 }
 
-describe('Spec Types', () => {
-    const specTypes = extractExportedTypes(fs.readFileSync(SPEC_TYPES_FILE, 'utf-8'));
-    const sdkTypes = extractExportedTypes(fs.readFileSync(SDK_TYPES_FILE, 'utf-8'));
-    const typesToCheck = specTypes.filter(type => !MISSING_SDK_TYPES.includes(type));
+describe("Spec Types", () => {
+  const specTypes = extractExportedTypes(
+    fs.readFileSync(SPEC_TYPES_FILE, "utf-8")
+  );
+  const sdkTypes = extractExportedTypes(
+    fs.readFileSync(SDK_TYPES_FILE, "utf-8")
+  );
+  const typesToCheck = specTypes.filter(
+    (type) => !MISSING_SDK_TYPES.includes(type)
+  );
 
-    it('should define some expected types', () => {
-        expect(specTypes).toContain('JSONRPCNotification');
-        expect(specTypes).toContain('ElicitResult');
-        expect(specTypes).toHaveLength(94);
-    });
+  it("should define some expected types", () => {
+    expect(specTypes).toContain("JSONRPCNotification");
+    expect(specTypes).toContain("ElicitResult");
+    expect(specTypes).toHaveLength(94);
+  });
 
-    it('should have up to date list of missing sdk types', () => {
-        for (const typeName of MISSING_SDK_TYPES) {
-            expect(sdkTypes).not.toContain(typeName);
-        }
-    });
+  it("should have up to date list of missing sdk types", () => {
+    for (const typeName of MISSING_SDK_TYPES) {
+      expect(sdkTypes).not.toContain(typeName);
+    }
+  });
 
-    describe('Compatibility tests', () => {
-        it.each(typesToCheck)('%s should have a compatibility test', type => {
-            expect(sdkTypeChecks[type as keyof typeof sdkTypeChecks]).toBeDefined();
-        });
+  describe("Compatibility tests", () => {
+    it.each(typesToCheck)("%s should have a compatibility test", (type) => {
+      expect(sdkTypeChecks[type as keyof typeof sdkTypeChecks]).toBeDefined();
     });
+  });
 
-    describe('Missing SDK Types', () => {
-        it.each(MISSING_SDK_TYPES)('%s should not be present in MISSING_SDK_TYPES if it has a compatibility test', type => {
-            expect(sdkTypeChecks[type as keyof typeof sdkTypeChecks]).toBeUndefined();
-        });
-    });
+  describe("Missing SDK Types", () => {
+    it.each(MISSING_SDK_TYPES)(
+      "%s should not be present in MISSING_SDK_TYPES if it has a compatibility test",
+      (type) => {
+        expect(
+          sdkTypeChecks[type as keyof typeof sdkTypeChecks]
+        ).toBeUndefined();
+      }
+    );
+  });
 });
