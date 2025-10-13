@@ -1474,7 +1474,7 @@ export const ElicitResultSchema = ResultSchema.extend({
   /**
    * The collected user input content (only present if action is "accept").
    */
-  content: z.optional(z.record(z.string(), z.unknown())),
+  content: z.optional(z.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))),
 });
 
 /* Autocomplete */

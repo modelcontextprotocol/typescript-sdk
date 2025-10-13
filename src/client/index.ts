@@ -337,7 +337,7 @@ export class Client<
         const validator = this.getToolOutputValidator(params.name);
         if (validator) {
             // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
-            if (!result.structuredContent && !result.isError) {
+            if (!('structuredContent' in result) || !result.structuredContent && !result.isError) {
                 throw new McpError(
                     ErrorCode.InvalidRequest,
                     `Tool ${params.name} has an output schema but did not return structured content`

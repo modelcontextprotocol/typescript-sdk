@@ -695,7 +695,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
 export function mergeCapabilities<T extends ServerCapabilities | ClientCapabilities>(base: T, additional: T): T {
     return Object.entries(additional).reduce(
-        (acc, [key, value]) => {
+        (acc: any, [key, value]) => {
             if (value && typeof value === 'object') {
                 acc[key] = acc[key] ? { ...acc[key], ...value } : value;
             } else {

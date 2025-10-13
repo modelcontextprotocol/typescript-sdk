@@ -202,12 +202,6 @@ export class Server<
 
     protected assertRequestHandlerCapability(method: string): void {
         switch (method) {
-            case 'sampling/createMessage':
-                if (!this._capabilities.sampling) {
-                    throw new Error(`Server does not support sampling (required for ${method})`);
-                }
-                break;
-
             case 'logging/setLevel':
                 if (!this._capabilities.logging) {
                     throw new Error(`Server does not support logging (required for ${method})`);

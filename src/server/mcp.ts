@@ -261,7 +261,7 @@ export class McpServer {
                 return EMPTY_COMPLETION_RESULT;
             }
 
-            throw new McpError(ErrorCode.InvalidParams, `Resource template ${request.params.ref.uri} not found`);
+            throw new McpError(ErrorCode.InvalidParams, `Reference ${JSON.stringify(request.params.ref)} not found`);
         }
 
         const completer = template.resourceTemplate.completeCallback(request.params.argument.name);
