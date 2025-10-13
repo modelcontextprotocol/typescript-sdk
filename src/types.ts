@@ -1,54 +1,40 @@
 import { AuthInfo } from "./server/auth/types.js";
 import { is } from "@babel/types";
+
+import * as Spec from "./spec.types.js";
 export { 
   // type RequestMeta, 
   // type Progress, 
-  type ProgressToken, 
-  type Cursor, 
-  type Request, 
-  type Notification, 
-  type Result, 
-  type RequestId, 
-  type JSONRPCRequest, 
-  type JSONRPCNotification, 
+  type JSONRPCRequest,
   type JSONRPCResponse, 
-  type JSONRPCError, 
+  type JSONRPCError,
+  type JSONRPCNotification,
   type JSONRPCMessage, 
-  type EmptyResult, 
-  type CancelledNotification, 
+  
+  type ProgressToken, 
+  type Cursor,   
+  type Result, 
+  type RequestId,    
+  type EmptyResult,  
   type Icon, 
   type Icons, 
   type BaseMetadata, 
   type Implementation, 
-  type ClientCapabilities, 
-  type InitializeRequest, 
+  type ClientCapabilities,  
   type ServerCapabilities, 
-  type InitializeResult, 
-  type InitializedNotification, 
-  type PingRequest, 
-  type ProgressNotification, 
-  type PaginatedRequest, 
+  type InitializeResult,     
   type PaginatedResult, 
   type ResourceContents, 
   type TextResourceContents, 
   type BlobResourceContents, 
   type Resource, 
-  type ResourceTemplate, 
-  type ListResourcesRequest, 
-  type ListResourcesResult, 
-  type ListResourceTemplatesRequest, 
-  type ListResourceTemplatesResult, 
-  type ReadResourceRequest, 
-  type ReadResourceResult, 
-  type ResourceListChangedNotification, 
-  type SubscribeRequest, 
-  type UnsubscribeRequest, 
-  type ResourceUpdatedNotification, 
+  type ResourceTemplate,  
+  type ListResourcesResult,  
+  type ListResourceTemplatesResult,  
+  type ReadResourceResult,     
   type PromptArgument, 
-  type Prompt, 
-  type ListPromptsRequest, 
-  type ListPromptsResult, 
-  type GetPromptRequest, 
+  type Prompt,  
+  type ListPromptsResult,  
   type TextContent, 
   type ImageContent, 
   type AudioContent, 
@@ -56,41 +42,26 @@ export {
   type ResourceLink, 
   type ContentBlock, 
   type PromptMessage, 
-  type GetPromptResult, 
-  type PromptListChangedNotification, 
+  type GetPromptResult,  
   type ToolAnnotations, 
-  type Tool, 
-  type ListToolsRequest, 
+  type Tool,  
   type ListToolsResult, 
-  type CallToolResult, 
-  type CallToolRequest, 
-  type ToolListChangedNotification, 
-  type LoggingLevel, 
-  type SetLevelRequest, 
-  type LoggingMessageNotification, 
-  type SamplingMessage, 
-  type CreateMessageRequest, 
+  type CallToolResult,   
+  type LoggingLevel,   
+  type SamplingMessage,  
   type CreateMessageResult, 
   type BooleanSchema, 
   type StringSchema, 
   type NumberSchema, 
   type EnumSchema, 
-  type PrimitiveSchemaDefinition, 
-  type ElicitRequest, 
+  type PrimitiveSchemaDefinition,  
   type ElicitResult, 
   type ResourceTemplateReference, 
-  type PromptReference, 
-  type CompleteRequest, 
+  type PromptReference,  
   type CompleteResult, 
-  type Root, 
-  type ListRootsRequest, 
-  type ListRootsResult, 
-  type RootsListChangedNotification, 
-  type ClientRequest, 
-  type ClientNotification, 
-  type ClientResult, 
-  type ServerRequest, 
-  type ServerNotification, 
+  type Root,  
+  type ListRootsResult,    
+  type ClientResult,   
   type ServerResult, 
 } from "./spec.types.js";
 
@@ -209,6 +180,43 @@ import { ProgressSchema, RequestMetaSchema } from "./schemas.js";
 
 export type Progress = z.infer<typeof ProgressSchema>;
 export type RequestMeta = z.infer<typeof RequestMetaSchema>;
+
+export type StripRequest<T> = Omit<T, "jsonrpc" | "id">;
+export type StripNotification<T> = Omit<T, "jsonrpc">;
+
+export type Notification = StripNotification<Spec.Notification>;
+export type CancelledNotification = StripNotification<Spec.CancelledNotification>;
+export type InitializedNotification = StripNotification<Spec.InitializedNotification>;
+export type ProgressNotification = StripNotification<Spec.ProgressNotification>;
+export type ResourceListChangedNotification = StripNotification<Spec.ResourceListChangedNotification>;
+export type ResourceUpdatedNotification = StripNotification<Spec.ResourceUpdatedNotification>;
+export type PromptListChangedNotification = StripNotification<Spec.PromptListChangedNotification>;
+export type ToolListChangedNotification = StripNotification<Spec.ToolListChangedNotification>;
+export type LoggingMessageNotification = StripNotification<Spec.LoggingMessageNotification>;
+export type RootsListChangedNotification = StripNotification<Spec.RootsListChangedNotification>;
+export type ClientNotification = StripNotification<Spec.ClientNotification>;
+export type ServerNotification = StripNotification<Spec.ServerNotification>;
+
+export type Request = StripRequest<Spec.Request>;
+export type InitializeRequest = StripRequest<Spec.InitializeRequest>;
+export type PingRequest = StripRequest<Spec.PingRequest>;
+export type PaginatedRequest = StripRequest<Spec.PaginatedRequest>;
+export type ListResourcesRequest = StripRequest<Spec.ListResourcesRequest>;
+export type ListResourceTemplatesRequest = StripRequest<Spec.ListResourceTemplatesRequest>;
+export type ReadResourceRequest = StripRequest<Spec.ReadResourceRequest>;
+export type SubscribeRequest = StripRequest<Spec.SubscribeRequest>;
+export type UnsubscribeRequest = StripRequest<Spec.UnsubscribeRequest>;
+export type ListPromptsRequest = StripRequest<Spec.ListPromptsRequest>;
+export type GetPromptRequest = StripRequest<Spec.GetPromptRequest>;
+export type ListToolsRequest = StripRequest<Spec.ListToolsRequest>;
+export type CallToolRequest = StripRequest<Spec.CallToolRequest>;
+export type SetLevelRequest = StripRequest<Spec.SetLevelRequest>;
+export type CreateMessageRequest = StripRequest<Spec.CreateMessageRequest>;
+export type ElicitRequest = StripRequest<Spec.ElicitRequest>;
+export type CompleteRequest = StripRequest<Spec.CompleteRequest>;
+export type ListRootsRequest = StripRequest<Spec.ListRootsRequest>;
+export type ClientRequest = StripRequest<Spec.ClientRequest>;
+export type ServerRequest = StripRequest<Spec.ServerRequest>;
 
 export const LATEST_PROTOCOL_VERSION = "2025-06-18";
 export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = "2025-03-26";

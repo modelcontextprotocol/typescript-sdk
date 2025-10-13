@@ -149,7 +149,7 @@ const sdkTypeChecks = {
   },
   ElicitResult: (
     specType: SpecTypes.ElicitResult,
-    inferredType: RemovePassthrough<z.infer<typeof Schemas.ElicitResultSchema>>,
+    inferredType: z.infer<typeof Schemas.ElicitResultSchema>,
   ) => {
     inferredType = specType;
     specType = inferredType;
