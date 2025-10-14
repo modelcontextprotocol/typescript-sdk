@@ -149,6 +149,9 @@ export class UnauthorizedError extends Error {
 
 type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
 
+const AUTHORIZATION_CODE_RESPONSE_TYPE = 'code';
+const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
+
 /**
  * Determines the best client authentication method to use based on server support and client configuration.
  *
@@ -735,7 +738,10 @@ export async function discoverAuthorizationServerMetadata(
         protocolVersion?: string;
     } = {}
 ): Promise<AuthorizationServerMetadata | undefined> {
-    const headers = { 'MCP-Protocol-Version': protocolVersion };
+    const headers = {
+        'MCP-Protocol-Version': protocolVersion,
+        Accept: 'application/json'
+    };
 
     // Get the list of URLs to try
     const urlsToTry = buildDiscoveryUrls(authorizationServerUrl);
@@ -766,16 +772,7 @@ export async function discoverAuthorizationServerMetadata(
         if (type === 'oauth') {
             return OAuthMetadataSchema.parse(await response.json());
         } else {
-            const metadata = OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
-
-            // MCP spec requires OIDC providers to support S256 PKCE
-            if (!metadata.code_challenge_methods_supported?.includes('S256')) {
-                throw new Error(
-                    `Incompatible OIDC provider at ${endpointUrl}: does not support S256 code challenge method required by MCP specification`
-                );
-            }
-
-            return metadata;
+            return OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
         }
     }
 
@@ -803,19 +800,19 @@ export async function startAuthorization(
         resource?: URL;
     }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
-    const responseType = 'code';
-    const codeChallengeMethod = 'S256';
-
     let authorizationUrl: URL;
     if (metadata) {
         authorizationUrl = new URL(metadata.authorization_endpoint);
 
-        if (!metadata.response_types_supported.includes(responseType)) {
-            throw new Error(`Incompatible auth server: does not support response type ${responseType}`);
+        if (!metadata.response_types_supported.includes(AUTHORIZATION_CODE_RESPONSE_TYPE)) {
+            throw new Error(`Incompatible auth server: does not support response type ${AUTHORIZATION_CODE_RESPONSE_TYPE}`);
         }
 
-        if (!metadata.code_challenge_methods_supported || !metadata.code_challenge_methods_supported.includes(codeChallengeMethod)) {
-            throw new Error(`Incompatible auth server: does not support code challenge method ${codeChallengeMethod}`);
+        if (
+            metadata.code_challenge_methods_supported &&
+            !metadata.code_challenge_methods_supported.includes(AUTHORIZATION_CODE_CHALLENGE_METHOD)
+        ) {
+            throw new Error(`Incompatible auth server: does not support code challenge method ${AUTHORIZATION_CODE_CHALLENGE_METHOD}`);
         }
     } else {
         authorizationUrl = new URL('/authorize', authorizationServerUrl);
@@ -826,10 +823,10 @@ export async function startAuthorization(
     const codeVerifier = challenge.code_verifier;
     const codeChallenge = challenge.code_challenge;
 
-    authorizationUrl.searchParams.set('response_type', responseType);
+    authorizationUrl.searchParams.set('response_type', AUTHORIZATION_CODE_RESPONSE_TYPE);
     authorizationUrl.searchParams.set('client_id', clientInformation.client_id);
     authorizationUrl.searchParams.set('code_challenge', codeChallenge);
-    authorizationUrl.searchParams.set('code_challenge_method', codeChallengeMethod);
+    authorizationUrl.searchParams.set('code_challenge_method', AUTHORIZATION_CODE_CHALLENGE_METHOD);
     authorizationUrl.searchParams.set('redirect_uri', String(redirectUrl));
 
     if (state) {
