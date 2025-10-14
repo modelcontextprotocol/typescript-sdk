@@ -1,70 +1,67 @@
 import { AuthInfo } from "./server/auth/types.js";
-import { is } from "@babel/types";
+import { z } from "zod";
 
 import * as Spec from "./spec.types.js";
 export { 
-  // type RequestMeta, 
-  // type Progress, 
-  type JSONRPCRequest,
-  type JSONRPCResponse, 
-  type JSONRPCError,
-  type JSONRPCNotification,
-  type JSONRPCMessage, 
-  
-  type ProgressToken, 
+
+  type AudioContent, 
+  type BaseMetadata, 
+  type BlobResourceContents, 
+  type BooleanSchema, 
+  type CallToolResult,   
+  type ClientCapabilities,  
+  type CompleteResult, 
+  type ContentBlock, 
+  type CreateMessageResult, 
   type Cursor,   
-  type Result, 
-  type RequestId,    
+  type ElicitResult, 
+  type EmbeddedResource, 
   type EmptyResult,  
+  type EnumSchema, 
+  type GetPromptResult,  
   type Icon, 
   type Icons, 
-  type BaseMetadata, 
+  type ImageContent, 
   type Implementation, 
-  type ClientCapabilities,  
-  type ServerCapabilities, 
   type InitializeResult,     
-  type PaginatedResult, 
-  type ResourceContents, 
-  type TextResourceContents, 
-  type BlobResourceContents, 
-  type Resource, 
-  type ResourceTemplate,  
+  type JSONRPCError,
+  type JSONRPCMessage, 
+  type JSONRPCNotification,
+  type JSONRPCRequest,
+  type JSONRPCResponse, 
+  type ListPromptsResult,  
   type ListResourcesResult,  
   type ListResourceTemplatesResult,  
-  type ReadResourceResult,     
-  type PromptArgument, 
-  type Prompt,  
-  type ListPromptsResult,  
-  type TextContent, 
-  type ImageContent, 
-  type AudioContent, 
-  type EmbeddedResource, 
-  type ResourceLink, 
-  type ContentBlock, 
-  type PromptMessage, 
-  type GetPromptResult,  
-  type ToolAnnotations, 
-  type Tool,  
+  type ListRootsResult, 
   type ListToolsResult, 
-  type CallToolResult,   
   type LoggingLevel,   
-  type SamplingMessage,  
-  type CreateMessageResult, 
-  type BooleanSchema, 
-  type StringSchema, 
   type NumberSchema, 
-  type EnumSchema, 
+  type PaginatedResult, 
   type PrimitiveSchemaDefinition,  
-  type ElicitResult, 
-  type ResourceTemplateReference, 
+  type ProgressToken, 
+  type Prompt,  
+  type PromptArgument, 
+  type PromptMessage, 
   type PromptReference,  
-  type CompleteResult, 
+  type ReadResourceResult,     
+  type RequestId,    
+  type Resource, 
+  type ResourceContents, 
+  type ResourceLink, 
+  type ResourceTemplate,  
+  type ResourceTemplateReference, 
+  type Result, 
   type Root,  
-  type ListRootsResult,    
-  type ClientResult,   
-  type ServerResult, 
+  type SamplingMessage,  
+  type ServerCapabilities, 
+  type StringSchema, 
+  type TextContent, 
+  type TextResourceContents, 
+  type Tool,  
+  type ToolAnnotations, 
 } from "./spec.types.js";
 
+// Schema re-exports for backwards compatibility
 export {
   isJSONRPCError,
   isJSONRPCResponse,
@@ -73,10 +70,6 @@ export {
   isInitializeRequest,
   isInitializedNotification,
 
-  // const RequestMetaSchema
-  // const BaseRequestParamsSchema
-  // const BaseNotificationParamsSchema
-  // const Base64Schema
   ProgressTokenSchema,
   CursorSchema,
   RequestSchema,
@@ -173,50 +166,99 @@ export {
   ServerNotificationSchema,
   ServerResultSchema,
 } from "./schemas.js";
-
-import { z } from "zod";
-
 import { ProgressSchema, RequestMetaSchema } from "./schemas.js";
 
+// For historical reasons the SDK notification + requests types & schemas don't have the jsonrpc and id fields, but the spec types do.
+type StripSpecType<T> = Omit<T, "jsonrpc" | "id">;
+
+export type Notification = StripSpecType<Spec.Notification>;
+export type CancelledNotification = StripSpecType<Spec.CancelledNotification>;
+export type InitializedNotification = StripSpecType<Spec.InitializedNotification>;
+export type ProgressNotification = StripSpecType<Spec.ProgressNotification>;
+export type ResourceListChangedNotification = StripSpecType<Spec.ResourceListChangedNotification>;
+export type ResourceUpdatedNotification = StripSpecType<Spec.ResourceUpdatedNotification>;
+export type PromptListChangedNotification = StripSpecType<Spec.PromptListChangedNotification>;
+export type ToolListChangedNotification = StripSpecType<Spec.ToolListChangedNotification>;
+export type LoggingMessageNotification = StripSpecType<Spec.LoggingMessageNotification>;
+export type RootsListChangedNotification = StripSpecType<Spec.RootsListChangedNotification>;
+
+export type Request = StripSpecType<Spec.Request>;
+export type InitializeRequest = StripSpecType<Spec.InitializeRequest>;
+export type PingRequest = StripSpecType<Spec.PingRequest>;
+export type PaginatedRequest = StripSpecType<Spec.PaginatedRequest>;
+export type ListResourcesRequest = StripSpecType<Spec.ListResourcesRequest>;
+export type ListResourceTemplatesRequest = StripSpecType<Spec.ListResourceTemplatesRequest>;
+export type ReadResourceRequest = StripSpecType<Spec.ReadResourceRequest>;
+export type SubscribeRequest = StripSpecType<Spec.SubscribeRequest>;
+export type UnsubscribeRequest = StripSpecType<Spec.UnsubscribeRequest>;
+export type ListPromptsRequest = StripSpecType<Spec.ListPromptsRequest>;
+export type GetPromptRequest = StripSpecType<Spec.GetPromptRequest>;
+export type ListToolsRequest = StripSpecType<Spec.ListToolsRequest>;
+export type CallToolRequest = StripSpecType<Spec.CallToolRequest>;
+export type SetLevelRequest = StripSpecType<Spec.SetLevelRequest>;
+export type CreateMessageRequest = StripSpecType<Spec.CreateMessageRequest>;
+export type ElicitRequest = StripSpecType<Spec.ElicitRequest>;
+export type CompleteRequest = StripSpecType<Spec.CompleteRequest>;
+export type ListRootsRequest = StripSpecType<Spec.ListRootsRequest>;
+
+export type ClientRequest =
+  | PingRequest
+  | InitializeRequest
+  | CompleteRequest
+  | SetLevelRequest
+  | GetPromptRequest
+  | ListPromptsRequest
+  | ListResourcesRequest
+  | ListResourceTemplatesRequest
+  | ReadResourceRequest
+  | SubscribeRequest
+  | UnsubscribeRequest
+  | CallToolRequest
+  | ListToolsRequest;
+
+export type ClientNotification =
+  | CancelledNotification
+  | ProgressNotification
+  | InitializedNotification
+  | RootsListChangedNotification;
+
+export type ClientResult =
+  | Spec.EmptyResult
+  | Spec.CreateMessageResult
+  | Spec.ListRootsResult
+  | Spec.ElicitResult;
+
+/* Server messages */
+export type ServerRequest =
+  | PingRequest
+  | CreateMessageRequest
+  | ListRootsRequest
+  | ElicitRequest;
+
+export type ServerNotification =
+  | CancelledNotification
+  | ProgressNotification
+  | LoggingMessageNotification
+  | ResourceUpdatedNotification
+  | ResourceListChangedNotification
+  | ToolListChangedNotification
+  | PromptListChangedNotification;
+
+export type ServerResult =
+  | Spec.EmptyResult
+  | Spec.InitializeResult
+  | Spec.CompleteResult
+  | Spec.GetPromptResult
+  | Spec.ListPromptsResult
+  | Spec.ListResourceTemplatesResult
+  | Spec.ListResourcesResult
+  | Spec.ReadResourceResult
+  | Spec.CallToolResult
+  | Spec.ListToolsResult;
+
+// These types don't exist in spec.types.ts, so we define them here based on the schemas.
 export type Progress = z.infer<typeof ProgressSchema>;
 export type RequestMeta = z.infer<typeof RequestMetaSchema>;
-
-export type StripRequest<T> = Omit<T, "jsonrpc" | "id">;
-export type StripNotification<T> = Omit<T, "jsonrpc">;
-
-export type Notification = StripNotification<Spec.Notification>;
-export type CancelledNotification = StripNotification<Spec.CancelledNotification>;
-export type InitializedNotification = StripNotification<Spec.InitializedNotification>;
-export type ProgressNotification = StripNotification<Spec.ProgressNotification>;
-export type ResourceListChangedNotification = StripNotification<Spec.ResourceListChangedNotification>;
-export type ResourceUpdatedNotification = StripNotification<Spec.ResourceUpdatedNotification>;
-export type PromptListChangedNotification = StripNotification<Spec.PromptListChangedNotification>;
-export type ToolListChangedNotification = StripNotification<Spec.ToolListChangedNotification>;
-export type LoggingMessageNotification = StripNotification<Spec.LoggingMessageNotification>;
-export type RootsListChangedNotification = StripNotification<Spec.RootsListChangedNotification>;
-export type ClientNotification = StripNotification<Spec.ClientNotification>;
-export type ServerNotification = StripNotification<Spec.ServerNotification>;
-
-export type Request = StripRequest<Spec.Request>;
-export type InitializeRequest = StripRequest<Spec.InitializeRequest>;
-export type PingRequest = StripRequest<Spec.PingRequest>;
-export type PaginatedRequest = StripRequest<Spec.PaginatedRequest>;
-export type ListResourcesRequest = StripRequest<Spec.ListResourcesRequest>;
-export type ListResourceTemplatesRequest = StripRequest<Spec.ListResourceTemplatesRequest>;
-export type ReadResourceRequest = StripRequest<Spec.ReadResourceRequest>;
-export type SubscribeRequest = StripRequest<Spec.SubscribeRequest>;
-export type UnsubscribeRequest = StripRequest<Spec.UnsubscribeRequest>;
-export type ListPromptsRequest = StripRequest<Spec.ListPromptsRequest>;
-export type GetPromptRequest = StripRequest<Spec.GetPromptRequest>;
-export type ListToolsRequest = StripRequest<Spec.ListToolsRequest>;
-export type CallToolRequest = StripRequest<Spec.CallToolRequest>;
-export type SetLevelRequest = StripRequest<Spec.SetLevelRequest>;
-export type CreateMessageRequest = StripRequest<Spec.CreateMessageRequest>;
-export type ElicitRequest = StripRequest<Spec.ElicitRequest>;
-export type CompleteRequest = StripRequest<Spec.CompleteRequest>;
-export type ListRootsRequest = StripRequest<Spec.ListRootsRequest>;
-export type ClientRequest = StripRequest<Spec.ClientRequest>;
-export type ServerRequest = StripRequest<Spec.ServerRequest>;
 
 export const LATEST_PROTOCOL_VERSION = "2025-06-18";
 export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = "2025-03-26";

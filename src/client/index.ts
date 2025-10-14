@@ -395,7 +395,7 @@ export class Client<
         const result = await this.request({ method: 'tools/list', params }, ListToolsResultSchema, options);
 
         // Cache the tools and their output schemas for future validation
-        this.cacheToolOutputSchemas(result.tools);
+        this.cacheToolOutputSchemas(result.tools as Tool[]);
 
         return result;
     }

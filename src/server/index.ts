@@ -96,7 +96,7 @@ export class Server<
         this._capabilities = options?.capabilities ?? {};
         this._instructions = options?.instructions;
 
-        this.setRequestHandler(InitializeRequestSchema, request => this._oninitialize(request));
+        this.setRequestHandler(InitializeRequestSchema, request => this._oninitialize(request as any));
         this.setNotificationHandler(InitializedNotificationSchema, () => this.oninitialized?.());
 
         if (this._capabilities.logging) {

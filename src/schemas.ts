@@ -37,16 +37,13 @@ export const RequestMetaSchema = z
      * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
      */
     progressToken: z.optional(ProgressTokenSchema),
-  })
-  // .passthrough()
-  ;
+  });
 
 const BaseRequestParamsSchema = z
   .object({
     _meta: z.optional(RequestMetaSchema),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 export const RequestSchema = z.object({
   method: z.string(),
@@ -59,10 +56,9 @@ const BaseNotificationParamsSchema = z
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.optional(z.object({})),//.passthrough()),
+    _meta: z.optional(z.object({}).passthrough()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 export const NotificationSchema = z.object({
   method: z.string(),
@@ -75,10 +71,9 @@ export const ResultSchema = z
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.optional(z.object({})),//.passthrough()),
+    _meta: z.optional(z.object({}).passthrough()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * A uniquely identifying ID for a request in JSON-RPC.
@@ -233,8 +228,7 @@ export const IconSchema = z
      */
     sizes: z.optional(z.array(z.string())),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * Base schema to add `icons` property.
@@ -272,8 +266,7 @@ export const BaseMetadataSchema = z
     */
     title: z.optional(z.string()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /* Initialization */
 /**
@@ -295,7 +288,7 @@ export const ClientCapabilitiesSchema = z
     /**
      * Experimental, non-standard capabilities that the client supports.
      */
-    experimental: z.optional(z.object({})),//.passthrough()),
+    experimental: z.optional(z.object({}).passthrough()),
     /**
      * Present if the client supports sampling from an LLM.
      */
@@ -306,19 +299,19 @@ export const ClientCapabilitiesSchema = z
            * Present if the client supports non-'none' values for includeContext parameter.
            * SOFT-DEPRECATED: New implementations should use tools parameter instead.
            */
-          context: z.optional(z.object({})),//.passthrough()),
+          context: z.optional(z.object({}).passthrough()),
           /**
            * Present if the client supports tools and tool_choice parameters in sampling requests.
            * Presence indicates full tool calling support.
            */
-          tools: z.optional(z.object({})),//.passthrough()),
+          tools: z.optional(z.object({}).passthrough()),
         })
         .passthrough(),
     ),
     /**
      * Present if the client supports eliciting user input.
      */
-    elicitation: z.optional(z.object({})),//.passthrough()),
+    elicitation: z.optional(z.object({}).passthrough()),
     /**
      * Present if the client supports listing roots.
      */
@@ -333,8 +326,7 @@ export const ClientCapabilitiesSchema = z
         .passthrough(),
     ),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * This request is sent from the client to the server when it first connects, asking it to begin initialization.
@@ -363,15 +355,15 @@ export const ServerCapabilitiesSchema = z
     /**
      * Experimental, non-standard capabilities that the server supports.
      */
-    experimental: z.optional(z.object({})),//.passthrough()),
+    experimental: z.optional(z.object({}).passthrough()),
     /**
      * Present if the server supports sending log messages to the client.
      */
-    logging: z.optional(z.object({})),//.passthrough()),
+    logging: z.optional(z.object({}).passthrough()),
     /**
      * Present if the server supports sending completions to the client.
      */
-    completions: z.optional(z.object({})),//.passthrough()),
+    completions: z.optional(z.object({}).passthrough()),
     /**
      * Present if the server offers any prompt templates.
      */
@@ -417,8 +409,7 @@ export const ServerCapabilitiesSchema = z
         .passthrough(),
     ),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * After receiving an initialize request from the client, the server sends this response.
@@ -472,8 +463,7 @@ export const ProgressSchema = z
      */
     message: z.optional(z.string()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * An out-of-band notification used to inform the receiver of a progress update for a long-running request.
@@ -525,10 +515,9 @@ export const ResourceContentsSchema = z
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.optional(z.object({})),//.passthrough()),
+    _meta: z.optional(z.object({}).passthrough()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 export const TextResourceContentsSchema = ResourceContentsSchema.extend({
   /**
@@ -589,7 +578,7 @@ export const ResourceSchema = BaseMetadataSchema.extend({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: z.optional(z.object({})),//.passthrough()),
+  _meta: z.optional(z.object({}).passthrough()),
 }).merge(IconsSchema);
 
 /**
@@ -617,7 +606,7 @@ export const ResourceTemplateSchema = BaseMetadataSchema.extend({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: z.optional(z.object({})),//.passthrough()),
+  _meta: z.optional(z.object({}).passthrough()),
 }).merge(IconsSchema);
 
 /**
@@ -737,8 +726,7 @@ export const PromptArgumentSchema = z
      */
     required: z.optional(z.boolean()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * A prompt or prompt template that the server offers.
@@ -756,7 +744,7 @@ export const PromptSchema = BaseMetadataSchema.extend({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: z.optional(z.object({})),//.passthrough()),
+  _meta: z.optional(z.object({}).passthrough()),
 }).merge(IconsSchema);
 
 /**
@@ -805,10 +793,9 @@ export const TextContentSchema = z
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.optional(z.object({})),//.passthrough()),
+    _meta: z.optional(z.object({}).passthrough()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * An image provided to or from an LLM.
@@ -829,10 +816,9 @@ export const ImageContentSchema = z
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.optional(z.object({})),//.passthrough()),
+    _meta: z.optional(z.object({}).passthrough()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * An Audio provided to or from an LLM.
@@ -853,10 +839,9 @@ export const AudioContentSchema = z
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.optional(z.object({})),//.passthrough()),
+    _meta: z.optional(z.object({}).passthrough()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * A tool call request from an assistant (LLM).
@@ -884,10 +869,9 @@ export const ToolCallContentSchema = z
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.optional(z.object({})),//.passthrough()),
+    _meta: z.optional(z.object({}).passthrough()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * The contents of a resource, embedded into a prompt or tool call result.
@@ -900,10 +884,9 @@ export const EmbeddedResourceSchema = z
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.optional(z.object({})),//.passthrough()),
+    _meta: z.optional(z.object({}).passthrough()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * A resource that the server is capable of reading, included in a prompt or tool call result.
@@ -933,8 +916,7 @@ export const PromptMessageSchema = z
     role: z.enum(["user", "assistant"]),
     content: ContentBlockSchema,
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * The server's response to a prompts/get request from the client.
@@ -1009,8 +991,7 @@ export const ToolAnnotationsSchema = z
      */
     openWorldHint: z.optional(z.boolean()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * Definition for a tool the client can call.
@@ -1026,7 +1007,7 @@ export const ToolSchema = BaseMetadataSchema.extend({
   inputSchema: z
     .object({
       type: z.literal("object"),
-      properties: z.optional(z.object({})),//.passthrough()),
+      properties: z.optional(z.object({}).passthrough()),
       required: z.optional(z.array(z.string())),
     })
     .passthrough(),
@@ -1037,7 +1018,7 @@ export const ToolSchema = BaseMetadataSchema.extend({
   outputSchema: z.optional(
     z.object({
       type: z.literal("object"),
-      properties: z.optional(z.object({})),//.passthrough()),
+      properties: z.optional(z.object({}).passthrough()),
       required: z.optional(z.array(z.string())),
     })
       .passthrough()
@@ -1051,7 +1032,7 @@ export const ToolSchema = BaseMetadataSchema.extend({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: z.optional(z.object({})),//.passthrough()),
+  _meta: z.optional(z.object({}).passthrough()),
 }).merge(IconsSchema);
 
 /**
@@ -1191,8 +1172,7 @@ export const ModelHintSchema = z
      */
     name: z.string().optional(),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * The server's preferences for model selection, requested of the client during sampling.
@@ -1216,8 +1196,7 @@ export const ModelPreferencesSchema = z
      */
     intelligencePriority: z.optional(z.number().min(0).max(1)),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 
 /**
@@ -1258,7 +1237,7 @@ export const CreateMessageRequestSchema = RequestSchema.extend({
     /**
      * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
      */
-    metadata: z.optional(z.object({})),//.passthrough()),
+    metadata: z.optional(z.object({}).passthrough()),
     /**
      * The server's preferences for which model to select.
      */
@@ -1299,8 +1278,7 @@ export const BooleanSchemaSchema = z
     description: z.optional(z.string()),
     default: z.optional(z.boolean()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * Primitive schema definition for string fields.
@@ -1314,8 +1292,7 @@ export const StringSchemaSchema = z
     maxLength: z.optional(z.number()),
     format: z.optional(z.enum(["email", "uri", "date", "date-time"])),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * Primitive schema definition for number fields.
@@ -1328,8 +1305,7 @@ export const NumberSchemaSchema = z
     minimum: z.optional(z.number()),
     maximum: z.optional(z.number()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * Primitive schema definition for enum fields.
@@ -1342,8 +1318,7 @@ export const EnumSchemaSchema = z
     enum: z.array(z.string()),
     enumNames: z.optional(z.array(z.string())),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * Union of all primitive schema definitions.
@@ -1405,8 +1380,7 @@ export const ResourceTemplateReferenceSchema = z
      */
     uri: z.string(),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * @deprecated Use ResourceTemplateReferenceSchema instead
@@ -1424,8 +1398,7 @@ export const PromptReferenceSchema = z
      */
     name: z.string(),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * A request from the client to the server, to ask for completion options.
@@ -1501,10 +1474,9 @@ export const RootSchema = z
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.optional(z.object({})),//.passthrough()),
+    _meta: z.optional(z.object({}).passthrough()),
   })
-  // .passthrough()
-  ;
+  .passthrough();
 
 /**
  * Sent from the server to request a list of root URIs from the client.
@@ -1528,7 +1500,7 @@ export const RootsListChangedNotificationSchema = NotificationSchema.extend({
 });
 
 /* Client messages */
-export const ClientRequestSchema = z.union([
+export const ClientRequestSchema = z.discriminatedUnion('method', [
   PingRequestSchema,
   InitializeRequestSchema,
   CompleteRequestSchema,
@@ -1544,7 +1516,7 @@ export const ClientRequestSchema = z.union([
   ListToolsRequestSchema,
 ]);
 
-export const ClientNotificationSchema = z.union([
+export const ClientNotificationSchema = z.discriminatedUnion('method', [
   CancelledNotificationSchema,
   ProgressNotificationSchema,
   InitializedNotificationSchema,
@@ -1559,14 +1531,14 @@ export const ClientResultSchema = z.union([
 ]);
 
 /* Server messages */
-export const ServerRequestSchema = z.union([
+export const ServerRequestSchema = z.discriminatedUnion('method', [
   PingRequestSchema,
   CreateMessageRequestSchema,
   ElicitRequestSchema,
   ListRootsRequestSchema,
 ]);
 
-export const ServerNotificationSchema = z.union([
+export const ServerNotificationSchema = z.discriminatedUnion('method', [
   CancelledNotificationSchema,
   ProgressNotificationSchema,
   LoggingMessageNotificationSchema,
