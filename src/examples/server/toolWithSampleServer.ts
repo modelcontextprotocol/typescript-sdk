@@ -1,67 +1,66 @@
-
 // Run with: npx tsx src/examples/server/toolWithSampleServer.ts
 
-import { McpServer } from "../../server/mcp.js";
-import { StdioServerTransport } from "../../server/stdio.js";
-import { z } from "zod";
+import { McpServer } from '../../server/mcp.js';
+import { StdioServerTransport } from '../../server/stdio.js';
+import { z } from 'zod';
 
 const mcpServer = new McpServer({
-  name: "tools-with-sample-server",
-  version: "1.0.0",
+    name: 'tools-with-sample-server',
+    version: '1.0.0'
 });
 
 // Tool that uses LLM sampling to summarize any text
 mcpServer.registerTool(
-  "summarize",
-  {
-    description: "Summarize any text using an LLM",
-    inputSchema: {
-      text: z.string().describe("Text to summarize"),
+    'summarize',
+    {
+        description: 'Summarize any text using an LLM',
+        inputSchema: {
+            text: z.string().describe('Text to summarize')
+        }
     },
-  },
-  async ({ text }) => {
-    // Call the LLM through MCP sampling
-    const response = await mcpServer.server.createMessage({
-      messages: [
-        {
-          role: "user",
-          content: {
-            type: "text",
-            text: `Please summarize the following text concisely:\n\n${text}`,
-          },
-        },
-      ],
-      maxTokens: 500,
-    });
+    async ({ text }) => {
+        // Call the LLM through MCP sampling
+        const response = await mcpServer.server.createMessage({
+            messages: [
+                {
+                    role: 'user',
+                    content: {
+                        type: 'text',
+                        text: `Please summarize the following text concisely:\n\n${text}`
+                    }
+                }
+            ],
+            maxTokens: 500
+        });
 
-    // Extract all text content blocks from the response
-    const parts: string[] = [];
-    for (const content of Array.isArray(response.content) ? response.content : [response.content]) {
-      if (content.type === "text") {
-        parts.push(content.text);
-      } else {
-        throw new Error(`Unexpected content type: ${content.type}`);
-      }
+        // Extract all text content blocks from the response
+        const parts: string[] = [];
+        for (const content of Array.isArray(response.content) ? response.content : [response.content]) {
+            if (content.type === "text") {
+                parts.push(content.text);
+            } else {
+                throw new Error(`Unexpected content type: ${content.type}`);
+            }
+        }
+
+        return {
+            content: [
+                {
+                type: "text",
+                text: parts.join('\n'),
+                },
+            ],
+        };
     }
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: parts.join('\n'),
-        },
-      ],
-    };
-  }
 );
 
 async function main() {
-  const transport = new StdioServerTransport();
-  await mcpServer.connect(transport);
-  console.log("MCP server is running...");
+    const transport = new StdioServerTransport();
+    await mcpServer.connect(transport);
+    console.log('MCP server is running...');
 }
 
-main().catch((error) => {
-  console.error("Server error:", error);
-  process.exit(1);
+main().catch(error => {
+    console.error('Server error:', error);
+    process.exit(1);
 });
