@@ -10,7 +10,7 @@ export function metadataHandler(metadata: OAuthMetadata | OAuthProtectedResource
     // Configure CORS to allow any origin, to make accessible to web-based MCP clients
     router.use(cors());
 
-    router.use(allowedMethods(['GET']));
+    router.use(allowedMethods(['GET', 'OPTIONS']));
     router.get('/', (req, res) => {
         res.status(200).json(metadata);
     });
