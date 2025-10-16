@@ -3,13 +3,11 @@ import { z } from 'zod';
 /**
  * Reusable URL validation that disallows javascript: scheme
  */
-export const SafeUrlSchema = z
-    .string()
-    .url()
+export const SafeUrlSchema = z.url()
     .superRefine((val, ctx) => {
         if (!URL.canParse(val)) {
             ctx.addIssue({
-                code: z.ZodIssueCode.custom,
+                code: "custom",
                 message: 'URL must be parseable',
                 fatal: true
             });
@@ -22,36 +20,35 @@ export const SafeUrlSchema = z
             const u = new URL(url);
             return u.protocol !== 'javascript:' && u.protocol !== 'data:' && u.protocol !== 'vbscript:';
         },
-        { message: 'URL cannot use javascript:, data:, or vbscript: scheme' }
+        {
+            error: 'URL cannot use javascript:, data:, or vbscript: scheme'
+        }
     );
 
 /**
  * RFC 9728 OAuth Protected Resource Metadata
  */
-export const OAuthProtectedResourceMetadataSchema = z
-    .object({
-        resource: z.string().url(),
+export const OAuthProtectedResourceMetadataSchema = z.looseObject({
+        resource: z.url(),
         authorization_servers: z.array(SafeUrlSchema).optional(),
-        jwks_uri: z.string().url().optional(),
+        jwks_uri: z.url().optional(),
         scopes_supported: z.array(z.string()).optional(),
         bearer_methods_supported: z.array(z.string()).optional(),
         resource_signing_alg_values_supported: z.array(z.string()).optional(),
         resource_name: z.string().optional(),
         resource_documentation: z.string().optional(),
-        resource_policy_uri: z.string().url().optional(),
-        resource_tos_uri: z.string().url().optional(),
+        resource_policy_uri: z.url().optional(),
+        resource_tos_uri: z.url().optional(),
         tls_client_certificate_bound_access_tokens: z.boolean().optional(),
         authorization_details_types_supported: z.array(z.string()).optional(),
         dpop_signing_alg_values_supported: z.array(z.string()).optional(),
         dpop_bound_access_tokens_required: z.boolean().optional()
-    })
-    .passthrough();
+    });
 
 /**
  * RFC 8414 OAuth 2.0 Authorization Server Metadata
  */
-export const OAuthMetadataSchema = z
-    .object({
+export const OAuthMetadataSchema = z.looseObject({
         issuer: z.string(),
         authorization_endpoint: SafeUrlSchema,
         token_endpoint: SafeUrlSchema,
@@ -70,15 +67,13 @@ export const OAuthMetadataSchema = z
         introspection_endpoint_auth_methods_supported: z.array(z.string()).optional(),
         introspection_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
         code_challenge_methods_supported: z.array(z.string()).optional()
-    })
-    .passthrough();
+    });
 
 /**
  * OpenID Connect Discovery 1.0 Provider Metadata
  * see: https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata
  */
-export const OpenIdProviderMetadataSchema = z
-    .object({
+export const OpenIdProviderMetadataSchema = z.looseObject({
         issuer: z.string(),
         authorization_endpoint: SafeUrlSchema,
         token_endpoint: SafeUrlSchema,
@@ -114,8 +109,7 @@ export const OpenIdProviderMetadataSchema = z
         require_request_uri_registration: z.boolean().optional(),
         op_policy_uri: SafeUrlSchema.optional(),
         op_tos_uri: SafeUrlSchema.optional()
-    })
-    .passthrough();
+    });
 
 /**
  * OpenID Connect Discovery metadata that may include OAuth 2.0 fields
@@ -131,16 +125,14 @@ export const OpenIdProviderDiscoveryMetadataSchema = OpenIdProviderMetadataSchem
 /**
  * OAuth 2.1 token response
  */
-export const OAuthTokensSchema = z
-    .object({
+export const OAuthTokensSchema = z.object({
         access_token: z.string(),
         id_token: z.string().optional(), // Optional for OAuth 2.1, but necessary in OpenID Connect
         token_type: z.string(),
         expires_in: z.number().optional(),
         scope: z.string().optional(),
         refresh_token: z.string().optional()
-    })
-    .strip();
+    });
 
 /**
  * OAuth 2.1 error response
@@ -159,8 +151,7 @@ export const OptionalSafeUrlSchema = SafeUrlSchema.optional().or(z.literal('').t
 /**
  * RFC 7591 OAuth 2.0 Dynamic Client Registration metadata
  */
-export const OAuthClientMetadataSchema = z
-    .object({
+export const OAuthClientMetadataSchema = z.object({
         redirect_uris: z.array(SafeUrlSchema),
         token_endpoint_auth_method: z.string().optional(),
         grant_types: z.array(z.string()).optional(),
@@ -177,20 +168,17 @@ export const OAuthClientMetadataSchema = z
         software_id: z.string().optional(),
         software_version: z.string().optional(),
         software_statement: z.string().optional()
-    })
-    .strip();
+    });
 
 /**
  * RFC 7591 OAuth 2.0 Dynamic Client Registration client information
  */
-export const OAuthClientInformationSchema = z
-    .object({
+export const OAuthClientInformationSchema = z.object({
         client_id: z.string(),
         client_secret: z.string().optional(),
         client_id_issued_at: z.number().optional(),
         client_secret_expires_at: z.number().optional()
-    })
-    .strip();
+    });
 
 /**
  * RFC 7591 OAuth 2.0 Dynamic Client Registration full response (client information plus metadata)
@@ -200,22 +188,18 @@ export const OAuthClientInformationFullSchema = OAuthClientMetadataSchema.merge(
 /**
  * RFC 7591 OAuth 2.0 Dynamic Client Registration error response
  */
-export const OAuthClientRegistrationErrorSchema = z
-    .object({
+export const OAuthClientRegistrationErrorSchema = z.object({
         error: z.string(),
         error_description: z.string().optional()
-    })
-    .strip();
+    });
 
 /**
  * RFC 7009 OAuth 2.0 Token Revocation request
  */
-export const OAuthTokenRevocationRequestSchema = z
-    .object({
+export const OAuthTokenRevocationRequestSchema = z.object({
         token: z.string(),
         token_type_hint: z.string().optional()
-    })
-    .strip();
+    });
 
 export type OAuthMetadata = z.infer<typeof OAuthMetadataSchema>;
 export type OpenIdProviderMetadata = z.infer<typeof OpenIdProviderMetadataSchema>;

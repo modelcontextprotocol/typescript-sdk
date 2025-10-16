@@ -28,8 +28,8 @@ const getServer = () => {
         'start-notification-stream',
         'Starts sending periodic notifications',
         {
-            interval: z.number().describe('Interval in milliseconds between notifications').default(1000),
-            count: z.number().describe('Number of notifications to send').default(10)
+            interval: z.number().describe('Interval in milliseconds between notifications').prefault(1000),
+            count: z.number().describe('Number of notifications to send').prefault(10)
         },
         async ({ interval, count }, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
