@@ -28,10 +28,7 @@ export type CompletableSchema<T extends ZodTypeAny> = T & { _def: T['_def'] & Co
  * Uses an immutable wrapper approach that creates a new schema object with completion metadata
  * while preserving all validation behavior of the underlying schema.
  */
-export function completable<T extends ZodTypeAny>(
-    schema: T,
-    complete: CompleteCallback<T>
-): CompletableSchema<T> {
+export function completable<T extends ZodTypeAny>(schema: T, complete: CompleteCallback<T>): CompletableSchema<T> {
     // Create new schema object inheriting from original
     const wrapped = Object.create(Object.getPrototypeOf(schema));
 

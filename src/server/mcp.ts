@@ -1,5 +1,5 @@
 import { Server, ServerOptions } from './index.js';
-import { z, ZodRawShape, ZodObject, ZodString, ZodTypeAny, ZodType, ZodOptional } from 'zod';
+import { z, ZodRawShape, ZodObject, ZodString, ZodType, ZodOptional } from 'zod';
 import {
     Implementation,
     Tool,
@@ -1017,8 +1017,8 @@ export type ToolCallback<Args extends undefined | ZodRawShape = undefined> = Arg
 export type RegisteredTool = {
     title?: string;
     description?: string;
-    inputSchema?: ZodObject<any>;
-    outputSchema?: ZodObject<any>;
+    inputSchema?: ZodObject<ZodRawShape>;
+    outputSchema?: ZodObject<ZodRawShape>;
     annotations?: ToolAnnotations;
     _meta?: Record<string, unknown>;
     callback: ToolCallback<undefined | ZodRawShape>;
