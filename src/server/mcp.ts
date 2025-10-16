@@ -102,18 +102,14 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (zodToJsonSchema(tool.inputSchema, {
-                                      strictUnions: true
-                                  }) as Tool['inputSchema'])
+                                ? (z.toJSONSchema(tool.inputSchema) as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             _meta: tool._meta
                         };
 
                         if (tool.outputSchema) {
-                            toolDefinition.outputSchema = zodToJsonSchema(tool.outputSchema, {
-                                strictUnions: true
-                            }) as Tool['outputSchema'];
+                            toolDefinition.outputSchema = z.toJSONSchema(tool.outputSchema) as Tool['outputSchema'];
                         }
 
                         return toolDefinition;
