@@ -91,7 +91,10 @@ async function runServer(port: number | null) {
             console.log('Received message');
 
             const sessionId = req.query.sessionId as string;
-            const transport = servers.map(s => s.transport as SSEServerTransport).find(t => t.sessionId === sessionId);
+
+            const transport = servers
+                .reduce((pre, val) => pre.concat(Array.from(val.transportMap.values()) as SSEServerTransport[]), [] as SSEServerTransport[])
+                .find(t => t.sessionId === sessionId);
             if (!transport) {
                 res.status(404).send('Session not found');
                 return;
