@@ -1403,7 +1403,8 @@ This setup allows you to:
 
 #### Tool Aliases
 
-If you need to rename a tool but maintain backwards compatibility with clients using the old name, you can register an alias. Aliases resolve to the canonical tool at call time but are not included in the `tools/list` response, keeping your tool list clean while supporting legacy names.
+If you need to rename a tool but maintain backwards compatibility with clients using the old name, you can register an alias. Aliases resolve to the canonical tool at call time but are not included in the `tools/list` response, keeping your tool list clean while supporting legacy
+names.
 
 ```typescript
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -1441,6 +1442,7 @@ server.aliasTool('get_temperature', 'get_weather');
 ```
 
 Key features:
+
 - Aliases resolve to the canonical tool at call time
 - Multiple aliases can point to the same tool
 - Aliases are not listed in `tools/list` responses
