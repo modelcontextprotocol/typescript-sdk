@@ -1,6 +1,5 @@
 import { Server, ServerOptions } from './index.js';
-import { zodToJsonSchema } from 'zod-to-json-schema';
-import { z, ZodRawShape, ZodObject, ZodString, AnyZodObject, ZodTypeAny, ZodType, ZodTypeDef, ZodOptional } from 'zod';
+import { z, ZodRawShape, ZodObject, ZodString, ZodType, ZodOptional } from 'zod';
 import {
     Implementation,
     Tool,
@@ -33,7 +32,7 @@ import {
     ToolAnnotations,
     LoggingMessageNotification
 } from '../types.js';
-import { Completable, CompletableDef } from './completable.js';
+import { CompletableDef, McpZodTypeKind } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
 import { RequestHandlerExtra } from '../shared/protocol.js';
 import { Transport } from '../shared/transport.js';
@@ -103,18 +102,14 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (zodToJsonSchema(tool.inputSchema, {
-                                      strictUnions: true
-                                  }) as Tool['inputSchema'])
+                                ? (z.toJSONSchema(tool.inputSchema) as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             _meta: tool._meta
                         };
 
                         if (tool.outputSchema) {
-                            toolDefinition.outputSchema = zodToJsonSchema(tool.outputSchema, {
-                                strictUnions: true
-                            }) as Tool['outputSchema'];
+                            toolDefinition.outputSchema = z.toJSONSchema(tool.outputSchema) as Tool['outputSchema'];
                         }
 
                         return toolDefinition;
@@ -243,11 +238,12 @@ export class McpServer {
         }
 
         const field = prompt.argsSchema.shape[request.params.argument.name];
-        if (!(field instanceof Completable)) {
+        const defLike = (field as unknown as { _def?: { typeName?: unknown } })._def;
+        if (!defLike || defLike.typeName !== McpZodTypeKind.Completable) {
             return EMPTY_COMPLETION_RESULT;
         }
 
-        const def: CompletableDef<ZodString> = field._def;
+        const def: CompletableDef<ZodString> = (field as unknown as { _def: CompletableDef<ZodString> })._def;
         const suggestions = await def.complete(request.params.argument.value, request.params.context);
         return createCompletionResult(suggestions);
     }
@@ -1013,7 +1009,7 @@ export class ResourceTemplate {
  */
 export type ToolCallback<Args extends undefined | ZodRawShape = undefined> = Args extends ZodRawShape
     ? (
-          args: z.objectOutputType<Args, ZodTypeAny>,
+          args: z.infer<ZodObject<Args>>,
           extra: RequestHandlerExtra<ServerRequest, ServerNotification>
       ) => CallToolResult | Promise<CallToolResult>
     : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
@@ -1021,8 +1017,8 @@ export type ToolCallback<Args extends undefined | ZodRawShape = undefined> = Arg
 export type RegisteredTool = {
     title?: string;
     description?: string;
-    inputSchema?: AnyZodObject;
-    outputSchema?: AnyZodObject;
+    inputSchema?: ZodObject<ZodRawShape>;
+    outputSchema?: ZodObject<ZodRawShape>;
     annotations?: ToolAnnotations;
     _meta?: Record<string, unknown>;
     callback: ToolCallback<undefined | ZodRawShape>;
@@ -1138,12 +1134,12 @@ export type RegisteredResourceTemplate = {
 };
 
 type PromptArgsRawShape = {
-    [k: string]: ZodType<string, ZodTypeDef, string> | ZodOptional<ZodType<string, ZodTypeDef, string>>;
+    [k: string]: ZodString | ZodOptional<ZodString>;
 };
 
 export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefined> = Args extends PromptArgsRawShape
     ? (
-          args: z.objectOutputType<Args, ZodTypeAny>,
+          args: z.infer<ZodObject<Args>>,
           extra: RequestHandlerExtra<ServerRequest, ServerNotification>
       ) => GetPromptResult | Promise<GetPromptResult>
     : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
