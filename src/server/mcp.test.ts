@@ -1611,6 +1611,363 @@ describe('tool()', () => {
     });
 });
 
+describe('aliasTool()', () => {
+    /***
+     * Test: Calling alias name executes canonical tool
+     */
+    test('should execute canonical tool when alias is called', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        // Register tool with new name
+        mcpServer.registerTool(
+            'get_weather',
+            {
+                title: 'Get Weather',
+                description: 'Get weather information',
+                inputSchema: { location: z.string() },
+                outputSchema: { temperature: z.number(), conditions: z.string() }
+            },
+            async ({ location }) => {
+                const output = { temperature: 72, conditions: `Sunny in ${location}` };
+                return {
+                    content: [{ type: 'text', text: JSON.stringify(output) }],
+                    structuredContent: output
+                };
+            }
+        );
+
+        mcpServer.aliasTool('get_temperature', 'get_weather');
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Call using alias name
+        const result = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'get_temperature',
+                    arguments: { location: 'San Francisco' }
+                }
+            },
+            CallToolResultSchema
+        );
+
+        expect(result.content).toEqual([
+            {
+                type: 'text',
+                text: JSON.stringify({ temperature: 72, conditions: 'Sunny in San Francisco' })
+            }
+        ]);
+        expect(result.structuredContent).toEqual({ temperature: 72, conditions: 'Sunny in San Francisco' });
+    });
+
+    /***
+     * Test: tools/list does not include alias
+     */
+    test('should not include aliases in tools/list', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        // Register tool with new name
+        mcpServer.registerTool(
+            'get_weather',
+            {
+                title: 'Get Weather',
+                description: 'Get weather information'
+            },
+            async () => ({
+                content: [{ type: 'text', text: 'result' }]
+            })
+        );
+
+        // Register alias for backwards compatibility
+        mcpServer.aliasTool('get_temperature', 'get_weather');
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // List tools
+        const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+
+        // Should only have the new tool name, not the alias
+        expect(result.tools).toHaveLength(1);
+        expect(result.tools[0].name).toBe('get_weather');
+        expect(result.tools.find(t => t.name === 'get_temperature')).toBeUndefined();
+    });
+
+    /***
+     * Test: Unknown name (no alias) throws error
+     */
+    test('should throw error for unknown tool name', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        // Register tool
+        mcpServer.registerTool(
+            'get_weather',
+            {
+                title: 'Get Weather',
+                description: 'Get weather information'
+            },
+            async () => ({
+                content: [{ type: 'text', text: 'result' }]
+            })
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Call using unknown name
+        await expect(
+            client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'unknown_tool',
+                        arguments: {}
+                    }
+                },
+                CallToolResultSchema
+            )
+        ).rejects.toThrow();
+    });
+
+    /***
+     * Test: Error when aliasing unknown tool
+     */
+    test('should throw error when aliasing non-existent tool', () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+
+        // Try to alias a tool that doesn't exist
+        expect(() => {
+            mcpServer.aliasTool('new_alias', 'non_existent_tool');
+        }).toThrow('Unknown tool: non_existent_tool');
+    });
+
+    /***
+     * Test: Multiple aliases for same tool
+     */
+    test('should support multiple aliases for the same tool', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        // Register tool with current name
+        mcpServer.registerTool(
+            'get_weather',
+            {
+                title: 'Get Weather',
+                description: 'Get weather information',
+                inputSchema: { location: z.string() },
+                outputSchema: { temperature: z.number(), conditions: z.string() }
+            },
+            async ({ location }) => {
+                const output = { temperature: 72, conditions: `Sunny in ${location}` };
+                return {
+                    content: [{ type: 'text', text: JSON.stringify(output) }],
+                    structuredContent: output
+                };
+            }
+        );
+
+        // Register multiple aliases for backwards compatibility with historical names
+        mcpServer.aliasTool('get_temperature', 'get_weather');
+        mcpServer.aliasTool('check_temperature', 'get_weather');
+        mcpServer.aliasTool('fetch_temp', 'get_weather');
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Call using each alias
+        const result1 = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'get_temperature',
+                    arguments: { location: 'Boston' }
+                }
+            },
+            CallToolResultSchema
+        );
+        expect(result1.structuredContent).toEqual({ temperature: 72, conditions: 'Sunny in Boston' });
+
+        const result2 = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'check_temperature',
+                    arguments: { location: 'Seattle' }
+                }
+            },
+            CallToolResultSchema
+        );
+        expect(result2.structuredContent).toEqual({ temperature: 72, conditions: 'Sunny in Seattle' });
+
+        const result3 = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'fetch_temp',
+                    arguments: { location: 'Austin' }
+                }
+            },
+            CallToolResultSchema
+        );
+        expect(result3.structuredContent).toEqual({ temperature: 72, conditions: 'Sunny in Austin' });
+
+        // Verify tools/list only shows the current tool name
+        const listResult = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+        expect(listResult.tools).toHaveLength(1);
+        expect(listResult.tools[0].name).toBe('get_weather');
+    });
+
+    /***
+     * Test: Alias respects tool enabled/disabled state
+     */
+    test('should respect disabled state when calling via alias', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        // Register tool
+        const tool = mcpServer.registerTool(
+            'get_weather',
+            {
+                title: 'Get Weather',
+                description: 'Get weather information'
+            },
+            async () => ({
+                content: [{ type: 'text', text: 'result' }]
+            })
+        );
+
+        // Register alias for backwards compatibility
+        mcpServer.aliasTool('get_temperature', 'get_weather');
+
+        // Disable the tool
+        tool.disable();
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Try to call using alias - should fail because tool is disabled
+        await expect(
+            client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'get_temperature',
+                        arguments: {}
+                    }
+                },
+                CallToolResultSchema
+            )
+        ).rejects.toThrow('Tool get_temperature disabled');
+    });
+
+    /***
+     * Test: Alias works with tool that has validation
+     */
+    test('should validate arguments when calling via alias', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        // Register tool with validation
+        mcpServer.registerTool(
+            'get_weather',
+            {
+                title: 'Get Weather',
+                description: 'Get weather information',
+                inputSchema: {
+                    location: z.string(),
+                    units: z.enum(['celsius', 'fahrenheit'])
+                },
+                outputSchema: { temperature: z.number(), conditions: z.string() }
+            },
+            async ({ location, units }) => {
+                const temp = units === 'celsius' ? 22 : 72;
+                const output = { temperature: temp, conditions: `Sunny in ${location}` };
+                return {
+                    content: [{ type: 'text', text: JSON.stringify(output) }],
+                    structuredContent: output
+                };
+            }
+        );
+
+        // Register alias for backwards compatibility
+        mcpServer.aliasTool('get_temperature', 'get_weather');
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Valid call via alias
+        const result = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'get_temperature',
+                    arguments: { location: 'Paris', units: 'celsius' }
+                }
+            },
+            CallToolResultSchema
+        );
+        expect(result.structuredContent).toEqual({ temperature: 22, conditions: 'Sunny in Paris' });
+
+        // Invalid call via alias - should fail validation (invalid enum value)
+        await expect(
+            client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'get_temperature',
+                        arguments: { location: 'Paris', units: 'kelvin' }
+                    }
+                },
+                CallToolResultSchema
+            )
+        ).rejects.toThrow();
+    });
+});
+
 describe('resource()', () => {
     /***
      * Test: Resource Registration with URI and Read Callback

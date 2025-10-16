@@ -1401,6 +1401,54 @@ This setup allows you to:
 
 ### Backwards Compatibility
 
+#### Tool Aliases
+
+If you need to rename a tool but maintain backwards compatibility with clients using the old name, you can register an alias. Aliases resolve to the canonical tool at call time but are not included in the `tools/list` response, keeping your tool list clean while supporting legacy names.
+
+```typescript
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+
+const server = new McpServer({
+    name: 'example-server',
+    version: '1.0.0'
+});
+
+// Register the tool with its new name
+server.registerTool(
+    'get_weather',
+    {
+        title: 'Get Weather',
+        description: 'Get current weather information for a location',
+        inputSchema: { location: z.string() },
+        outputSchema: { temperature: z.number(), conditions: z.string() }
+    },
+    async ({ location }) => {
+        const output = { temperature: 72, conditions: `Sunny in ${location}` };
+        return {
+            content: [{ type: 'text', text: JSON.stringify(output) }],
+            structuredContent: output
+        };
+    }
+);
+
+// Create an alias for backwards compatibility with the old tool name
+server.aliasTool('get_temperature', 'get_weather');
+
+// Now clients can call either 'get_weather' or 'get_temperature'
+// Both will execute the same tool handler
+// However, only 'get_weather' appears in tools/list
+```
+
+Key features:
+- Aliases resolve to the canonical tool at call time
+- Multiple aliases can point to the same tool
+- Aliases are not listed in `tools/list` responses
+- Aliases respect the enabled/disabled state of the canonical tool
+- Input validation is applied based on the canonical tool's schema
+
+#### Transport Backwards Compatibility
+
 Clients and servers with StreamableHttp transport can maintain [backwards compatibility](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility) with the deprecated HTTP+SSE transport (from protocol version 2024-11-05) as follows
 
 #### Client-Side Compatibility

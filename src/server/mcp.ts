@@ -54,6 +54,7 @@ export class McpServer {
         [name: string]: RegisteredResourceTemplate;
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
+    private _toolAliases: Map<string, string> = new Map(); // alias -> canonical
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
@@ -123,7 +124,16 @@ export class McpServer {
         );
 
         this.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
-            const tool = this._registeredTools[request.params.name];
+            let tool = this._registeredTools[request.params.name];
+
+            // If not found by name, check if it's an alias
+            if (!tool) {
+                const toolAlias = this._toolAliases.get(request.params.name);
+                if (toolAlias) {
+                    tool = this._registeredTools[toolAlias];
+                }
+            }
+
             if (!tool) {
                 throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
             }
@@ -814,6 +824,23 @@ export class McpServer {
             _meta,
             cb as ToolCallback<ZodRawShape | undefined>
         );
+    }
+
+    /**
+     * Registers an alias for an existing tool. The alias will resolve to the canonical tool at call time,
+     * but will not be included in the tools/list response.
+     *
+     * This is useful for maintaining backwards compatibility when renaming tools.
+     *
+     * @param aliasName - The alias name to register
+     * @param targetName - The canonical tool name to resolve to
+     * @throws Error if the canonical tool does not exist
+     */
+    aliasTool(aliasName: string, targetName: string): void {
+        if (!this._registeredTools[targetName]) {
+            throw new Error(`Unknown tool: ${targetName}`);
+        }
+        this._toolAliases.set(aliasName, targetName);
     }
 
     /**
