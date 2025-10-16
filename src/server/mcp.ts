@@ -1133,7 +1133,7 @@ export type RegisteredResourceTemplate = {
 };
 
 type PromptArgsRawShape = {
-    [k: string]: ZodType<string, ZodTypeDef, string> | ZodOptional<ZodType<string, ZodTypeDef, string>>;
+    [k: string]: ZodString | ZodOptional<ZodString>;
 };
 
 export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefined> = Args extends PromptArgsRawShape
