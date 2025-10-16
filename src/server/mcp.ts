@@ -1,5 +1,5 @@
 import { Server, ServerOptions } from './index.js';
-import { z, ZodRawShape, ZodObject, ZodString, AnyZodObject, ZodTypeAny, ZodType, ZodTypeDef, ZodOptional } from 'zod';
+import { z, ZodRawShape, ZodObject, ZodString, ZodTypeAny, ZodType, ZodOptional } from 'zod';
 import {
     Implementation,
     Tool,
@@ -1008,7 +1008,7 @@ export class ResourceTemplate {
  */
 export type ToolCallback<Args extends undefined | ZodRawShape = undefined> = Args extends ZodRawShape
     ? (
-          args: z.objectOutputType<Args, ZodTypeAny>,
+          args: z.infer<ZodObject<Args>>,
           extra: RequestHandlerExtra<ServerRequest, ServerNotification>
       ) => CallToolResult | Promise<CallToolResult>
     : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
@@ -1016,8 +1016,8 @@ export type ToolCallback<Args extends undefined | ZodRawShape = undefined> = Arg
 export type RegisteredTool = {
     title?: string;
     description?: string;
-    inputSchema?: AnyZodObject;
-    outputSchema?: AnyZodObject;
+    inputSchema?: ZodObject<any>;
+    outputSchema?: ZodObject<any>;
     annotations?: ToolAnnotations;
     _meta?: Record<string, unknown>;
     callback: ToolCallback<undefined | ZodRawShape>;
@@ -1138,7 +1138,7 @@ type PromptArgsRawShape = {
 
 export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefined> = Args extends PromptArgsRawShape
     ? (
-          args: z.objectOutputType<Args, ZodTypeAny>,
+          args: z.infer<ZodObject<Args>>,
           extra: RequestHandlerExtra<ServerRequest, ServerNotification>
       ) => GetPromptResult | Promise<GetPromptResult>
     : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
