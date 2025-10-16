@@ -18,6 +18,11 @@ export interface CompletableDef<T extends ZodTypeAny = ZodTypeAny> {
 }
 
 /**
+ * A Zod schema that has been wrapped with completion capabilities.
+ */
+export type CompletableSchema<T extends ZodTypeAny> = T & { _def: T['_def'] & CompletableDef<T> };
+
+/**
  * Wraps a Zod type to provide autocompletion capabilities. Useful for, e.g., prompt arguments in MCP.
  *
  * Uses an immutable wrapper approach that creates a new schema object with completion metadata
@@ -26,7 +31,7 @@ export interface CompletableDef<T extends ZodTypeAny = ZodTypeAny> {
 export function completable<T extends ZodTypeAny>(
     schema: T,
     complete: CompleteCallback<T>
-): T & { _def: T['_def'] & CompletableDef<T> } {
+): CompletableSchema<T> {
     // Create new schema object inheriting from original
     const wrapped = Object.create(Object.getPrototypeOf(schema));
 
@@ -62,5 +67,5 @@ export function completable<T extends ZodTypeAny>(
         def: newDef
     };
 
-    return wrapped as T & { _def: T['_def'] & CompletableDef<T> };
+    return wrapped as CompletableSchema<T>;
 }
