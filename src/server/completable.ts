@@ -1,4 +1,4 @@
-import { ZodTypeAny, ZodTypeDef, ZodType, ParseInput, ParseReturnType, RawCreateParams, ZodErrorMap, ProcessedCreateParams } from 'zod';
+import { ZodTypeAny } from 'zod';
 
 export enum McpZodTypeKind {
     Completable = 'McpCompletable'
@@ -11,69 +11,56 @@ export type CompleteCallback<T extends ZodTypeAny = ZodTypeAny> = (
     }
 ) => T['_input'][] | Promise<T['_input'][]>;
 
-export interface CompletableDef<T extends ZodTypeAny = ZodTypeAny> extends ZodTypeDef {
+export interface CompletableDef<T extends ZodTypeAny = ZodTypeAny> {
     type: T;
     complete: CompleteCallback<T>;
     typeName: McpZodTypeKind.Completable;
 }
 
-export class Completable<T extends ZodTypeAny> extends ZodType<T['_output'], CompletableDef<T>, T['_input']> {
-    _parse(input: ParseInput): ParseReturnType<this['_output']> {
-        const { ctx } = this._processInputParams(input);
-        const data = ctx.data;
-        return this._def.type._parse({
-            data,
-            path: ctx.path,
-            parent: ctx
-        });
-    }
-
-    unwrap() {
-        return this._def.type;
-    }
-
-    static create = <T extends ZodTypeAny>(
-        type: T,
-        params: RawCreateParams & {
-            complete: CompleteCallback<T>;
-        }
-    ): Completable<T> => {
-        return new Completable({
-            type,
-            typeName: McpZodTypeKind.Completable,
-            complete: params.complete,
-            ...processCreateParams(params)
-        });
-    };
-}
-
 /**
  * Wraps a Zod type to provide autocompletion capabilities. Useful for, e.g., prompt arguments in MCP.
+ *
+ * Uses an immutable wrapper approach that creates a new schema object with completion metadata
+ * while preserving all validation behavior of the underlying schema.
  */
-export function completable<T extends ZodTypeAny>(schema: T, complete: CompleteCallback<T>): Completable<T> {
-    return Completable.create(schema, { ...schema._def, complete });
-}
+export function completable<T extends ZodTypeAny>(
+    schema: T,
+    complete: CompleteCallback<T>
+): T & { _def: T['_def'] & CompletableDef<T> } {
+    // Create new schema object inheriting from original
+    const wrapped = Object.create(Object.getPrototypeOf(schema));
 
-// Not sure why this isn't exported from Zod:
-// https://github.com/colinhacks/zod/blob/f7ad26147ba291cb3fb257545972a8e00e767470/src/types.ts#L130
-function processCreateParams(params: RawCreateParams): ProcessedCreateParams {
-    if (!params) return {};
-    const { errorMap, invalid_type_error, required_error, description } = params;
-    if (errorMap && (invalid_type_error || required_error)) {
-        throw new Error(`Can't use "invalid_type_error" or "required_error" in conjunction with custom error map.`);
-    }
-    if (errorMap) return { errorMap: errorMap, description };
-    const customMap: ZodErrorMap = (iss, ctx) => {
-        const { message } = params;
+    // Copy all properties including getters/setters (except _def and _zod which we'll redefine)
+    Object.getOwnPropertyNames(schema).forEach(key => {
+        if (key !== '_def' && key !== '_zod') {
+            const descriptor = Object.getOwnPropertyDescriptor(schema, key);
+            if (descriptor) {
+                Object.defineProperty(wrapped, key, descriptor);
+            }
+        }
+    });
 
-        if (iss.code === 'invalid_enum_value') {
-            return { message: message ?? ctx.defaultError };
-        }
-        if (typeof ctx.data === 'undefined') {
-            return { message: message ?? required_error ?? ctx.defaultError };
-        }
-        if (iss.code !== 'invalid_type') return { message: ctx.defaultError };
-        return { message: message ?? invalid_type_error ?? ctx.defaultError };
+    // Create new def with added completion metadata
+    const newDef = {
+        ...schema._def,
+        typeName: McpZodTypeKind.Completable,
+        type: schema,
+        complete
     };
-    return { errorMap: customMap, description };
+
+    // Set _def as read-only property (matching Zod's design)
+    Object.defineProperty(wrapped, '_def', {
+        value: newDef,
+        writable: false,
+        enumerable: false,
+        configurable: false
+    });
+
+    // Update _zod to maintain _def === _zod.def invariant
+    wrapped._zod = {
+        ...schema._zod,
+        def: newDef
+    };
+
+    return wrapped as T & { _def: T['_def'] & CompletableDef<T> };
 }

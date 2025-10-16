@@ -32,7 +32,7 @@ import {
     ToolAnnotations,
     LoggingMessageNotification
 } from '../types.js';
-import { Completable, CompletableDef } from './completable.js';
+import { CompletableDef, McpZodTypeKind } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
 import { RequestHandlerExtra } from '../shared/protocol.js';
 import { Transport } from '../shared/transport.js';
@@ -238,11 +238,12 @@ export class McpServer {
         }
 
         const field = prompt.argsSchema.shape[request.params.argument.name];
-        if (!(field instanceof Completable)) {
+        const defLike = (field as unknown as { _def?: { typeName?: unknown } })._def;
+        if (!defLike || defLike.typeName !== McpZodTypeKind.Completable) {
             return EMPTY_COMPLETION_RESULT;
         }
 
-        const def: CompletableDef<ZodString> = field._def;
+        const def: CompletableDef<ZodString> = (field as unknown as { _def: CompletableDef<ZodString> })._def;
         const suggestions = await def.complete(request.params.argument.value, request.params.context);
         return createCompletionResult(suggestions);
     }
