@@ -36,6 +36,7 @@ export interface SSEServerTransportOptions {
  * Server transport for SSE: this will send messages over an SSE connection and receive messages from HTTP POST requests.
  *
  * This transport is only available in Node.js environments.
+ * @deprecated SSEServerTransport is deprecated. Use StreamableHTTPServerTransport instead.
  */
 export class SSEServerTransport implements Transport {
     private _sseResponse?: ServerResponse;
