@@ -17,6 +17,7 @@ import getRawBody from 'raw-body';
 import contentType from 'content-type';
 import { randomUUID } from 'node:crypto';
 import { AuthInfo } from './auth/types.js';
+import { consoleLogger, Logger } from '../shared/logger.js';
 
 const MAXIMUM_MESSAGE_SIZE = '4mb';
 
@@ -108,6 +109,11 @@ export interface StreamableHTTPServerTransportOptions {
      * Default is false for backwards compatibility.
      */
     enableDnsRebindingProtection?: boolean;
+
+    /**
+     * A custom logger to use for SDK internal logs.
+     */
+    logger?: Logger;
 }
 
 /**
@@ -160,6 +166,7 @@ export class StreamableHTTPServerTransport implements Transport {
     private _allowedHosts?: string[];
     private _allowedOrigins?: string[];
     private _enableDnsRebindingProtection: boolean;
+    private _logger: Logger;
 
     sessionId?: string;
     onclose?: () => void;
@@ -175,6 +182,7 @@ export class StreamableHTTPServerTransport implements Transport {
         this._allowedHosts = options.allowedHosts;
         this._allowedOrigins = options.allowedOrigins;
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
+        this._logger = options.logger ?? consoleLogger;
     }
 
     /**
@@ -727,6 +735,7 @@ export class StreamableHTTPServerTransport implements Transport {
             const standaloneSse = this._streamMapping.get(this._standaloneSseStreamId);
             if (standaloneSse === undefined) {
                 // The spec says the server MAY send messages on the stream, so it's ok to discard if no stream
+                this._logger.warning(`No standalone SSE stream found, discarding message: ${message.method}`);
                 return;
             }
 
