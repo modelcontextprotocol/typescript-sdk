@@ -3,7 +3,7 @@
 type LogLevel = 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency';
 
 /**
- * Logger - SysLog RFC5424 compliant logger interface
+ * Logger - SysLog RFC5424 compliant logger type
  * 
  * @see RFC5424: https://tools.ietf.org/html/rfc5424
  */
