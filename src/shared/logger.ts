@@ -1,14 +1,12 @@
-/**
- * Logger - SysLog RFC5424 compliant logger interface
- *
- *  @remarks
- *  RFC5424: severity of all levels is assumed to be numerically ascending from most important to least important.
- *  RFC5424: https://tools.ietf.org/html/rfc5424
- *
- */
+
 
 type LogLevel = 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency';
 
+/**
+ * Logger - SysLog RFC5424 compliant logger interface
+ * 
+ * @see RFC5424: https://tools.ietf.org/html/rfc5424
+ */
 export type Logger = {
     [Level in LogLevel]: (message: string, extra?: Record<string, unknown>) => void;
 };
