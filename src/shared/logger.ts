@@ -1,13 +1,13 @@
 /**
  * LogLevel - SysLog RFC5424 compliant log levels
- * 
+ *
  * @see RFC5424: https://tools.ietf.org/html/rfc5424
  */
 type LogLevel = 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency';
 
 /**
  * Logger - SysLog RFC5424 compliant logger type
- * 
+ *
  * @see RFC5424: https://tools.ietf.org/html/rfc5424
  */
 export type Logger = {
@@ -49,5 +49,5 @@ export const consoleLogger: Logger = {
     },
     emergency: (message, extra) => {
         console.error(message, extra);
-    },
+    }
 };
