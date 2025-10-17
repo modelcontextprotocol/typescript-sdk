@@ -1,5 +1,8 @@
-
-
+/**
+ * LogLevel - SysLog RFC5424 compliant log levels
+ * 
+ * @see RFC5424: https://tools.ietf.org/html/rfc5424
+ */
 type LogLevel = 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency';
 
 /**
