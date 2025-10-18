@@ -18,6 +18,13 @@ export type StdioServerParameters = {
     args?: string[];
 
     /**
+     * Whether to use a shell to execute the command, or the shell to use.
+     *
+     * If not specified, the default is false.
+     */
+    shell?: string | boolean;
+
+    /**
      * The environment to use when spawning the process.
      *
      * If not specified, the result of getDefaultEnvironment() will be used.
@@ -125,7 +132,7 @@ export class StdioClientTransport implements Transport {
                     ...this._serverParams.env
                 },
                 stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
-                shell: false,
+                shell: this._serverParams.shell ?? false,
                 signal: this._abortController.signal,
                 windowsHide: process.platform === 'win32' && isElectron(),
                 cwd: this._serverParams.cwd
