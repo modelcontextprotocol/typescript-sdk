@@ -3,7 +3,27 @@
  *
  * @see RFC5424: https://tools.ietf.org/html/rfc5424
  */
-type LogLevel = 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency';
+export interface LogLevels {
+    emerg: number;
+    alert: number;
+    crit: number;
+    error: number;
+    warning: number;
+    notice: number;
+    info: number;
+    debug: number;
+  }
+
+export const LogLevels: LogLevels = {
+    emerg: 0,
+    alert: 1,
+    crit: 2,
+    error: 3,
+    warning: 4,
+    notice: 5,
+    info: 6,
+    debug: 7
+  };
 
 /**
  * Logger - SysLog RFC5424 compliant logger type
@@ -11,7 +31,7 @@ type LogLevel = 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' |
  * @see RFC5424: https://tools.ietf.org/html/rfc5424
  */
 export type Logger = {
-    [Level in LogLevel]: (message: string, extra?: Record<string, unknown>) => void;
+    [Level in keyof LogLevels]: (message: string, extra?: Record<string, unknown>) => void;
 };
 
 /**
@@ -41,13 +61,13 @@ export const consoleLogger: Logger = {
     error: (message, extra) => {
         console.error(message, extra);
     },
-    critical: (message, extra) => {
+    crit: (message, extra) => {
         console.error(message, extra);
     },
     alert: (message, extra) => {
         console.error(message, extra);
     },
-    emergency: (message, extra) => {
+    emerg: (message, extra) => {
         console.error(message, extra);
     }
 };
