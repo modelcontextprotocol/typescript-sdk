@@ -653,6 +653,122 @@ describe('protocol tests', () => {
             expect(sendSpy).toHaveBeenCalledTimes(2);
         });
     });
+
+    describe('Error data propagation', () => {
+        test('should include error data in response when request handler throws error with data', async () => {
+            await protocol.connect(transport);
+
+            // Set up request handler that throws error with data
+            const RequestSchema = z.object({
+                method: z.literal('test/error-with-data')
+            });
+
+            protocol.setRequestHandler(RequestSchema, () => {
+                const error = new Error('Test error') as Error & { code: number; data: unknown };
+                error.code = ErrorCode.InvalidParams;
+                error.data = { details: 'Additional context', errorCode: 42 };
+                throw error;
+            });
+
+            // Simulate incoming request
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'test/error-with-data'
+            });
+
+            // Wait for async error handling
+            await new Promise(resolve => setImmediate(resolve));
+
+            // Verify error response includes data
+            expect(sendSpy).toHaveBeenCalledWith({
+                jsonrpc: '2.0',
+                id: 1,
+                error: {
+                    code: ErrorCode.InvalidParams,
+                    message: 'Test error',
+                    data: { details: 'Additional context', errorCode: 42 }
+                }
+            });
+        });
+
+        test('should not include data field when request handler throws error without data', async () => {
+            await protocol.connect(transport);
+
+            // Set up request handler that throws error without data
+            const RequestSchema = z.object({
+                method: z.literal('test/error-without-data')
+            });
+
+            protocol.setRequestHandler(RequestSchema, () => {
+                const error = new Error('Test error') as Error & { code: number };
+                error.code = ErrorCode.InternalError;
+                throw error;
+            });
+
+            // Simulate incoming request
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'test/error-without-data'
+            });
+
+            // Wait for async error handling
+            await new Promise(resolve => setImmediate(resolve));
+
+            // Verify error response does not include data field
+            expect(sendSpy).toHaveBeenCalledWith({
+                jsonrpc: '2.0',
+                id: 2,
+                error: {
+                    code: ErrorCode.InternalError,
+                    message: 'Test error'
+                }
+            });
+        });
+
+        test('should include error data when request handler throws McpError with data', async () => {
+            await protocol.connect(transport);
+
+            // Set up request handler that throws McpError with data
+            const RequestSchema = z.object({
+                method: z.literal('test/mcperror-with-data')
+            });
+
+            protocol.setRequestHandler(RequestSchema, () => {
+                throw new McpError(ErrorCode.InvalidParams, 'Invalid parameter', {
+                    paramName: 'userId',
+                    expectedType: 'string',
+                    actualType: 'number'
+                });
+            });
+
+            // Simulate incoming request
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 3,
+                method: 'test/mcperror-with-data'
+            });
+
+            // Wait for async error handling
+            await new Promise(resolve => setImmediate(resolve));
+
+            // Verify error response includes data from McpError
+            expect(sendSpy).toHaveBeenCalledWith({
+                jsonrpc: '2.0',
+                id: 3,
+                error: {
+                    code: ErrorCode.InvalidParams,
+                    message: 'MCP error -32602: Invalid parameter',
+                    data: {
+                        paramName: 'userId',
+                        expectedType: 'string',
+                        actualType: 'number'
+                    }
+                }
+            });
+        });
+    });
 });
 
 describe('mergeCapabilities', () => {
