@@ -12,7 +12,7 @@ export interface LogLevels {
     notice: number;
     info: number;
     debug: number;
-  }
+}
 
 export const LogLevels: LogLevels = {
     emerg: 0,
@@ -23,7 +23,7 @@ export const LogLevels: LogLevels = {
     notice: 5,
     info: 6,
     debug: 7
-  };
+};
 
 /**
  * Logger - SysLog RFC5424 compliant logger type
