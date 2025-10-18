@@ -424,6 +424,70 @@ test('should validate elicitation response against requested schema', async () =
     });
 });
 
+test('should allow custom enum values when allowCustom is true', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                prompts: {},
+                resources: {},
+                tools: {},
+                logging: {}
+            },
+            enforceStrictCapabilities: true
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {}
+            }
+        }
+    );
+
+    client.setRequestHandler(ElicitRequestSchema, () => ({
+        action: 'accept',
+        content: {
+            priority: 'urgent'
+        }
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await expect(
+        server.elicitInput({
+            message: 'Select a priority',
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    priority: {
+                        type: 'string',
+                        enum: ['low', 'medium', 'high'],
+                        allowCustom: true,
+                        description: 'Choose from presets or enter a custom value'
+                    }
+                },
+                required: ['priority']
+            }
+        })
+    ).resolves.toEqual({
+        action: 'accept',
+        content: {
+            priority: 'urgent'
+        }
+    });
+});
+
 test('should reject elicitation response with invalid data', async () => {
     const server = new Server(
         {
@@ -491,6 +555,63 @@ test('should reject elicitation response with invalid data', async () => {
             }
         })
     ).rejects.toThrow(/does not match requested schema/);
+});
+
+test('should reject custom enum values when allowCustom is false', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                prompts: {},
+                resources: {},
+                tools: {},
+                logging: {}
+            },
+            enforceStrictCapabilities: true
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {}
+            }
+        }
+    );
+
+    client.setRequestHandler(ElicitRequestSchema, () => ({
+        action: 'accept',
+        content: {
+            priority: 'urgent'
+        }
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await expect(
+        server.elicitInput({
+            message: 'Select a priority',
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    priority: {
+                        type: 'string',
+                        enum: ['low', 'medium', 'high']
+                    }
+                },
+                required: ['priority']
+            }
+        })
+    ).rejects.toThrow(/Elicitation response content does not match requested schema/);
 });
 
 test('should allow elicitation reject and cancel without validation', async () => {
