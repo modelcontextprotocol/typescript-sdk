@@ -1,25 +1,34 @@
-import { McpServer } from './mcp.js';
+import { Ajv } from 'ajv';
+import { z } from 'zod';
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';
-import { z } from 'zod';
-import {
-    ListToolsResultSchema,
-    CallToolResultSchema,
-    ListResourcesResultSchema,
-    ListResourceTemplatesResultSchema,
-    ReadResourceResultSchema,
-    ListPromptsResultSchema,
-    GetPromptResultSchema,
-    CompleteResultSchema,
-    LoggingMessageNotificationSchema,
-    Notification,
-    TextContent,
-    ElicitRequestSchema
-} from '../types.js';
-import { ResourceTemplate } from './mcp.js';
-import { completable } from './completable.js';
 import { UriTemplate } from '../shared/uriTemplate.js';
 import { getDisplayName } from '../shared/metadataUtils.js';
+import {
+    CallToolResultSchema,
+    CompleteResultSchema,
+    ElicitRequestSchema,
+    GetPromptResultSchema,
+    ListPromptsResultSchema,
+    ListResourceTemplatesResultSchema,
+    ListResourcesResultSchema,
+    ListToolsResultSchema,
+    LoggingMessageNotificationSchema,
+    Notification,
+    ReadResourceResultSchema,
+    TextContent
+} from '../types.js';
+import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
+import { completable } from './completable.js';
+import { McpServer, ResourceTemplate } from './mcp.js';
+
+// Set up AJV validator for tests
+const ajv = new Ajv({
+    strict: false,
+    validateFormats: false,
+    validateSchema: false
+});
+const ajvValidator = new AjvJsonSchemaValidator(ajv);
 
 describe('McpServer', () => {
     /***
@@ -3883,10 +3892,15 @@ describe('elicitInput()', () => {
         jest.clearAllMocks();
 
         // Create server with restaurant booking tool
-        mcpServer = new McpServer({
-            name: 'restaurant-booking-server',
-            version: '1.0.0'
-        });
+        mcpServer = new McpServer(
+            {
+                name: 'restaurant-booking-server',
+                version: '1.0.0'
+            },
+            {
+                jsonSchemaValidator: ajvValidator
+            }
+        );
 
         // Register the restaurant booking tool from README example
         mcpServer.tool(
@@ -3967,7 +3981,8 @@ describe('elicitInput()', () => {
             {
                 capabilities: {
                     elicitation: {}
-                }
+                },
+                jsonSchemaValidator: ajvValidator
             }
         );
     });

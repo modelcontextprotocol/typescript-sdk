@@ -20,7 +20,7 @@ import {
     ReadResourceResultSchema
 } from '../../types.js';
 import { getDisplayName } from '../../shared/metadataUtils.js';
-import Ajv from 'ajv';
+import { Ajv } from 'ajv';
 
 // Create readline interface for user input
 const readline = createInterface({
@@ -377,7 +377,7 @@ async function connect(url?: string): Promise<void> {
                 if (!isValid) {
                     console.log('❌ Validation errors:');
                     validate.errors?.forEach(error => {
-                        console.log(`  - ${error.dataPath || 'root'}: ${error.message}`);
+                        console.log(`  - ${error.instancePath || 'root'}: ${error.message}`);
                     });
 
                     if (attempts < maxAttempts) {
