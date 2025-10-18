@@ -847,6 +847,154 @@ describe('tool()', () => {
     });
 
     /***
+     * Test: Tool with undefined in annotations position
+     */
+    test('should correctly parse callback position when undefined is passed in annotations position', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (mcpServer.tool as any)(
+            'test',
+            'A tool description',
+            { name: z.string() },
+            undefined, // Not officially supported, but internal logic should handle it
+            async ({ name }: { name: string }) => ({
+                content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
+            })
+        );
+
+        expect(mcpServer['_registeredTools']['test']).toBeDefined();
+        expect(mcpServer['_registeredTools']['test'].description).toBe('A tool description');
+        expect(mcpServer['_registeredTools']['test'].inputSchema).toBeDefined();
+
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+        const result = await client.listTools();
+        expect(result.tools).toHaveLength(1);
+        expect(result.tools[0].name).toBe('test');
+        expect(result.tools[0].description).toBe('A tool description');
+
+        const callResult = await client.callTool({ name: 'test', arguments: { name: 'World' } });
+        expect(callResult.content).toHaveLength(1);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expect((callResult.content as any)[0]).toMatchObject({
+            type: 'text',
+            text: 'Hello, World!'
+        });
+    });
+
+    /***
+     * Test: Tool with undefined in description position
+     */
+    test('should correctly parse callback position when undefined is passed in description position', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (mcpServer.tool as any)(
+            'test',
+            undefined, // Not officially supported, but internal logic should handle it
+            { name: z.string() },
+            async ({ name }: { name: string }) => ({
+                content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
+            })
+        );
+
+        expect(mcpServer['_registeredTools']['test']).toBeDefined();
+        expect(mcpServer['_registeredTools']['test'].description).toBeUndefined();
+        expect(mcpServer['_registeredTools']['test'].inputSchema).toBeDefined();
+
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+        const result = await client.listTools();
+        expect(result.tools).toHaveLength(1);
+        expect(result.tools[0].name).toBe('test');
+        expect(result.tools[0].description).toBeUndefined();
+
+        const callResult = await client.callTool({ name: 'test', arguments: { name: 'World' } });
+        expect(callResult.content).toHaveLength(1);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expect((callResult.content as any)[0]).toMatchObject({
+            type: 'text',
+            text: 'Hello, World!'
+        });
+    });
+
+    /***
+     * Test: Tool with undefined in paramsSchema position
+     */
+    test('should correctly parse callback position when undefined is passed in paramsSchema position', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (mcpServer.tool as any)(
+            'test',
+            'A tool description',
+            undefined, // Not officially supported, but internal logic should handle it
+            { title: 'Test Tool', readOnlyHint: true },
+            async () => ({
+                content: [{ type: 'text' as const, text: 'Hello!' }]
+            })
+        );
+
+        expect(mcpServer['_registeredTools']['test']).toBeDefined();
+        expect(mcpServer['_registeredTools']['test'].description).toBe('A tool description');
+        expect(mcpServer['_registeredTools']['test'].inputSchema).toBeUndefined();
+        expect(mcpServer['_registeredTools']['test'].annotations).toEqual({
+            title: 'Test Tool',
+            readOnlyHint: true
+        });
+
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+        const result = await client.listTools();
+        expect(result.tools).toHaveLength(1);
+        expect(result.tools[0].name).toBe('test');
+        expect(result.tools[0].description).toBe('A tool description');
+        expect(result.tools[0].annotations).toEqual({
+            title: 'Test Tool',
+            readOnlyHint: true
+        });
+
+        const callResult = await client.callTool({ name: 'test' });
+        expect(callResult.content).toHaveLength(1);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expect((callResult.content as any)[0]).toMatchObject({
+            type: 'text',
+            text: 'Hello!'
+        });
+    });
+
+    /***
      * Test: Tool Argument Validation
      */
     test('should validate tool args', async () => {
