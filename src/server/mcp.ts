@@ -788,7 +788,7 @@ export class McpServer {
     /**
      * Registers a tool with a config object and callback.
      */
-    registerTool<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape>(
+    registerTool<InputArgs extends undefined | ZodRawShape = undefined, OutputArgs extends ZodRawShape>(
         name: string,
         config: {
             title?: string;
