@@ -51,31 +51,20 @@ export type ServerOptions = ProtocolOptions & {
      * The validator is used to validate user input returned from elicitation
      * requests against the requested schema.
      *
-     * @default AjvJsonSchemaValidator (auto-configured with sensible defaults)
+     * @default AjvJsonSchemaValidator
      *
      * @example
      * ```typescript
-     * // Use default AJV validator (recommended, no configuration needed)
-     * import { Server } from '@modelcontextprotocol/sdk';
-     * const server = new Server(
-     *   { name: 'my-server', version: '1.0.0' },
-     *   { capabilities: {} }
-     * );
-     *
-     * // Use custom AJV configuration
-     * import { Server, AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk';
-     * import { Ajv } from 'ajv';
-     * const ajv = new Ajv({ strict: true });
+     * // ajv (default)
      * const server = new Server(
      *   { name: 'my-server', version: '1.0.0' },
      *   {
-     *     capabilities: {},
-     *     jsonSchemaValidator: new AjvJsonSchemaValidator(ajv)
+     *     capabilities: {}
+     *     jsonSchemaValidator: new AjvJsonSchemaValidator()
      *   }
      * );
      *
-     * // Cloudflare Workers (edge-compatible)
-     * import { Server, CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk';
+     * // @cfworker/json-schema
      * const server = new Server(
      *   { name: 'my-server', version: '1.0.0' },
      *   {
