@@ -1,7 +1,4 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable no-constant-binary-expression */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-import { Ajv } from 'ajv';
 import { z } from 'zod';
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';
@@ -21,17 +18,7 @@ import {
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types.js';
-import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import { Server } from './index.js';
-
-// Set up AJV validator for elicitation tests
-const ajv = new Ajv({
-    strict: false,
-    validateFormats: false,
-    validateSchema: false
-});
-
-const ajvProvider = new AjvJsonSchemaValidator(ajv);
 
 test('should accept latest protocol version', async () => {
     let sendPromiseResolve: (value: unknown) => void;
@@ -289,8 +276,7 @@ test('should respect client elicitation capabilities', async () => {
                 tools: {},
                 logging: {}
             },
-            enforceStrictCapabilities: true,
-            jsonSchemaValidator: ajvProvider
+            enforceStrictCapabilities: true
         }
     );
 
@@ -372,8 +358,7 @@ test('should validate elicitation response against requested schema', async () =
                 tools: {},
                 logging: {}
             },
-            enforceStrictCapabilities: true,
-            jsonSchemaValidator: ajvProvider
+            enforceStrictCapabilities: true
         }
     );
 
@@ -450,8 +435,7 @@ test('should reject elicitation response with invalid data', async () => {
                 tools: {},
                 logging: {}
             },
-            enforceStrictCapabilities: true,
-            jsonSchemaValidator: ajvProvider
+            enforceStrictCapabilities: true
         }
     );
 
@@ -520,8 +504,7 @@ test('should allow elicitation reject and cancel without validation', async () =
                 tools: {},
                 logging: {}
             },
-            enforceStrictCapabilities: true,
-            jsonSchemaValidator: ajvProvider
+            enforceStrictCapabilities: true
         }
     );
 
