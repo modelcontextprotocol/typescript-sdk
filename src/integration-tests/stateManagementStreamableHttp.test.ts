@@ -12,7 +12,7 @@ import {
     ListPromptsResultSchema,
     LATEST_PROTOCOL_VERSION
 } from '../types.js';
-import { z } from 'zod';
+import * as z from 'zod';
 
 describe('Streamable HTTP Transport Session Management', () => {
     // Function to set up the server with optional session management
@@ -56,7 +56,7 @@ describe('Streamable HTTP Transport Session Management', () => {
             'greet',
             'A simple greeting tool',
             {
-                name: z.string().describe('Name to greet').default('World')
+                name: z.string().describe('Name to greet').prefault('World')
             },
             async ({ name }) => {
                 return {

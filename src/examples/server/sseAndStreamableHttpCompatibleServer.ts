@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { SSEServerTransport } from '../../server/sse.js';
-import { z } from 'zod';
+import * as z from 'zod';
 import { CallToolResult, isInitializeRequest } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import cors from 'cors';
@@ -33,8 +33,8 @@ const getServer = () => {
         'start-notification-stream',
         'Starts sending periodic notifications for testing resumability',
         {
-            interval: z.number().describe('Interval in milliseconds between notifications').default(100),
-            count: z.number().describe('Number of notifications to send (0 for 100)').default(50)
+            interval: z.number().describe('Interval in milliseconds between notifications').prefault(100),
+            count: z.number().describe('Number of notifications to send (0 for 100)').prefault(50)
         },
         async ({ interval, count }, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

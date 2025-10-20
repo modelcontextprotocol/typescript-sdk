@@ -9,6 +9,7 @@ export default {
         '^(\\.{1,2}/.*)\\.js$': '$1',
         '^pkce-challenge$': '<rootDir>/src/__mocks__/pkce-challenge.ts'
     },
+    modulePathIgnorePatterns: ['/dist/'],
     transformIgnorePatterns: ['/node_modules/(?!eventsource)/'],
     testPathIgnorePatterns: ['/node_modules/', '/dist/']
 };

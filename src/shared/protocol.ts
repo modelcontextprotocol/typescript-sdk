@@ -1,4 +1,4 @@
-import { ZodLiteral, ZodObject, ZodType, z } from 'zod';
+import * as z from 'zod';
 import {
     CancelledNotificationSchema,
     ClientCapabilities,
@@ -152,7 +152,7 @@ export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT 
      *
      * This is used by certain transports to correctly associate related messages.
      */
-    sendRequest: <U extends ZodType<object>>(request: SendRequestT, resultSchema: U, options?: RequestOptions) => Promise<z.infer<U>>;
+    sendRequest: <U extends z.ZodType<object>>(request: SendRequestT, resultSchema: U, options?: RequestOptions) => Promise<z.infer<U>>;
 };
 
 /**
@@ -489,7 +489,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Do not use this method to emit notifications! Use notification() instead.
      */
-    request<T extends ZodType<object>>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<z.infer<T>> {
+    request<T extends z.ZodType<object>>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<z.infer<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken } = options ?? {};
 
         return new Promise((resolve, reject) => {
@@ -639,8 +639,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * Note that this will replace any previous request handler for the same method.
      */
     setRequestHandler<
-        T extends ZodObject<{
-            method: ZodLiteral<string>;
+        T extends z.ZodObject<{
+            method: z.ZodLiteral<string>;
         }>
     >(
         requestSchema: T,
@@ -676,8 +676,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * Note that this will replace any previous notification handler for the same method.
      */
     setNotificationHandler<
-        T extends ZodObject<{
-            method: ZodLiteral<string>;
+        T extends z.ZodObject<{
+            method: z.ZodLiteral<string>;
         }>
     >(notificationSchema: T, handler: (notification: z.infer<T>) => void | Promise<void>): void {
         this._notificationHandlers.set(notificationSchema.shape.method.value, notification =>

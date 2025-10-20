@@ -1,4 +1,4 @@
-import { ZodType, z } from 'zod';
+import * as z from 'zod';
 import { ClientCapabilities, ErrorCode, McpError, Notification, Request, Result, ServerCapabilities } from '../types.js';
 import { Protocol, mergeCapabilities } from './protocol.js';
 import { Transport } from './transport.js';
@@ -35,7 +35,7 @@ describe('protocol tests', () => {
         await protocol.connect(transport);
         const request = { method: 'example', params: {} };
         try {
-            const mockSchema: ZodType<{ result: string }> = z.object({
+            const mockSchema: z.ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             await protocol.request(request, mockSchema, {
@@ -86,7 +86,7 @@ describe('protocol tests', () => {
                     }
                 }
             };
-            const mockSchema: ZodType<{ result: string }> = z.object({
+            const mockSchema: z.ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             const onProgressMock = jest.fn();
@@ -121,7 +121,7 @@ describe('protocol tests', () => {
                     data: 'test'
                 }
             };
-            const mockSchema: ZodType<{ result: string }> = z.object({
+            const mockSchema: z.ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             const onProgressMock = jest.fn();
@@ -157,7 +157,7 @@ describe('protocol tests', () => {
                     }
                 }
             };
-            const mockSchema: ZodType<{ result: string }> = z.object({
+            const mockSchema: z.ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
 
@@ -184,7 +184,7 @@ describe('protocol tests', () => {
             const request = {
                 method: 'example'
             };
-            const mockSchema: ZodType<{ result: string }> = z.object({
+            const mockSchema: z.ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             const onProgressMock = jest.fn();
@@ -220,7 +220,7 @@ describe('protocol tests', () => {
         test('should not reset timeout when resetTimeoutOnProgress is false', async () => {
             await protocol.connect(transport);
             const request = { method: 'example', params: {} };
-            const mockSchema: ZodType<{ result: string }> = z.object({
+            const mockSchema: z.ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             const onProgressMock = jest.fn();
@@ -258,7 +258,7 @@ describe('protocol tests', () => {
         test('should reset timeout when progress notification is received', async () => {
             await protocol.connect(transport);
             const request = { method: 'example', params: {} };
-            const mockSchema: ZodType<{ result: string }> = z.object({
+            const mockSchema: z.ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             const onProgressMock = jest.fn();
@@ -299,7 +299,7 @@ describe('protocol tests', () => {
         test('should respect maxTotalTimeout', async () => {
             await protocol.connect(transport);
             const request = { method: 'example', params: {} };
-            const mockSchema: ZodType<{ result: string }> = z.object({
+            const mockSchema: z.ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             const onProgressMock = jest.fn();
@@ -347,7 +347,7 @@ describe('protocol tests', () => {
         test('should timeout if no progress received within timeout period', async () => {
             await protocol.connect(transport);
             const request = { method: 'example', params: {} };
-            const mockSchema: ZodType<{ result: string }> = z.object({
+            const mockSchema: z.ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             const requestPromise = protocol.request(request, mockSchema, {
@@ -361,7 +361,7 @@ describe('protocol tests', () => {
         test('should handle multiple progress notifications correctly', async () => {
             await protocol.connect(transport);
             const request = { method: 'example', params: {} };
-            const mockSchema: ZodType<{ result: string }> = z.object({
+            const mockSchema: z.ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             const onProgressMock = jest.fn();
@@ -405,7 +405,7 @@ describe('protocol tests', () => {
         test('should handle progress notifications with message field', async () => {
             await protocol.connect(transport);
             const request = { method: 'example', params: {} };
-            const mockSchema: ZodType<{ result: string }> = z.object({
+            const mockSchema: z.ZodType<{ result: string }> = z.object({
                 result: z.string()
             });
             const onProgressMock = jest.fn();

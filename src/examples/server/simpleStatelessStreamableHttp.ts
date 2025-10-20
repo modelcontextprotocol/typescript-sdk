@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
-import { z } from 'zod';
+import * as z from 'zod';
 import { CallToolResult, GetPromptResult, ReadResourceResult } from '../../types.js';
 import cors from 'cors';
 
@@ -42,8 +42,8 @@ const getServer = () => {
         'start-notification-stream',
         'Starts sending periodic notifications for testing resumability',
         {
-            interval: z.number().describe('Interval in milliseconds between notifications').default(100),
-            count: z.number().describe('Number of notifications to send (0 for 100)').default(10)
+            interval: z.number().describe('Interval in milliseconds between notifications').prefault(100),
+            count: z.number().describe('Number of notifications to send (0 for 100)').prefault(10)
         },
         async ({ interval, count }, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

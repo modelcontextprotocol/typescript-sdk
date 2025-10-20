@@ -1,7 +1,7 @@
 import { McpServer } from './mcp.js';
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';
-import { z } from 'zod';
+import * as z from 'zod';
 import {
     ListToolsResultSchema,
     CallToolResultSchema,
