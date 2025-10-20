@@ -12,7 +12,6 @@ import type { JsonSchemaType, JsonSchemaValidator, JsonSchemaValidatorResult, js
 
 /**
  * JSON Schema draft version supported by @cfworker/json-schema
- * Note: Draft 6 is not supported by @cfworker/json-schema
  */
 export type CfWorkerSchemaDraft = '4' | '7' | '2019-09' | '2020-12';
 
@@ -35,7 +34,7 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
     private draft: CfWorkerSchemaDraft;
 
     /**
-     * Create a Cloudflare Worker validator
+     * Create a validator
      *
      * @param options - Configuration options
      * @param options.shortcircuit - If true, stop validation after first error (default: true)
@@ -49,8 +48,7 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
     /**
      * Create a validator for the given JSON Schema
      *
-     * Unlike AJV, this validator is not cached internally since the Validator
-     * class itself is lightweight and doesn't use code generation.
+     * Unlike AJV, this validator is not cached internally
      *
      * @param schema - Standard JSON Schema object
      * @returns A validator function that validates input data
