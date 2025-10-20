@@ -53,22 +53,20 @@ export type ClientOptions = ProtocolOptions & {
      * The validator is used to validate structured content returned by tools
      * against their declared output schemas.
      *
-     * @default AjvJsonSchemaValidator (auto-configured with sensible defaults)
+     * @default AjvJsonSchemaValidator
      *
      * @example
      * ```typescript
-     * // Use default AJV validator (recommended, no configuration needed)
-     * import { Client } from '@modelcontextprotocol/sdk';
+     * // ajv
      * const client = new Client(
      *   { name: 'my-client', version: '1.0.0' },
      *   {
      *     capabilities: {},
-     *     jsonSchemaValidator: new AjvJsonSchemaValidator(ajv)
+     *     jsonSchemaValidator: new AjvJsonSchemaValidator()
      *   }
      * );
      *
-     * // Cloudflare Workers (edge-compatible)
-     * import { Client, CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk';
+     * // @cfworker/json-schema
      * const client = new Client(
      *   { name: 'my-client', version: '1.0.0' },
      *   {
