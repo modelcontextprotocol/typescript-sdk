@@ -3,6 +3,9 @@ import {
     CancelledNotificationSchema,
     ClientCapabilities,
     ErrorCode,
+    GetTaskRequest,
+    GetTaskResultSchema,
+    GetTaskPayloadRequest,
     isJSONRPCError,
     isJSONRPCRequest,
     isJSONRPCResponse,
@@ -17,16 +20,22 @@ import {
     Progress,
     ProgressNotification,
     ProgressNotificationSchema,
+    RELATED_TASK_META_KEY,
     Request,
     RequestId,
     Result,
     ServerCapabilities,
     RequestMeta,
     MessageExtraInfo,
-    RequestInfo
+    RequestInfo,
+    TaskCreatedNotificationSchema,
+    TASK_META_KEY,
+    GetTaskResult,
+    TaskRequestMetadata
 } from '../types.js';
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
+import { PendingRequest } from './request.js';
 
 /**
  * Callback for progress notifications.
@@ -93,6 +102,11 @@ export type RequestOptions = {
      * If not specified, there is no maximum total timeout.
      */
     maxTotalTimeout?: number;
+
+    /**
+     * If provided, augments the request with task metadata to enable call-now, fetch-later execution patterns.
+     */
+    task?: TaskRequestMetadata;
 } & TransportSendOptions;
 
 /**
@@ -108,7 +122,11 @@ export type NotificationOptions = {
 /**
  * Extra data given to request handlers.
  */
-export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT extends Notification> = {
+export type RequestHandlerExtra<
+    SendRequestT extends Request,
+    SendNotificationT extends Notification,
+    SendResultT extends Result = Result
+> = {
     /**
      * An abort signal used to communicate if the request was cancelled from the sender's side.
      */
@@ -152,7 +170,7 @@ export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT 
      *
      * This is used by certain transports to correctly associate related messages.
      */
-    sendRequest: <U extends ZodType<object>>(request: SendRequestT, resultSchema: U, options?: RequestOptions) => Promise<z.infer<U>>;
+    sendRequest: <U extends ZodType<SendResultT>>(request: SendRequestT, resultSchema: U, options?: RequestOptions) => Promise<z.infer<U>>;
 };
 
 /**
@@ -176,7 +194,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _requestMessageId = 0;
     private _requestHandlers: Map<
         string,
-        (request: JSONRPCRequest, extra: RequestHandlerExtra<SendRequestT, SendNotificationT>) => Promise<SendResultT>
+        (request: JSONRPCRequest, extra: RequestHandlerExtra<SendRequestT, SendNotificationT, SendResultT>) => Promise<SendResultT>
     > = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
@@ -184,6 +202,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
+    private _pendingTaskCreations: Map<string, { resolve: () => void; reject: (reason: Error) => void }> = new Map();
+    private _requestIdToTaskId: Map<number, string> = new Map();
 
     /**
      * Callback for when the connection is closed for any reason.
@@ -202,7 +222,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * A handler to invoke for any request types that do not have their own handler installed.
      */
-    fallbackRequestHandler?: (request: JSONRPCRequest, extra: RequestHandlerExtra<SendRequestT, SendNotificationT>) => Promise<SendResultT>;
+    fallbackRequestHandler?: (
+        request: JSONRPCRequest,
+        extra: RequestHandlerExtra<SendRequestT, SendNotificationT, SendResultT>
+    ) => Promise<SendResultT>;
 
     /**
      * A handler to invoke for any notification types that do not have their own handler installed.
@@ -217,6 +240,17 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         this.setNotificationHandler(ProgressNotificationSchema, notification => {
             this._onprogress(notification as unknown as ProgressNotification);
+        });
+
+        this.setNotificationHandler(TaskCreatedNotificationSchema, notification => {
+            const taskId = notification.params?._meta?.[RELATED_TASK_META_KEY]?.taskId;
+            if (taskId) {
+                const resolver = this._pendingTaskCreations.get(taskId);
+                if (resolver) {
+                    resolver.resolve();
+                    this._pendingTaskCreations.delete(taskId);
+                }
+            }
         });
 
         this.setRequestHandler(
@@ -310,10 +344,19 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
         this._pendingDebouncedNotifications.clear();
+
+        const error = new McpError(ErrorCode.ConnectionClosed, 'Connection closed');
+
+        // Reject all pending task creations
+        for (const resolver of this._pendingTaskCreations.values()) {
+            resolver.reject(error);
+        }
+        this._pendingTaskCreations.clear();
+
+        this._requestIdToTaskId.clear();
         this._transport = undefined;
         this.onclose?.();
 
-        const error = new McpError(ErrorCode.ConnectionClosed, 'Connection closed');
         for (const handler of responseHandlers.values()) {
             handler(error);
         }
@@ -360,7 +403,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const abortController = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abortController);
 
-        const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
+        const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT, SendResultT> = {
             signal: abortController.signal,
             sessionId: capturedTransport?.sessionId,
             _meta: request.params?._meta,
@@ -444,6 +487,17 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._progressHandlers.delete(messageId);
         this._cleanupTimeout(messageId);
 
+        // Clean up task tracking if this request had a taskId
+        const taskId = this._requestIdToTaskId.get(messageId);
+        if (taskId) {
+            this._requestIdToTaskId.delete(messageId);
+            const resolver = this._pendingTaskCreations.get(taskId);
+
+            // Reject the promise if the task never got created
+            resolver?.reject(new Error('Request completed without task creation notification'));
+            this._pendingTaskCreations.delete(taskId);
+        }
+
         if (isJSONRPCResponse(response)) {
             handler(response);
         } else {
@@ -485,14 +539,19 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     protected abstract assertRequestHandlerCapability(method: string): void;
 
     /**
-     * Sends a request and wait for a response.
+     * Begins a request and returns a PendingRequest object for granular control over task-based execution.
      *
      * Do not use this method to emit notifications! Use notification() instead.
      */
-    request<T extends ZodType<object>>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<z.infer<T>> {
-        const { relatedRequestId, resumptionToken, onresumptiontoken } = options ?? {};
+    beginRequest<T extends ZodType<SendResultT>>(
+        request: SendRequestT,
+        resultSchema: T,
+        options?: RequestOptions
+    ): PendingRequest<SendRequestT, SendNotificationT, SendResultT> {
+        const { relatedRequestId, resumptionToken, onresumptiontoken, task } = options ?? {};
+        const { taskId, keepAlive } = task ?? {};
 
-        return new Promise((resolve, reject) => {
+        const promise = new Promise<z.infer<T>>((resolve, reject) => {
             if (!this._transport) {
                 reject(new Error('Not connected'));
                 return;
@@ -518,6 +577,21 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     _meta: {
                         ...(request.params?._meta || {}),
                         progressToken: messageId
+                    }
+                };
+            }
+
+            // Augment with task metadata if taskId is provided
+            if (taskId) {
+                this._requestIdToTaskId.set(messageId, taskId);
+                jsonrpcRequest.params = {
+                    ...jsonrpcRequest.params,
+                    _meta: {
+                        ...(jsonrpcRequest.params?._meta || {}),
+                        [TASK_META_KEY]: {
+                            taskId,
+                            ...(keepAlive !== undefined ? { keepAlive } : {})
+                        }
                     }
                 };
             }
@@ -575,6 +649,48 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 reject(error);
             });
         });
+
+        return new PendingRequest(this, promise, resultSchema, taskId);
+    }
+
+    /**
+     * Sends a request and waits for a response.
+     *
+     * Do not use this method to emit notifications! Use notification() instead.
+     */
+    request<T extends ZodType<SendResultT>>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<z.infer<T>> {
+        return this.beginRequest(request, resultSchema, options).result();
+    }
+
+    /**
+     * Waits for a task creation notification with the given taskId.
+     * Returns a promise that resolves when the notifications/tasks/created notification is received,
+     * or rejects if the task is cleaned up (e.g., connection closed or request completed).
+     */
+    waitForTaskCreation(taskId: string): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this._pendingTaskCreations.set(taskId, { resolve, reject });
+        });
+    }
+
+    /**
+     * Gets the current status of a task.
+     */
+    async getTask(params: GetTaskRequest['params'], options?: RequestOptions): Promise<GetTaskResult> {
+        // @ts-expect-error SendRequestT cannot directly contain GetTaskRequest, but we ensure all type instantiations contain it anyways
+        return this.request({ method: 'tasks/get', params }, GetTaskResultSchema, options);
+    }
+
+    /**
+     * Retrieves the result of a completed task.
+     */
+    async getTaskResult<T extends ZodType<SendResultT>>(
+        params: GetTaskPayloadRequest['params'],
+        resultSchema: T,
+        options?: RequestOptions
+    ): Promise<z.infer<T>> {
+        // @ts-expect-error SendRequestT cannot directly contain GetTaskPayloadRequest, but we ensure all type instantiations contain it anyways
+        return this.request({ method: 'tasks/result', params }, resultSchema, options);
     }
 
     /**
@@ -644,7 +760,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         }>
     >(
         requestSchema: T,
-        handler: (request: z.infer<T>, extra: RequestHandlerExtra<SendRequestT, SendNotificationT>) => SendResultT | Promise<SendResultT>
+        handler: (
+            request: z.infer<T>,
+            extra: RequestHandlerExtra<SendRequestT, SendNotificationT, SendResultT>
+        ) => SendResultT | Promise<SendResultT>
     ): void {
         const method = requestSchema.shape.method.value;
         this.assertRequestHandlerCapability(method);
