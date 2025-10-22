@@ -5,6 +5,9 @@ export const LATEST_PROTOCOL_VERSION = '2025-06-18';
 export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = '2025-03-26';
 export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-03-26', '2024-11-05', '2024-10-07'];
 
+export const TASK_META_KEY = 'modelcontextprotocol.io/task';
+export const RELATED_TASK_META_KEY = 'modelcontextprotocol.io/related-task';
+
 /* JSON-RPC types */
 export const JSONRPC_VERSION = '2.0';
 
@@ -18,12 +21,46 @@ export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
  */
 export const CursorSchema = z.string();
 
+/**
+ * Task creation metadata, used to ask that the server create a task to represent a request.
+ */
+export const TaskRequestMetadataSchema = z
+    .object({
+        /**
+         * The task ID to use as a reference to the created task.
+         */
+        taskId: z.string(),
+
+        /**
+         * Time in milliseconds to ask to keep task results available after completion. Only used with taskId.
+         */
+        keepAlive: z.number().optional()
+    })
+    .passthrough();
+
+/**
+ * Task association metadata, used to signal which task a message originated from.
+ */
+export const RelatedTaskMetadataSchema = z
+    .object({
+        taskId: z.string()
+    })
+    .passthrough();
+
 const RequestMetaSchema = z
     .object({
         /**
          * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
          */
-        progressToken: z.optional(ProgressTokenSchema)
+        progressToken: z.optional(ProgressTokenSchema),
+        /**
+         * If specified, the caller is requesting that the receiver create a task to represent the request.
+         */
+        [TASK_META_KEY]: z.optional(TaskRequestMetadataSchema),
+        /**
+         * If specified, this request is related to the provided task.
+         */
+        [RELATED_TASK_META_KEY]: z.optional(RelatedTaskMetadataSchema)
     })
     .passthrough();
 
@@ -44,7 +81,16 @@ const BaseNotificationParamsSchema = z
          * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
          * for notes on _meta usage.
          */
-        _meta: z.optional(z.object({}).passthrough())
+        _meta: z.optional(
+            z
+                .object({
+                    /**
+                     * If specified, this request is related to the provided task.
+                     */
+                    [RELATED_TASK_META_KEY]: z.optional(RelatedTaskMetadataSchema)
+                })
+                .passthrough()
+        )
     })
     .passthrough();
 
@@ -59,7 +105,16 @@ export const ResultSchema = z
          * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
          * for notes on _meta usage.
          */
-        _meta: z.optional(z.object({}).passthrough())
+        _meta: z.optional(
+            z
+                .object({
+                    /**
+                     * If specified, this request is related to the provided task.
+                     */
+                    [RELATED_TASK_META_KEY]: z.optional(RelatedTaskMetadataSchema)
+                })
+                .passthrough()
+        )
     })
     .passthrough();
 
@@ -437,6 +492,51 @@ export const ProgressNotificationSchema = NotificationSchema.extend({
          * The progress token which was given in the initial request, used to associate this notification with the request that is proceeding.
          */
         progressToken: ProgressTokenSchema
+    })
+});
+
+/* Tasks */
+/**
+ * A pollable state object associated with a request.
+ */
+export const TaskSchema = z.object({
+    taskId: z.string(),
+    status: z.enum(['submitted', 'working', 'completed', 'failed', 'cancelled', 'unknown']),
+    keepAlive: z.union([z.number(), z.null()]),
+    pollFrequency: z.optional(z.number()),
+    error: z.optional(z.string())
+});
+
+/**
+ * An out-of-band notification used to inform the receiver of a task being created.
+ */
+export const TaskCreatedNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/tasks/created'),
+    params: BaseNotificationParamsSchema
+});
+
+/**
+ * A request to get the state of a specific task.
+ */
+export const GetTaskRequestSchema = RequestSchema.extend({
+    method: z.literal('tasks/get'),
+    params: BaseRequestParamsSchema.extend({
+        taskId: z.string()
+    })
+});
+
+/**
+ * The response to a tasks/get request.
+ */
+export const GetTaskResultSchema = ResultSchema.merge(TaskSchema);
+
+/**
+ * A request to get the result of a specific task.
+ */
+export const GetTaskPayloadRequestSchema = RequestSchema.extend({
+    method: z.literal('tasks/result'),
+    params: BaseRequestParamsSchema.extend({
+        taskId: z.string()
     })
 });
 
@@ -1416,20 +1516,36 @@ export const ClientRequestSchema = z.union([
     SubscribeRequestSchema,
     UnsubscribeRequestSchema,
     CallToolRequestSchema,
-    ListToolsRequestSchema
+    ListToolsRequestSchema,
+    GetTaskRequestSchema,
+    GetTaskPayloadRequestSchema
 ]);
 
 export const ClientNotificationSchema = z.union([
     CancelledNotificationSchema,
     ProgressNotificationSchema,
     InitializedNotificationSchema,
-    RootsListChangedNotificationSchema
+    RootsListChangedNotificationSchema,
+    TaskCreatedNotificationSchema
 ]);
 
-export const ClientResultSchema = z.union([EmptyResultSchema, CreateMessageResultSchema, ElicitResultSchema, ListRootsResultSchema]);
+export const ClientResultSchema = z.union([
+    EmptyResultSchema,
+    CreateMessageResultSchema,
+    ElicitResultSchema,
+    ListRootsResultSchema,
+    GetTaskResultSchema
+]);
 
 /* Server messages */
-export const ServerRequestSchema = z.union([PingRequestSchema, CreateMessageRequestSchema, ElicitRequestSchema, ListRootsRequestSchema]);
+export const ServerRequestSchema = z.union([
+    PingRequestSchema,
+    CreateMessageRequestSchema,
+    ElicitRequestSchema,
+    ListRootsRequestSchema,
+    GetTaskRequestSchema,
+    GetTaskPayloadRequestSchema
+]);
 
 export const ServerNotificationSchema = z.union([
     CancelledNotificationSchema,
@@ -1438,7 +1554,8 @@ export const ServerNotificationSchema = z.union([
     ResourceUpdatedNotificationSchema,
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
-    PromptListChangedNotificationSchema
+    PromptListChangedNotificationSchema,
+    TaskCreatedNotificationSchema
 ]);
 
 export const ServerResultSchema = z.union([
@@ -1451,7 +1568,8 @@ export const ServerResultSchema = z.union([
     ListResourceTemplatesResultSchema,
     ReadResourceResultSchema,
     CallToolResultSchema,
-    ListToolsResultSchema
+    ListToolsResultSchema,
+    GetTaskResultSchema
 ]);
 
 export class McpError extends Error {
@@ -1549,6 +1667,14 @@ export type PingRequest = Infer<typeof PingRequestSchema>;
 /* Progress notifications */
 export type Progress = Infer<typeof ProgressSchema>;
 export type ProgressNotification = Infer<typeof ProgressNotificationSchema>;
+
+/* Tasks */
+export type Task = Infer<typeof TaskSchema>;
+export type TaskRequestMetadata = Infer<typeof TaskRequestMetadataSchema>;
+export type TaskCreatedNotification = Infer<typeof TaskCreatedNotificationSchema>;
+export type GetTaskRequest = Infer<typeof GetTaskRequestSchema>;
+export type GetTaskResult = Infer<typeof GetTaskResultSchema>;
+export type GetTaskPayloadRequest = Infer<typeof GetTaskPayloadRequestSchema>;
 
 /* Pagination */
 export type PaginatedRequest = Infer<typeof PaginatedRequestSchema>;
