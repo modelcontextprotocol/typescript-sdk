@@ -1671,6 +1671,7 @@ export type ProgressNotification = Infer<typeof ProgressNotificationSchema>;
 /* Tasks */
 export type Task = Infer<typeof TaskSchema>;
 export type TaskRequestMetadata = Infer<typeof TaskRequestMetadataSchema>;
+export type RelatedTaskMetadata = Infer<typeof RelatedTaskMetadataSchema>;
 export type TaskCreatedNotification = Infer<typeof TaskCreatedNotificationSchema>;
 export type GetTaskRequest = Infer<typeof GetTaskRequestSchema>;
 export type GetTaskResult = Infer<typeof GetTaskResultSchema>;

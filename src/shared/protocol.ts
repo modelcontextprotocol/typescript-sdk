@@ -31,7 +31,8 @@ import {
     TaskCreatedNotificationSchema,
     TASK_META_KEY,
     GetTaskResult,
-    TaskRequestMetadata
+    TaskRequestMetadata,
+    RelatedTaskMetadata
 } from '../types.js';
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
@@ -107,6 +108,11 @@ export type RequestOptions = {
      * If provided, augments the request with task metadata to enable call-now, fetch-later execution patterns.
      */
     task?: TaskRequestMetadata;
+
+    /**
+     * If provided, associates this request with a related task.
+     */
+    relatedTask?: RelatedTaskMetadata;
 } & TransportSendOptions;
 
 /**
@@ -117,6 +123,11 @@ export type NotificationOptions = {
      * May be used to indicate to the transport which incoming request to associate this outgoing notification with.
      */
     relatedRequestId?: RequestId;
+
+    /**
+     * If provided, associates this notification with a related task.
+     */
+    relatedTask?: RelatedTaskMetadata;
 };
 
 /**
@@ -548,7 +559,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         resultSchema: T,
         options?: RequestOptions
     ): PendingRequest<SendRequestT, SendNotificationT, SendResultT> {
-        const { relatedRequestId, resumptionToken, onresumptiontoken, task } = options ?? {};
+        const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
         const { taskId, keepAlive } = task ?? {};
 
         const promise = new Promise<z.infer<T>>((resolve, reject) => {
@@ -592,6 +603,17 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                             taskId,
                             ...(keepAlive !== undefined ? { keepAlive } : {})
                         }
+                    }
+                };
+            }
+
+            // Augment with related task metadata if relatedTask is provided
+            if (relatedTask) {
+                jsonrpcRequest.params = {
+                    ...jsonrpcRequest.params,
+                    _meta: {
+                        ...(jsonrpcRequest.params?._meta || {}),
+                        [RELATED_TASK_META_KEY]: relatedTask
                     }
                 };
             }
@@ -705,8 +727,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         const debouncedMethods = this._options?.debouncedNotificationMethods ?? [];
         // A notification can only be debounced if it's in the list AND it's "simple"
-        // (i.e., has no parameters and no related request ID that could be lost).
-        const canDebounce = debouncedMethods.includes(notification.method) && !notification.params && !options?.relatedRequestId;
+        // (i.e., has no parameters and no related request ID or related task that could be lost).
+        const canDebounce =
+            debouncedMethods.includes(notification.method) && !notification.params && !options?.relatedRequestId && !options?.relatedTask;
 
         if (canDebounce) {
             // If a notification of this type is already scheduled, do nothing.
@@ -728,10 +751,25 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     return;
                 }
 
-                const jsonrpcNotification: JSONRPCNotification = {
+                let jsonrpcNotification: JSONRPCNotification = {
                     ...notification,
                     jsonrpc: '2.0'
                 };
+
+                // Augment with related task metadata if relatedTask is provided
+                if (options?.relatedTask) {
+                    jsonrpcNotification = {
+                        ...jsonrpcNotification,
+                        params: {
+                            ...jsonrpcNotification.params,
+                            _meta: {
+                                ...(jsonrpcNotification.params?._meta || {}),
+                                [RELATED_TASK_META_KEY]: options.relatedTask
+                            }
+                        }
+                    };
+                }
+
                 // Send the notification, but don't await it here to avoid blocking.
                 // Handle potential errors with a .catch().
                 this._transport?.send(jsonrpcNotification, options).catch(error => this._onerror(error));
@@ -741,10 +779,24 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             return;
         }
 
-        const jsonrpcNotification: JSONRPCNotification = {
+        let jsonrpcNotification: JSONRPCNotification = {
             ...notification,
             jsonrpc: '2.0'
         };
+
+        // Augment with related task metadata if relatedTask is provided
+        if (options?.relatedTask) {
+            jsonrpcNotification = {
+                ...jsonrpcNotification,
+                params: {
+                    ...jsonrpcNotification.params,
+                    _meta: {
+                        ...(jsonrpcNotification.params?._meta || {}),
+                        [RELATED_TASK_META_KEY]: options.relatedTask
+                    }
+                }
+            };
+        }
 
         await this._transport.send(jsonrpcNotification, options);
     }
