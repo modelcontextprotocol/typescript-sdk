@@ -108,7 +108,7 @@ server.registerPrompt(
     {
         title: 'Prompt for Addition Tool',
         description: 'Create prompt to add two numbers',
-        argsSchema: { a: z.string(), b: z.string() },
+        argsSchema: { a: z.string(), b: z.string() }
     },
     ({ a, b }) => {
         return {
@@ -117,11 +117,11 @@ server.registerPrompt(
                     role: 'user',
                     content: {
                         type: 'text',
-                        text: `add ${a} and ${b}`,
-                    },
-                },
+                        text: `add ${a} and ${b}`
+                    }
+                }
             ],
-            description: 'Prompt for use Addition Tool',
+            description: 'Prompt for use Addition Tool'
         };
     }
 );
