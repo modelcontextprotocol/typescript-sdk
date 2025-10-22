@@ -481,12 +481,19 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const abortController = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abortController);
 
+        const taskMetadata = request.params?._meta?.[TASK_META_KEY];
         const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT, SendResultT> = {
             signal: abortController.signal,
             sessionId: capturedTransport?.sessionId,
             _meta: request.params?._meta,
-            sendNotification: notification => this.notification(notification, { relatedRequestId: request.id }),
-            sendRequest: (r, resultSchema, options?) => this.request(r, resultSchema, { ...options, relatedRequestId: request.id }),
+            sendNotification: async notification => {
+                const relatedTask = taskMetadata ? { taskId: taskMetadata.taskId } : undefined;
+                await this.notification(notification, { relatedRequestId: request.id, relatedTask });
+            },
+            sendRequest: async (r, resultSchema, options?) => {
+                const relatedTask = taskMetadata ? { taskId: taskMetadata.taskId } : undefined;
+                return await this.request(r, resultSchema, { ...options, relatedRequestId: request.id, relatedTask });
+            },
             authInfo: extra?.authInfo,
             requestId: request.id,
             requestInfo: extra?.requestInfo
@@ -502,7 +509,6 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     }
 
                     // If this request asked for task creation, create the task and send notification
-                    const taskMetadata = request.params?._meta?.[TASK_META_KEY];
                     if (taskMetadata && this._taskStore) {
                         const task = await this._taskStore!.getTask(taskMetadata.taskId);
                         if (task) {
