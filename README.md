@@ -102,6 +102,30 @@ server.registerResource(
     })
 );
 
+// Add a prompt to use the addition tool
+server.registerPrompt(
+    'prompt_addition_tool',
+    {
+        title: 'Prompt for Addition Tool',
+        description: 'Create prompt to add two numbers',
+        argsSchema: { a: z.string(), b: z.string() },
+    },
+    ({ a, b }) => {
+        return {
+            messages: [
+                {
+                    role: 'user',
+                    content: {
+                        type: 'text',
+                        text: `add ${a} and ${b}`,
+                    },
+                },
+            ],
+            description: 'Prompt for use Addition Tool',
+        };
+    }
+);
+
 // Set up Express and HTTP transport
 const app = express();
 app.use(express.json());
