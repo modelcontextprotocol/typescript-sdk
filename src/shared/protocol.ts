@@ -4,8 +4,10 @@ import {
     ClientCapabilities,
     ErrorCode,
     GetTaskRequest,
+    GetTaskRequestSchema,
     GetTaskResultSchema,
     GetTaskPayloadRequest,
+    GetTaskPayloadRequestSchema,
     isJSONRPCError,
     isJSONRPCRequest,
     isJSONRPCResponse,
@@ -31,12 +33,13 @@ import {
     TaskCreatedNotificationSchema,
     TASK_META_KEY,
     GetTaskResult,
-    TaskRequestMetadata,
+    TaskMetadata,
     RelatedTaskMetadata
 } from '../types.js';
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
 import { PendingRequest } from './request.js';
+import { TaskStore } from './task.js';
 
 /**
  * Callback for progress notifications.
@@ -62,6 +65,11 @@ export type ProtocolOptions = {
      * e.g., ['notifications/tools/list_changed']
      */
     debouncedNotificationMethods?: string[];
+    /**
+     * Optional task storage implementation. If provided, the implementation will automatically
+     * handle task creation, status tracking, and result storage.
+     */
+    taskStore?: TaskStore;
 };
 
 /**
@@ -107,7 +115,7 @@ export type RequestOptions = {
     /**
      * If provided, augments the request with task metadata to enable call-now, fetch-later execution patterns.
      */
-    task?: TaskRequestMetadata;
+    task?: TaskMetadata;
 
     /**
      * If provided, associates this request with a related task.
@@ -215,6 +223,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _pendingDebouncedNotifications = new Set<string>();
     private _pendingTaskCreations: Map<string, { resolve: () => void; reject: (reason: Error) => void }> = new Map();
     private _requestIdToTaskId: Map<number, string> = new Map();
+    private _taskStore?: TaskStore;
 
     /**
      * Callback for when the connection is closed for any reason.
@@ -245,8 +254,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
     constructor(private _options?: ProtocolOptions) {
         this.setNotificationHandler(CancelledNotificationSchema, notification => {
-            const controller = this._requestHandlerAbortControllers.get(notification.params.requestId);
-            controller?.abort(notification.params.reason);
+            this._oncancel(notification);
         });
 
         this.setNotificationHandler(ProgressNotificationSchema, notification => {
@@ -269,6 +277,65 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             // Automatic pong by default.
             _request => ({}) as SendResultT
         );
+
+        // Install task handlers if TaskStore is provided
+        this._taskStore = _options?.taskStore;
+        if (this._taskStore) {
+            this.setRequestHandler(GetTaskRequestSchema, async request => {
+                const task = await this._taskStore!.getTask(request.params.taskId);
+                if (!task) {
+                    throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
+                }
+
+                // @ts-expect-error SendResultT cannot contain GetTaskResult, but we include it in our derived types everywhere else
+                return {
+                    ...task,
+                    _meta: {
+                        [RELATED_TASK_META_KEY]: {
+                            taskId: request.params.taskId
+                        }
+                    }
+                } as SendResultT;
+            });
+
+            this.setRequestHandler(GetTaskPayloadRequestSchema, async request => {
+                const task = await this._taskStore!.getTask(request.params.taskId);
+                if (!task) {
+                    throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
+                }
+
+                if (task.status !== 'completed') {
+                    throw new McpError(ErrorCode.InvalidParams, `Cannot retrieve result: Task status is '${task.status}', not 'completed'`);
+                }
+
+                const result = await this._taskStore!.getTaskResult(request.params.taskId);
+                return {
+                    ...result,
+                    _meta: {
+                        ...result._meta,
+                        [RELATED_TASK_META_KEY]: {
+                            taskId: request.params.taskId
+                        }
+                    }
+                } as SendResultT;
+            });
+        }
+    }
+
+    private async _oncancel(notification: z.infer<typeof CancelledNotificationSchema>): Promise<void> {
+        // Handle request cancellation
+        const controller = this._requestHandlerAbortControllers.get(notification.params.requestId);
+        controller?.abort(notification.params.reason);
+
+        // If this request had a task, mark it as cancelled in storage
+        const taskId = this._requestIdToTaskId.get(Number(notification.params.requestId));
+        if (taskId && this._taskStore) {
+            try {
+                await this._taskStore.updateTaskStatus(taskId, 'cancelled');
+            } catch (error) {
+                this._onerror(new Error(`Failed to cancel task ${taskId}: ${error}`));
+            }
+        }
     }
 
     private _setupTimeout(
@@ -429,16 +496,59 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         Promise.resolve()
             .then(() => handler(request, fullExtra))
             .then(
-                result => {
+                async result => {
                     if (abortController.signal.aborted) {
                         return;
                     }
 
-                    return capturedTransport?.send({
+                    // If this request asked for task creation, create the task and send notification
+                    const taskMetadata = request.params?._meta?.[TASK_META_KEY];
+                    if (taskMetadata && this._taskStore) {
+                        const task = await this._taskStore!.getTask(taskMetadata.taskId);
+                        if (task) {
+                            throw new McpError(ErrorCode.InvalidParams, `Task ID already exists: ${taskMetadata.taskId}`);
+                        }
+
+                        try {
+                            await this._taskStore.createTask(taskMetadata, request.id, {
+                                method: request.method,
+                                params: request.params
+                            });
+
+                            // Send task created notification
+                            await this.notification(
+                                {
+                                    method: 'notifications/tasks/created',
+                                    params: {
+                                        _meta: {
+                                            [RELATED_TASK_META_KEY]: {
+                                                taskId: taskMetadata.taskId
+                                            }
+                                        }
+                                    }
+                                } as SendNotificationT,
+                                { relatedRequestId: request.id }
+                            );
+                        } catch (error) {
+                            this._onerror(new Error(`Failed to create task: ${error}`));
+                        }
+                    }
+
+                    // Send the response
+                    await capturedTransport?.send({
                         result,
                         jsonrpc: '2.0',
                         id: request.id
                     });
+
+                    // Store the result if this was a task-based request
+                    if (taskMetadata && this._taskStore) {
+                        try {
+                            await this._taskStore.storeTaskResult(taskMetadata.taskId, result);
+                        } catch (error) {
+                            this._onerror(new Error(`Failed to store task result: ${error}`));
+                        }
+                    }
                 },
                 error => {
                     if (abortController.signal.aborted) {

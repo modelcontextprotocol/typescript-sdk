@@ -31,7 +31,7 @@ export class PendingRequest<SendRequestT extends Request, SendNotificationT exte
             (async () => {
                 // Blocks for a notifications/tasks/created with the provided task ID
                 await this.protocol.waitForTaskCreation(this.taskId!);
-                return await this.taskHandler(options as TaskHandlerOptions);
+                return await this.taskHandler(this.taskId!, options as TaskHandlerOptions);
             })()
         ]).then(([result, task]) => {
             if (result.status === 'fulfilled') {
@@ -48,16 +48,16 @@ export class PendingRequest<SendRequestT extends Request, SendNotificationT exte
     /**
      * Encapsulates polling for a result, calling onTaskStatus after querying the task.
      */
-    private async taskHandler({ onTaskStatus }: TaskHandlerOptions): Promise<SendResultT> {
+    private async taskHandler(taskId: string, { onTaskStatus }: TaskHandlerOptions): Promise<SendResultT> {
         // Poll for completion
         let task: GetTaskResult;
         do {
-            task = await this.protocol.getTask({ taskId: this.taskId! });
+            task = await this.protocol.getTask({ taskId: taskId });
             await onTaskStatus(task);
             await new Promise(resolve => setTimeout(resolve, task.pollFrequency ?? DEFAULT_POLLING_INTERNAL));
         } while (!(['complete', 'failed', 'cancelled', 'unknown'] as (typeof task.status)[]).includes(task.status));
 
         // Process result
-        return await this.protocol.getTaskResult({ taskId: this.taskId! }, this.resultSchema);
+        return await this.protocol.getTaskResult({ taskId: taskId }, this.resultSchema);
     }
 }

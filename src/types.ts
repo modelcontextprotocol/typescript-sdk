@@ -24,7 +24,7 @@ export const CursorSchema = z.string();
 /**
  * Task creation metadata, used to ask that the server create a task to represent a request.
  */
-export const TaskRequestMetadataSchema = z
+export const TaskMetadataSchema = z
     .object({
         /**
          * The task ID to use as a reference to the created task.
@@ -56,7 +56,7 @@ const RequestMetaSchema = z
         /**
          * If specified, the caller is requesting that the receiver create a task to represent the request.
          */
-        [TASK_META_KEY]: z.optional(TaskRequestMetadataSchema),
+        [TASK_META_KEY]: z.optional(TaskMetadataSchema),
         /**
          * If specified, this request is related to the provided task.
          */
@@ -1670,7 +1670,7 @@ export type ProgressNotification = Infer<typeof ProgressNotificationSchema>;
 
 /* Tasks */
 export type Task = Infer<typeof TaskSchema>;
-export type TaskRequestMetadata = Infer<typeof TaskRequestMetadataSchema>;
+export type TaskMetadata = Infer<typeof TaskMetadataSchema>;
 export type RelatedTaskMetadata = Infer<typeof RelatedTaskMetadataSchema>;
 export type TaskCreatedNotification = Infer<typeof TaskCreatedNotificationSchema>;
 export type GetTaskRequest = Infer<typeof GetTaskRequestSchema>;
