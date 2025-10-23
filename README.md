@@ -26,6 +26,7 @@
     - [Improving Network Efficiency with Notification Debouncing](#improving-network-efficiency-with-notification-debouncing)
     - [Low-Level Server](#low-level-server)
     - [Eliciting User Input](#eliciting-user-input)
+    - [Task-Based Execution](#task-based-execution)
     - [Writing MCP Clients](#writing-mcp-clients)
     - [Proxy Authorization Requests Upstream](#proxy-authorization-requests-upstream)
     - [Backwards Compatibility](#backwards-compatibility)
@@ -1300,6 +1301,169 @@ client.setRequestHandler(ElicitRequestSchema, async request => {
 ```
 
 **Note**: Elicitation requires client support. Clients must declare the `elicitation` capability during initialization.
+
+### Task-Based Execution
+
+Task-based execution enables "call-now, fetch-later" patterns for long-running operations. This is useful for tools that take significant time to complete, where clients may want to disconnect and check on progress or retrieve results later.
+
+Common use cases include:
+
+- Long-running data processing or analysis
+- Code migration or refactoring operations
+- Complex computational tasks
+- Operations that require periodic status updates
+
+#### Server-Side: Implementing Task Support
+
+To enable task-based execution, configure your server with a `TaskStore` implementation. The SDK doesn't provide a built-in TaskStore—you'll need to implement one backed by your database of choice:
+
+```typescript
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { TaskStore } from '@modelcontextprotocol/sdk/shared/task.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+
+// Implement TaskStore backed by your database (e.g., PostgreSQL, Redis, etc.)
+class MyTaskStore implements TaskStore {
+    async createTask(metadata, requestId, request) {
+        // Store task in your database
+    }
+
+    async getTask(taskId) {
+        // Retrieve task from your database
+    }
+
+    async updateTaskStatus(taskId, status, errorMessage?) {
+        // Update task status in your database
+    }
+
+    async storeTaskResult(taskId, result) {
+        // Store task result in your database
+    }
+
+    async getTaskResult(taskId) {
+        // Retrieve task result from your database
+    }
+}
+
+const taskStore = new MyTaskStore();
+
+const server = new Server(
+    {
+        name: 'task-enabled-server',
+        version: '1.0.0'
+    },
+    {
+        capabilities: {
+            tools: {}
+        },
+        taskStore // Enable task support
+    }
+);
+
+// Set up a long-running tool handler as usual
+server.setRequestHandler(CallToolRequestSchema, async request => {
+    if (request.params.name === 'analyze-data') {
+        // Simulate long-running analysis
+        await new Promise(resolve => setTimeout(resolve, 30000));
+
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: 'Analysis complete!'
+                }
+            ]
+        };
+    }
+    throw new Error('Unknown tool');
+});
+
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: [
+        {
+            name: 'analyze-data',
+            description: 'Perform data analysis (long-running)',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    dataset: { type: 'string' }
+                }
+            }
+        }
+    ]
+}));
+```
+
+**Note**: See `src/examples/shared/inMemoryTaskStore.ts` in the SDK source for a reference implementation suitable for development and testing.
+
+#### Client-Side: Using Task-Based Execution
+
+Clients use `beginCallTool()` to initiate task-based operations. The returned `PendingRequest` object provides automatic polling and status tracking:
+
+```typescript
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+
+const client = new Client({
+    name: 'task-client',
+    version: '1.0.0'
+});
+
+// ... connect to server ...
+
+// Initiate a task-based tool call
+const taskId = 'analysis-task-123';
+const pendingRequest = client.beginCallTool(
+    {
+        name: 'analyze-data',
+        arguments: { dataset: 'user-data.csv' }
+    },
+    CallToolResultSchema,
+    {
+        task: {
+            taskId,
+            keepAlive: 300000 // Keep results for 5 minutes after completion
+        }
+    }
+);
+
+// Option 1: Wait for completion with status callbacks
+const result = await pendingRequest.result({
+    onTaskCreated: () => {
+        console.log('Task created successfully');
+    },
+    onTaskStatus: task => {
+        console.log(`Task status: ${task.status}`);
+        // Status can be: 'submitted', 'working', 'input_required', 'completed', 'failed', or 'cancelled'
+    }
+});
+console.log('Task completed:', result);
+
+// Option 2: Fire and forget - disconnect and reconnect later
+// (useful when you don't want to wait for long-running tasks)
+// Later, after disconnecting and reconnecting to the server:
+const taskStatus = await client.getTask({ taskId });
+console.log('Task status:', taskStatus.status);
+
+if (taskStatus.status === 'completed') {
+    const taskResult = await client.getTaskResult({ taskId }, CallToolResultSchema);
+    console.log('Retrieved result after reconnect:', taskResult);
+}
+```
+
+#### Task Status Lifecycle
+
+Tasks transition through the following states:
+
+- **submitted**: Task has been created and queued
+- **working**: Task is actively being processed
+- **input_required**: Task is waiting for additional input (e.g., from elicitation)
+- **completed**: Task finished successfully
+- **failed**: Task encountered an error
+- **cancelled**: Task was cancelled by the client
+- **unknown**: Task status could not be determined (terminal state, rarely occurs)
+
+The `keepAlive` parameter determines how long the server retains task results after completion. This allows clients to retrieve results even after disconnecting and reconnecting.
 
 ### Writing MCP Clients
 
