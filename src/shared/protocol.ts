@@ -501,43 +501,58 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         Promise.resolve()
+            .then(async () => {
+                // If this request asked for task creation, create the task and send notification
+                if (taskMetadata && this._taskStore) {
+                    const task = await this._taskStore!.getTask(taskMetadata.taskId);
+                    if (task) {
+                        throw new McpError(ErrorCode.InvalidParams, `Task ID already exists: ${taskMetadata.taskId}`);
+                    }
+
+                    try {
+                        await this._taskStore.createTask(taskMetadata, request.id, {
+                            method: request.method,
+                            params: request.params
+                        });
+
+                        // Send task created notification
+                        await this.notification(
+                            {
+                                method: 'notifications/tasks/created',
+                                params: {
+                                    _meta: {
+                                        [RELATED_TASK_META_KEY]: {
+                                            taskId: taskMetadata.taskId
+                                        }
+                                    }
+                                }
+                            } as SendNotificationT,
+                            { relatedRequestId: request.id }
+                        );
+                    } catch (error) {
+                        throw new McpError(ErrorCode.InternalError, `Failed to create task: ${taskMetadata.taskId}`);
+                    }
+                }
+            })
+            .then(async () => {
+                // If this request had a task, mark it as working
+                if (taskMetadata && this._taskStore) {
+                    try {
+                        await this._taskStore.updateTaskStatus(taskMetadata.taskId, 'working');
+                    } catch (error) {
+                        try {
+                            await this._taskStore.updateTaskStatus(taskMetadata.taskId, 'failed', 'Failed to mark task as working');
+                        } catch (error) {
+                            throw new McpError(ErrorCode.InternalError, `Failed to mark task as working: ${error}`);
+                        }
+                    }
+                }
+            })
             .then(() => handler(request, fullExtra))
             .then(
                 async result => {
                     if (abortController.signal.aborted) {
                         return;
-                    }
-
-                    // If this request asked for task creation, create the task and send notification
-                    if (taskMetadata && this._taskStore) {
-                        const task = await this._taskStore!.getTask(taskMetadata.taskId);
-                        if (task) {
-                            throw new McpError(ErrorCode.InvalidParams, `Task ID already exists: ${taskMetadata.taskId}`);
-                        }
-
-                        try {
-                            await this._taskStore.createTask(taskMetadata, request.id, {
-                                method: request.method,
-                                params: request.params
-                            });
-
-                            // Send task created notification
-                            await this.notification(
-                                {
-                                    method: 'notifications/tasks/created',
-                                    params: {
-                                        _meta: {
-                                            [RELATED_TASK_META_KEY]: {
-                                                taskId: taskMetadata.taskId
-                                            }
-                                        }
-                                    }
-                                } as SendNotificationT,
-                                { relatedRequestId: request.id }
-                            );
-                        } catch (error) {
-                            this._onerror(new Error(`Failed to create task: ${error}`));
-                        }
                     }
 
                     // Send the response
@@ -552,7 +567,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         try {
                             await this._taskStore.storeTaskResult(taskMetadata.taskId, result);
                         } catch (error) {
-                            this._onerror(new Error(`Failed to store task result: ${error}`));
+                            throw new McpError(ErrorCode.InternalError, `Failed to store task result: ${error}`);
                         }
                     }
                 },
@@ -678,7 +693,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
         const { taskId, keepAlive } = task ?? {};
 
-        const promise = new Promise<z.infer<T>>((resolve, reject) => {
+        // For tasks, create an advance promise for the creation notification to avoid
+        // race conditions with installing this callback.
+        const taskCreated = taskId ? this.waitForTaskCreation(taskId) : Promise.resolve();
+
+        // Send the request
+        const result = new Promise<z.infer<T>>((resolve, reject) => {
             if (!this._transport) {
                 reject(new Error('Not connected'));
                 return;
@@ -788,7 +808,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             });
         });
 
-        return new PendingRequest(this, promise, resultSchema, taskId);
+        return new PendingRequest(this, taskCreated, result, resultSchema, taskId);
     }
 
     /**
@@ -805,7 +825,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * Returns a promise that resolves when the notifications/tasks/created notification is received,
      * or rejects if the task is cleaned up (e.g., connection closed or request completed).
      */
-    waitForTaskCreation(taskId: string): Promise<void> {
+    private waitForTaskCreation(taskId: string): Promise<void> {
         return new Promise((resolve, reject) => {
             this._pendingTaskCreations.set(taskId, { resolve, reject });
         });

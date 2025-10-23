@@ -1,16 +1,21 @@
 import { ZodType } from 'zod';
 import { Protocol } from './protocol.js';
 import { Request, Notification, Result, Task, GetTaskResult } from '../types.js';
+import { isTerminal } from './task.js';
 
 const DEFAULT_POLLING_INTERNAL = 5000;
 
+const DEFAULT_HANDLER = () => Promise.resolve();
+
 export interface TaskHandlerOptions {
-    onTaskStatus: (task: Task) => Promise<void>;
+    onTaskCreated: () => Promise<void> | void;
+    onTaskStatus: (task: Task) => Promise<void> | void;
 }
 
 export class PendingRequest<SendRequestT extends Request, SendNotificationT extends Notification, SendResultT extends Result> {
     constructor(
         readonly protocol: Protocol<SendRequestT, SendNotificationT, SendResultT>,
+        readonly taskCreatedHandle: Promise<void>,
         readonly resultHandle: Promise<SendResultT>,
         readonly resultSchema: ZodType,
         readonly taskId?: string
@@ -20,24 +25,30 @@ export class PendingRequest<SendRequestT extends Request, SendNotificationT exte
      * Waits for a result, calling onTaskStatus if provided and a task was created.
      */
     async result(options?: Partial<TaskHandlerOptions>): Promise<SendResultT> {
-        if (!options?.onTaskStatus || !this.taskId) {
-            // No task listener or task ID provided, just block for the result
+        const { onTaskCreated = DEFAULT_HANDLER, onTaskStatus = DEFAULT_HANDLER } = options ?? {};
+
+        if (!this.taskId) {
+            // No task ID provided, just block for the result
             return await this.resultHandle;
         }
 
         // Whichever is successful first (or a failure if all fail) is returned.
         return Promise.allSettled([
-            this.resultHandle,
             (async () => {
                 // Blocks for a notifications/tasks/created with the provided task ID
-                await this.protocol.waitForTaskCreation(this.taskId!);
-                return await this.taskHandler(this.taskId!, options as TaskHandlerOptions);
-            })()
-        ]).then(([result, task]) => {
-            if (result.status === 'fulfilled') {
-                return result.value;
-            } else if (task.status === 'fulfilled') {
+                await this.taskCreatedHandle;
+                await onTaskCreated();
+                return await this.taskHandler(this.taskId!, {
+                    onTaskCreated,
+                    onTaskStatus
+                });
+            })(),
+            this.resultHandle
+        ]).then(([task, result]) => {
+            if (task.status === 'fulfilled') {
                 return task.value;
+            } else if (result.status === 'fulfilled') {
+                return result.value;
             }
 
             const errors: unknown[] = [result.reason, task.reason];
@@ -55,7 +66,7 @@ export class PendingRequest<SendRequestT extends Request, SendNotificationT exte
             task = await this.protocol.getTask({ taskId: taskId });
             await onTaskStatus(task);
             await new Promise(resolve => setTimeout(resolve, task.pollFrequency ?? DEFAULT_POLLING_INTERNAL));
-        } while (!(['complete', 'failed', 'cancelled', 'unknown'] as (typeof task.status)[]).includes(task.status));
+        } while (!isTerminal(task.status));
 
         // Process result
         return await this.protocol.getTaskResult({ taskId: taskId }, this.resultSchema);

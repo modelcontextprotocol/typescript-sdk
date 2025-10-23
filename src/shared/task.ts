@@ -49,3 +49,14 @@ export interface TaskStore {
      */
     updateTaskStatus(taskId: string, status: Task['status'], error?: string): Promise<void>;
 }
+
+/**
+ * Checks if a task status represents a terminal state.
+ * Terminal states are those where the task has finished and will not change.
+ *
+ * @param status - The task status to check
+ * @returns True if the status is terminal (completed, failed, cancelled, or unknown)
+ */
+export function isTerminal(status: Task['status']): boolean {
+    return status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'unknown';
+}
