@@ -742,3 +742,472 @@ describe('mergeCapabilities', () => {
         expect(merged).toEqual({});
     });
 });
+
+describe('Task-based execution', () => {
+    let protocol: Protocol<Request, Notification, Result>;
+    let transport: MockTransport;
+    let sendSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+        transport = new MockTransport();
+        sendSpy = jest.spyOn(transport, 'send');
+        protocol = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(): void {}
+            protected assertNotificationCapability(): void {}
+            protected assertRequestHandlerCapability(): void {}
+        })();
+    });
+
+    describe('beginRequest with task metadata', () => {
+        it('should inject task metadata into _meta field', async () => {
+            await protocol.connect(transport);
+
+            const request = {
+                method: 'tools/call',
+                params: { name: 'test-tool' }
+            };
+
+            const resultSchema = z.object({
+                content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
+            });
+
+            protocol.beginRequest(request, resultSchema, {
+                task: {
+                    taskId: 'my-task-123',
+                    keepAlive: 30000
+                }
+            });
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    method: 'tools/call',
+                    params: {
+                        name: 'test-tool',
+                        _meta: {
+                            'modelcontextprotocol.io/task': {
+                                taskId: 'my-task-123',
+                                keepAlive: 30000
+                            }
+                        }
+                    }
+                }),
+                expect.any(Object)
+            );
+        });
+
+        it('should preserve existing _meta when adding task metadata', async () => {
+            await protocol.connect(transport);
+
+            const request = {
+                method: 'tools/call',
+                params: {
+                    name: 'test-tool',
+                    _meta: {
+                        customField: 'customValue'
+                    }
+                }
+            };
+
+            const resultSchema = z.object({
+                content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
+            });
+
+            protocol.beginRequest(request, resultSchema, {
+                task: {
+                    taskId: 'my-task-456'
+                }
+            });
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    params: {
+                        name: 'test-tool',
+                        _meta: {
+                            customField: 'customValue',
+                            'modelcontextprotocol.io/task': {
+                                taskId: 'my-task-456'
+                            }
+                        }
+                    }
+                }),
+                expect.any(Object)
+            );
+        });
+
+        it('should return PendingRequest object', async () => {
+            await protocol.connect(transport);
+
+            const request = {
+                method: 'tools/call',
+                params: { name: 'test-tool' }
+            };
+
+            const resultSchema = z.object({
+                content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
+            });
+
+            const pendingRequest = protocol.beginRequest(request, resultSchema, {
+                task: {
+                    taskId: 'my-task-789'
+                }
+            });
+
+            expect(pendingRequest).toBeDefined();
+            expect(pendingRequest.taskId).toBe('my-task-789');
+        });
+    });
+
+    describe('relatedTask metadata', () => {
+        it('should inject relatedTask metadata into _meta field', async () => {
+            await protocol.connect(transport);
+
+            const request = {
+                method: 'notifications/message',
+                params: { data: 'test' }
+            };
+
+            const resultSchema = z.object({});
+
+            protocol.beginRequest(request, resultSchema, {
+                relatedTask: {
+                    taskId: 'parent-task-123'
+                }
+            });
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    params: {
+                        data: 'test',
+                        _meta: {
+                            'modelcontextprotocol.io/related-task': {
+                                taskId: 'parent-task-123'
+                            }
+                        }
+                    }
+                }),
+                expect.any(Object)
+            );
+        });
+
+        it('should work with notification method', async () => {
+            await protocol.connect(transport);
+
+            await protocol.notification(
+                {
+                    method: 'notifications/message',
+                    params: { level: 'info', data: 'test message' }
+                },
+                {
+                    relatedTask: {
+                        taskId: 'parent-task-456'
+                    }
+                }
+            );
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    method: 'notifications/message',
+                    params: {
+                        level: 'info',
+                        data: 'test message',
+                        _meta: {
+                            'modelcontextprotocol.io/related-task': {
+                                taskId: 'parent-task-456'
+                            }
+                        }
+                    }
+                }),
+                expect.any(Object)
+            );
+        });
+    });
+
+    describe('task metadata combination', () => {
+        it('should combine task, relatedTask, and progress metadata', async () => {
+            await protocol.connect(transport);
+
+            const request = {
+                method: 'tools/call',
+                params: { name: 'test-tool' }
+            };
+
+            const resultSchema = z.object({
+                content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
+            });
+
+            protocol.beginRequest(request, resultSchema, {
+                task: {
+                    taskId: 'my-task-combined'
+                },
+                relatedTask: {
+                    taskId: 'parent-task'
+                },
+                onprogress: jest.fn()
+            });
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    params: {
+                        name: 'test-tool',
+                        _meta: {
+                            'modelcontextprotocol.io/task': {
+                                taskId: 'my-task-combined'
+                            },
+                            'modelcontextprotocol.io/related-task': {
+                                taskId: 'parent-task'
+                            },
+                            progressToken: expect.any(Number)
+                        }
+                    }
+                }),
+                expect.any(Object)
+            );
+        });
+    });
+
+    describe('task status transitions', () => {
+        it('should transition from submitted to working when handler starts', async () => {
+            const mockTaskStore = {
+                createTask: jest.fn().mockResolvedValue(undefined),
+                getTask: jest.fn().mockResolvedValue(null),
+                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
+                storeTaskResult: jest.fn().mockResolvedValue(undefined),
+                getTaskResult: jest.fn().mockResolvedValue({ content: [] })
+            };
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(transport);
+
+            protocol.setRequestHandler(z.object({ method: z.literal('test/method'), params: z.any() }), async () => ({
+                result: 'success'
+            }));
+
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'test/method',
+                params: {
+                    _meta: {
+                        'modelcontextprotocol.io/task': {
+                            taskId: 'test-task',
+                            keepAlive: 60000
+                        }
+                    }
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(mockTaskStore.createTask).toHaveBeenCalledWith({ taskId: 'test-task', keepAlive: 60000 }, 1, {
+                method: 'test/method',
+                params: expect.any(Object)
+            });
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'working');
+        });
+
+        it('should transition to input_required during extra.sendRequest', async () => {
+            const mockTaskStore = {
+                createTask: jest.fn().mockResolvedValue(undefined),
+                getTask: jest.fn().mockResolvedValue(null),
+                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
+                storeTaskResult: jest.fn().mockResolvedValue(undefined),
+                getTaskResult: jest.fn().mockResolvedValue({ content: [] })
+            };
+
+            const responsiveTransport = new MockTransport();
+            responsiveTransport.send = jest.fn().mockImplementation(async (message: unknown) => {
+                if (
+                    typeof message === 'object' &&
+                    message !== null &&
+                    'method' in message &&
+                    'id' in message &&
+                    message.method === 'nested/request' &&
+                    responsiveTransport.onmessage
+                ) {
+                    setTimeout(() => {
+                        responsiveTransport.onmessage?.({
+                            jsonrpc: '2.0',
+                            id: (message as { id: number }).id,
+                            result: { nested: 'response' }
+                        });
+                    }, 5);
+                }
+            });
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(responsiveTransport);
+
+            const capturedUpdateCalls: Array<{ taskId: string; status: string }> = [];
+            mockTaskStore.updateTaskStatus.mockImplementation((taskId, status) => {
+                capturedUpdateCalls.push({ taskId, status });
+                return Promise.resolve();
+            });
+
+            protocol.setRequestHandler(z.object({ method: z.literal('test/method'), params: z.any() }), async (_request, extra) => {
+                await extra.sendRequest({ method: 'nested/request', params: {} }, z.object({ nested: z.string() }));
+                return { result: 'success' };
+            });
+
+            responsiveTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'test/method',
+                params: {
+                    _meta: {
+                        'modelcontextprotocol.io/task': {
+                            taskId: 'test-task',
+                            keepAlive: 60000
+                        }
+                    }
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            expect(capturedUpdateCalls).toContainEqual({ taskId: 'test-task', status: 'working' });
+            expect(capturedUpdateCalls).toContainEqual({ taskId: 'test-task', status: 'input_required' });
+
+            const inputRequiredIndex = capturedUpdateCalls.findIndex(c => c.status === 'input_required');
+            const workingCalls = capturedUpdateCalls.filter(c => c.status === 'working');
+            expect(workingCalls).toHaveLength(2);
+
+            let workingCount = 0;
+            const secondWorkingIndex = capturedUpdateCalls.findIndex(c => {
+                if (c.status === 'working') {
+                    workingCount++;
+                    return workingCount === 2;
+                }
+                return false;
+            });
+            expect(secondWorkingIndex).toBeGreaterThan(inputRequiredIndex);
+        });
+
+        it('should mark task as completed when storeTaskResult is called', async () => {
+            const mockTaskStore = {
+                createTask: jest.fn().mockResolvedValue(undefined),
+                getTask: jest.fn().mockResolvedValue(null),
+                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
+                storeTaskResult: jest.fn().mockResolvedValue(undefined),
+                getTaskResult: jest.fn().mockResolvedValue({ content: [] })
+            };
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(transport);
+
+            protocol.setRequestHandler(z.object({ method: z.literal('test/method'), params: z.any() }), async () => ({
+                result: 'success'
+            }));
+
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'test/method',
+                params: {
+                    _meta: {
+                        'modelcontextprotocol.io/task': {
+                            taskId: 'test-task',
+                            keepAlive: 60000
+                        }
+                    }
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(mockTaskStore.storeTaskResult).toHaveBeenCalledWith('test-task', { result: 'success' });
+        });
+
+        it('should mark task as cancelled when notifications/cancelled is received', async () => {
+            const mockTaskStore = {
+                createTask: jest.fn().mockResolvedValue(undefined),
+                getTask: jest.fn().mockResolvedValue({ taskId: 'test-task', status: 'working', keepAlive: null, pollFrequency: 500 }),
+                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
+                storeTaskResult: jest.fn().mockResolvedValue(undefined),
+                getTaskResult: jest.fn().mockResolvedValue({ content: [] })
+            };
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(transport);
+
+            void protocol.request({ method: 'test/slow', params: {} }, z.object({ result: z.string() }), {
+                task: { taskId: 'test-task', keepAlive: 60000 }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                method: 'notifications/cancelled',
+                params: {
+                    requestId: 0,
+                    reason: 'User cancelled'
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'cancelled');
+        });
+
+        it('should mark task as failed when updateTaskStatus to working fails', async () => {
+            const mockTaskStore = {
+                createTask: jest.fn().mockResolvedValue(undefined),
+                getTask: jest.fn().mockResolvedValue(null),
+                updateTaskStatus: jest.fn().mockRejectedValueOnce(new Error('Failed to update status')).mockResolvedValue(undefined),
+                storeTaskResult: jest.fn().mockResolvedValue(undefined),
+                getTaskResult: jest.fn().mockResolvedValue({ content: [] })
+            };
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(transport);
+
+            protocol.setRequestHandler(z.object({ method: z.literal('test/method'), params: z.any() }), async () => ({
+                result: 'success'
+            }));
+
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'test/method',
+                params: {
+                    _meta: {
+                        'modelcontextprotocol.io/task': {
+                            taskId: 'test-task',
+                            keepAlive: 60000
+                        }
+                    }
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'working');
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'failed', 'Failed to mark task as working');
+        });
+    });
+});

@@ -518,29 +518,25 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         throw new McpError(ErrorCode.InvalidParams, `Task ID already exists: ${taskMetadata.taskId}`);
                     }
 
-                    try {
-                        await this._taskStore.createTask(taskMetadata, request.id, {
-                            method: request.method,
-                            params: request.params
-                        });
+                    await this._taskStore.createTask(taskMetadata, request.id, {
+                        method: request.method,
+                        params: request.params
+                    });
 
-                        // Send task created notification
-                        await this.notification(
-                            {
-                                method: 'notifications/tasks/created',
-                                params: {
-                                    _meta: {
-                                        [RELATED_TASK_META_KEY]: {
-                                            taskId: taskMetadata.taskId
-                                        }
+                    // Send task created notification
+                    await this.notification(
+                        {
+                            method: 'notifications/tasks/created',
+                            params: {
+                                _meta: {
+                                    [RELATED_TASK_META_KEY]: {
+                                        taskId: taskMetadata.taskId
                                     }
                                 }
-                            } as SendNotificationT,
-                            { relatedRequestId: request.id }
-                        );
-                    } catch (error) {
-                        throw new McpError(ErrorCode.InternalError, `Failed to create task: ${taskMetadata.taskId}`);
-                    }
+                            }
+                        } as SendNotificationT,
+                        { relatedRequestId: request.id }
+                    );
                 }
             })
             .then(async () => {
@@ -548,7 +544,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 if (taskMetadata && this._taskStore) {
                     try {
                         await this._taskStore.updateTaskStatus(taskMetadata.taskId, 'working');
-                    } catch (error) {
+                    } catch {
                         try {
                             await this._taskStore.updateTaskStatus(taskMetadata.taskId, 'failed', 'Failed to mark task as working');
                         } catch (error) {

@@ -21,6 +21,8 @@ import {
 import { Transport } from '../shared/transport.js';
 import { InMemoryTransport } from '../inMemory.js';
 import { Client } from '../client/index.js';
+import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
+import { CallToolRequestSchema, CallToolResultSchema } from '../types.js';
 
 test('should accept latest protocol version', async () => {
     let sendPromiseResolve: (value: unknown) => void;
@@ -954,4 +956,261 @@ test('should respect log level for transport with sessionId', async () => {
     // This one will, triggering the above test in clientTransport.onmessage
     await server.sendLoggingMessage(warningParams, SESSION_ID);
     expect(clientTransport.onmessage).toHaveBeenCalled();
+});
+
+describe('Task-based execution', () => {
+    test('server with TaskStore should handle task-based tool execution', async () => {
+        const taskStore = new InMemoryTaskStore();
+
+        const server = new Server(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tools: {}
+                },
+                taskStore
+            }
+        );
+
+        // Set up a tool handler that simulates some work
+        server.setRequestHandler(CallToolRequestSchema, async request => {
+            if (request.params.name === 'test-tool') {
+                // Simulate some async work
+                await new Promise(resolve => setTimeout(resolve, 10));
+                return {
+                    content: [{ type: 'text', text: 'Tool executed successfully!' }]
+                };
+            }
+            throw new Error('Unknown tool');
+        });
+
+        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+            tools: [
+                {
+                    name: 'test-tool',
+                    description: 'A test tool',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {}
+                    }
+                }
+            ]
+        }));
+
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Use beginCallTool to create a task
+        const taskId = 'test-task-123';
+        const pendingRequest = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+            task: {
+                taskId,
+                keepAlive: 60000
+            }
+        });
+
+        // Wait for the task to complete
+        await pendingRequest.result();
+
+        // Verify we can retrieve the task
+        const task = await client.getTask({ taskId });
+        expect(task).toBeDefined();
+        expect(task.status).toBe('completed');
+
+        // Verify we can retrieve the result
+        const result = await client.getTaskResult({ taskId }, CallToolResultSchema);
+        expect(result.content).toEqual([{ type: 'text', text: 'Tool executed successfully!' }]);
+
+        // Cleanup
+        taskStore.cleanup();
+    });
+
+    test('server without TaskStore should reject task-based requests', async () => {
+        const server = new Server(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tools: {}
+                }
+                // No taskStore configured
+            }
+        );
+
+        server.setRequestHandler(CallToolRequestSchema, async request => {
+            if (request.params.name === 'test-tool') {
+                return {
+                    content: [{ type: 'text', text: 'Success!' }]
+                };
+            }
+            throw new Error('Unknown tool');
+        });
+
+        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+            tools: [
+                {
+                    name: 'test-tool',
+                    description: 'A test tool',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {}
+                    }
+                }
+            ]
+        }));
+
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Try to get a task when server doesn't have TaskStore
+        // The server will return a "Method not found" error
+        await expect(client.getTask({ taskId: 'non-existent' })).rejects.toThrow('Method not found');
+    });
+
+    test('should automatically attach related-task metadata to nested requests during tool execution', async () => {
+        const taskStore = new InMemoryTaskStore();
+
+        const server = new Server(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tools: {}
+                },
+                taskStore
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test-client',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    elicitation: {}
+                }
+            }
+        );
+
+        // Track the elicitation request to verify related-task metadata
+        let capturedElicitRequest: z.infer<typeof ElicitRequestSchema> | null = null;
+
+        // Set up client elicitation handler
+        client.setRequestHandler(ElicitRequestSchema, async request => {
+            // Capture the request to verify metadata later
+            capturedElicitRequest = request;
+
+            return {
+                action: 'accept',
+                content: {
+                    username: 'test-user'
+                }
+            };
+        });
+
+        // Set up server tool that makes a nested elicitation request
+        server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+            if (request.params.name === 'collect-info') {
+                // During tool execution, make a nested request to the client using extra.sendRequest
+                // This should AUTOMATICALLY attach the related-task metadata
+                const elicitResult = await extra.sendRequest(
+                    {
+                        method: 'elicitation/create',
+                        params: {
+                            message: 'Please provide your username',
+                            requestedSchema: {
+                                type: 'object',
+                                properties: {
+                                    username: { type: 'string' }
+                                },
+                                required: ['username']
+                            }
+                        }
+                    },
+                    z.object({
+                        action: z.enum(['accept', 'decline', 'cancel']),
+                        content: z.record(z.unknown()).optional()
+                    })
+                );
+
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: `Collected username: ${elicitResult.action === 'accept' && elicitResult.content ? (elicitResult.content as Record<string, unknown>).username : 'none'}`
+                        }
+                    ]
+                };
+            }
+            throw new Error('Unknown tool');
+        });
+
+        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+            tools: [
+                {
+                    name: 'collect-info',
+                    description: 'Collects user info via elicitation',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {}
+                    }
+                }
+            ]
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Call tool WITH task metadata
+        const taskId = 'test-task-456';
+        const pendingRequest = client.beginCallTool({ name: 'collect-info', arguments: {} }, CallToolResultSchema, {
+            task: {
+                taskId,
+                keepAlive: 60000
+            }
+        });
+
+        // Wait for completion
+        await pendingRequest.result();
+
+        // Verify the nested elicitation request received the related-task metadata
+        expect(capturedElicitRequest).toBeDefined();
+        expect(capturedElicitRequest!.params._meta).toBeDefined();
+        expect(capturedElicitRequest!.params._meta?.['modelcontextprotocol.io/related-task']).toEqual({
+            taskId: 'test-task-456'
+        });
+
+        // Verify tool result was correct
+        const result = await client.getTaskResult({ taskId }, CallToolResultSchema);
+        expect(result.content).toEqual([
+            {
+                type: 'text',
+                text: 'Collected username: test-user'
+            }
+        ]);
+
+        // Cleanup
+        taskStore.cleanup();
+    });
 });
