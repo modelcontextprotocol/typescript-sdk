@@ -17,7 +17,8 @@ import {
     ElicitRequestSchema,
     ResourceLink,
     ReadResourceRequest,
-    ReadResourceResultSchema
+    ReadResourceResultSchema,
+    RELATED_TASK_META_KEY
 } from '../../types.js';
 import { getDisplayName } from '../../shared/metadataUtils.js';
 import Ajv from 'ajv';
@@ -249,6 +250,7 @@ async function connect(url?: string): Promise<void> {
         client.setRequestHandler(ElicitRequestSchema, async request => {
             console.log('\n🔔 Elicitation Request Received:');
             console.log(`Message: ${request.params.message}`);
+            console.log(`Related Task: ${request.params._meta?.[RELATED_TASK_META_KEY]?.taskId}`);
             console.log('Requested Schema:');
             console.log(JSON.stringify(request.params.requestedSchema, null, 2));
 
@@ -827,12 +829,16 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
 
         console.log('Waiting for task completion...');
 
+        let lastStatus = '';
         await pendingRequest.result({
             onTaskCreated: () => {
                 console.log('Task created successfully');
             },
             onTaskStatus: task => {
-                console.log(`  ${task.status}${task.error ? ` - ${task.error}` : ''}`);
+                if (lastStatus !== task.status) {
+                    console.log(`  ${task.status}${task.error ? ` - ${task.error}` : ''}`);
+                }
+                lastStatus = task.status;
             }
         });
 

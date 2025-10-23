@@ -7,6 +7,7 @@ import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../
 import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
 import {
     CallToolResult,
+    ElicitResultSchema,
     GetPromptResult,
     isInitializeRequest,
     PrimitiveSchemaDefinition,
@@ -126,7 +127,7 @@ const getServer = () => {
         {
             infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect')
         },
-        async ({ infoType }): Promise<CallToolResult> => {
+        async ({ infoType }, extra): Promise<CallToolResult> => {
             let message: string;
             let requestedSchema: {
                 type: 'object';
@@ -221,11 +222,17 @@ const getServer = () => {
             }
 
             try {
-                // Use the underlying server instance to elicit input from the client
-                const result = await server.server.elicitInput({
-                    message,
-                    requestedSchema
-                });
+                // Elicit input from the client
+                const result = await extra.sendRequest(
+                    {
+                        method: 'elicitation/create',
+                        params: {
+                            message,
+                            requestedSchema
+                        }
+                    },
+                    ElicitResultSchema
+                );
 
                 if (result.action === 'accept') {
                     return {

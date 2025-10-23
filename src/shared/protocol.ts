@@ -492,7 +492,16 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             },
             sendRequest: async (r, resultSchema, options?) => {
                 const relatedTask = taskMetadata ? { taskId: taskMetadata.taskId } : undefined;
-                return await this.request(r, resultSchema, { ...options, relatedRequestId: request.id, relatedTask });
+                if (taskMetadata && this._taskStore) {
+                    await this._taskStore.updateTaskStatus(taskMetadata.taskId, 'input_required');
+                }
+                try {
+                    return await this.request(r, resultSchema, { ...options, relatedRequestId: request.id, relatedTask });
+                } finally {
+                    if (taskMetadata && this._taskStore) {
+                        await this._taskStore.updateTaskStatus(taskMetadata.taskId, 'working');
+                    }
+                }
             },
             authInfo: extra?.authInfo,
             requestId: request.id,
