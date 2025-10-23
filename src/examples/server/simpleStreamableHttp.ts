@@ -14,6 +14,7 @@ import {
     ResourceLink
 } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
+import { InMemoryTaskStore } from '../shared/inMemoryTaskStore.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from 'src/shared/auth.js';
 import { checkResourceAllowed } from 'src/shared/auth-utils.js';
@@ -24,6 +25,9 @@ import cors from 'cors';
 const useOAuth = process.argv.includes('--oauth');
 const strictOAuth = process.argv.includes('--oauth-strict');
 
+// Create shared task store for demonstration
+const taskStore = new InMemoryTaskStore();
+
 // Create an MCP server with implementation details
 const getServer = () => {
     const server = new McpServer(
@@ -33,7 +37,10 @@ const getServer = () => {
             icons: [{ src: './mcp.svg', sizes: ['512x512'], mimeType: 'image/svg+xml' }],
             websiteUrl: 'https://github.com/modelcontextprotocol/typescript-sdk'
         },
-        { capabilities: { logging: {} } }
+        {
+            capabilities: { logging: {} },
+            taskStore // Enable task support
+        }
     );
 
     // Register a simple tool that returns a greeting
@@ -433,6 +440,29 @@ const getServer = () => {
                     {
                         type: 'text',
                         text: '\nYou can read any of these resources using their URI.'
+                    }
+                ]
+            };
+        }
+    );
+
+    // Register a long-running tool that demonstrates task execution
+    server.registerTool(
+        'delay',
+        {
+            title: 'Delay',
+            description: 'A simple tool that delays for a specified duration, useful for testing task execution',
+            inputSchema: {
+                duration: z.number().describe('Duration in milliseconds').default(5000)
+            }
+        },
+        async ({ duration }): Promise<CallToolResult> => {
+            await new Promise(resolve => setTimeout(resolve, duration));
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `Completed ${duration}ms delay`
                     }
                 ]
             };

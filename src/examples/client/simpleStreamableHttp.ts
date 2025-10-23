@@ -58,6 +58,7 @@ function printHelp(): void {
     console.log('  reconnect                  - Reconnect to the server');
     console.log('  list-tools                 - List available tools');
     console.log('  call-tool <name> [args]    - Call a tool with optional JSON arguments');
+    console.log('  call-tool-task <name> [args] - Call a tool with task-based execution (example: call-tool-task delay {"duration":3000})');
     console.log('  greet [name]               - Call the greet tool');
     console.log('  multi-greet [name]         - Call the multi-greet tool with notifications');
     console.log('  collect-info [type]        - Test elicitation with collect-user-info tool (contact/preferences/feedback)');
@@ -140,6 +141,23 @@ function commandLoop(): void {
                     await runNotificationsToolWithResumability(interval, count);
                     break;
                 }
+
+                case 'call-tool-task':
+                    if (args.length < 2) {
+                        console.log('Usage: call-tool-task <name> [args]');
+                    } else {
+                        const toolName = args[1];
+                        let toolArgs = {};
+                        if (args.length > 2) {
+                            try {
+                                toolArgs = JSON.parse(args.slice(2).join(' '));
+                            } catch {
+                                console.log('Invalid JSON arguments. Using empty args.');
+                            }
+                        }
+                        await callToolTask(toolName, toolArgs);
+                    }
+                    break;
 
                 case 'list-prompts':
                     await listPrompts();
@@ -774,6 +792,63 @@ async function readResource(uri: string): Promise<void> {
         }
     } catch (error) {
         console.log(`Error reading resource ${uri}: ${error}`);
+    }
+}
+
+async function callToolTask(name: string, args: Record<string, unknown>): Promise<void> {
+    if (!client) {
+        console.log('Not connected to server.');
+        return;
+    }
+
+    console.log(`Calling tool '${name}' with task-based execution...`);
+    console.log('Arguments:', args);
+
+    // Use task-based execution - call now, fetch later
+    const taskId = `task-${Date.now()}`;
+    console.log(`Task ID: ${taskId}`);
+    console.log('This will return immediately while processing continues in the background...');
+
+    try {
+        // Begin the tool call with task metadata
+        const pendingRequest = client.beginCallTool(
+            {
+                name,
+                arguments: args
+            },
+            CallToolResultSchema,
+            {
+                task: {
+                    taskId,
+                    keepAlive: 60000 // Keep results for 60 seconds
+                }
+            }
+        );
+
+        console.log('Waiting for task completion...');
+
+        await pendingRequest.result({
+            onTaskCreated: () => {
+                console.log('Task created successfully');
+            },
+            onTaskStatus: task => {
+                console.log(`  ${task.status}${task.error ? ` - ${task.error}` : ''}`);
+            }
+        });
+
+        console.log('Task completed! Fetching result...');
+
+        // Get the actual result
+        const result = await client.getTaskResult({ taskId }, CallToolResultSchema);
+
+        console.log('Tool result:');
+        result.content.forEach(item => {
+            if (item.type === 'text') {
+                console.log(`  ${item.text}`);
+            }
+        });
+    } catch (error) {
+        console.log(`Error with task-based execution: ${error}`);
     }
 }
 
