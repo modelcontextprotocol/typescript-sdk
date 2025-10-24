@@ -75,6 +75,8 @@
         "client": "tsx src/cli.ts client"
     },
     "dependencies": {
+        "ajv": "^8.17.1",
+        "ajv-formats": "^3.0.1",
         "content-type": "^1.0.5",
         "cors": "^2.8.5",
         "cross-spawn": "^7.0.5",
@@ -88,17 +90,9 @@
         "zod-to-json-schema": "^3.24.1"
     },
     "peerDependencies": {
-        "@cfworker/json-schema": "^4.1.1",
-        "ajv": "^8.17.1",
-        "ajv-formats": "^3.0.1"
+        "@cfworker/json-schema": "^4.1.1"
     },
     "peerDependenciesMeta": {
-        "ajv": {
-            "optional": true
-        },
-        "ajv-formats": {
-            "optional": true
-        },
         "@cfworker/json-schema": {
             "optional": true
         }
@@ -117,8 +111,6 @@
         "@types/node": "^22.0.2",
         "@types/supertest": "^6.0.2",
         "@types/ws": "^8.5.12",
-        "ajv": "^8.17.1",
-        "ajv-formats": "^3.0.1",
         "eslint": "^9.8.0",
         "eslint-config-prettier": "^10.1.8",
         "jest": "^29.7.0",

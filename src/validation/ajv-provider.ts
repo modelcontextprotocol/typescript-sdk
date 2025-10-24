@@ -1,20 +1,11 @@
 /**
  * AJV-based JSON Schema validator provider
- *
- * This provider uses AJV for high-performance
- * validation with code generation. Best for Node.js and other environments
- * where dynamic code evaluation is allowed.
- *
- * Requires the 'ajv' and 'ajv-formats' peer dependencies to be installed.
  */
 
 import { Ajv } from 'ajv';
 import _addFormats from 'ajv-formats';
 import type { JsonSchemaType, JsonSchemaValidator, JsonSchemaValidatorResult, jsonSchemaValidator } from './types.js';
 
-/**
- * Creates a default AJV instance with sensible defaults
- */
 function createDefaultAjvInstance(): Ajv {
     const ajv = new Ajv({
         strict: false,

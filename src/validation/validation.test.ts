@@ -575,14 +575,6 @@ describe('Missing dependencies', () => {
             const validatorFn = validator.getValidator(schema);
             expect(validatorFn('test').valid).toBe(true);
         });
-
-        it('should document that ajv and ajv-formats are peer dependencies', () => {
-            const ajvProviderPath = join(__dirname, 'ajv-provider.ts');
-            const content = readFileSync(ajvProviderPath, 'utf-8');
-
-            expect(content).toContain('ajv');
-            expect(content).toContain('peer');
-        });
     });
 
     describe('CfWorker not installed but AJV is', () => {
