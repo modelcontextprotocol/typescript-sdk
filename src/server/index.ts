@@ -1,4 +1,4 @@
-import { mergeCapabilities, Protocol, ProtocolOptions, RequestOptions } from '../shared/protocol.js';
+import { mergeCapabilities, Protocol, ProtocolOptions, RequestHandlerExtra, RequestOptions } from '../shared/protocol.js';
 import {
     ClientCapabilities,
     CreateMessageRequest,
@@ -29,11 +29,18 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS,
     LoggingLevel,
     SetLevelRequestSchema,
-    LoggingLevelSchema
+    LoggingLevelSchema,
+    JSONRPCRequest,
+    MessageExtraInfo
 } from '../types.js';
 import Ajv from 'ajv';
+import { Context } from './context.js';
+import { LifespanContext, RequestContext } from '../shared/requestContext.js';
+import { ZodLiteral, ZodObject } from 'zod';
+import { z } from 'zod';
+import { Transport } from 'src/shared/transport.js';
 
-export type ServerOptions = ProtocolOptions & {
+export type ServerOptions<LifespanContextT extends LifespanContext | undefined = undefined> = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this server.
      */
@@ -43,6 +50,11 @@ export type ServerOptions = ProtocolOptions & {
      * Optional instructions describing how to use the server and its features.
      */
     instructions?: string;
+
+    /**
+     * Optional lifespan context type.
+     */
+    lifespan?: LifespanContextT;
 };
 
 /**
@@ -73,12 +85,14 @@ export type ServerOptions = ProtocolOptions & {
 export class Server<
     RequestT extends Request = Request,
     NotificationT extends Notification = Notification,
-    ResultT extends Result = Result
+    ResultT extends Result = Result,
+    LifespanContextT extends LifespanContext | undefined = undefined
 > extends Protocol<ServerRequest | RequestT, ServerNotification | NotificationT, ServerResult | ResultT> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
+    private _lifespan?: LifespanContextT;
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
@@ -90,12 +104,12 @@ export class Server<
      */
     constructor(
         private _serverInfo: Implementation,
-        options?: ServerOptions
+        options?: ServerOptions<LifespanContextT>
     ) {
         super(options);
         this._capabilities = options?.capabilities ?? {};
         this._instructions = options?.instructions;
-
+        this._lifespan = options?.lifespan;
         this.setRequestHandler(InitializeRequestSchema, request => this._oninitialize(request));
         this.setNotificationHandler(InitializedNotificationSchema, () => this.oninitialized?.());
 
@@ -124,6 +138,13 @@ export class Server<
         const currentLevel = this._loggingLevels.get(sessionId);
         return currentLevel ? this.LOG_LEVEL_SEVERITY.get(level)! < this.LOG_LEVEL_SEVERITY.get(currentLevel)! : false;
     };
+
+    // Runtime type guard: ensure extra is our Context
+    private isContextExtra(
+        extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+    ): extra is Context<LifespanContextT, RequestT, NotificationT, ResultT> {
+        return extra instanceof Context;
+    }
 
     /**
      * Registers new capabilities. This can only be called before connecting to a transport.
@@ -275,6 +296,65 @@ export class Server<
 
     private getCapabilities(): ServerCapabilities {
         return this._capabilities;
+    }
+
+    /**
+     * Registers a handler where `extra` is typed as `Context` for ergonomic server-side usage.
+     * Internally, this wraps the handler and forwards to the base implementation.
+     */
+    public override setRequestHandler<
+        T extends ZodObject<{
+            method: ZodLiteral<string>;
+        }>
+    >(
+        requestSchema: T,
+        handler: (
+            request: z.infer<T>,
+            extra: Context<LifespanContextT, RequestT, NotificationT, ResultT>
+        ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
+    ): void {
+        super.setRequestHandler(requestSchema, (request, extra) => {
+            if (!this.isContextExtra(extra)) {
+                throw new Error('Internal error: Expected Context for request handler extra');
+            }
+            return handler(request, extra);
+        });
+    }
+
+    protected override createRequestExtra(
+        request: JSONRPCRequest,
+        abortController: AbortController,
+        capturedTransport: Transport | undefined,
+        extra?: MessageExtraInfo
+    ): RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT> {
+        const base = super.createRequestExtra(request, abortController, capturedTransport, extra) as RequestHandlerExtra<
+            ServerRequest | RequestT,
+            ServerNotification | NotificationT
+        >;
+
+        // Wrap base in Context to add server utilities while preserving shape
+        const requestCtx = new RequestContext<
+            LifespanContextT,
+            ServerRequest | RequestT,
+            ServerNotification | NotificationT,
+            ServerResult | ResultT
+        >({
+            signal: base.signal,
+            authInfo: base.authInfo,
+            requestInfo: base.requestInfo,
+            requestId: base.requestId,
+            _meta: base._meta,
+            sessionId: base.sessionId,
+            lifespanContext: this._lifespan as LifespanContextT,
+            protocol: this
+        });
+
+        const ctx = new Context<LifespanContextT, RequestT, NotificationT, ResultT>({
+            server: this,
+            requestCtx
+        });
+
+        return ctx;
     }
 
     async ping() {
