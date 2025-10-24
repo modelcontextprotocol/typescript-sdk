@@ -95,6 +95,8 @@ export class StdioClientTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _serverParams: StdioServerParameters;
     private _stderrStream: PassThrough | null = null;
+    private _onServerDataHandler?: (chunk: Buffer) => void;
+    private _onServerErrorHandler?: (error: Error) => void;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -130,31 +132,29 @@ export class StdioClientTransport implements Transport {
                 cwd: this._serverParams.cwd
             });
 
+            this._onServerDataHandler = (chunk: Buffer) => {
+                this._readBuffer.append(chunk);
+                this.processReadBuffer();
+            };
+            this._onServerErrorHandler = (error: Error) => {
+                this.onerror?.(error);
+            };
+
+            this._process.stdout?.on('data', this._onServerDataHandler);
+            this._process.stdout?.on('error', this._onServerErrorHandler);
+            this._process.stdin?.on('error', this._onServerErrorHandler);
+
             this._process.on('error', error => {
                 reject(error);
                 this.onerror?.(error);
             });
-
-            this._process.on('spawn', () => {
-                resolve();
-            });
-
-            this._process.on('close', _code => {
+            this._process.once('spawn', () => resolve());
+            this._process.once('close', _code => {
+                if (this._process) {
+                    this.cleanupListeners(this._process);
+                }
                 this._process = undefined;
                 this.onclose?.();
-            });
-
-            this._process.stdin?.on('error', error => {
-                this.onerror?.(error);
-            });
-
-            this._process.stdout?.on('data', chunk => {
-                this._readBuffer.append(chunk);
-                this.processReadBuffer();
-            });
-
-            this._process.stdout?.on('error', error => {
-                this.onerror?.(error);
             });
 
             if (this._stderrStream && this._process.stderr) {
@@ -202,8 +202,19 @@ export class StdioClientTransport implements Transport {
         }
     }
 
+    private cleanupListeners(process: ChildProcess) {
+        if (this._onServerDataHandler) {
+            process.stdout?.off('data', this._onServerDataHandler);
+        }
+        if (this._onServerErrorHandler) {
+            process.stdout?.off('error', this._onServerErrorHandler);
+            process.stdin?.off('error', this._onServerErrorHandler);
+        }
+    }
+
     async close(): Promise<void> {
         if (this._process) {
+            this.cleanupListeners(this._process);
             const processToClose = this._process;
             this._process = undefined;
 
