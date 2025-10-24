@@ -897,37 +897,53 @@ describe('tool()', () => {
 
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-        await expect(
-            client.request(
-                {
-                    method: 'tools/call',
-                    params: {
+        const result = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
                         name: 'test',
-                        arguments: {
-                            name: 'test',
-                            value: 'not a number'
-                        }
+                        value: 'not a number'
                     }
-                },
-                CallToolResultSchema
-            )
-        ).rejects.toThrow(/Invalid arguments/);
+                }
+            },
+            CallToolResultSchema
+        );
 
-        await expect(
-            client.request(
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+            expect.arrayContaining([
                 {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test (new api)',
-                        arguments: {
-                            name: 'test',
-                            value: 'not a number'
-                        }
+                    type: 'text',
+                    text: expect.stringContaining('Invalid arguments')
+                }
+            ])
+        );
+
+        const result2 = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'test (new api)',
+                    arguments: {
+                        name: 'test',
+                        value: 'not a number'
                     }
-                },
-                CallToolResultSchema
-            )
-        ).rejects.toThrow(/Invalid arguments/);
+                }
+            },
+            CallToolResultSchema
+        );
+
+        expect(result2.isError).toBe(true);
+        expect(result2.content).toEqual(
+            expect.arrayContaining([
+                {
+                    type: 'text',
+                    text: expect.stringContaining('Invalid arguments')
+                }
+            ])
+        );
     });
 
     /***
@@ -1518,17 +1534,25 @@ describe('tool()', () => {
 
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-        await expect(
-            client.request(
+        const result = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'nonexistent-tool'
+                }
+            },
+            CallToolResultSchema
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+            expect.arrayContaining([
                 {
-                    method: 'tools/call',
-                    params: {
-                        name: 'nonexistent-tool'
-                    }
-                },
-                CallToolResultSchema
-            )
-        ).rejects.toThrow(/Tool nonexistent-tool not found/);
+                    type: 'text',
+                    text: expect.stringContaining('Tool nonexistent-tool not found')
+                }
+            ])
+        );
     });
 
     /***
