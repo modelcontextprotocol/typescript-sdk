@@ -53,6 +53,11 @@ export type SSEClientTransportOptions = {
      * Custom fetch implementation used for all network requests.
      */
     fetch?: FetchLike;
+
+    /**
+     * User agent provider for the connection.
+     */
+    userAgentProvider?: UserAgentProvider;
 };
 
 /**
@@ -83,7 +88,7 @@ export class SSEClientTransport implements Transport {
         this._requestInit = opts?.requestInit;
         this._authProvider = opts?.authProvider;
         this._fetch = opts?.fetch;
-        this._userAgentProvider = createUserAgentProvider();
+        this._userAgentProvider = opts?.userAgentProvider ?? createUserAgentProvider();
     }
 
     private async _authThenStart(): Promise<void> {

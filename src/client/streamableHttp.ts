@@ -115,6 +115,11 @@ export type StreamableHTTPClientTransportOptions = {
      * When not provided and connecting to a server that supports session IDs, the server will generate a new session ID.
      */
     sessionId?: string;
+
+    /**
+     * User agent provider for the connection.
+     */
+    userAgentProvider?: UserAgentProvider;
 };
 
 /**
@@ -147,7 +152,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._fetch = opts?.fetch;
         this._sessionId = opts?.sessionId;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
-        this._userAgentProvider = createUserAgentProvider();
+        this._userAgentProvider = opts?.userAgentProvider ?? createUserAgentProvider();
     }
 
     private async _authThenStart(): Promise<void> {
