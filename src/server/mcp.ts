@@ -87,30 +87,31 @@ export class McpServer {
         this.server.assertCanSetRequestHandler(CallToolRequestSchema.shape.method.value);
 
         this.server.registerCapabilities({
-            tools: {
-                listChanged: true
-            }
-        });
+          tools: {
+            listChanged: true
+          }
+        })
 
         this.server.setRequestHandler(
-            ListToolsRequestSchema,
-            (): ListToolsResult => ({
-                tools: Object.entries(this._registeredTools)
-                    .filter(([, tool]) => tool.enabled)
-                    .map(([name, tool]): Tool => {
-                        const toolDefinition: Tool = {
-                            name,
-                            title: tool.title,
-                            description: tool.description,
-                            inputSchema: tool.inputSchema
-                                ? (zodToJsonSchema(tool.inputSchema, {
-                                      strictUnions: true,
-                                      pipeStrategy: 'input'
-                                  }) as Tool['inputSchema'])
-                                : EMPTY_OBJECT_JSON_SCHEMA,
-                            annotations: tool.annotations,
-                            _meta: tool._meta
-                        };
+          ListToolsRequestSchema,
+          (): ListToolsResult => ({
+            tools: Object.entries(this._registeredTools).filter(
+              ([, tool]) => tool.enabled,
+            ).map(
+              ([name, tool]): Tool => {
+                const toolDefinition: Tool = {
+                  name,
+                  title: tool.title,
+                  description: tool.description,
+                  inputSchema: tool.inputSchema
+                    ? (zodToJsonSchema(tool.inputSchema, {
+                      target: this.server._jsonSchemaSpec,
+                      strictUnions: true,
+                    }) as Tool["inputSchema"])
+                    : EMPTY_OBJECT_JSON_SCHEMA,
+                  annotations: tool.annotations,
+                  _meta: tool._meta,
+                };
 
                         if (tool.outputSchema) {
                             toolDefinition.outputSchema = zodToJsonSchema(tool.outputSchema, {

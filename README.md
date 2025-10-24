@@ -154,6 +154,27 @@ const server = new McpServer({
 });
 ```
 
+#### JSON Schema Specification
+
+You can configure the JSON Schema target specification for better compatibility with different systems, particularly OpenAI endpoints:
+
+```typescript
+const server = new McpServer({
+  name: "my-app",
+  version: "1.0.0"
+}, {
+  jsonSchemaSpec: 'openApi3'  // For OpenAI compatibility
+});
+```
+
+Supported values include:
+- `'jsonSchema7'` (default) - JSON Schema Draft 7
+- `'openApi3'` - OpenAPI 3.0 specification (recommended for OpenAI compatibility)
+- `'jsonSchema4'` - JSON Schema Draft 4
+- `'jsonSchema2019-09'` - JSON Schema Draft 2019-09
+
+This setting affects how tool input schemas are generated from Zod schemas, ensuring they match the expected format for your target system.
+
 ### Tools
 
 [Tools](https://modelcontextprotocol.io/specification/latest/server/tools) let LLMs take actions through your server. Tools can perform computation, fetch data and have side effects. Tools should be designed to be model-controlled - i.e. AI models will decide which tools to call,
