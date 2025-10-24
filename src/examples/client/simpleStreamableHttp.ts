@@ -260,6 +260,7 @@ async function connect(url?: string): Promise<void> {
                         description?: string;
                         default?: unknown;
                         enum?: string[];
+                        allowCustom?: boolean;
                         minimum?: number;
                         maximum?: number;
                         minLength?: number;
@@ -276,6 +277,9 @@ async function connect(url?: string): Promise<void> {
                     }
                     if (field.enum) {
                         prompt += ` [options: ${field.enum.join(', ')}]`;
+                        if (field.allowCustom) {
+                            prompt += ' (custom allowed)';
+                        }
                     }
                     if (field.type === 'number' || field.type === 'integer') {
                         if (field.minimum !== undefined && field.maximum !== undefined) {
@@ -337,7 +341,9 @@ async function connect(url?: string): Promise<void> {
                                 }
                             } else if (field.enum) {
                                 if (!field.enum.includes(answer)) {
-                                    throw new Error(`${fieldName} must be one of: ${field.enum.join(', ')}`);
+                                    if (!field.allowCustom) {
+                                        throw new Error(`${fieldName} must be one of: ${field.enum.join(', ')}`);
+                                    }
                                 }
                                 parsedValue = answer;
                             } else {
