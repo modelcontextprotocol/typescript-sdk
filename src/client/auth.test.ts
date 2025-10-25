@@ -84,11 +84,10 @@ describe('OAuth Authorization', () => {
         it('extracts scope when combined with resource_metadata', () => {
             const mockResponse = {
                 headers: {
-                    get: jest.fn(
-                        name =>
-                            name === 'WWW-Authenticate'
-                                ? 'Bearer realm="mcp", resource_metadata="https://example.com/.well-known/oauth-protected-resource", scope="api:read api:write"'
-                                : null
+                    get: jest.fn(name =>
+                        name === 'WWW-Authenticate'
+                            ? 'Bearer realm="mcp", resource_metadata="https://example.com/.well-known/oauth-protected-resource", scope="api:read api:write"'
+                            : null
                     )
                 }
             } as unknown as Response;
