@@ -1,6 +1,6 @@
 import { Transport, FetchLike } from '../shared/transport.js';
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
-import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from './auth.js';
+import { auth, AuthResult, extractResourceMetadataUrl, extractChallengeScope, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
 // Default reconnection options for StreamableHTTP connections
@@ -125,6 +125,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _abortController?: AbortController;
     private _url: URL;
     private _resourceMetadataUrl?: URL;
+    private _challengeScope?: string;
     private _requestInit?: RequestInit;
     private _authProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
@@ -438,10 +439,12 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
 
                     this._resourceMetadataUrl = extractResourceMetadataUrl(response);
+                    this._challengeScope = extractChallengeScope(response);
 
                     const result = await auth(this._authProvider, {
                         serverUrl: this._url,
                         resourceMetadataUrl: this._resourceMetadataUrl,
+                        challengeScope: this._challengeScope,
                         fetchFn: this._fetch
                     });
                     if (result !== 'AUTHORIZED') {

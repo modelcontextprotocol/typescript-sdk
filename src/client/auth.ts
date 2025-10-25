@@ -283,6 +283,57 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
 }
 
 /**
+ * Selects the appropriate scopes for an authorization request based on MCP specification priority.
+ *
+ * Scope selection follows this priority order:
+ * 1. Explicit user override - `explicitScope` parameter (highest priority)
+ * 2. WWW-Authenticate challenge scope - Authoritative for the current request
+ * 3. Protected Resource Metadata `scopes_supported` - All available scopes
+ * 4. Client default - `clientDefaultScope` (lowest priority)
+ *
+ * Per MCP specification:
+ * - Challenge scopes from WWW-Authenticate are authoritative for satisfying the current request
+ * - When no challenge is present, clients should request all scopes from Protected Resource Metadata
+ * - Client defaults are used only when no other scope information is available
+ *
+ * @param options - Scope selection options
+ * @param options.explicitScope - Explicitly requested scope (user override)
+ * @param options.challengeScope - Scope from WWW-Authenticate header
+ * @param options.resourceMetadata - Protected Resource Metadata containing scopes_supported
+ * @param options.clientDefaultScope - Client's default scope
+ * @returns The selected scope string, or undefined if no scopes are available
+ */
+function selectScopes({
+    explicitScope,
+    challengeScope,
+    resourceMetadata,
+    clientDefaultScope
+}: {
+    explicitScope?: string;
+    challengeScope?: string;
+    resourceMetadata?: OAuthProtectedResourceMetadata;
+    clientDefaultScope?: string;
+}): string | undefined {
+    // Priority 1: Explicit user override
+    if (explicitScope) {
+        return explicitScope;
+    }
+
+    // Priority 2: WWW-Authenticate challenge scope (authoritative)
+    if (challengeScope) {
+        return challengeScope;
+    }
+
+    // Priority 3: Protected Resource Metadata scopes_supported
+    if (resourceMetadata?.scopes_supported && resourceMetadata.scopes_supported.length > 0) {
+        return resourceMetadata.scopes_supported.join(' ');
+    }
+
+    // Priority 4: Client default
+    return clientDefaultScope;
+}
+
+/**
  * Orchestrates the full auth flow with a server.
  *
  * This can be used as a single entry point for all authorization functionality,
@@ -294,6 +345,7 @@ export async function auth(
         serverUrl: string | URL;
         authorizationCode?: string;
         scope?: string;
+        challengeScope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
     }
@@ -321,12 +373,14 @@ async function authInternal(
         serverUrl,
         authorizationCode,
         scope,
+        challengeScope,
         resourceMetadataUrl,
         fetchFn
     }: {
         serverUrl: string | URL;
         authorizationCode?: string;
         scope?: string;
+        challengeScope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
     }
@@ -426,13 +480,21 @@ async function authInternal(
 
     const state = provider.state ? await provider.state() : undefined;
 
+    // Select scopes based on priority: explicit > challenge > PRM > client default
+    const selectedScope = selectScopes({
+        explicitScope: scope,
+        challengeScope,
+        resourceMetadata,
+        clientDefaultScope: provider.clientMetadata.scope
+    });
+
     // Start new authorization flow
     const { authorizationUrl, codeVerifier } = await startAuthorization(authorizationServerUrl, {
         metadata,
         clientInformation,
         state,
         redirectUrl: provider.redirectUrl,
-        scope: scope || provider.clientMetadata.scope,
+        scope: selectedScope,
         resource
     });
 
@@ -503,6 +565,50 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
     } catch {
         return undefined;
     }
+}
+
+/**
+ * Extracts scope from WWW-Authenticate response header.
+ *
+ * Per RFC 6750 Section 3 and MCP specification, servers SHOULD include a scope
+ * parameter in the WWW-Authenticate header when returning 401 responses to indicate
+ * the scopes required for accessing the resource.
+ *
+ * The scope parameter in the challenge is authoritative for the current request and
+ * takes precedence over scopes advertised in Protected Resource Metadata.
+ *
+ * Expected header format:
+ * ```
+ * WWW-Authenticate: Bearer scope="files:read files:write"
+ * ```
+ *
+ * Or combined with resource_metadata:
+ * ```
+ * WWW-Authenticate: Bearer resource_metadata="...", scope="files:read"
+ * ```
+ *
+ * @param res - HTTP Response object to extract the header from
+ * @returns The scope string if present (space-separated scopes), undefined otherwise
+ */
+export function extractChallengeScope(res: Response): string | undefined {
+    const authenticateHeader = res.headers.get('WWW-Authenticate');
+    if (!authenticateHeader) {
+        return undefined;
+    }
+
+    const [type, scheme] = authenticateHeader.split(' ');
+    if (type.toLowerCase() !== 'bearer' || !scheme) {
+        return undefined;
+    }
+
+    const regex = /scope="([^"]*)"/;
+    const match = regex.exec(authenticateHeader);
+
+    if (!match) {
+        return undefined;
+    }
+
+    return match[1] || undefined;
 }
 
 /**
