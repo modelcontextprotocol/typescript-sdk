@@ -334,16 +334,17 @@ async function authInternal(
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | URL | undefined;
     try {
+        // Per SEP-985: Try WWW-Authenticate header first, fallback to well-known if not present
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl }, fetchFn);
-        if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
+        if (resourceMetadata?.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
             authorizationServerUrl = resourceMetadata.authorization_servers[0];
         }
     } catch {
-        // Ignore errors and fall back to /.well-known/oauth-authorization-server
+        // Ignore non-404 errors and fall back to using the MCP server as the authorization server
     }
 
     /**
-     * If we don't get a valid authorization server metadata from protected resource metadata,
+     * If we don't get a valid authorization server from protected resource metadata,
      * fallback to the legacy MCP spec's implementation (version 2025-03-26): MCP server acts as the Authorization server.
      */
     if (!authorizationServerUrl) {
@@ -466,7 +467,19 @@ export async function selectResourceURL(
 }
 
 /**
- * Extract resource_metadata from response header.
+ * Extracts resource_metadata URL from WWW-Authenticate response header.
+ *
+ * Per SEP-985 and RFC 9728 Section 5, servers SHOULD return the WWW-Authenticate
+ * header with resource_metadata parameter on 401 responses, but it's optional.
+ * Clients must fallback to /.well-known/oauth-protected-resource if not present.
+ *
+ * Expected header format:
+ * ```
+ * WWW-Authenticate: Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"
+ * ```
+ *
+ * @param res - HTTP Response object to extract the header from
+ * @returns The resource metadata URL if present, undefined otherwise
  */
 export function extractResourceMetadataUrl(res: Response): URL | undefined {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
@@ -495,21 +508,33 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
 /**
  * Looks up RFC 9728 OAuth 2.0 Protected Resource Metadata.
  *
- * If the server returns a 404 for the well-known endpoint, this function will
- * return `undefined`. Any other errors will be thrown as exceptions.
+ * Per SEP-985 and RFC 9728, protected resource metadata is optional.
+ * This function returns `undefined` if:
+ * - The server returns a 404 for the well-known endpoint
+ * - The metadata endpoint is not accessible (CORS, network errors, etc.)
+ * - No resourceMetadataUrl is provided and the well-known endpoint is not found
+ *
+ * Other HTTP errors (5xx, 400-403, etc.) will be thrown as exceptions.
+ *
+ * @param serverUrl - The MCP server URL
+ * @param opts - Optional configuration including protocol version and explicit metadata URL
+ * @param fetchFn - Optional fetch function for making HTTP requests
+ * @returns Promise resolving to metadata or undefined if not available
+ * @throws Error for non-404 HTTP errors
  */
 export async function discoverOAuthProtectedResourceMetadata(
     serverUrl: string | URL,
     opts?: { protocolVersion?: string; resourceMetadataUrl?: string | URL },
     fetchFn: FetchLike = fetch
-): Promise<OAuthProtectedResourceMetadata> {
+): Promise<OAuthProtectedResourceMetadata | undefined> {
     const response = await discoverMetadataWithFallback(serverUrl, 'oauth-protected-resource', fetchFn, {
         protocolVersion: opts?.protocolVersion,
         metadataUrl: opts?.resourceMetadataUrl
     });
 
     if (!response || response.status === 404) {
-        throw new Error(`Resource server does not implement OAuth 2.0 Protected Resource Metadata.`);
+        // Per SEP-985, protected resource metadata is optional
+        return undefined;
     }
 
     if (!response.ok) {
