@@ -2380,7 +2380,9 @@ describe('OAuth Authorization', () => {
                 expect(result).toBe('REDIRECT');
 
                 // Verify we tried PRM discovery (with retry for CORS)
-                expect(mockFetch.mock.calls.filter(call => call[0].toString().includes('oauth-protected-resource')).length).toBeGreaterThan(0);
+                expect(mockFetch.mock.calls.filter(call => call[0].toString().includes('oauth-protected-resource')).length).toBeGreaterThan(
+                    0
+                );
 
                 // Verify we eventually fell back to auth server metadata
                 expect(mockFetch.mock.calls.some(call => call[0].toString().includes('oauth-authorization-server'))).toBe(true);
