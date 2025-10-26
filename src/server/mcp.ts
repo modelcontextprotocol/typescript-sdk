@@ -139,7 +139,7 @@ export class McpServer {
                 }
 
                 const args = parseResult.data as Record<string, unknown>;
-                const cb = tool.callback as unknown as ToolCallback<z.core.$ZodLooseShape>;
+                const cb = tool.callback as ToolCallback<z.core.$ZodLooseShape>;
                 try {
                     result = await Promise.resolve(cb(args, extra));
                 } catch (error) {
@@ -154,7 +154,7 @@ export class McpServer {
                     };
                 }
             } else {
-                const cb = tool.callback as unknown as ToolCallback<undefined>;
+                const cb = tool.callback as ToolCallback<undefined>;
                 try {
                     result = await Promise.resolve(cb(extra));
                 } catch (error) {
@@ -643,7 +643,7 @@ export class McpServer {
         outputSchema: z.core.$ZodLooseShape | undefined,
         annotations: ToolAnnotations | undefined,
         _meta: Record<string, unknown> | undefined,
-        callback: ToolCallback<z.core.$ZodLooseShape>
+        callback: ToolCallback<z.core.$ZodLooseShape | undefined>
     ): RegisteredTool {
         const registeredTool: RegisteredTool = {
             title,
@@ -652,7 +652,6 @@ export class McpServer {
             outputSchema: outputSchema === undefined ? undefined : z.object(outputSchema),
             annotations,
             _meta,
-            // @ts-ignore
             callback,
             enabled: true,
             disable: () => registeredTool.update({ enabled: false }),
@@ -666,7 +665,6 @@ export class McpServer {
                 if (typeof updates.title !== 'undefined') registeredTool.title = updates.title;
                 if (typeof updates.description !== 'undefined') registeredTool.description = updates.description;
                 if (typeof updates.paramsSchema !== 'undefined') registeredTool.inputSchema = z.object(updates.paramsSchema);
-                // @ts-ignore
                 if (typeof updates.callback !== 'undefined') registeredTool.callback = updates.callback;
                 if (typeof updates.annotations !== 'undefined') registeredTool.annotations = updates.annotations;
                 if (typeof updates._meta !== 'undefined') registeredTool._meta = updates._meta;
@@ -1009,11 +1007,11 @@ export type ToolCallback<Args extends z.core.$ZodLooseShape | undefined = undefi
 export type RegisteredTool = {
     title?: string;
     description?: string;
-    inputSchema?: ZodType;
-    outputSchema?: ZodType;
+    inputSchema?: ZodObject;
+    outputSchema?: ZodObject;
     annotations?: ToolAnnotations;
     _meta?: Record<string, unknown>;
-    callback: ToolCallback;
+    callback: ToolCallback<z.core.$ZodLooseShape | undefined>;
     enabled: boolean;
     enable(): void;
     disable(): void;
