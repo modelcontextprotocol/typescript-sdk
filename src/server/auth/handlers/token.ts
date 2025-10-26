@@ -32,13 +32,13 @@ const AuthorizationCodeGrantSchema = z.object({
     code: z.string(),
     code_verifier: z.string(),
     redirect_uri: z.string().optional(),
-    resource: z.string().url().optional()
+    resource: z.url().optional()
 });
 
 const RefreshTokenGrantSchema = z.object({
     refresh_token: z.string(),
     scope: z.string().optional(),
-    resource: z.string().url().optional()
+    resource: z.url().optional()
 });
 
 export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHandlerOptions): RequestHandler {
