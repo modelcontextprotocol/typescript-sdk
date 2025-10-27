@@ -1,51 +1,82 @@
-import { mergeCapabilities, Protocol, ProtocolOptions, RequestOptions } from '../shared/protocol.js';
-import { Transport } from '../shared/transport.js';
+import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
+import type { Transport } from '../shared/transport.js';
 import {
-    CallToolRequest,
+    type CallToolRequest,
     CallToolResultSchema,
-    ClientCapabilities,
-    ClientNotification,
-    ClientRequest,
-    ClientResult,
-    CompatibilityCallToolResultSchema,
-    CompleteRequest,
+    type ClientCapabilities,
+    type ClientNotification,
+    type ClientRequest,
+    type ClientResult,
+    type CompatibilityCallToolResultSchema,
+    type CompleteRequest,
     CompleteResultSchema,
     EmptyResultSchema,
-    GetPromptRequest,
+    ErrorCode,
+    type GetPromptRequest,
     GetPromptResultSchema,
-    Implementation,
+    type Implementation,
     InitializeResultSchema,
     LATEST_PROTOCOL_VERSION,
-    ListPromptsRequest,
+    type ListPromptsRequest,
     ListPromptsResultSchema,
-    ListResourcesRequest,
+    type ListResourcesRequest,
     ListResourcesResultSchema,
-    ListResourceTemplatesRequest,
+    type ListResourceTemplatesRequest,
     ListResourceTemplatesResultSchema,
-    ListToolsRequest,
+    type ListToolsRequest,
     ListToolsResultSchema,
-    LoggingLevel,
-    Notification,
-    ReadResourceRequest,
+    type LoggingLevel,
+    McpError,
+    type Notification,
+    type ReadResourceRequest,
     ReadResourceResultSchema,
-    Request,
-    Result,
-    ServerCapabilities,
-    SubscribeRequest,
+    type Request,
+    type Result,
+    type ServerCapabilities,
     SUPPORTED_PROTOCOL_VERSIONS,
-    UnsubscribeRequest,
-    Tool,
-    ErrorCode,
-    McpError
+    type SubscribeRequest,
+    type Tool,
+    type UnsubscribeRequest
 } from '../types.js';
-import Ajv from 'ajv';
-import type { ValidateFunction } from 'ajv';
+import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
 
 export type ClientOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this client.
      */
     capabilities?: ClientCapabilities;
+
+    /**
+     * JSON Schema validator for tool output validation.
+     *
+     * The validator is used to validate structured content returned by tools
+     * against their declared output schemas.
+     *
+     * @default AjvJsonSchemaValidator
+     *
+     * @example
+     * ```typescript
+     * // ajv
+     * const client = new Client(
+     *   { name: 'my-client', version: '1.0.0' },
+     *   {
+     *     capabilities: {},
+     *     jsonSchemaValidator: new AjvJsonSchemaValidator()
+     *   }
+     * );
+     *
+     * // @cfworker/json-schema
+     * const client = new Client(
+     *   { name: 'my-client', version: '1.0.0' },
+     *   {
+     *     capabilities: {},
+     *     jsonSchemaValidator: new CfWorkerJsonSchemaValidator()
+     *   }
+     * );
+     * ```
+     */
+    jsonSchemaValidator?: jsonSchemaValidator;
 };
 
 /**
@@ -82,8 +113,8 @@ export class Client<
     private _serverVersion?: Implementation;
     private _capabilities: ClientCapabilities;
     private _instructions?: string;
-    private _cachedToolOutputValidators: Map<string, ValidateFunction> = new Map();
-    private _ajv: InstanceType<typeof Ajv>;
+    private _jsonSchemaValidator: jsonSchemaValidator;
+    private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
 
     /**
      * Initializes this client with the given name and version information.
@@ -94,7 +125,7 @@ export class Client<
     ) {
         super(options);
         this._capabilities = options?.capabilities ?? {};
-        this._ajv = new Ajv();
+        this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
     }
 
     /**
@@ -347,13 +378,13 @@ export class Client<
             // Only validate structured content if present (not when there's an error)
             if (result.structuredContent) {
                 try {
-                    // Validate the structured content (which is already an object) against the schema
-                    const isValid = validator(result.structuredContent);
+                    // Validate the structured content against the schema
+                    const validationResult = validator(result.structuredContent);
 
-                    if (!isValid) {
+                    if (!validationResult.valid) {
                         throw new McpError(
                             ErrorCode.InvalidParams,
-                            `Structured content does not match the tool's output schema: ${this._ajv.errorsText(validator.errors)}`
+                            `Structured content does not match the tool's output schema: ${validationResult.errorMessage}`
                         );
                     }
                 } catch (error) {
@@ -371,23 +402,26 @@ export class Client<
         return result;
     }
 
-    private cacheToolOutputSchemas(tools: Tool[]) {
+    /**
+     * Cache validators for tool output schemas.
+     * Called after listTools() to pre-compile validators for better performance.
+     */
+    private cacheToolOutputSchemas(tools: Tool[]): void {
         this._cachedToolOutputValidators.clear();
 
         for (const tool of tools) {
-            // If the tool has an outputSchema, create and cache the Ajv validator
+            // If the tool has an outputSchema, create and cache the validator
             if (tool.outputSchema) {
-                try {
-                    const validator = this._ajv.compile(tool.outputSchema);
-                    this._cachedToolOutputValidators.set(tool.name, validator);
-                } catch {
-                    // Ignore schema compilation errors
-                }
+                const toolValidator = this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
+                this._cachedToolOutputValidators.set(tool.name, toolValidator);
             }
         }
     }
 
-    private getToolOutputValidator(toolName: string): ValidateFunction | undefined {
+    /**
+     * Get cached validator for a tool
+     */
+    private getToolOutputValidator(toolName: string): JsonSchemaValidator<unknown> | undefined {
         return this._cachedToolOutputValidators.get(toolName);
     }
 
