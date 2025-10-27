@@ -1186,13 +1186,21 @@ export const ToolChoiceSchema = z
  * The result of a tool execution, provided by the user (server).
  * Represents the outcome of invoking a tool requested via ToolCallContent.
  */
-export const ToolResultContentSchema = z.object({
-  type: z.literal("tool_result"),
-  toolUseId: z.string().describe("The unique identifier for the corresponding tool call."),
-  content: z.array(ContentBlockSchema).default([]),
-  structuredContent: z.object({}).passthrough().optional(),
-  isError: z.optional(z.boolean()),
-})
+export const ToolResultContentSchema = z
+    .object({
+        type: z.literal("tool_result"),
+        toolUseId: z.string().describe("The unique identifier for the corresponding tool call."),
+        content: z.array(ContentBlockSchema).default([]),
+        structuredContent: z.object({}).passthrough().optional(),
+        isError: z.optional(z.boolean()),
+
+        /**
+         * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+         * for notes on _meta usage.
+         */
+        _meta: z.optional(z.object({}).passthrough()),
+    })
+    .passthrough();
 
 export const UserMessageContentSchema = z.discriminatedUnion("type", [
   TextContentSchema,
