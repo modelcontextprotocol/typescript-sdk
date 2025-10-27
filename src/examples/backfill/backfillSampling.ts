@@ -3,6 +3,10 @@
     
     Usage:
       npx -y @modelcontextprotocol/inspector \
+        npx -- -y --silent tsx src/examples/backfill/backfillSampling.ts \
+          npx -y --silent tsx src/examples/server/adventureGame.ts
+
+      npx -y @modelcontextprotocol/inspector \
         npx -y --silent tsx src/examples/backfill/backfillSampling.ts -- \
           npx -y --silent @modelcontextprotocol/server-everything
 */
@@ -19,6 +23,7 @@ import {
     ToolChoiceAny,
     ToolChoiceTool,
     ToolChoiceNone,
+    MessageParam,
 } from "@anthropic-ai/sdk/resources/messages.js";
 import { StdioServerTransport } from '../../server/stdio.js';
 import { StdioClientTransport } from '../../client/stdio.js';
@@ -55,7 +60,7 @@ ResourceUpdatedNotification,
 ToolListChangedNotificationSchema,
 } from "../../types.js";
 import { Transport } from "../../shared/transport.js";
-import { Server } from "src/server/index.js";
+import { Server } from "../../server/index.js";
 
 const DEFAULT_MAX_TOKENS = process.env.DEFAULT_MAX_TOKENS ? parseInt(process.env.DEFAULT_MAX_TOKENS) : 1000;
 
@@ -226,7 +231,10 @@ function contentBlockFromMcp(content: AssistantMessageContent | UserMessageConte
             return {
                 type: 'tool_result',
                 tool_use_id: content.toolUseId,
-                content: content.content.map(c => {
+                content: content.structuredContent ? [{
+                    type: 'text',
+                    text: JSON.stringify(content.structuredContent),
+                }] : content.content.map(c => {
                     if (c.type === 'text') {
                         return {type: 'text', text: c.text};
                     } else if (c.type === 'image') {
@@ -257,10 +265,11 @@ function contentBlockFromMcp(content: AssistantMessageContent | UserMessageConte
     }
 }
 
-function contentFromMcp(content: CreateMessageRequest['params']['messages'][number]['content']): ContentBlockParam[] {
-    // Handle both single content block and arrays
-    const contentArray = Array.isArray(content) ? content : [content];
-    return contentArray.map(contentBlockFromMcp);
+function messagesFromMcp(messages: CreateMessageRequest['params']['messages']): MessageParam[] {
+    return messages.map(({role, content}) => (<MessageParam>{
+        role,
+        content: (Array.isArray(content) ? content : [content]).map(contentBlockFromMcp)
+    }))
 }
 
 export type NamedTransport<T extends Transport = Transport> = {
@@ -348,10 +357,7 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                                     text: message.params.systemPrompt
                                 },
                             ],
-                            messages: message.params.messages.map(({role, content}) => ({
-                                role,
-                                content: contentFromMcp(content)
-                            })),
+                            messages: messagesFromMcp(message.params.messages),
                             max_tokens: message.params.maxTokens ?? DEFAULT_MAX_TOKENS,
                             temperature: message.params.temperature,
                             stop_sequences: message.params.stopSequences,

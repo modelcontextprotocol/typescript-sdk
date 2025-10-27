@@ -1189,7 +1189,7 @@ export const ToolChoiceSchema = z
 export const ToolResultContentSchema = z.object({
   type: z.literal("tool_result"),
   toolUseId: z.string().describe("The unique identifier for the corresponding tool call."),
-  content: z.array(z.union([TextContentSchema, ImageContentSchema, AudioContentSchema])),
+  content: z.array(ContentBlockSchema).default([]),
   structuredContent: z.object({}).passthrough().optional(),
   isError: z.optional(z.boolean()),
 })
