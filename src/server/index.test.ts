@@ -1,26 +1,24 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable no-constant-binary-expression */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-import { Server } from './index.js';
 import { z } from 'zod';
+import { Client } from '../client/index.js';
+import { InMemoryTransport } from '../inMemory.js';
+import type { Transport } from '../shared/transport.js';
 import {
-    RequestSchema,
-    NotificationSchema,
-    ResultSchema,
-    LATEST_PROTOCOL_VERSION,
-    SUPPORTED_PROTOCOL_VERSIONS,
     CreateMessageRequestSchema,
     ElicitRequestSchema,
+    ErrorCode,
+    LATEST_PROTOCOL_VERSION,
     ListPromptsRequestSchema,
     ListResourcesRequestSchema,
     ListToolsRequestSchema,
+    type LoggingMessageNotification,
+    NotificationSchema,
+    RequestSchema,
+    ResultSchema,
     SetLevelRequestSchema,
-    ErrorCode,
-    LoggingMessageNotification
+    SUPPORTED_PROTOCOL_VERSIONS
 } from '../types.js';
-import { Transport } from '../shared/transport.js';
-import { InMemoryTransport } from '../inMemory.js';
-import { Client } from '../client/index.js';
+import { Server } from './index.js';
 import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
 import { CallToolRequestSchema, CallToolResultSchema } from '../types.js';
 
@@ -237,7 +235,7 @@ test('should respect client capabilities', async () => {
     );
 
     // Implement request handler for sampling/createMessage
-    client.setRequestHandler(CreateMessageRequestSchema, async request => {
+    client.setRequestHandler(CreateMessageRequestSchema, async _request => {
         // Mock implementation of createMessage
         return {
             model: 'test-model',
@@ -379,7 +377,7 @@ test('should validate elicitation response against requested schema', async () =
     );
 
     // Set up client to return valid response
-    client.setRequestHandler(ElicitRequestSchema, request => ({
+    client.setRequestHandler(ElicitRequestSchema, _request => ({
         action: 'accept',
         content: {
             name: 'John Doe',
@@ -456,7 +454,7 @@ test('should reject elicitation response with invalid data', async () => {
     );
 
     // Set up client to return invalid response (missing required field, invalid age)
-    client.setRequestHandler(ElicitRequestSchema, request => ({
+    client.setRequestHandler(ElicitRequestSchema, _request => ({
         action: 'accept',
         content: {
             email: '', // Invalid - too short
@@ -525,7 +523,7 @@ test('should allow elicitation reject and cancel without validation', async () =
     );
 
     let requestCount = 0;
-    client.setRequestHandler(ElicitRequestSchema, request => {
+    client.setRequestHandler(ElicitRequestSchema, _request => {
         requestCount++;
         if (requestCount === 1) {
             return { action: 'decline' };
@@ -581,7 +579,7 @@ test('should respect server notification capabilities', async () => {
         }
     );
 
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const [_clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
     await server.connect(serverTransport);
 
@@ -687,7 +685,7 @@ test('should typecheck', () => {
     );
 
     // Typecheck that only valid weather requests/notifications/results are allowed
-    weatherServer.setRequestHandler(GetWeatherRequestSchema, request => {
+    weatherServer.setRequestHandler(GetWeatherRequestSchema, _request => {
         return {
             temperature: 72,
             conditions: 'sunny'
@@ -725,7 +723,7 @@ test('should handle server cancelling a request', async () => {
     );
 
     // Set up client to delay responding to createMessage
-    client.setRequestHandler(CreateMessageRequestSchema, async (_request, extra) => {
+    client.setRequestHandler(CreateMessageRequestSchema, async (_request, _extra) => {
         await new Promise(resolve => setTimeout(resolve, 1000));
         return {
             model: 'test',
