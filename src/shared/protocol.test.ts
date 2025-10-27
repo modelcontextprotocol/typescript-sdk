@@ -972,7 +972,8 @@ describe('Task-based execution', () => {
                 getTask: jest.fn().mockResolvedValue(null),
                 updateTaskStatus: jest.fn().mockResolvedValue(undefined),
                 storeTaskResult: jest.fn().mockResolvedValue(undefined),
-                getTaskResult: jest.fn().mockResolvedValue({ content: [] })
+                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
+                listTasks: jest.fn().mockResolvedValue({ tasks: [], nextCursor: undefined })
             };
 
             protocol = new (class extends Protocol<Request, Notification, Result> {
@@ -1016,7 +1017,8 @@ describe('Task-based execution', () => {
                 getTask: jest.fn().mockResolvedValue(null),
                 updateTaskStatus: jest.fn().mockResolvedValue(undefined),
                 storeTaskResult: jest.fn().mockResolvedValue(undefined),
-                getTaskResult: jest.fn().mockResolvedValue({ content: [] })
+                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
+                listTasks: jest.fn().mockResolvedValue({ tasks: [], nextCursor: undefined })
             };
 
             const responsiveTransport = new MockTransport();
@@ -1098,7 +1100,8 @@ describe('Task-based execution', () => {
                 getTask: jest.fn().mockResolvedValue(null),
                 updateTaskStatus: jest.fn().mockResolvedValue(undefined),
                 storeTaskResult: jest.fn().mockResolvedValue(undefined),
-                getTaskResult: jest.fn().mockResolvedValue({ content: [] })
+                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
+                listTasks: jest.fn().mockResolvedValue({ tasks: [], nextCursor: undefined })
             };
 
             protocol = new (class extends Protocol<Request, Notification, Result> {
@@ -1138,7 +1141,8 @@ describe('Task-based execution', () => {
                 getTask: jest.fn().mockResolvedValue({ taskId: 'test-task', status: 'working', keepAlive: null, pollFrequency: 500 }),
                 updateTaskStatus: jest.fn().mockResolvedValue(undefined),
                 storeTaskResult: jest.fn().mockResolvedValue(undefined),
-                getTaskResult: jest.fn().mockResolvedValue({ content: [] })
+                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
+                listTasks: jest.fn().mockResolvedValue({ tasks: [], nextCursor: undefined })
             };
 
             protocol = new (class extends Protocol<Request, Notification, Result> {
@@ -1175,7 +1179,8 @@ describe('Task-based execution', () => {
                 getTask: jest.fn().mockResolvedValue(null),
                 updateTaskStatus: jest.fn().mockRejectedValueOnce(new Error('Failed to update status')).mockResolvedValue(undefined),
                 storeTaskResult: jest.fn().mockResolvedValue(undefined),
-                getTaskResult: jest.fn().mockResolvedValue({ content: [] })
+                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
+                listTasks: jest.fn().mockResolvedValue({ tasks: [], nextCursor: undefined })
             };
 
             protocol = new (class extends Protocol<Request, Notification, Result> {
@@ -1208,6 +1213,239 @@ describe('Task-based execution', () => {
 
             expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'working');
             expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'failed', 'Failed to mark task as working');
+        });
+    });
+
+    describe('listTasks', () => {
+        it('should handle tasks/list requests and return tasks from TaskStore', async () => {
+            const mockTaskStore = {
+                createTask: jest.fn().mockResolvedValue(undefined),
+                getTask: jest.fn().mockResolvedValue(null),
+                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
+                storeTaskResult: jest.fn().mockResolvedValue(undefined),
+                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
+                listTasks: jest.fn().mockResolvedValue({
+                    tasks: [
+                        { taskId: 'task-1', status: 'completed', keepAlive: null, pollFrequency: 500 },
+                        { taskId: 'task-2', status: 'working', keepAlive: 60000, pollFrequency: 1000 }
+                    ],
+                    nextCursor: 'task-2'
+                })
+            };
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(transport);
+
+            // Simulate receiving a tasks/list request
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tasks/list',
+                params: {}
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            expect(mockTaskStore.listTasks).toHaveBeenCalledWith(undefined);
+            const sentMessage = sendSpy.mock.calls[0][0];
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(1);
+            expect(sentMessage.result.tasks).toEqual([
+                { taskId: 'task-1', status: 'completed', keepAlive: null, pollFrequency: 500 },
+                { taskId: 'task-2', status: 'working', keepAlive: 60000, pollFrequency: 1000 }
+            ]);
+            expect(sentMessage.result.nextCursor).toBe('task-2');
+            expect(sentMessage.result._meta).toEqual({});
+        });
+
+        it('should handle tasks/list requests with cursor for pagination', async () => {
+            const mockTaskStore = {
+                createTask: jest.fn().mockResolvedValue(undefined),
+                getTask: jest.fn().mockResolvedValue(null),
+                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
+                storeTaskResult: jest.fn().mockResolvedValue(undefined),
+                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
+                listTasks: jest.fn().mockResolvedValue({
+                    tasks: [{ taskId: 'task-3', status: 'submitted', keepAlive: null, pollFrequency: 500 }],
+                    nextCursor: undefined
+                })
+            };
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(transport);
+
+            // Simulate receiving a tasks/list request with cursor
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'tasks/list',
+                params: {
+                    cursor: 'task-2'
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            expect(mockTaskStore.listTasks).toHaveBeenCalledWith('task-2');
+            const sentMessage = sendSpy.mock.calls[0][0];
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(2);
+            expect(sentMessage.result.tasks).toEqual([{ taskId: 'task-3', status: 'submitted', keepAlive: null, pollFrequency: 500 }]);
+            expect(sentMessage.result.nextCursor).toBeUndefined();
+            expect(sentMessage.result._meta).toEqual({});
+        });
+
+        it('should handle tasks/list requests with empty results', async () => {
+            const mockTaskStore = {
+                createTask: jest.fn().mockResolvedValue(undefined),
+                getTask: jest.fn().mockResolvedValue(null),
+                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
+                storeTaskResult: jest.fn().mockResolvedValue(undefined),
+                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
+                listTasks: jest.fn().mockResolvedValue({
+                    tasks: [],
+                    nextCursor: undefined
+                })
+            };
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(transport);
+
+            // Simulate receiving a tasks/list request
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 3,
+                method: 'tasks/list',
+                params: {}
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            expect(mockTaskStore.listTasks).toHaveBeenCalledWith(undefined);
+            const sentMessage = sendSpy.mock.calls[0][0];
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(3);
+            expect(sentMessage.result.tasks).toEqual([]);
+            expect(sentMessage.result.nextCursor).toBeUndefined();
+            expect(sentMessage.result._meta).toEqual({});
+        });
+
+        it('should return error for invalid cursor', async () => {
+            const mockTaskStore = {
+                createTask: jest.fn().mockResolvedValue(undefined),
+                getTask: jest.fn().mockResolvedValue(null),
+                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
+                storeTaskResult: jest.fn().mockResolvedValue(undefined),
+                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
+                listTasks: jest.fn().mockRejectedValue(new Error('Invalid cursor: bad-cursor'))
+            };
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(transport);
+
+            // Simulate receiving a tasks/list request with invalid cursor
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 4,
+                method: 'tasks/list',
+                params: {
+                    cursor: 'bad-cursor'
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            expect(mockTaskStore.listTasks).toHaveBeenCalledWith('bad-cursor');
+            const sentMessage = sendSpy.mock.calls[0][0];
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(4);
+            expect(sentMessage.error).toBeDefined();
+            expect(sentMessage.error.code).toBe(-32602); // InvalidParams error code
+            expect(sentMessage.error.message).toContain('Failed to list tasks');
+            expect(sentMessage.error.message).toContain('Invalid cursor');
+        });
+
+        it('should call listTasks method from client side', async () => {
+            await protocol.connect(transport);
+
+            const listTasksPromise = protocol.listTasks();
+
+            // Simulate server response
+            setTimeout(() => {
+                transport.onmessage?.({
+                    jsonrpc: '2.0',
+                    id: sendSpy.mock.calls[0][0].id,
+                    result: {
+                        tasks: [{ taskId: 'task-1', status: 'completed', keepAlive: null, pollFrequency: 500 }],
+                        nextCursor: undefined,
+                        _meta: {}
+                    }
+                });
+            }, 10);
+
+            const result = await listTasksPromise;
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    method: 'tasks/list',
+                    params: undefined
+                }),
+                expect.any(Object)
+            );
+            expect(result.tasks).toHaveLength(1);
+            expect(result.tasks[0].taskId).toBe('task-1');
+        });
+
+        it('should call listTasks with cursor from client side', async () => {
+            await protocol.connect(transport);
+
+            const listTasksPromise = protocol.listTasks({ cursor: 'task-10' });
+
+            // Simulate server response
+            setTimeout(() => {
+                transport.onmessage?.({
+                    jsonrpc: '2.0',
+                    id: sendSpy.mock.calls[0][0].id,
+                    result: {
+                        tasks: [{ taskId: 'task-11', status: 'working', keepAlive: 30000, pollFrequency: 1000 }],
+                        nextCursor: 'task-11',
+                        _meta: {}
+                    }
+                });
+            }, 10);
+
+            const result = await listTasksPromise;
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    method: 'tasks/list',
+                    params: { cursor: 'task-10' }
+                }),
+                expect.any(Object)
+            );
+            expect(result.tasks).toHaveLength(1);
+            expect(result.tasks[0].taskId).toBe('task-11');
+            expect(result.nextCursor).toBe('task-11');
         });
     });
 });

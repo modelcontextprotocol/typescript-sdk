@@ -122,6 +122,32 @@ export class InMemoryTaskStore implements TaskStore {
         }
     }
 
+    async listTasks(cursor?: string): Promise<{ tasks: Task[]; nextCursor?: string }> {
+        const PAGE_SIZE = 10;
+        const allTaskIds = Array.from(this.tasks.keys());
+
+        let startIndex = 0;
+        if (cursor) {
+            const cursorIndex = allTaskIds.indexOf(cursor);
+            if (cursorIndex >= 0) {
+                startIndex = cursorIndex + 1;
+            } else {
+                // Invalid cursor - throw error
+                throw new Error(`Invalid cursor: ${cursor}`);
+            }
+        }
+
+        const pageTaskIds = allTaskIds.slice(startIndex, startIndex + PAGE_SIZE);
+        const tasks = pageTaskIds.map(taskId => {
+            const stored = this.tasks.get(taskId)!;
+            return { ...stored.task };
+        });
+
+        const nextCursor = startIndex + PAGE_SIZE < allTaskIds.length ? pageTaskIds[pageTaskIds.length - 1] : undefined;
+
+        return { tasks, nextCursor };
+    }
+
     /**
      * Cleanup all timers (useful for testing or graceful shutdown)
      */

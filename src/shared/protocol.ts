@@ -8,6 +8,8 @@ import {
     GetTaskResultSchema,
     GetTaskPayloadRequest,
     GetTaskPayloadRequestSchema,
+    ListTasksRequestSchema,
+    ListTasksResultSchema,
     isJSONRPCError,
     isJSONRPCRequest,
     isJSONRPCResponse,
@@ -318,6 +320,23 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         }
                     }
                 } as SendResultT;
+            });
+
+            this.setRequestHandler(ListTasksRequestSchema, async request => {
+                try {
+                    const { tasks, nextCursor } = await this._taskStore!.listTasks(request.params?.cursor);
+                    // @ts-expect-error SendResultT cannot contain ListTasksResult, but we include it in our derived types everywhere else
+                    return {
+                        tasks,
+                        nextCursor,
+                        _meta: {}
+                    } as SendResultT;
+                } catch (error) {
+                    throw new McpError(
+                        ErrorCode.InvalidParams,
+                        `Failed to list tasks: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                }
             });
         }
     }
@@ -854,6 +873,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     ): Promise<z.infer<T>> {
         // @ts-expect-error SendRequestT cannot directly contain GetTaskPayloadRequest, but we ensure all type instantiations contain it anyways
         return this.request({ method: 'tasks/result', params }, resultSchema, options);
+    }
+
+    /**
+     * Lists tasks, optionally starting from a pagination cursor.
+     */
+    async listTasks(params?: { cursor?: string }, options?: RequestOptions): Promise<z.infer<typeof ListTasksResultSchema>> {
+        // @ts-expect-error SendRequestT cannot directly contain ListTasksRequest, but we ensure all type instantiations contain it anyways
+        return this.request({ method: 'tasks/list', params }, ListTasksResultSchema, options);
     }
 
     /**

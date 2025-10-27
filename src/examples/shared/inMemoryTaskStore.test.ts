@@ -353,6 +353,79 @@ describe('InMemoryTaskStore', () => {
         });
     });
 
+    describe('listTasks', () => {
+        it('should return empty list when no tasks', async () => {
+            const result = await store.listTasks();
+            expect(result.tasks).toEqual([]);
+            expect(result.nextCursor).toBeUndefined();
+        });
+
+        it('should return all tasks when less than page size', async () => {
+            await store.createTask({ taskId: 'task-1' }, 1, {
+                method: 'tools/call',
+                params: {}
+            });
+            await store.createTask({ taskId: 'task-2' }, 2, {
+                method: 'tools/call',
+                params: {}
+            });
+            await store.createTask({ taskId: 'task-3' }, 3, {
+                method: 'tools/call',
+                params: {}
+            });
+
+            const result = await store.listTasks();
+            expect(result.tasks).toHaveLength(3);
+            expect(result.nextCursor).toBeUndefined();
+        });
+
+        it('should paginate when more than page size', async () => {
+            // Create 15 tasks (page size is 10)
+            for (let i = 1; i <= 15; i++) {
+                await store.createTask({ taskId: `task-${i}` }, i, {
+                    method: 'tools/call',
+                    params: {}
+                });
+            }
+
+            // Get first page
+            const page1 = await store.listTasks();
+            expect(page1.tasks).toHaveLength(10);
+            expect(page1.nextCursor).toBeDefined();
+
+            // Get second page using cursor
+            const page2 = await store.listTasks(page1.nextCursor);
+            expect(page2.tasks).toHaveLength(5);
+            expect(page2.nextCursor).toBeUndefined();
+        });
+
+        it('should throw error for invalid cursor', async () => {
+            await store.createTask({ taskId: 'task-1' }, 1, {
+                method: 'tools/call',
+                params: {}
+            });
+
+            await expect(store.listTasks('non-existent-cursor')).rejects.toThrow('Invalid cursor: non-existent-cursor');
+        });
+
+        it('should continue from cursor correctly', async () => {
+            // Create tasks with predictable IDs
+            for (let i = 1; i <= 5; i++) {
+                await store.createTask({ taskId: `task-${i}` }, i, {
+                    method: 'tools/call',
+                    params: {}
+                });
+            }
+
+            // Get first 3 tasks
+            const allTaskIds = Array.from(store.getAllTasks().map(t => t.taskId));
+            const result = await store.listTasks(allTaskIds[2]);
+
+            // Should get tasks after task-3
+            expect(result.tasks).toHaveLength(2);
+        });
+    });
+
     describe('cleanup', () => {
         it('should clear all timers and tasks', async () => {
             await store.createTask({ taskId: 'task-1', keepAlive: 1000 }, 1, {

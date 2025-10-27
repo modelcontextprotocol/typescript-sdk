@@ -48,6 +48,14 @@ export interface TaskStore {
      * @param error - Optional error message if status is 'failed' or 'cancelled'
      */
     updateTaskStatus(taskId: string, status: Task['status'], error?: string): Promise<void>;
+
+    /**
+     * Lists tasks, optionally starting from a pagination cursor.
+     *
+     * @param cursor - Optional cursor for pagination
+     * @returns An object containing the tasks array and an optional nextCursor
+     */
+    listTasks(cursor?: string): Promise<{ tasks: Task[]; nextCursor?: string }>;
 }
 
 /**

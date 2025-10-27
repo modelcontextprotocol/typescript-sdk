@@ -559,6 +559,20 @@ export const PaginatedResultSchema = ResultSchema.extend({
     nextCursor: z.optional(CursorSchema)
 });
 
+/**
+ * A request to list tasks.
+ */
+export const ListTasksRequestSchema = PaginatedRequestSchema.extend({
+    method: z.literal('tasks/list')
+});
+
+/**
+ * The response to a tasks/list request.
+ */
+export const ListTasksResultSchema = PaginatedResultSchema.extend({
+    tasks: z.array(TaskSchema)
+});
+
 /* Resources */
 /**
  * The contents of a specific resource or sub-resource.
@@ -1518,7 +1532,8 @@ export const ClientRequestSchema = z.union([
     CallToolRequestSchema,
     ListToolsRequestSchema,
     GetTaskRequestSchema,
-    GetTaskPayloadRequestSchema
+    GetTaskPayloadRequestSchema,
+    ListTasksRequestSchema
 ]);
 
 export const ClientNotificationSchema = z.union([
@@ -1534,7 +1549,8 @@ export const ClientResultSchema = z.union([
     CreateMessageResultSchema,
     ElicitResultSchema,
     ListRootsResultSchema,
-    GetTaskResultSchema
+    GetTaskResultSchema,
+    ListTasksResultSchema
 ]);
 
 /* Server messages */
@@ -1544,7 +1560,8 @@ export const ServerRequestSchema = z.union([
     ElicitRequestSchema,
     ListRootsRequestSchema,
     GetTaskRequestSchema,
-    GetTaskPayloadRequestSchema
+    GetTaskPayloadRequestSchema,
+    ListTasksRequestSchema
 ]);
 
 export const ServerNotificationSchema = z.union([
@@ -1569,7 +1586,8 @@ export const ServerResultSchema = z.union([
     ReadResourceResultSchema,
     CallToolResultSchema,
     ListToolsResultSchema,
-    GetTaskResultSchema
+    GetTaskResultSchema,
+    ListTasksResultSchema
 ]);
 
 export class McpError extends Error {
@@ -1676,6 +1694,8 @@ export type TaskCreatedNotification = Infer<typeof TaskCreatedNotificationSchema
 export type GetTaskRequest = Infer<typeof GetTaskRequestSchema>;
 export type GetTaskResult = Infer<typeof GetTaskResultSchema>;
 export type GetTaskPayloadRequest = Infer<typeof GetTaskPayloadRequestSchema>;
+export type ListTasksRequest = Infer<typeof ListTasksRequestSchema>;
+export type ListTasksResult = Infer<typeof ListTasksResultSchema>;
 
 /* Pagination */
 export type PaginatedRequest = Infer<typeof PaginatedRequestSchema>;
