@@ -9,6 +9,6 @@ export function completable<Schema extends z.ZodType, Output = z.output<Schema>>
     schema: Schema,
     complete: (value: Output, context?: { arguments?: Record<string, string> }) => Output[] | Promise<Output[]>
 ) {
-    // @ts-ignore - `complete` type is not following
+    // @ts-expect-error - `complete` type is not following
     return schema.register(completableRegistry, { complete });
 }
