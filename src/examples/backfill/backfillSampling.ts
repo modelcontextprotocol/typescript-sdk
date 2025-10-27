@@ -23,6 +23,7 @@ import {
     ToolChoiceAny,
     ToolChoiceTool,
     ToolChoiceNone,
+    DocumentBlockParam,
     MessageParam,
 } from "@anthropic-ai/sdk/resources/messages.js";
 import { StdioServerTransport } from '../../server/stdio.js';
@@ -61,6 +62,8 @@ ToolListChangedNotificationSchema,
 } from "../../types.js";
 import { Transport } from "../../shared/transport.js";
 import { Server } from "../../server/index.js";
+import { title } from "node:process";
+import { ToolUseBlockParam } from "@anthropic-ai/sdk/resources/messages.mjs";
 
 const DEFAULT_MAX_TOKENS = process.env.DEFAULT_MAX_TOKENS ? parseInt(process.env.DEFAULT_MAX_TOKENS) : 1000;
 
@@ -228,24 +231,59 @@ function contentBlockFromMcp(content: AssistantMessageContent | UserMessageConte
                 },
             };
         case 'tool_result':
+            const makeImageBlock = (data: string, media_type: string) => {
+                if (media_type !== 'image/png' && media_type !== 'image/jpeg' && media_type !== 'image/gif' && media_type !== 'image/webp') {
+                    throw new Error(`[contentBlockFromMcp] Unsupported image mimeType in tool_result: ${media_type}`);
+                }
+                return <ImageBlockParam>{
+                    type: 'image',
+                    source: {
+                        type: 'base64',
+                        data: data,
+                        media_type,
+                    },
+                };
+            };
             return {
                 type: 'tool_result',
                 tool_use_id: content.toolUseId,
-                content: content.structuredContent ? [{
+                content: content.structuredContent ? [<TextBlockParam>{
                     type: 'text',
                     text: JSON.stringify(content.structuredContent),
                 }] : content.content.map(c => {
                     if (c.type === 'text') {
-                        return {type: 'text', text: c.text};
+                        return <TextBlockParam>{type: 'text', text: c.text};
                     } else if (c.type === 'image') {
-                        return {
-                            type: 'image',
+                        return makeImageBlock(c.data, c.mimeType);
+                    } else if (c.type === 'resource') {
+                        if (c.resource.mimeType === 'text/plain') {
+                            return <TextBlockParam>{type: 'text', text: c.resource.text};
+                        } else if (c.resource.mimeType?.startsWith('image/') && typeof c.resource.blob === 'string') {
+                            return makeImageBlock(c.resource.blob, c.resource.mimeType);
+                        } else if (c.resource.mimeType === 'application/pdf') {
+                            return <DocumentBlockParam>{
+                                type: 'document',
+                                source: {
+                                    type: 'base64',
+                                    data: c.resource.data,
+                                    media_type: 'application/pdf',
+                                },
+                            };
+                        } else {
+                            throw new Error(`[contentBlockFromMcp] Unsupported resource mimeType in tool_result: ${c.resource.mimeType}`);
+                        }
+                    } else if (c.type === 'resource_link' && c.mimeType === 'application/pdf') {
+                        const url = new URL(c.uri);
+                        if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+                            throw new Error(`[contentBlockFromMcp] Unsupported URL protocol for PDF resource_link: ${url.protocol} (todo: fetch resource from mcp server and inline it)`);
+                        }
+                        return <DocumentBlockParam>{
+                            type: 'document',
                             source: {
-                                type: 'base64',
-                                data: c.data,
-                                media_type: c.mimeType as Base64ImageSource['media_type'],
+                                type: 'url',
+                                url: c.url,
                             },
-                        };
+                        }
                     } else {
                         throw new Error(`[contentBlockFromMcp] Unsupported content type in tool_result: ${c.type}`);
                     }
@@ -253,7 +291,7 @@ function contentBlockFromMcp(content: AssistantMessageContent | UserMessageConte
                 is_error: content.isError,
             };
         case 'tool_use':
-            return {
+            return <ToolUseBlockParam>{
                 type: 'tool_use',
                 id: content.id,
                 name: content.name,
@@ -265,11 +303,11 @@ function contentBlockFromMcp(content: AssistantMessageContent | UserMessageConte
     }
 }
 
-function messagesFromMcp(messages: CreateMessageRequest['params']['messages']): MessageParam[] {
-    return messages.map(({role, content}) => (<MessageParam>{
+async function messagesFromMcp(messages: CreateMessageRequest['params']['messages']): Promise<MessageParam[]> {
+    return Promise.all(messages.map(async ({role, content}) => (<MessageParam>{
         role,
-        content: (Array.isArray(content) ? content : [content]).map(contentBlockFromMcp)
-    }))
+        content: await Promise.all((Array.isArray(content) ? content : [content]).map(contentBlockFromMcp))
+    })))
 }
 
 export type NamedTransport<T extends Transport = Transport> = {
@@ -357,7 +395,7 @@ export async function setupBackfill(client: NamedTransport, server: NamedTranspo
                                     text: message.params.systemPrompt
                                 },
                             ],
-                            messages: messagesFromMcp(message.params.messages),
+                            messages: await messagesFromMcp(message.params.messages),
                             max_tokens: message.params.maxTokens ?? DEFAULT_MAX_TOKENS,
                             temperature: message.params.temperature,
                             stop_sequences: message.params.stopSequences,
