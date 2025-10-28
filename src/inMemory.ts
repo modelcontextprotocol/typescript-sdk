@@ -18,6 +18,8 @@ export class InMemoryTransport implements Transport {
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }) => void;
     sessionId?: string;
+    onsessionclosed?: ((sessionId: string) => void | Promise<void>) | undefined;
+    onsessioninitialized?: ((sessionId: string) => void | Promise<void>) | undefined;
 
     /**
      * Creates a pair of linked in-memory transports that can communicate with each other. One should be passed to a Client and one to a Server.
@@ -31,6 +33,7 @@ export class InMemoryTransport implements Transport {
     }
 
     async start(): Promise<void> {
+        this.onsessioninitialized?.(this.sessionId!);
         // Process any messages that were queued before start was called
         while (this._messageQueue.length > 0) {
             const queuedMessage = this._messageQueue.shift()!;
@@ -39,6 +42,7 @@ export class InMemoryTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        this.onsessionclosed?.(this.sessionId!);
         const other = this._otherTransport;
         this._otherTransport = undefined;
         await other?.close();
