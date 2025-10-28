@@ -6,7 +6,7 @@ import { URL } from 'node:url';
 import { exec } from 'node:child_process';
 import { Client } from '../../client/index.js';
 import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
-import { OAuthClientInformationFull, OAuthClientMetadata, OAuthTokens } from '../../shared/auth.js';
+import { OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from '../../shared/auth.js';
 import { CallToolRequest, ListToolsRequest, CallToolResultSchema, ListToolsResultSchema } from '../../types.js';
 import { OAuthClientProvider, UnauthorizedError } from '../../client/auth.js';
 
@@ -20,7 +20,7 @@ const CALLBACK_URL = `http://localhost:${CALLBACK_PORT}/callback`;
  * In production, you should persist tokens securely
  */
 class InMemoryOAuthClientProvider implements OAuthClientProvider {
-    private _clientInformation?: OAuthClientInformationFull;
+    private _clientInformation?: OAuthClientInformationMixed;
     private _tokens?: OAuthTokens;
     private _codeVerifier?: string;
 
@@ -46,11 +46,11 @@ class InMemoryOAuthClientProvider implements OAuthClientProvider {
         return this._clientMetadata;
     }
 
-    clientInformation(): OAuthClientInformationFull | undefined {
+    clientInformation(): OAuthClientInformationMixed | undefined {
         return this._clientInformation;
     }
 
-    saveClientInformation(clientInformation: OAuthClientInformationFull): void {
+    saveClientInformation(clientInformation: OAuthClientInformationMixed): void {
         this._clientInformation = clientInformation;
     }
 

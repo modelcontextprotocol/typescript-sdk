@@ -2,6 +2,8 @@ import pkceChallenge from 'pkce-challenge';
 import { LATEST_PROTOCOL_VERSION } from '../types.js';
 import {
     OAuthClientMetadata,
+    OAuthClientInformation,
+    OAuthClientInformationMixed,
     OAuthTokens,
     OAuthMetadata,
     OAuthClientInformationFull,
@@ -55,7 +57,7 @@ export interface OAuthClientProvider {
      * server, or returns `undefined` if the client is not registered with the
      * server.
      */
-    clientInformation(): OAuthClientInformationFull | undefined | Promise<OAuthClientInformationFull | undefined>;
+    clientInformation(): OAuthClientInformationMixed | undefined | Promise<OAuthClientInformationMixed | undefined>;
 
     /**
      * If implemented, this permits the OAuth client to dynamically register with
@@ -65,7 +67,7 @@ export interface OAuthClientProvider {
      * This method is not required to be implemented if client information is
      * statically known (e.g., pre-registered).
      */
-    saveClientInformation?(clientInformation: OAuthClientInformationFull): void | Promise<void>;
+    saveClientInformation?(clientInformation: OAuthClientInformationMixed): void | Promise<void>;
 
     /**
      * Loads any existing OAuth tokens for the current session, or returns
@@ -167,7 +169,7 @@ const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
  * @param supportedMethods - Authentication methods supported by the authorization server
  * @returns The selected authentication method
  */
-function selectClientAuthMethod(clientInformation: OAuthClientInformationFull, supportedMethods: string[]): ClientAuthMethod {
+function selectClientAuthMethod(clientInformation: OAuthClientInformationMixed, supportedMethods: string[]): ClientAuthMethod {
     const hasClientSecret = clientInformation.client_secret !== undefined;
 
     // If server doesn't specify supported methods, use RFC 6749 defaults
@@ -177,6 +179,7 @@ function selectClientAuthMethod(clientInformation: OAuthClientInformationFull, s
 
     // Prefer the method returned by the server during client registration if valid and supported
     if (
+        'token_endpoint_auth_method' in clientInformation &&
         clientInformation.token_endpoint_auth_method &&
         isClientAuthMethod(clientInformation.token_endpoint_auth_method) &&
         supportedMethods.includes(clientInformation.token_endpoint_auth_method)
@@ -217,7 +220,7 @@ function selectClientAuthMethod(clientInformation: OAuthClientInformationFull, s
  */
 function applyClientAuthentication(
     method: ClientAuthMethod,
-    clientInformation: OAuthClientInformationFull,
+    clientInformation: OAuthClientInformation,
     headers: Headers,
     params: URLSearchParams
 ): void {
@@ -805,7 +808,7 @@ export async function startAuthorization(
         resource
     }: {
         metadata?: AuthorizationServerMetadata;
-        clientInformation: OAuthClientInformationFull;
+        clientInformation: OAuthClientInformationMixed;
         redirectUrl: string | URL;
         scope?: string;
         state?: string;
@@ -888,7 +891,7 @@ export async function exchangeAuthorization(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        clientInformation: OAuthClientInformationFull;
+        clientInformation: OAuthClientInformationMixed;
         authorizationCode: string;
         codeVerifier: string;
         redirectUri: string | URL;
@@ -967,7 +970,7 @@ export async function refreshAuthorization(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        clientInformation: OAuthClientInformationFull;
+        clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
         resource?: URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
