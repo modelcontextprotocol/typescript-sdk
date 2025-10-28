@@ -10,7 +10,8 @@ import {
     discoverOAuthProtectedResourceMetadata,
     extractResourceMetadataUrl,
     auth,
-    type OAuthClientProvider
+    type OAuthClientProvider,
+    selectClientAuthMethod
 } from './auth.js';
 import { ServerError } from '../server/auth/errors.js';
 import { AuthorizationServerMetadata } from '../shared/auth.js';
@@ -878,6 +879,25 @@ describe('OAuth Authorization', () => {
 
             // Verify that all discovery URLs were attempted
             expect(mockFetch).toHaveBeenCalledTimes(8); // 4 URLs × 2 attempts each (with and without headers)
+        });
+    });
+
+    describe('selectClientAuthMethod', () => {
+        it('selects the correct client authentication method from client information', () => {
+            const clientInfo = {
+                client_id: 'test-client-id',
+                client_secret: 'test-client-secret',
+                token_endpoint_auth_method: 'client_secret_basic'
+            };
+            const supportedMethods = ['client_secret_post', 'client_secret_basic', 'none'];
+            const authMethod = selectClientAuthMethod(clientInfo, supportedMethods);
+            expect(authMethod).toBe('client_secret_basic');
+        });
+        it('selects the correct client authentication method from supported methods', () => {
+            const clientInfo = { client_id: 'test-client-id' };
+            const supportedMethods = ['client_secret_post', 'client_secret_basic', 'none'];
+            const authMethod = selectClientAuthMethod(clientInfo, supportedMethods);
+            expect(authMethod).toBe('none');
         });
     });
 
