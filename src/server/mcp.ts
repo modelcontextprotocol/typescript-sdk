@@ -144,7 +144,7 @@ export class McpServer {
                     if (!parseResult.success) {
                         throw new McpError(
                             ErrorCode.InvalidParams,
-                            `Invalid arguments for tool ${request.params.name}: ${parseResult.error.message}`
+                            `Input validation error: Invalid arguments for tool ${request.params.name}: ${parseResult.error.message}`
                         );
                     }
 
@@ -155,27 +155,29 @@ export class McpServer {
                     const cb = tool.callback as ToolCallback<undefined>;
                     result = await Promise.resolve(cb(extra));
                 }
+
+                if (tool.outputSchema && !result.isError) {
+                    if (!result.structuredContent) {
+                        throw new McpError(
+                            ErrorCode.InvalidParams,
+                            `Output validation error: Tool ${request.params.name} has an output schema but no structured content was provided`
+                        );
+                    }
+    
+                    // if the tool has an output schema, validate structured content
+                    const parseResult = await tool.outputSchema.safeParseAsync(result.structuredContent);
+                    if (!parseResult.success) {
+                        throw new McpError(
+                            ErrorCode.InvalidParams,
+                            `Output validation error: Invalid structured content for tool ${request.params.name}: ${parseResult.error.message}`
+                        );
+                    }
+                }
             } catch (error) {
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
 
-            if (tool.outputSchema && !result.isError) {
-                if (!result.structuredContent) {
-                    throw new McpError(
-                        ErrorCode.InvalidParams,
-                        `Tool ${request.params.name} has an output schema but no structured content was provided`
-                    );
-                }
 
-                // if the tool has an output schema, validate structured content
-                const parseResult = await tool.outputSchema.safeParseAsync(result.structuredContent);
-                if (!parseResult.success) {
-                    throw new McpError(
-                        ErrorCode.InvalidParams,
-                        `Invalid structured content for tool ${request.params.name}: ${parseResult.error.message}`
-                    );
-                }
-            }
 
             return result;
         });

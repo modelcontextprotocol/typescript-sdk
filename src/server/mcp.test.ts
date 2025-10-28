@@ -947,7 +947,7 @@ describe('tool()', () => {
             expect.arrayContaining([
                 {
                     type: 'text',
-                    text: expect.stringContaining('Invalid arguments')
+                    text: expect.stringContaining('Input validation error: Invalid arguments for tool test')
                 }
             ])
         );
@@ -971,7 +971,7 @@ describe('tool()', () => {
             expect.arrayContaining([
                 {
                     type: 'text',
-                    text: expect.stringContaining('Invalid arguments')
+                    text: expect.stringContaining('Input validation error: Invalid arguments for tool test (new api)')
                 }
             ])
         );
@@ -1168,14 +1168,23 @@ describe('tool()', () => {
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
         // Call the tool and expect it to throw an error
-        await expect(
-            client.callTool({
+        const result = 
+            await client.callTool({
                 name: 'test',
                 arguments: {
                     input: 'hello'
                 }
-            })
-        ).rejects.toThrow(/Tool test has an output schema but no structured content was provided/);
+            });
+
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+            expect.arrayContaining([
+                {
+                    type: 'text',
+                    text: expect.stringContaining('Output validation error: Tool test has an output schema but no structured content was provided')
+                }
+            ])
+        );
     });
     /***
      * Test: Tool with Output Schema Must Provide Structured Content
@@ -1290,14 +1299,22 @@ describe('tool()', () => {
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
         // Call the tool and expect it to throw a server-side validation error
-        await expect(
-            client.callTool({
+        const result = await client.callTool({
                 name: 'test',
                 arguments: {
                     input: 'hello'
                 }
-            })
-        ).rejects.toThrow(/Invalid structured content for tool test/);
+            });
+
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+            expect.arrayContaining([
+                {
+                    type: 'text',
+                    text: expect.stringContaining('Output validation error: Invalid structured content for tool test')
+                }
+            ])
+        );
     });
 
     /***
