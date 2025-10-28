@@ -163,7 +163,7 @@ export class McpServer {
                             `Output validation error: Tool ${request.params.name} has an output schema but no structured content was provided`
                         );
                     }
-    
+
                     // if the tool has an output schema, validate structured content
                     const parseResult = await tool.outputSchema.safeParseAsync(result.structuredContent);
                     if (!parseResult.success) {
@@ -176,8 +176,6 @@ export class McpServer {
             } catch (error) {
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
-
-
 
             return result;
         });

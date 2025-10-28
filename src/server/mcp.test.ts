@@ -1168,20 +1168,21 @@ describe('tool()', () => {
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
         // Call the tool and expect it to throw an error
-        const result = 
-            await client.callTool({
-                name: 'test',
-                arguments: {
-                    input: 'hello'
-                }
-            });
+        const result = await client.callTool({
+            name: 'test',
+            arguments: {
+                input: 'hello'
+            }
+        });
 
         expect(result.isError).toBe(true);
         expect(result.content).toEqual(
             expect.arrayContaining([
                 {
                     type: 'text',
-                    text: expect.stringContaining('Output validation error: Tool test has an output schema but no structured content was provided')
+                    text: expect.stringContaining(
+                        'Output validation error: Tool test has an output schema but no structured content was provided'
+                    )
                 }
             ])
         );
@@ -1300,11 +1301,11 @@ describe('tool()', () => {
 
         // Call the tool and expect it to throw a server-side validation error
         const result = await client.callTool({
-                name: 'test',
-                arguments: {
-                    input: 'hello'
-                }
-            });
+            name: 'test',
+            arguments: {
+                input: 'hello'
+            }
+        });
 
         expect(result.isError).toBe(true);
         expect(result.content).toEqual(
