@@ -355,10 +355,7 @@ describe('SSEClientTransport', () => {
                 get clientMetadata() {
                     return { redirect_uris: ['http://localhost/callback'] };
                 },
-                clientInformation: jest.fn(() => ({
-                    client_id: 'test-client-id',
-                    client_secret: 'test-client-secret'
-                })),
+                clientInformation: jest.fn(() => ({ client_id: 'test-client-id', client_secret: 'test-client-secret' })),
                 tokens: jest.fn(),
                 saveTokens: jest.fn(),
                 redirectToAuthorization: jest.fn(),
