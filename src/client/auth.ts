@@ -169,7 +169,7 @@ const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
  * @param supportedMethods - Authentication methods supported by the authorization server
  * @returns The selected authentication method
  */
-function selectClientAuthMethod(clientInformation: OAuthClientInformationMixed, supportedMethods: string[]): ClientAuthMethod {
+export function selectClientAuthMethod(clientInformation: OAuthClientInformationMixed, supportedMethods: string[]): ClientAuthMethod {
     const hasClientSecret = clientInformation.client_secret !== undefined;
 
     // If server doesn't specify supported methods, use RFC 6749 defaults
