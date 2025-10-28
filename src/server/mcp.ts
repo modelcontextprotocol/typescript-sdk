@@ -425,21 +425,25 @@ export class McpServer {
 
     /**
      * Registers a resource `name` at a fixed URI, which will use the given callback to respond to read requests.
+     * @deprecated Use `registerResource` instead.
      */
     resource(name: string, uri: string, readCallback: ReadResourceCallback): RegisteredResource;
 
     /**
      * Registers a resource `name` at a fixed URI with metadata, which will use the given callback to respond to read requests.
+     * @deprecated Use `registerResource` instead.
      */
     resource(name: string, uri: string, metadata: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
 
     /**
      * Registers a resource `name` with a template pattern, which will use the given callback to respond to read requests.
+     * @deprecated Use `registerResource` instead.
      */
     resource(name: string, template: ResourceTemplate, readCallback: ReadResourceTemplateCallback): RegisteredResourceTemplate;
 
     /**
      * Registers a resource `name` with a template pattern and metadata, which will use the given callback to respond to read requests.
+     * @deprecated Use `registerResource` instead.
      */
     resource(
         name: string,
@@ -689,11 +693,13 @@ export class McpServer {
 
     /**
      * Registers a zero-argument tool `name`, which will run the given function when the client calls it.
+     * @deprecated Use `registerTool` instead.
      */
     tool(name: string, cb: ToolCallback): RegisteredTool;
 
     /**
      * Registers a zero-argument tool `name` (with a description) which will run the given function when the client calls it.
+     * @deprecated Use `registerTool` instead.
      */
     tool(name: string, description: string, cb: ToolCallback): RegisteredTool;
 
@@ -703,6 +709,7 @@ export class McpServer {
      *
      * Note: We use a union type for the second parameter because TypeScript cannot reliably disambiguate
      * between ToolAnnotations and ZodRawShape during overload resolution, as both are plain object types.
+     * @deprecated Use `registerTool` instead.
      */
     tool<Args extends ZodRawShape>(name: string, paramsSchemaOrAnnotations: Args | ToolAnnotations, cb: ToolCallback<Args>): RegisteredTool;
 
@@ -713,6 +720,7 @@ export class McpServer {
      *
      * Note: We use a union type for the third parameter because TypeScript cannot reliably disambiguate
      * between ToolAnnotations and ZodRawShape during overload resolution, as both are plain object types.
+     * @deprecated Use `registerTool` instead.
      */
     tool<Args extends ZodRawShape>(
         name: string,
@@ -723,11 +731,13 @@ export class McpServer {
 
     /**
      * Registers a tool with both parameter schema and annotations.
+     * @deprecated Use `registerTool` instead.
      */
     tool<Args extends ZodRawShape>(name: string, paramsSchema: Args, annotations: ToolAnnotations, cb: ToolCallback<Args>): RegisteredTool;
 
     /**
      * Registers a tool with description, parameter schema, and annotations.
+     * @deprecated Use `registerTool` instead.
      */
     tool<Args extends ZodRawShape>(
         name: string,
@@ -820,21 +830,25 @@ export class McpServer {
 
     /**
      * Registers a zero-argument prompt `name`, which will run the given function when the client calls it.
+     * @deprecated Use `registerPrompt` instead.
      */
     prompt(name: string, cb: PromptCallback): RegisteredPrompt;
 
     /**
      * Registers a zero-argument prompt `name` (with a description) which will run the given function when the client calls it.
+     * @deprecated Use `registerPrompt` instead.
      */
     prompt(name: string, description: string, cb: PromptCallback): RegisteredPrompt;
 
     /**
      * Registers a prompt `name` accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+     * @deprecated Use `registerPrompt` instead.
      */
     prompt<Args extends PromptArgsRawShape>(name: string, argsSchema: Args, cb: PromptCallback<Args>): RegisteredPrompt;
 
     /**
      * Registers a prompt `name` (with a description) accepting the given arguments, which must be an object containing named properties associated with Zod schemas. When the client calls it, the function will be run with the parsed and validated arguments.
+     * @deprecated Use `registerPrompt` instead.
      */
     prompt<Args extends PromptArgsRawShape>(
         name: string,
