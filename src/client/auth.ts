@@ -503,6 +503,34 @@ export function extractWWWAuthenticateParams(res: Response): { resourceMetadataU
 }
 
 /**
+ * Extract resource_metadata from response header.
+ * @deprecated Use `extractWWWAuthenticateParams` instead.
+ */
+export function extractResourceMetadataUrl(res: Response): URL | undefined {
+    const authenticateHeader = res.headers.get('WWW-Authenticate');
+    if (!authenticateHeader) {
+        return undefined;
+    }
+
+    const [type, scheme] = authenticateHeader.split(' ');
+    if (type.toLowerCase() !== 'bearer' || !scheme) {
+        return undefined;
+    }
+    const regex = /resource_metadata="([^"]*)"/;
+    const match = regex.exec(authenticateHeader);
+
+    if (!match) {
+        return undefined;
+    }
+
+    try {
+        return new URL(match[1]);
+    } catch {
+        return undefined;
+    }
+}
+
+/**
  * Looks up RFC 9728 OAuth 2.0 Protected Resource Metadata.
  *
  * If the server returns a 404 for the well-known endpoint, this function will
