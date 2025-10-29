@@ -1,5 +1,15 @@
 import { ZodType, z } from 'zod';
-import { ClientCapabilities, ErrorCode, McpError, Notification, Request, Result, ServerCapabilities } from '../types.js';
+import {
+    ClientCapabilities,
+    ErrorCode,
+    McpError,
+    Notification,
+    RELATED_TASK_META_KEY,
+    Request,
+    Result,
+    ServerCapabilities,
+    TASK_META_KEY
+} from '../types.js';
 import { Protocol, mergeCapabilities } from './protocol.js';
 import { Transport } from './transport.js';
 
@@ -784,7 +794,7 @@ describe('Task-based execution', () => {
                     params: {
                         name: 'test-tool',
                         _meta: {
-                            'modelcontextprotocol.io/task': {
+                            [TASK_META_KEY]: {
                                 taskId: 'my-task-123',
                                 keepAlive: 30000
                             }
@@ -824,7 +834,7 @@ describe('Task-based execution', () => {
                         name: 'test-tool',
                         _meta: {
                             customField: 'customValue',
-                            'modelcontextprotocol.io/task': {
+                            [TASK_META_KEY]: {
                                 taskId: 'my-task-456'
                             }
                         }
@@ -879,7 +889,7 @@ describe('Task-based execution', () => {
                     params: {
                         data: 'test',
                         _meta: {
-                            'modelcontextprotocol.io/related-task': {
+                            [RELATED_TASK_META_KEY]: {
                                 taskId: 'parent-task-123'
                             }
                         }
@@ -911,7 +921,7 @@ describe('Task-based execution', () => {
                         level: 'info',
                         data: 'test message',
                         _meta: {
-                            'modelcontextprotocol.io/related-task': {
+                            [RELATED_TASK_META_KEY]: {
                                 taskId: 'parent-task-456'
                             }
                         }
@@ -950,10 +960,10 @@ describe('Task-based execution', () => {
                     params: {
                         name: 'test-tool',
                         _meta: {
-                            'modelcontextprotocol.io/task': {
+                            [TASK_META_KEY]: {
                                 taskId: 'my-task-combined'
                             },
-                            'modelcontextprotocol.io/related-task': {
+                            [RELATED_TASK_META_KEY]: {
                                 taskId: 'parent-task'
                             },
                             progressToken: expect.any(Number)
@@ -994,7 +1004,7 @@ describe('Task-based execution', () => {
                 method: 'test/method',
                 params: {
                     _meta: {
-                        'modelcontextprotocol.io/task': {
+                        [TASK_META_KEY]: {
                             taskId: 'test-task',
                             keepAlive: 60000
                         }
@@ -1066,7 +1076,7 @@ describe('Task-based execution', () => {
                 method: 'test/method',
                 params: {
                     _meta: {
-                        'modelcontextprotocol.io/task': {
+                        [TASK_META_KEY]: {
                             taskId: 'test-task',
                             keepAlive: 60000
                         }
@@ -1122,7 +1132,7 @@ describe('Task-based execution', () => {
                 method: 'test/method',
                 params: {
                     _meta: {
-                        'modelcontextprotocol.io/task': {
+                        [TASK_META_KEY]: {
                             taskId: 'test-task',
                             keepAlive: 60000
                         }
@@ -1201,7 +1211,7 @@ describe('Task-based execution', () => {
                 method: 'test/method',
                 params: {
                     _meta: {
-                        'modelcontextprotocol.io/task': {
+                        [TASK_META_KEY]: {
                             taskId: 'test-task',
                             keepAlive: 60000
                         }
@@ -1398,7 +1408,11 @@ describe('Task-based execution', () => {
                     result: {
                         tasks: [{ taskId: 'task-1', status: 'completed', keepAlive: null, pollFrequency: 500 }],
                         nextCursor: undefined,
-                        _meta: {}
+                        _meta: {
+                            [TASK_META_KEY]: expect.objectContaining({
+                                taskId: expect.any(String)
+                            })
+                        }
                     }
                 });
             }, 10);
@@ -1429,7 +1443,11 @@ describe('Task-based execution', () => {
                     result: {
                         tasks: [{ taskId: 'task-11', status: 'working', keepAlive: 30000, pollFrequency: 1000 }],
                         nextCursor: 'task-11',
-                        _meta: {}
+                        _meta: {
+                            [TASK_META_KEY]: expect.objectContaining({
+                                taskId: expect.any(String)
+                            })
+                        }
                     }
                 });
             }, 10);
@@ -1439,7 +1457,9 @@ describe('Task-based execution', () => {
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
                     method: 'tasks/list',
-                    params: { cursor: 'task-10' }
+                    params: {
+                        cursor: 'task-10'
+                    }
                 }),
                 expect.any(Object)
             );

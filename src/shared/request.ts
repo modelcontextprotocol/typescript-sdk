@@ -51,8 +51,9 @@ export class PendingRequest<SendRequestT extends Request, SendNotificationT exte
                 return result.value;
             }
 
-            const errors: unknown[] = [result.reason, task.reason];
-            throw new Error(`Both request and task handler failed: ${errors.map(e => `${e}`).join(', ')}`);
+            // Both failed - prefer to throw the result error since it's usually more meaningful
+            // (e.g., timeout, connection error, etc.) than the task creation failure
+            throw result.reason;
         });
     }
 

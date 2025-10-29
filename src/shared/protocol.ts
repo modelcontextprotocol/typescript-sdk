@@ -223,7 +223,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
-    private _pendingTaskCreations: Map<string, { resolve: () => void; reject: (reason: Error) => void }> = new Map();
+    private _pendingTaskCreations: Map<string, { resolve: () => void; reject: (reason: unknown) => void }> = new Map();
     private _requestIdToTaskId: Map<number, string> = new Map();
     private _taskStore?: TaskStore;
 
@@ -397,6 +397,16 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         if (info) {
             clearTimeout(info.timeoutId);
             this._timeoutInfo.delete(messageId);
+        }
+    }
+
+    private _cleanupTaskTracking(messageId: number, reason: unknown) {
+        const taskId = this._requestIdToTaskId.get(messageId);
+        if (taskId) {
+            this._requestIdToTaskId.delete(messageId);
+            const resolver = this._pendingTaskCreations.get(taskId);
+            resolver?.reject(reason instanceof Error ? reason : new Error(String(reason)));
+            this._pendingTaskCreations.delete(taskId);
         }
     }
 
@@ -633,6 +643,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             try {
                 this._resetTimeout(messageId);
             } catch (error) {
+                // Clean up task tracking if maxTotalTimeout was exceeded
+                this._cleanupTaskTracking(messageId, error);
+                this._responseHandlers.delete(messageId);
+                this._progressHandlers.delete(messageId);
+                this._cleanupTimeout(messageId);
                 responseHandler(error as Error);
                 return;
             }
@@ -723,13 +738,28 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         // Send the request
         const result = new Promise<z.infer<T>>((resolve, reject) => {
+            const earlyReject = (error: unknown) => {
+                // Clean up task tracking if we reject before sending
+                if (taskId) {
+                    const resolver = this._pendingTaskCreations.get(taskId);
+                    resolver?.reject(error);
+                    this._pendingTaskCreations.delete(taskId);
+                }
+                reject(error);
+            };
+
             if (!this._transport) {
-                reject(new Error('Not connected'));
+                earlyReject(new Error('Not connected'));
                 return;
             }
 
             if (this._options?.enforceStrictCapabilities === true) {
-                this.assertCapabilityForMethod(request.method);
+                try {
+                    this.assertCapabilityForMethod(request.method);
+                } catch (e) {
+                    earlyReject(e);
+                    return;
+                }
             }
 
             options?.signal?.throwIfAborted();
@@ -782,6 +812,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 this._responseHandlers.delete(messageId);
                 this._progressHandlers.delete(messageId);
                 this._cleanupTimeout(messageId);
+                this._cleanupTaskTracking(messageId, reason);
 
                 this._transport
                     ?.send(
