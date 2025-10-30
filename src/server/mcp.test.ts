@@ -4228,17 +4228,24 @@ describe('elicitInput()', () => {
 
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-        await expect(
-            client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test-strict',
-                        arguments: { username: 'test', itemcount: 42 }
-                    }
-                },
-                CallToolResultSchema
-            )
-        ).rejects.toThrow('Invalid arguments');
+        const result = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'test-strict',
+                    arguments: { username: 'test', itemcount: 42 }
+                }
+            },
+            CallToolResultSchema
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    text: expect.stringContaining('Input validation error')
+                })
+            ])
+        );
     });
 });

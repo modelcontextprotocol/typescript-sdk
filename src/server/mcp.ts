@@ -174,15 +174,6 @@ export class McpServer {
                     }
                 }
             } catch (error) {
-                if (
-                    tool &&
-                    tool.strictInputSchemaValidation &&
-                    error instanceof McpError &&
-                    error.code === ErrorCode.InvalidParams &&
-                    error.message.includes('Input validation error')
-                ) {
-                    throw error;
-                }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
 
