@@ -174,6 +174,15 @@ export class McpServer {
                     }
                 }
             } catch (error) {
+                if (
+                    tool &&
+                    tool.strictInputSchemaValidation &&
+                    error instanceof McpError &&
+                    error.code === ErrorCode.InvalidParams &&
+                    error.message.includes('Input validation error')
+                ) {
+                    throw error;
+                }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
 
@@ -665,6 +674,7 @@ export class McpServer {
             outputSchema: outputSchema === undefined ? undefined : z.object(outputSchema),
             annotations,
             _meta,
+            strictInputSchemaValidation,
             callback,
             enabled: true,
             disable: () => registeredTool.update({ enabled: false }),
@@ -1035,6 +1045,7 @@ export type RegisteredTool = {
     outputSchema?: AnyZodObject;
     annotations?: ToolAnnotations;
     _meta?: Record<string, unknown>;
+    strictInputSchemaValidation?: boolean;
     callback: ToolCallback<undefined | ZodRawShape>;
     enabled: boolean;
     enable(): void;
