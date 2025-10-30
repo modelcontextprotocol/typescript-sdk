@@ -13,8 +13,9 @@ describe('StdioClientTransport using cross-spawn', () => {
         mockSpawn.mockImplementation(() => {
             const mockProcess: {
                 on: jest.Mock;
-                stdin?: { on: jest.Mock; write: jest.Mock };
-                stdout?: { on: jest.Mock };
+                once: jest.Mock;
+                stdin?: { on: jest.Mock; write: jest.Mock; off: jest.Mock };
+                stdout?: { on: jest.Mock; off: jest.Mock };
                 stderr?: null;
             } = {
                 on: jest.fn((event: string, callback: () => void) => {
@@ -23,12 +24,20 @@ describe('StdioClientTransport using cross-spawn', () => {
                     }
                     return mockProcess;
                 }),
+                once: jest.fn((event: string, callback: () => void) => {
+                    if (event === 'spawn') {
+                        callback();
+                    }
+                    return mockProcess;
+                }),
                 stdin: {
                     on: jest.fn(),
-                    write: jest.fn().mockReturnValue(true)
+                    write: jest.fn().mockReturnValue(true),
+                    off: jest.fn()
                 },
                 stdout: {
-                    on: jest.fn()
+                    on: jest.fn(),
+                    off: jest.fn()
                 },
                 stderr: null
             };
@@ -106,13 +115,16 @@ describe('StdioClientTransport using cross-spawn', () => {
         // get the mock process object
         const mockProcess: {
             on: jest.Mock;
+            once: jest.Mock;
             stdin: {
                 on: jest.Mock;
                 write: jest.Mock;
                 once: jest.Mock;
+                off: jest.Mock;
             };
             stdout: {
                 on: jest.Mock;
+                off: jest.Mock;
             };
             stderr: null;
         } = {
@@ -122,13 +134,21 @@ describe('StdioClientTransport using cross-spawn', () => {
                 }
                 return mockProcess;
             }),
+            once: jest.fn((event: string, callback: () => void) => {
+                if (event === 'spawn') {
+                    callback();
+                }
+                return mockProcess;
+            }),
             stdin: {
                 on: jest.fn(),
                 write: jest.fn().mockReturnValue(true),
-                once: jest.fn()
+                once: jest.fn(),
+                off: jest.fn()
             },
             stdout: {
-                on: jest.fn()
+                on: jest.fn(),
+                off: jest.fn()
             },
             stderr: null
         };
