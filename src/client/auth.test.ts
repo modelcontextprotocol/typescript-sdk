@@ -9,6 +9,7 @@ import {
     registerClient,
     discoverOAuthProtectedResourceMetadata,
     extractResourceMetadataUrl,
+    extractChallengeScope,
     auth,
     type OAuthClientProvider,
     selectClientAuthMethod
@@ -67,6 +68,82 @@ describe('OAuth Authorization', () => {
             } as unknown as Response;
 
             expect(extractResourceMetadataUrl(mockResponse)).toBeUndefined();
+        });
+    });
+
+    describe('extractChallengeScope', () => {
+        it('extracts scope from WWW-Authenticate header', () => {
+            const mockResponse = {
+                headers: {
+                    get: jest.fn(name => (name === 'WWW-Authenticate' ? 'Bearer realm="mcp", scope="read write"' : null))
+                }
+            } as unknown as Response;
+
+            expect(extractChallengeScope(mockResponse)).toBe('read write');
+        });
+
+        it('extracts scope when combined with resource_metadata', () => {
+            const mockResponse = {
+                headers: {
+                    get: jest.fn(name =>
+                        name === 'WWW-Authenticate'
+                            ? 'Bearer realm="mcp", resource_metadata="https://example.com/.well-known/oauth-protected-resource", scope="api:read api:write"'
+                            : null
+                    )
+                }
+            } as unknown as Response;
+
+            expect(extractChallengeScope(mockResponse)).toBe('api:read api:write');
+        });
+
+        it('returns undefined when no WWW-Authenticate header present', () => {
+            const mockResponse = {
+                headers: {
+                    get: jest.fn(() => null)
+                }
+            } as unknown as Response;
+
+            expect(extractChallengeScope(mockResponse)).toBeUndefined();
+        });
+
+        it('returns undefined when scope not in header', () => {
+            const mockResponse = {
+                headers: {
+                    get: jest.fn(name => (name === 'WWW-Authenticate' ? 'Bearer realm="mcp"' : null))
+                }
+            } as unknown as Response;
+
+            expect(extractChallengeScope(mockResponse)).toBeUndefined();
+        });
+
+        it('handles empty scope string', () => {
+            const mockResponse = {
+                headers: {
+                    get: jest.fn(name => (name === 'WWW-Authenticate' ? 'Bearer realm="mcp", scope=""' : null))
+                }
+            } as unknown as Response;
+
+            expect(extractChallengeScope(mockResponse)).toBeUndefined();
+        });
+
+        it('returns undefined for non-Bearer authentication', () => {
+            const mockResponse = {
+                headers: {
+                    get: jest.fn(name => (name === 'WWW-Authenticate' ? 'Basic realm="mcp", scope="read"' : null))
+                }
+            } as unknown as Response;
+
+            expect(extractChallengeScope(mockResponse)).toBeUndefined();
+        });
+
+        it('handles single scope value', () => {
+            const mockResponse = {
+                headers: {
+                    get: jest.fn(name => (name === 'WWW-Authenticate' ? 'Bearer realm="mcp", scope="mcp"' : null))
+                }
+            } as unknown as Response;
+
+            expect(extractChallengeScope(mockResponse)).toBe('mcp');
         });
     });
 
@@ -148,15 +225,14 @@ describe('OAuth Authorization', () => {
             expect(mockFetch).toHaveBeenCalledTimes(2);
         });
 
-        it('throws on 404 errors', async () => {
+        it('returns undefined on 404 errors (per SEP-985)', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: false,
                 status: 404
             });
 
-            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com')).rejects.toThrow(
-                'Resource server does not implement OAuth 2.0 Protected Resource Metadata.'
-            );
+            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com');
+            expect(metadata).toBeUndefined();
         });
 
         it('throws on non-404 errors', async () => {
@@ -249,7 +325,7 @@ describe('OAuth Authorization', () => {
             }
         );
 
-        it('throws error when both path-aware and root discovery return 404', async () => {
+        it('returns undefined when both path-aware and root discovery return 404 (per SEP-985)', async () => {
             // First call (path-aware) returns 404
             mockFetch.mockResolvedValueOnce({
                 ok: false,
@@ -262,9 +338,8 @@ describe('OAuth Authorization', () => {
                 status: 404
             });
 
-            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name')).rejects.toThrow(
-                'Resource server does not implement OAuth 2.0 Protected Resource Metadata.'
-            );
+            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name');
+            expect(metadata).toBeUndefined();
 
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(2);
@@ -283,16 +358,15 @@ describe('OAuth Authorization', () => {
             expect(calls.length).toBe(1); // Should not attempt fallback
         });
 
-        it('does not fallback when the original URL is already at root path', async () => {
+        it('returns undefined when the original URL is already at root path and returns 404 (per SEP-985)', async () => {
             // First call (path-aware for root) returns 404
             mockFetch.mockResolvedValueOnce({
                 ok: false,
                 status: 404
             });
 
-            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com/')).rejects.toThrow(
-                'Resource server does not implement OAuth 2.0 Protected Resource Metadata.'
-            );
+            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/');
+            expect(metadata).toBeUndefined();
 
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1); // Should not attempt fallback
@@ -301,16 +375,15 @@ describe('OAuth Authorization', () => {
             expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
         });
 
-        it('does not fallback when the original URL has no path', async () => {
+        it('returns undefined when the original URL has no path and returns 404 (per SEP-985)', async () => {
             // First call (path-aware for no path) returns 404
             mockFetch.mockResolvedValueOnce({
                 ok: false,
                 status: 404
             });
 
-            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com')).rejects.toThrow(
-                'Resource server does not implement OAuth 2.0 Protected Resource Metadata.'
-            );
+            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com');
+            expect(metadata).toBeUndefined();
 
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1); // Should not attempt fallback
@@ -350,18 +423,17 @@ describe('OAuth Authorization', () => {
             });
         });
 
-        it('does not fallback when resourceMetadataUrl is provided', async () => {
+        it('returns undefined when resourceMetadataUrl is provided but returns 404 (per SEP-985)', async () => {
             // Call with explicit URL returns 404
             mockFetch.mockResolvedValueOnce({
                 ok: false,
                 status: 404
             });
 
-            await expect(
-                discoverOAuthProtectedResourceMetadata('https://resource.example.com/path', {
-                    resourceMetadataUrl: 'https://custom.example.com/metadata'
-                })
-            ).rejects.toThrow('Resource server does not implement OAuth 2.0 Protected Resource Metadata.');
+            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/path', {
+                resourceMetadataUrl: 'https://custom.example.com/metadata'
+            });
+            expect(metadata).toBeUndefined();
 
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1); // Should not attempt fallback when explicit URL is provided
@@ -2199,6 +2271,521 @@ describe('OAuth Authorization', () => {
 
             // Verify custom fetch was called for AS metadata discovery
             expect(customFetch.mock.calls[1][0].toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
+        });
+
+        describe('SEP-985: WWW-Authenticate fallback behavior', () => {
+            it('uses resource_metadata URL from WWW-Authenticate header when provided', async () => {
+                // Mock PRM discovery from explicit URL
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+
+                    if (urlString === 'https://resource.example.com/custom/.well-known/oauth-protected-resource') {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                resource: 'https://resource.example.com',
+                                authorization_servers: ['https://auth.example.com']
+                            })
+                        });
+                    } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://auth.example.com',
+                                authorization_endpoint: 'https://auth.example.com/authorize',
+                                token_endpoint: 'https://auth.example.com/token',
+                                response_types_supported: ['code'],
+                                code_challenge_methods_supported: ['S256']
+                            })
+                        });
+                    }
+
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+
+                (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+                    client_id: 'test-client',
+                    client_secret: 'test-secret'
+                });
+                (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+
+                // Pass resourceMetadataUrl extracted from WWW-Authenticate header
+                const result = await auth(mockProvider, {
+                    serverUrl: 'https://resource.example.com',
+                    resourceMetadataUrl: new URL('https://resource.example.com/custom/.well-known/oauth-protected-resource')
+                });
+
+                expect(result).toBe('REDIRECT');
+
+                // Verify that the custom URL was used, not the default well-known path
+                const firstCall = mockFetch.mock.calls[0];
+                expect(firstCall[0].toString()).toBe('https://resource.example.com/custom/.well-known/oauth-protected-resource');
+            });
+
+            it('falls back to well-known when WWW-Authenticate header has no resource_metadata', async () => {
+                // Simulate: WWW-Authenticate present but without resource_metadata parameter
+                // In this case, resourceMetadataUrl would be undefined
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+
+                    if (urlString === 'https://resource.example.com/.well-known/oauth-protected-resource') {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                resource: 'https://resource.example.com',
+                                authorization_servers: ['https://auth.example.com']
+                            })
+                        });
+                    } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://auth.example.com',
+                                authorization_endpoint: 'https://auth.example.com/authorize',
+                                token_endpoint: 'https://auth.example.com/token',
+                                response_types_supported: ['code'],
+                                code_challenge_methods_supported: ['S256']
+                            })
+                        });
+                    }
+
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+
+                (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+                    client_id: 'test-client',
+                    client_secret: 'test-secret'
+                });
+                (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+
+                // No resourceMetadataUrl provided (as if WWW-Authenticate had no resource_metadata)
+                const result = await auth(mockProvider, {
+                    serverUrl: 'https://resource.example.com'
+                });
+
+                expect(result).toBe('REDIRECT');
+
+                // Verify fallback to well-known path
+                const firstCall = mockFetch.mock.calls[0];
+                expect(firstCall[0].toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
+            });
+
+            it('continues gracefully when well-known PRM returns 404', async () => {
+                // Per SEP-985, protected resource metadata is optional
+                // Client should fall back to using server as auth server
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+
+                    if (urlString === 'https://resource.example.com/.well-known/oauth-protected-resource') {
+                        // PRM not available - return 404
+                        return Promise.resolve({
+                            ok: false,
+                            status: 404
+                        });
+                    } else if (urlString === 'https://resource.example.com/.well-known/oauth-authorization-server') {
+                        // Fall back to server as auth server
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://resource.example.com',
+                                authorization_endpoint: 'https://resource.example.com/authorize',
+                                token_endpoint: 'https://resource.example.com/token',
+                                registration_endpoint: 'https://resource.example.com/register',
+                                response_types_supported: ['code'],
+                                code_challenge_methods_supported: ['S256']
+                            })
+                        });
+                    } else if (urlString === 'https://resource.example.com/register') {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                client_id: 'registered-client-id',
+                                client_secret: 'registered-secret',
+                                redirect_uris: ['http://localhost:3000/callback'],
+                                client_name: 'Test Client'
+                            })
+                        });
+                    }
+
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+
+                (mockProvider.clientInformation as jest.Mock).mockResolvedValue(undefined);
+                (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+                mockProvider.saveClientInformation = jest.fn();
+
+                const result = await auth(mockProvider, {
+                    serverUrl: 'https://resource.example.com'
+                });
+
+                expect(result).toBe('REDIRECT');
+
+                // Verify we tried PRM discovery
+                expect(mockFetch.mock.calls[0][0].toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
+
+                // Verify we fell back to auth server metadata on same server
+                expect(mockFetch.mock.calls[1][0].toString()).toBe('https://resource.example.com/.well-known/oauth-authorization-server');
+
+                // Verify client registration happened
+                expect(mockProvider.saveClientInformation).toHaveBeenCalled();
+            });
+
+            it('handles CORS error on PRM discovery and falls back gracefully', async () => {
+                let callCount = 0;
+
+                mockFetch.mockImplementation(url => {
+                    callCount++;
+                    const urlString = url.toString();
+
+                    if (callCount <= 2 && urlString.includes('oauth-protected-resource')) {
+                        // Simulate CORS error on PRM discovery (both with and without headers)
+                        return Promise.reject(new TypeError('Network request failed'));
+                    } else if (urlString.includes('oauth-authorization-server')) {
+                        // Auth server metadata succeeds
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://resource.example.com',
+                                authorization_endpoint: 'https://resource.example.com/authorize',
+                                token_endpoint: 'https://resource.example.com/token',
+                                response_types_supported: ['code'],
+                                code_challenge_methods_supported: ['S256']
+                            })
+                        });
+                    }
+
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+
+                (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+                    client_id: 'test-client',
+                    client_secret: 'test-secret'
+                });
+                (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+
+                const result = await auth(mockProvider, {
+                    serverUrl: 'https://resource.example.com'
+                });
+
+                expect(result).toBe('REDIRECT');
+
+                // Verify we tried PRM discovery (with retry for CORS)
+                expect(mockFetch.mock.calls.filter(call => call[0].toString().includes('oauth-protected-resource')).length).toBeGreaterThan(
+                    0
+                );
+
+                // Verify we eventually fell back to auth server metadata
+                expect(mockFetch.mock.calls.some(call => call[0].toString().includes('oauth-authorization-server'))).toBe(true);
+            });
+        });
+
+        describe('Scope selection priority', () => {
+            beforeEach(() => {
+                (mockProvider.clientInformation as jest.Mock).mockResolvedValue({
+                    client_id: 'test-client',
+                    client_secret: 'test-secret'
+                });
+                (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+            });
+
+            it('uses explicit scope when provided', async () => {
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+
+                    if (urlString === 'https://resource.example.com/.well-known/oauth-protected-resource') {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                resource: 'https://resource.example.com',
+                                authorization_servers: ['https://auth.example.com'],
+                                scopes_supported: ['prm:read', 'prm:write']
+                            })
+                        });
+                    } else if (urlString.includes('oauth-authorization-server')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://auth.example.com',
+                                authorization_endpoint: 'https://auth.example.com/authorize',
+                                token_endpoint: 'https://auth.example.com/token',
+                                response_types_supported: ['code'],
+                                code_challenge_methods_supported: ['S256']
+                            })
+                        });
+                    }
+
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+
+                const customProvider = {
+                    ...mockProvider,
+                    clientMetadata: {
+                        ...mockProvider.clientMetadata,
+                        scope: 'client:default'
+                    }
+                };
+
+                const result = await auth(customProvider, {
+                    serverUrl: 'https://resource.example.com',
+                    scope: 'explicit:scope',
+                    challengeScope: 'challenge:scope'
+                });
+
+                expect(result).toBe('REDIRECT');
+
+                // Verify explicit scope was used in authorization URL
+                const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+                const authUrl: URL = redirectCall[0];
+                expect(authUrl.searchParams.get('scope')).toBe('explicit:scope');
+            });
+
+            it('uses challenge scope when no explicit scope provided', async () => {
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+
+                    if (urlString === 'https://resource.example.com/.well-known/oauth-protected-resource') {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                resource: 'https://resource.example.com',
+                                authorization_servers: ['https://auth.example.com'],
+                                scopes_supported: ['prm:read', 'prm:write']
+                            })
+                        });
+                    } else if (urlString.includes('oauth-authorization-server')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://auth.example.com',
+                                authorization_endpoint: 'https://auth.example.com/authorize',
+                                token_endpoint: 'https://auth.example.com/token',
+                                response_types_supported: ['code'],
+                                code_challenge_methods_supported: ['S256']
+                            })
+                        });
+                    }
+
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+
+                const customProvider = {
+                    ...mockProvider,
+                    clientMetadata: {
+                        ...mockProvider.clientMetadata,
+                        scope: 'client:default'
+                    }
+                };
+
+                const result = await auth(customProvider, {
+                    serverUrl: 'https://resource.example.com',
+                    challengeScope: 'challenge:scope'
+                });
+
+                expect(result).toBe('REDIRECT');
+
+                // Verify challenge scope was used
+                const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+                const authUrl: URL = redirectCall[0];
+                expect(authUrl.searchParams.get('scope')).toBe('challenge:scope');
+            });
+
+            it('uses PRM scopes_supported when no explicit or challenge scope', async () => {
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+
+                    if (urlString === 'https://resource.example.com/.well-known/oauth-protected-resource') {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                resource: 'https://resource.example.com',
+                                authorization_servers: ['https://auth.example.com'],
+                                scopes_supported: ['prm:read', 'prm:write']
+                            })
+                        });
+                    } else if (urlString.includes('oauth-authorization-server')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://auth.example.com',
+                                authorization_endpoint: 'https://auth.example.com/authorize',
+                                token_endpoint: 'https://auth.example.com/token',
+                                response_types_supported: ['code'],
+                                code_challenge_methods_supported: ['S256']
+                            })
+                        });
+                    }
+
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+
+                const customProvider = {
+                    ...mockProvider,
+                    clientMetadata: {
+                        ...mockProvider.clientMetadata,
+                        scope: 'client:default'
+                    }
+                };
+
+                const result = await auth(customProvider, {
+                    serverUrl: 'https://resource.example.com'
+                });
+
+                expect(result).toBe('REDIRECT');
+
+                // Verify PRM scopes were joined with spaces and used
+                const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+                const authUrl: URL = redirectCall[0];
+                expect(authUrl.searchParams.get('scope')).toBe('prm:read prm:write');
+            });
+
+            it('uses client default scope when no other sources available', async () => {
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+
+                    if (urlString === 'https://resource.example.com/.well-known/oauth-protected-resource') {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                resource: 'https://resource.example.com',
+                                authorization_servers: ['https://auth.example.com']
+                                // No scopes_supported
+                            })
+                        });
+                    } else if (urlString.includes('oauth-authorization-server')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://auth.example.com',
+                                authorization_endpoint: 'https://auth.example.com/authorize',
+                                token_endpoint: 'https://auth.example.com/token',
+                                response_types_supported: ['code'],
+                                code_challenge_methods_supported: ['S256']
+                            })
+                        });
+                    }
+
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+
+                const customProvider = {
+                    ...mockProvider,
+                    clientMetadata: {
+                        ...mockProvider.clientMetadata,
+                        scope: 'client:default'
+                    }
+                };
+
+                const result = await auth(customProvider, {
+                    serverUrl: 'https://resource.example.com'
+                });
+
+                expect(result).toBe('REDIRECT');
+
+                // Verify client default scope was used
+                const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+                const authUrl: URL = redirectCall[0];
+                expect(authUrl.searchParams.get('scope')).toBe('client:default');
+            });
+
+            it('proceeds without scope when no sources provide one', async () => {
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+
+                    if (urlString === 'https://resource.example.com/.well-known/oauth-protected-resource') {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                resource: 'https://resource.example.com',
+                                authorization_servers: ['https://auth.example.com']
+                            })
+                        });
+                    } else if (urlString.includes('oauth-authorization-server')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://auth.example.com',
+                                authorization_endpoint: 'https://auth.example.com/authorize',
+                                token_endpoint: 'https://auth.example.com/token',
+                                response_types_supported: ['code'],
+                                code_challenge_methods_supported: ['S256']
+                            })
+                        });
+                    }
+
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+
+                const result = await auth(mockProvider, {
+                    serverUrl: 'https://resource.example.com'
+                });
+
+                expect(result).toBe('REDIRECT');
+
+                // Verify authorization called without scope (no scope parameter in URL)
+                const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+                const authUrl: URL = redirectCall[0];
+                expect(authUrl.searchParams.get('scope')).toBeNull();
+            });
+
+            it('properly joins multiple scopes_supported values with spaces', async () => {
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+
+                    if (urlString === 'https://resource.example.com/.well-known/oauth-protected-resource') {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                resource: 'https://resource.example.com',
+                                authorization_servers: ['https://auth.example.com'],
+                                scopes_supported: ['scope1', 'scope2', 'scope3']
+                            })
+                        });
+                    } else if (urlString.includes('oauth-authorization-server')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://auth.example.com',
+                                authorization_endpoint: 'https://auth.example.com/authorize',
+                                token_endpoint: 'https://auth.example.com/token',
+                                response_types_supported: ['code'],
+                                code_challenge_methods_supported: ['S256']
+                            })
+                        });
+                    }
+
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+
+                const result = await auth(mockProvider, {
+                    serverUrl: 'https://resource.example.com'
+                });
+
+                expect(result).toBe('REDIRECT');
+
+                // Verify all scopes joined with spaces
+                const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+                const authUrl: URL = redirectCall[0];
+                expect(authUrl.searchParams.get('scope')).toBe('scope1 scope2 scope3');
+            });
         });
     });
 

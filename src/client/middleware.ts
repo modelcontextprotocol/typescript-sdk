@@ -1,4 +1,4 @@
-import { auth, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from './auth.js';
+import { auth, extractResourceMetadataUrl, extractChallengeScope, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { FetchLike } from '../shared/transport.js';
 
 /**
@@ -55,6 +55,7 @@ export const withOAuth =
             if (response.status === 401) {
                 try {
                     const resourceMetadataUrl = extractResourceMetadataUrl(response);
+                    const challengeScope = extractChallengeScope(response);
 
                     // Use provided baseUrl or extract from request URL
                     const serverUrl = baseUrl || (typeof input === 'string' ? new URL(input).origin : input.origin);
@@ -62,6 +63,7 @@ export const withOAuth =
                     const result = await auth(provider, {
                         serverUrl,
                         resourceMetadataUrl,
+                        challengeScope,
                         fetchFn: next
                     });
 
