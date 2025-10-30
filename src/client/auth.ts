@@ -3,6 +3,7 @@ import { LATEST_PROTOCOL_VERSION } from '../types.js';
 import {
     OAuthClientMetadata,
     OAuthClientInformation,
+    OAuthClientInformationMixed,
     OAuthTokens,
     OAuthMetadata,
     OAuthClientInformationFull,
@@ -56,7 +57,7 @@ export interface OAuthClientProvider {
      * server, or returns `undefined` if the client is not registered with the
      * server.
      */
-    clientInformation(): OAuthClientInformation | undefined | Promise<OAuthClientInformation | undefined>;
+    clientInformation(): OAuthClientInformationMixed | undefined | Promise<OAuthClientInformationMixed | undefined>;
 
     /**
      * If implemented, this permits the OAuth client to dynamically register with
@@ -66,7 +67,7 @@ export interface OAuthClientProvider {
      * This method is not required to be implemented if client information is
      * statically known (e.g., pre-registered).
      */
-    saveClientInformation?(clientInformation: OAuthClientInformationFull): void | Promise<void>;
+    saveClientInformation?(clientInformation: OAuthClientInformationMixed): void | Promise<void>;
 
     /**
      * Loads any existing OAuth tokens for the current session, or returns
@@ -149,6 +150,10 @@ export class UnauthorizedError extends Error {
 
 type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
 
+function isClientAuthMethod(method: string): method is ClientAuthMethod {
+    return ['client_secret_basic', 'client_secret_post', 'none'].includes(method);
+}
+
 const AUTHORIZATION_CODE_RESPONSE_TYPE = 'code';
 const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
 
@@ -164,12 +169,22 @@ const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
  * @param supportedMethods - Authentication methods supported by the authorization server
  * @returns The selected authentication method
  */
-function selectClientAuthMethod(clientInformation: OAuthClientInformation, supportedMethods: string[]): ClientAuthMethod {
+export function selectClientAuthMethod(clientInformation: OAuthClientInformationMixed, supportedMethods: string[]): ClientAuthMethod {
     const hasClientSecret = clientInformation.client_secret !== undefined;
 
     // If server doesn't specify supported methods, use RFC 6749 defaults
     if (supportedMethods.length === 0) {
         return hasClientSecret ? 'client_secret_post' : 'none';
+    }
+
+    // Prefer the method returned by the server during client registration if valid and supported
+    if (
+        'token_endpoint_auth_method' in clientInformation &&
+        clientInformation.token_endpoint_auth_method &&
+        isClientAuthMethod(clientInformation.token_endpoint_auth_method) &&
+        supportedMethods.includes(clientInformation.token_endpoint_auth_method)
+    ) {
+        return clientInformation.token_endpoint_auth_method;
     }
 
     // Try methods in priority order (most secure first)
@@ -793,7 +808,7 @@ export async function startAuthorization(
         resource
     }: {
         metadata?: AuthorizationServerMetadata;
-        clientInformation: OAuthClientInformation;
+        clientInformation: OAuthClientInformationMixed;
         redirectUrl: string | URL;
         scope?: string;
         state?: string;
@@ -876,7 +891,7 @@ export async function exchangeAuthorization(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        clientInformation: OAuthClientInformation;
+        clientInformation: OAuthClientInformationMixed;
         authorizationCode: string;
         codeVerifier: string;
         redirectUri: string | URL;
@@ -955,7 +970,7 @@ export async function refreshAuthorization(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        clientInformation: OAuthClientInformation;
+        clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
         resource?: URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];

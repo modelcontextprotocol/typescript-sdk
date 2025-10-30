@@ -226,6 +226,7 @@ export type OAuthErrorResponse = z.infer<typeof OAuthErrorResponseSchema>;
 export type OAuthClientMetadata = z.infer<typeof OAuthClientMetadataSchema>;
 export type OAuthClientInformation = z.infer<typeof OAuthClientInformationSchema>;
 export type OAuthClientInformationFull = z.infer<typeof OAuthClientInformationFullSchema>;
+export type OAuthClientInformationMixed = OAuthClientInformation | OAuthClientInformationFull;
 export type OAuthClientRegistrationError = z.infer<typeof OAuthClientRegistrationErrorSchema>;
 export type OAuthTokenRevocationRequest = z.infer<typeof OAuthTokenRevocationRequestSchema>;
 export type OAuthProtectedResourceMetadata = z.infer<typeof OAuthProtectedResourceMetadataSchema>;

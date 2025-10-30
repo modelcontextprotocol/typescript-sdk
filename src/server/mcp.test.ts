@@ -1,25 +1,24 @@
-import { McpServer } from './mcp.js';
+import { z } from 'zod';
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';
-import { z } from 'zod';
+import { getDisplayName } from '../shared/metadataUtils.js';
+import { UriTemplate } from '../shared/uriTemplate.js';
 import {
-    ListToolsResultSchema,
     CallToolResultSchema,
+    CompleteResultSchema,
+    ElicitRequestSchema,
+    GetPromptResultSchema,
+    ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListResourceTemplatesResultSchema,
-    ReadResourceResultSchema,
-    ListPromptsResultSchema,
-    GetPromptResultSchema,
-    CompleteResultSchema,
+    ListToolsResultSchema,
     LoggingMessageNotificationSchema,
-    Notification,
-    TextContent,
-    ElicitRequestSchema
+    type Notification,
+    ReadResourceResultSchema,
+    type TextContent
 } from '../types.js';
-import { ResourceTemplate } from './mcp.js';
 import { completable } from './completable.js';
-import { UriTemplate } from '../shared/uriTemplate.js';
-import { getDisplayName } from '../shared/metadataUtils.js';
+import { McpServer, ResourceTemplate } from './mcp.js';
 
 describe('McpServer', () => {
     /***
@@ -112,11 +111,22 @@ describe('McpServer', () => {
                     }
                 }
 
-                return { content: [{ type: 'text' as const, text: `Operation completed with ${steps} steps` }] };
+                return {
+                    content: [
+                        {
+                            type: 'text' as const,
+                            text: `Operation completed with ${steps} steps`
+                        }
+                    ]
+                };
             }
         );
 
-        const progressUpdates: Array<{ progress: number; total?: number; message?: string }> = [];
+        const progressUpdates: Array<{
+            progress: number;
+            total?: number;
+            message?: string;
+        }> = [];
 
         const client = new Client({
             name: 'test client',
@@ -677,9 +687,15 @@ describe('tool()', () => {
 
         expect(result.tools).toHaveLength(2);
         expect(result.tools[0].name).toBe('test');
-        expect(result.tools[0].annotations).toEqual({ title: 'Test Tool', readOnlyHint: true });
+        expect(result.tools[0].annotations).toEqual({
+            title: 'Test Tool',
+            readOnlyHint: true
+        });
         expect(result.tools[1].name).toBe('test (new api)');
-        expect(result.tools[1].annotations).toEqual({ title: 'Test Tool', readOnlyHint: true });
+        expect(result.tools[1].annotations).toEqual({
+            title: 'Test Tool',
+            readOnlyHint: true
+        });
     });
 
     /***
@@ -722,7 +738,10 @@ describe('tool()', () => {
             type: 'object',
             properties: { name: { type: 'string' } }
         });
-        expect(result.tools[0].annotations).toEqual({ title: 'Test Tool', readOnlyHint: true });
+        expect(result.tools[0].annotations).toEqual({
+            title: 'Test Tool',
+            readOnlyHint: true
+        });
         expect(result.tools[1].name).toBe('test (new api)');
         expect(result.tools[1].inputSchema).toEqual(result.tools[0].inputSchema);
         expect(result.tools[1].annotations).toEqual(result.tools[0].annotations);
@@ -756,7 +775,11 @@ describe('tool()', () => {
             {
                 description: 'A tool with everything',
                 inputSchema: { name: z.string() },
-                annotations: { title: 'Complete Test Tool', readOnlyHint: true, openWorldHint: false }
+                annotations: {
+                    title: 'Complete Test Tool',
+                    readOnlyHint: true,
+                    openWorldHint: false
+                }
             },
             async ({ name }) => ({
                 content: [{ type: 'text', text: `Hello, ${name}!` }]
@@ -804,7 +827,11 @@ describe('tool()', () => {
             'test',
             'A tool with everything but empty params',
             {},
-            { title: 'Complete Test Tool with empty params', readOnlyHint: true, openWorldHint: false },
+            {
+                title: 'Complete Test Tool with empty params',
+                readOnlyHint: true,
+                openWorldHint: false
+            },
             async () => ({
                 content: [{ type: 'text', text: 'Test response' }]
             })
@@ -815,7 +842,11 @@ describe('tool()', () => {
             {
                 description: 'A tool with everything but empty params',
                 inputSchema: {},
-                annotations: { title: 'Complete Test Tool with empty params', readOnlyHint: true, openWorldHint: false }
+                annotations: {
+                    title: 'Complete Test Tool with empty params',
+                    readOnlyHint: true,
+                    openWorldHint: false
+                }
             },
             async () => ({
                 content: [{ type: 'text' as const, text: 'Test response' }]
@@ -897,37 +928,53 @@ describe('tool()', () => {
 
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-        await expect(
-            client.request(
-                {
-                    method: 'tools/call',
-                    params: {
+        const result = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
                         name: 'test',
-                        arguments: {
-                            name: 'test',
-                            value: 'not a number'
-                        }
+                        value: 'not a number'
                     }
-                },
-                CallToolResultSchema
-            )
-        ).rejects.toThrow(/Invalid arguments/);
+                }
+            },
+            CallToolResultSchema
+        );
 
-        await expect(
-            client.request(
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+            expect.arrayContaining([
                 {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test (new api)',
-                        arguments: {
-                            name: 'test',
-                            value: 'not a number'
-                        }
+                    type: 'text',
+                    text: expect.stringContaining('Input validation error: Invalid arguments for tool test')
+                }
+            ])
+        );
+
+        const result2 = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'test (new api)',
+                    arguments: {
+                        name: 'test',
+                        value: 'not a number'
                     }
-                },
-                CallToolResultSchema
-            )
-        ).rejects.toThrow(/Invalid arguments/);
+                }
+            },
+            CallToolResultSchema
+        );
+
+        expect(result2.isError).toBe(true);
+        expect(result2.content).toEqual(
+            expect.arrayContaining([
+                {
+                    type: 'text',
+                    text: expect.stringContaining('Input validation error: Invalid arguments for tool test (new api)')
+                }
+            ])
+        );
     });
 
     /***
@@ -1121,14 +1168,24 @@ describe('tool()', () => {
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
         // Call the tool and expect it to throw an error
-        await expect(
-            client.callTool({
-                name: 'test',
-                arguments: {
-                    input: 'hello'
+        const result = await client.callTool({
+            name: 'test',
+            arguments: {
+                input: 'hello'
+            }
+        });
+
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+            expect.arrayContaining([
+                {
+                    type: 'text',
+                    text: expect.stringContaining(
+                        'Output validation error: Tool test has an output schema but no structured content was provided'
+                    )
                 }
-            })
-        ).rejects.toThrow(/Tool test has an output schema but no structured content was provided/);
+            ])
+        );
     });
     /***
      * Test: Tool with Output Schema Must Provide Structured Content
@@ -1243,14 +1300,22 @@ describe('tool()', () => {
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
         // Call the tool and expect it to throw a server-side validation error
-        await expect(
-            client.callTool({
-                name: 'test',
-                arguments: {
-                    input: 'hello'
+        const result = await client.callTool({
+            name: 'test',
+            arguments: {
+                input: 'hello'
+            }
+        });
+
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+            expect.arrayContaining([
+                {
+                    type: 'text',
+                    text: expect.stringContaining('Output validation error: Invalid structured content for tool test')
                 }
-            })
-        ).rejects.toThrow(/Invalid structured content for tool test/);
+            ])
+        );
     });
 
     /***
@@ -1342,7 +1407,7 @@ describe('tool()', () => {
 
         expect(receivedRequestId).toBeDefined();
         expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
-        expect(result.content && result.content[0].text).toContain('Received request ID:');
+        expect(result.content?.[0].text).toContain('Received request ID:');
     });
 
     /***
@@ -1370,7 +1435,10 @@ describe('tool()', () => {
         });
 
         mcpServer.tool('test-tool', async ({ sendNotification }) => {
-            await sendNotification({ method: 'notifications/message', params: { level: 'debug', data: loggingMessage } });
+            await sendNotification({
+                method: 'notifications/message',
+                params: { level: 'debug', data: loggingMessage }
+            });
             return {
                 content: [
                     {
@@ -1518,17 +1586,25 @@ describe('tool()', () => {
 
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-        await expect(
-            client.request(
+        const result = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'nonexistent-tool'
+                }
+            },
+            CallToolResultSchema
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+            expect.arrayContaining([
                 {
-                    method: 'tools/call',
-                    params: {
-                        name: 'nonexistent-tool'
-                    }
-                },
-                CallToolResultSchema
-            )
-        ).rejects.toThrow(/Tool nonexistent-tool not found/);
+                    type: 'text',
+                    text: expect.stringContaining('Tool nonexistent-tool not found')
+                }
+            ])
+        );
     });
 
     /***
