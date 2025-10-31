@@ -35,6 +35,11 @@
             "import": "./dist/esm/validation/index.js",
             "require": "./dist/cjs/validation/index.js"
         },
+        "./validation/default": {
+            "workerd": "./dist/esm/validation/default-workerd.js",
+            "import": "./dist/esm/validation/default.js",
+            "require": "./dist/cjs/validation/default.js"
+        },
         "./validation/ajv": {
             "import": "./dist/esm/validation/ajv-provider.js",
             "require": "./dist/cjs/validation/ajv-provider.js"

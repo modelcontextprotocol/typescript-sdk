@@ -31,7 +31,7 @@ import {
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types.js';
-import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
+import DefaultJsonSchemaValidator from '../validation/default.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
 
 export type ServerOptions = ProtocolOptions & {
@@ -128,7 +128,7 @@ export class Server<
         super(options);
         this._capabilities = options?.capabilities ?? {};
         this._instructions = options?.instructions;
-        this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
+        this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
 
         this.setRequestHandler(InitializeRequestSchema, request => this._oninitialize(request));
         this.setNotificationHandler(InitializedNotificationSchema, () => this.oninitialized?.());
