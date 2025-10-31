@@ -1,5 +1,5 @@
 import { EventSource, type ErrorEvent, type EventSourceInit } from 'eventsource';
-import { Transport, FetchLike } from '../shared/transport.js';
+import { Transport, FetchLike, createFetchWithInit } from '../shared/transport.js';
 import { JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 
@@ -93,11 +93,14 @@ export class SSEClientTransport implements Transport {
 
         let result: AuthResult;
         try {
+            // Wrap fetch to automatically include base RequestInit options
+            const fetchFn = createFetchWithInit(this._fetch, this._requestInit);
+
             result = await auth(this._authProvider, {
                 serverUrl: this._url,
                 resourceMetadataUrl: this._resourceMetadataUrl,
                 scope: this._scope,
-                fetchFn: this._fetch
+                fetchFn
             });
         } catch (error) {
             this.onerror?.(error as Error);
@@ -215,12 +218,15 @@ export class SSEClientTransport implements Transport {
             throw new UnauthorizedError('No auth provider');
         }
 
+        // Wrap fetch to automatically include base RequestInit options
+        const fetchFn = createFetchWithInit(this._fetch, this._requestInit);
+
         const result = await auth(this._authProvider, {
             serverUrl: this._url,
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
-            fetchFn: this._fetch
+            fetchFn
         });
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');
@@ -256,11 +262,14 @@ export class SSEClientTransport implements Transport {
                     this._resourceMetadataUrl = resourceMetadataUrl;
                     this._scope = scope;
 
+                    // Wrap fetch to automatically include base RequestInit options
+                    const fetchFn = createFetchWithInit(this._fetch, this._requestInit);
+
                     const result = await auth(this._authProvider, {
                         serverUrl: this._url,
                         resourceMetadataUrl: this._resourceMetadataUrl,
                         scope: this._scope,
-                        fetchFn: this._fetch
+                        fetchFn
                     });
                     if (result !== 'AUTHORIZED') {
                         throw new UnauthorizedError();

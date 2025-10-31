@@ -1,4 +1,4 @@
-import { Transport, FetchLike } from '../shared/transport.js';
+import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../shared/transport.js';
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
@@ -156,11 +156,14 @@ export class StreamableHTTPClientTransport implements Transport {
 
         let result: AuthResult;
         try {
+            // Wrap fetch to automatically include base RequestInit options
+            const fetchFn = createFetchWithInit(this._fetch, this._requestInit);
+
             result = await auth(this._authProvider, {
                 serverUrl: this._url,
                 resourceMetadataUrl: this._resourceMetadataUrl,
                 scope: this._scope,
-                fetchFn: this._fetch
+                fetchFn
             });
         } catch (error) {
             this.onerror?.(error as Error);
@@ -190,7 +193,7 @@ export class StreamableHTTPClientTransport implements Transport {
             headers['mcp-protocol-version'] = this._protocolVersion;
         }
 
-        const extraHeaders = this._normalizeHeaders(this._requestInit?.headers);
+        const extraHeaders = normalizeHeaders(this._requestInit?.headers);
 
         return new Headers({
             ...headers,
@@ -255,19 +258,6 @@ export class StreamableHTTPClientTransport implements Transport {
         return Math.min(initialDelay * Math.pow(growFactor, attempt), maxDelay);
     }
 
-    private _normalizeHeaders(headers: HeadersInit | undefined): Record<string, string> {
-        if (!headers) return {};
-
-        if (headers instanceof Headers) {
-            return Object.fromEntries(headers.entries());
-        }
-
-        if (Array.isArray(headers)) {
-            return Object.fromEntries(headers);
-        }
-
-        return { ...(headers as Record<string, string>) };
-    }
 
     /**
      * Schedule a reconnection attempt with exponential backoff
