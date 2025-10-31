@@ -2,26 +2,24 @@
  * JSON Schema validation
  *
  * This module provides configurable JSON Schema validation for the MCP SDK.
- * Choose a validator based on your runtime environment:
+ * The SDK automatically selects the appropriate validator based on your runtime
+ * environment using export conditions:
  *
- * - AjvJsonSchemaValidator: Best for Node.js (default, fastest)
- *   Import from: @modelcontextprotocol/sdk/validation/ajv
- *   Requires peer dependencies: ajv, ajv-formats
+ * - Node.js: Automatically uses AjvJsonSchemaValidator (fastest, requires ajv and ajv-formats)
+ * - Cloudflare Workers (workerd): Automatically uses CfWorkerJsonSchemaValidator (requires @cfworker/json-schema)
  *
- * - CfWorkerJsonSchemaValidator: Best for edge runtimes
- *   Import from: @modelcontextprotocol/sdk/validation/cfworker
- *   Requires peer dependency: @cfworker/json-schema
+ * Simply import the default validator and it will work in your environment:
  *
  * @example
  * ```typescript
- * // For Node.js with AJV
- * import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
- * const validator = new AjvJsonSchemaValidator();
- *
- * // For Cloudflare Workers
- * import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker';
- * const validator = new CfWorkerJsonSchemaValidator();
+ * // Automatically selects the right validator for your runtime
+ * import DefaultValidator from '@modelcontextprotocol/sdk/validation/default';
+ * const validator = new DefaultValidator();
  * ```
+ *
+ * For advanced use cases, you can also import validators directly:
+ * - `@modelcontextprotocol/sdk/validation/ajv` - AjvJsonSchemaValidator (Node.js)
+ * - `@modelcontextprotocol/sdk/validation/cfworker` - CfWorkerJsonSchemaValidator (edge runtimes)
  *
  * @module validation
  */
