@@ -28,6 +28,8 @@ import {
     UnauthorizedClientError
 } from '../server/auth/errors.js';
 import { FetchLike } from '../shared/transport.js';
+import type { AnySchema, SchemaOutput } from '../server/zod-compat.js';
+import { safeParse } from '../server/zod-compat.js';
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
@@ -286,7 +288,8 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
     const body = input instanceof Response ? await input.text() : input;
 
     try {
-        const result = OAuthErrorResponseSchema.parse(JSON.parse(body));
+        const parsedJson = JSON.parse(body);
+        const result = parseSchemaOrThrow(OAuthErrorResponseSchema, parsedJson);
         const { error, error_description, error_uri } = result;
         const errorClass = OAUTH_ERRORS[error] || ServerError;
         return new errorClass(error_description || '', error_uri);
@@ -530,7 +533,7 @@ export async function discoverOAuthProtectedResourceMetadata(
     if (!response.ok) {
         throw new Error(`HTTP ${response.status} trying to load well-known OAuth protected resource metadata.`);
     }
-    return OAuthProtectedResourceMetadataSchema.parse(await response.json());
+    return parseSchemaOrThrow(OAuthProtectedResourceMetadataSchema, await response.json());
 }
 
 /**
@@ -662,7 +665,7 @@ export async function discoverOAuthMetadata(
         throw new Error(`HTTP ${response.status} trying to load well-known OAuth metadata`);
     }
 
-    return OAuthMetadataSchema.parse(await response.json());
+    return parseSchemaOrThrow(OAuthMetadataSchema, await response.json());
 }
 
 /**
@@ -785,9 +788,9 @@ export async function discoverAuthorizationServerMetadata(
 
         // Parse and validate based on type
         if (type === 'oauth') {
-            return OAuthMetadataSchema.parse(await response.json());
+            return parseSchemaOrThrow(OAuthMetadataSchema, await response.json());
         } else {
-            return OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
+            return parseSchemaOrThrow(OpenIdProviderDiscoveryMetadataSchema, await response.json());
         }
     }
 
@@ -944,7 +947,7 @@ export async function exchangeAuthorization(
         throw await parseErrorResponse(response);
     }
 
-    return OAuthTokensSchema.parse(await response.json());
+    return parseSchemaOrThrow(OAuthTokensSchema, await response.json());
 }
 
 /**
@@ -1022,7 +1025,7 @@ export async function refreshAuthorization(
         throw await parseErrorResponse(response);
     }
 
-    return OAuthTokensSchema.parse({ refresh_token: refreshToken, ...(await response.json()) });
+    return parseSchemaOrThrow(OAuthTokensSchema, { refresh_token: refreshToken, ...(await response.json()) });
 }
 
 /**
@@ -1064,5 +1067,14 @@ export async function registerClient(
         throw await parseErrorResponse(response);
     }
 
-    return OAuthClientInformationFullSchema.parse(await response.json());
+    return parseSchemaOrThrow(OAuthClientInformationFullSchema, await response.json());
+}
+
+function parseSchemaOrThrow<S extends AnySchema>(schema: S, value: unknown): SchemaOutput<S> {
+    const result = safeParse(schema, value);
+    if (!result.success) {
+        throw result.error instanceof Error ? result.error : new Error(String(result.error));
+    }
+
+    return result.data;
 }

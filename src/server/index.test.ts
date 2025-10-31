@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { z } from 'zod';
+import { Server } from './index.js';
+import * as z from 'zod/v4';
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';
 import type { Transport } from '../shared/transport.js';
@@ -18,7 +19,6 @@ import {
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types.js';
-import { Server } from './index.js';
 
 test('should accept latest protocol version', async () => {
     let sendPromiseResolve: (value: unknown) => void;
