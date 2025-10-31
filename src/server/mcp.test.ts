@@ -1127,7 +1127,7 @@ describe('tool()', () => {
 
     /***
      * Test: Tool with Output Schema Must Provide Structured Content
-     * 
+     *
      * We expect a type error as well, as outputSchema is defined, but structuredContent is not returned.
      */
     test('should throw error when tool with outputSchema returns no structuredContent', async () => {

@@ -40,7 +40,6 @@ import { UriTemplate, Variables } from '../shared/uriTemplate.js';
 import { RequestHandlerExtra } from '../shared/protocol.js';
 import { Transport } from '../shared/transport.js';
 
-
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
@@ -1016,21 +1015,22 @@ export class ResourceTemplate {
  * - `content` if the tool does not have an outputSchema OR if an outputSchema is defined, content *SHOULD* have the serialized JSON structuredContent in a text content for backwards compatibility
  * - Both fields are optional but typically one should be provided
  */
-export type ToolCallback<InputArgs extends undefined | ZodRawShape = undefined, OutputArgs extends undefined | ZodRawShape = undefined> =
-  InputArgs extends ZodRawShape
-  ? (
-    args: z.objectOutputType<InputArgs, ZodTypeAny>,
-    extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
-  ) => CallToolResultByOutputArgsType<OutputArgs>
-  : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResultByOutputArgsType<OutputArgs>;
+export type ToolCallback<
+    InputArgs extends undefined | ZodRawShape = undefined,
+    OutputArgs extends undefined | ZodRawShape = undefined
+> = InputArgs extends ZodRawShape
+    ? (
+          args: z.objectOutputType<InputArgs, ZodTypeAny>,
+          extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+      ) => CallToolResultByOutputArgsType<OutputArgs>
+    : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResultByOutputArgsType<OutputArgs>;
 
 /**
  * CallToolResult type generated based on OutputArgs.
  */
-export type CallToolResultByOutputArgsType<OutputArgs extends undefined | ZodRawShape = undefined> =
-    OutputArgs extends ZodRawShape
-      ? CallToolResultStructured<OutputArgs> | Promise<CallToolResultStructured<OutputArgs>>
-      : CallToolResultUnstructured | Promise<CallToolResultUnstructured>;
+export type CallToolResultByOutputArgsType<OutputArgs extends undefined | ZodRawShape = undefined> = OutputArgs extends ZodRawShape
+    ? CallToolResultStructured<OutputArgs> | Promise<CallToolResultStructured<OutputArgs>>
+    : CallToolResultUnstructured | Promise<CallToolResultUnstructured>;
 
 export type RegisteredTool = {
     title?: string;

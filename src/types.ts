@@ -978,37 +978,37 @@ export const ListToolsResultSchema = PaginatedResultSchema.extend({
 });
 
 export const CallToolResultUnstructuredSchema = ResultSchema.extend({
-  /**
-   * A list of content objects that represent the result of the tool call.
-   *
-   * If the Tool does not define an outputSchema, this field MUST be present in the result.
-   * For backwards compatibility, this field is always present, but it may be empty.
-   */
-  content: z.array(ContentBlockSchema).default([]),
-  /**
-   * Whether the tool call ended in an error.
-   *
-   * If not set, this is assumed to be false (the call was successful).
-   *
-   * Any errors that originate from the tool SHOULD be reported inside the result
-   * object, with `isError` set to true, _not_ as an MCP protocol-level error
-   * response. Otherwise, the LLM would not be able to see that an error occurred
-   * and self-correct.
-   *
-   * However, any errors in _finding_ the tool, an error indicating that the
-   * server does not support tool calls, or any other exceptional conditions,
-   * should be reported as an MCP error response.
-   */
-  isError: z.optional(z.boolean()),
+    /**
+     * A list of content objects that represent the result of the tool call.
+     *
+     * If the Tool does not define an outputSchema, this field MUST be present in the result.
+     * For backwards compatibility, this field is always present, but it may be empty.
+     */
+    content: z.array(ContentBlockSchema).default([]),
+    /**
+     * Whether the tool call ended in an error.
+     *
+     * If not set, this is assumed to be false (the call was successful).
+     *
+     * Any errors that originate from the tool SHOULD be reported inside the result
+     * object, with `isError` set to true, _not_ as an MCP protocol-level error
+     * response. Otherwise, the LLM would not be able to see that an error occurred
+     * and self-correct.
+     *
+     * However, any errors in _finding_ the tool, an error indicating that the
+     * server does not support tool calls, or any other exceptional conditions,
+     * should be reported as an MCP error response.
+     */
+    isError: z.optional(z.boolean())
 });
 
 export const CallToolResultStructuredSchema = CallToolResultUnstructuredSchema.extend({
-  /**
-   * An object containing structured tool output.
-   *
-   * If the Tool defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
-   */
-  structuredContent: z.object({}).passthrough().optional(),
+    /**
+     * An object containing structured tool output.
+     *
+     * If the Tool defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
+     */
+    structuredContent: z.object({}).passthrough().optional()
 });
 
 export const CallToolResultSchema = z.union([CallToolResultUnstructuredSchema, CallToolResultStructuredSchema]);
@@ -1595,8 +1595,8 @@ export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
 export type CallToolResult = Infer<typeof CallToolResultSchema>;
 export type CallToolResultUnstructured = Infer<typeof CallToolResultUnstructuredSchema>;
 export type CallToolResultStructured<OutputArgs extends ZodRawShape> = Infer<typeof CallToolResultStructuredSchema> & {
-  structuredContent: z.infer<z.ZodObject<OutputArgs>>;
-}
+    structuredContent: z.infer<z.ZodObject<OutputArgs>>;
+};
 export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
 export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
