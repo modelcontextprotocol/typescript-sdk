@@ -4161,4 +4161,91 @@ describe('elicitInput()', () => {
             }
         ]);
     });
+
+    test('should accept unknown parameters when strict validation is disabled (default)', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        mcpServer.registerTool(
+            'test-lenient',
+            {
+                inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() }
+            },
+            async ({ userName, itemCount }) => ({
+                content: [{ type: 'text', text: `${userName || 'none'}: ${itemCount || 0}` }]
+            })
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+        const result = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'test-lenient',
+                    arguments: { username: 'test', itemcount: 42 }
+                }
+            },
+            CallToolResultSchema
+        );
+
+        expect(result.isError).toBeUndefined();
+        expect(result.content[0].text).toBe('none: 0');
+    });
+
+    test('should reject unknown parameters when strict validation is enabled', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        mcpServer.registerTool(
+            'test-strict',
+            {
+                inputSchema: { userName: z.string().optional(), itemCount: z.number().optional() },
+                strictInputSchemaValidation: true
+            },
+            async ({ userName, itemCount }) => ({
+                content: [{ type: 'text', text: `${userName || 'none'}: ${itemCount || 0}` }]
+            })
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+        const result = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'test-strict',
+                    arguments: { username: 'test', itemcount: 42 }
+                }
+            },
+            CallToolResultSchema
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    text: expect.stringContaining('Input validation error')
+                })
+            ])
+        );
+    });
 });
