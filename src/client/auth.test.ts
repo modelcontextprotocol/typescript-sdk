@@ -8,7 +8,7 @@ import {
     refreshAuthorization,
     registerClient,
     discoverOAuthProtectedResourceMetadata,
-    extractResourceMetadataUrl,
+    extractWWWAuthenticateParams,
     auth,
     type OAuthClientProvider,
     selectClientAuthMethod
@@ -25,7 +25,7 @@ describe('OAuth Authorization', () => {
         mockFetch.mockReset();
     });
 
-    describe('extractResourceMetadataUrl', () => {
+    describe('extractWWWAuthenticateParams', () => {
         it('returns resource metadata url when present', async () => {
             const resourceUrl = 'https://resource.example.com/.well-known/oauth-protected-resource';
             const mockResponse = {
@@ -34,39 +34,56 @@ describe('OAuth Authorization', () => {
                 }
             } as unknown as Response;
 
-            expect(extractResourceMetadataUrl(mockResponse)).toEqual(new URL(resourceUrl));
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ resourceMetadataUrl: new URL(resourceUrl) });
         });
 
-        it('returns undefined if not bearer', async () => {
+        it('returns scope when present', async () => {
+            const scope = 'read';
+            const mockResponse = {
+                headers: {
+                    get: jest.fn(name => (name === 'WWW-Authenticate' ? `Bearer realm="mcp", scope="${scope}"` : null))
+                }
+            } as unknown as Response;
+
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ scope: scope });
+        });
+
+        it('returns empty object if not bearer', async () => {
             const resourceUrl = 'https://resource.example.com/.well-known/oauth-protected-resource';
+            const scope = 'read';
             const mockResponse = {
                 headers: {
-                    get: jest.fn(name => (name === 'WWW-Authenticate' ? `Basic realm="mcp", resource_metadata="${resourceUrl}"` : null))
+                    get: jest.fn(name =>
+                        name === 'WWW-Authenticate' ? `Basic realm="mcp", resource_metadata="${resourceUrl}", scope="${scope}"` : null
+                    )
                 }
             } as unknown as Response;
 
-            expect(extractResourceMetadataUrl(mockResponse)).toBeUndefined();
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({});
         });
 
-        it('returns undefined if resource_metadata not present', async () => {
+        it('returns empty object if resource_metadata and scope not present', async () => {
             const mockResponse = {
                 headers: {
-                    get: jest.fn(name => (name === 'WWW-Authenticate' ? `Basic realm="mcp"` : null))
+                    get: jest.fn(name => (name === 'WWW-Authenticate' ? `Bearer realm="mcp"` : null))
                 }
             } as unknown as Response;
 
-            expect(extractResourceMetadataUrl(mockResponse)).toBeUndefined();
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({});
         });
 
-        it('returns undefined on invalid url', async () => {
+        it('returns undefined resourceMetadataUrl on invalid url', async () => {
             const resourceUrl = 'invalid-url';
+            const scope = 'read';
             const mockResponse = {
                 headers: {
-                    get: jest.fn(name => (name === 'WWW-Authenticate' ? `Basic realm="mcp", resource_metadata="${resourceUrl}"` : null))
+                    get: jest.fn(name =>
+                        name === 'WWW-Authenticate' ? `Bearer realm="mcp", resource_metadata="${resourceUrl}", scope="${scope}"` : null
+                    )
                 }
             } as unknown as Response;
 
-            expect(extractResourceMetadataUrl(mockResponse)).toBeUndefined();
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ scope: scope });
         });
     });
 

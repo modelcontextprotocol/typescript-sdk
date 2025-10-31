@@ -4,7 +4,7 @@ import express from 'express';
 import { OAuthServerProvider } from '../provider.js';
 import { rateLimit, Options as RateLimitOptions } from 'express-rate-limit';
 import { allowedMethods } from '../middleware/allowedMethods.js';
-import { InvalidRequestError, InvalidClientError, InvalidScopeError, ServerError, TooManyRequestsError, OAuthError } from '../errors.js';
+import { InvalidRequestError, InvalidClientError, ServerError, TooManyRequestsError, OAuthError } from '../errors.js';
 
 export type AuthorizationHandlerOptions = {
     provider: OAuthServerProvider;
@@ -120,14 +120,6 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
             let requestedScopes: string[] = [];
             if (scope !== undefined) {
                 requestedScopes = scope.split(' ');
-                const allowedScopes = new Set(client.scope?.split(' '));
-
-                // Check each requested scope against allowed scopes
-                for (const scope of requestedScopes) {
-                    if (!allowedScopes.has(scope)) {
-                        throw new InvalidScopeError(`Client was not registered with scope ${scope}`);
-                    }
-                }
             }
 
             // All validation passed, proceed with authorization

@@ -481,7 +481,45 @@ export async function selectResourceURL(
 }
 
 /**
+ * Extract resource_metadata and scope from WWW-Authenticate header.
+ */
+export function extractWWWAuthenticateParams(res: Response): { resourceMetadataUrl?: URL; scope?: string } {
+    const authenticateHeader = res.headers.get('WWW-Authenticate');
+    if (!authenticateHeader) {
+        return {};
+    }
+
+    const [type, scheme] = authenticateHeader.split(' ');
+    if (type.toLowerCase() !== 'bearer' || !scheme) {
+        return {};
+    }
+
+    const resourceMetadataRegex = /resource_metadata="([^"]*)"/;
+    const resourceMetadataMatch = resourceMetadataRegex.exec(authenticateHeader);
+
+    const scopeRegex = /scope="([^"]*)"/;
+    const scopeMatch = scopeRegex.exec(authenticateHeader);
+
+    let resourceMetadataUrl: URL | undefined;
+    if (resourceMetadataMatch) {
+        try {
+            resourceMetadataUrl = new URL(resourceMetadataMatch[1]);
+        } catch {
+            // Ignore invalid URL
+        }
+    }
+
+    const scope = scopeMatch?.[1] || undefined;
+
+    return {
+        resourceMetadataUrl,
+        scope
+    };
+}
+
+/**
  * Extract resource_metadata from response header.
+ * @deprecated Use `extractWWWAuthenticateParams` instead.
  */
 export function extractResourceMetadataUrl(res: Response): URL | undefined {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
