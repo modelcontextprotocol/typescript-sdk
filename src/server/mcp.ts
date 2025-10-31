@@ -1030,9 +1030,7 @@ export type ToolCallback<InputArgs extends undefined | ZodRawShape = undefined, 
 export type CallToolResultByOutputArgsType<OutputArgs extends undefined | ZodRawShape = undefined> =
     OutputArgs extends ZodRawShape
       ? CallToolResultStructured<OutputArgs> | Promise<CallToolResultStructured<OutputArgs>>
-      : OutputArgs extends undefined
-      ? CallToolResultUnstructured | Promise<CallToolResultUnstructured>
-      : never;
+      : CallToolResultUnstructured | Promise<CallToolResultUnstructured>;
 
 export type RegisteredTool = {
     title?: string;

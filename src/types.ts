@@ -1,4 +1,4 @@
-import { z, ZodTypeAny } from 'zod';
+import { z, ZodRawShape, ZodTypeAny } from 'zod';
 import { AuthInfo } from './server/auth/types.js';
 
 export const LATEST_PROTOCOL_VERSION = '2025-06-18';
@@ -1594,8 +1594,8 @@ export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
 export type CallToolResult = Infer<typeof CallToolResultSchema>;
 export type CallToolResultUnstructured = Infer<typeof CallToolResultUnstructuredSchema>;
-export type CallToolResultStructured<OArgs extends ZodRawShape> = Infer<typeof CallToolResultStructuredSchema> & {
-  structuredContent: z.infer<z.ZodObject<OArgs>>;
+export type CallToolResultStructured<OutputArgs extends ZodRawShape> = Infer<typeof CallToolResultStructuredSchema> & {
+  structuredContent: z.infer<z.ZodObject<OutputArgs>>;
 }
 export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
