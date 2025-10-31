@@ -126,79 +126,79 @@ export class McpServer {
 
         this.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
             const tool = this._registeredTools[request.params.name];
-            if (!tool) {
-                throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
-            }
-
-            if (!tool.enabled) {
-                throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
-            }
 
             let result: CallToolResult;
 
-            if (tool.inputSchema) {
-                const parseResult = await tool.inputSchema.safeParseAsync(request.params.arguments);
-                if (!parseResult.success) {
-                    throw new McpError(
-                        ErrorCode.InvalidParams,
-                        `Invalid arguments for tool ${request.params.name}: ${parseResult.error.message}`
-                    );
+            try {
+                if (!tool) {
+                    throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
                 }
 
-                const args = parseResult.data;
-                const cb = tool.callback as ToolCallback<ZodRawShape>;
-                try {
+                if (!tool.enabled) {
+                    throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
+                }
+
+                if (tool.inputSchema) {
+                    const cb = tool.callback as ToolCallback<ZodRawShape>;
+                    const parseResult = await tool.inputSchema.safeParseAsync(request.params.arguments);
+                    if (!parseResult.success) {
+                        throw new McpError(
+                            ErrorCode.InvalidParams,
+                            `Input validation error: Invalid arguments for tool ${request.params.name}: ${parseResult.error.message}`
+                        );
+                    }
+
+                    const args = parseResult.data;
+
                     result = await Promise.resolve(cb(args, extra));
-                } catch (error) {
-                    result = {
-                        content: [
-                            {
-                                type: 'text',
-                                text: error instanceof Error ? error.message : String(error)
-                            }
-                        ],
-                        isError: true
-                    };
-                }
-            } else {
-                const cb = tool.callback as ToolCallback<undefined>;
-                try {
+                } else {
+                    const cb = tool.callback as ToolCallback<undefined>;
                     result = await Promise.resolve(cb(extra));
-                } catch (error) {
-                    result = {
-                        content: [
-                            {
-                                type: 'text',
-                                text: error instanceof Error ? error.message : String(error)
-                            }
-                        ],
-                        isError: true
-                    };
-                }
-            }
-
-            if (tool.outputSchema && !result.isError) {
-                if (!result.structuredContent) {
-                    throw new McpError(
-                        ErrorCode.InvalidParams,
-                        `Tool ${request.params.name} has an output schema but no structured content was provided`
-                    );
                 }
 
-                // if the tool has an output schema, validate structured content
-                const parseResult = await tool.outputSchema.safeParseAsync(result.structuredContent);
-                if (!parseResult.success) {
-                    throw new McpError(
-                        ErrorCode.InvalidParams,
-                        `Invalid structured content for tool ${request.params.name}: ${parseResult.error.message}`
-                    );
+                if (tool.outputSchema && !result.isError) {
+                    if (!result.structuredContent) {
+                        throw new McpError(
+                            ErrorCode.InvalidParams,
+                            `Output validation error: Tool ${request.params.name} has an output schema but no structured content was provided`
+                        );
+                    }
+
+                    // if the tool has an output schema, validate structured content
+                    const parseResult = await tool.outputSchema.safeParseAsync(result.structuredContent);
+                    if (!parseResult.success) {
+                        throw new McpError(
+                            ErrorCode.InvalidParams,
+                            `Output validation error: Invalid structured content for tool ${request.params.name}: ${parseResult.error.message}`
+                        );
+                    }
                 }
+            } catch (error) {
+                return this.createToolError(error instanceof Error ? error.message : String(error));
             }
 
             return result;
         });
 
         this._toolHandlersInitialized = true;
+    }
+
+    /**
+     * Creates a tool error result.
+     *
+     * @param errorMessage - The error message.
+     * @returns The tool error result.
+     */
+    private createToolError(errorMessage: string): CallToolResult {
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: errorMessage
+                }
+            ],
+            isError: true
+        };
     }
 
     private _completionHandlerInitialized = false;

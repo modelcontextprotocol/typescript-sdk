@@ -928,37 +928,53 @@ describe('tool()', () => {
 
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-        await expect(
-            client.request(
-                {
-                    method: 'tools/call',
-                    params: {
+        const result = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {
                         name: 'test',
-                        arguments: {
-                            name: 'test',
-                            value: 'not a number'
-                        }
+                        value: 'not a number'
                     }
-                },
-                CallToolResultSchema
-            )
-        ).rejects.toThrow(/Invalid arguments/);
+                }
+            },
+            CallToolResultSchema
+        );
 
-        await expect(
-            client.request(
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+            expect.arrayContaining([
                 {
-                    method: 'tools/call',
-                    params: {
-                        name: 'test (new api)',
-                        arguments: {
-                            name: 'test',
-                            value: 'not a number'
-                        }
+                    type: 'text',
+                    text: expect.stringContaining('Input validation error: Invalid arguments for tool test')
+                }
+            ])
+        );
+
+        const result2 = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'test (new api)',
+                    arguments: {
+                        name: 'test',
+                        value: 'not a number'
                     }
-                },
-                CallToolResultSchema
-            )
-        ).rejects.toThrow(/Invalid arguments/);
+                }
+            },
+            CallToolResultSchema
+        );
+
+        expect(result2.isError).toBe(true);
+        expect(result2.content).toEqual(
+            expect.arrayContaining([
+                {
+                    type: 'text',
+                    text: expect.stringContaining('Input validation error: Invalid arguments for tool test (new api)')
+                }
+            ])
+        );
     });
 
     /***
@@ -1152,14 +1168,24 @@ describe('tool()', () => {
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
         // Call the tool and expect it to throw an error
-        await expect(
-            client.callTool({
-                name: 'test',
-                arguments: {
-                    input: 'hello'
+        const result = await client.callTool({
+            name: 'test',
+            arguments: {
+                input: 'hello'
+            }
+        });
+
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+            expect.arrayContaining([
+                {
+                    type: 'text',
+                    text: expect.stringContaining(
+                        'Output validation error: Tool test has an output schema but no structured content was provided'
+                    )
                 }
-            })
-        ).rejects.toThrow(/Tool test has an output schema but no structured content was provided/);
+            ])
+        );
     });
     /***
      * Test: Tool with Output Schema Must Provide Structured Content
@@ -1274,14 +1300,22 @@ describe('tool()', () => {
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
         // Call the tool and expect it to throw a server-side validation error
-        await expect(
-            client.callTool({
-                name: 'test',
-                arguments: {
-                    input: 'hello'
+        const result = await client.callTool({
+            name: 'test',
+            arguments: {
+                input: 'hello'
+            }
+        });
+
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+            expect.arrayContaining([
+                {
+                    type: 'text',
+                    text: expect.stringContaining('Output validation error: Invalid structured content for tool test')
                 }
-            })
-        ).rejects.toThrow(/Invalid structured content for tool test/);
+            ])
+        );
     });
 
     /***
@@ -1552,17 +1586,25 @@ describe('tool()', () => {
 
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-        await expect(
-            client.request(
+        const result = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'nonexistent-tool'
+                }
+            },
+            CallToolResultSchema
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual(
+            expect.arrayContaining([
                 {
-                    method: 'tools/call',
-                    params: {
-                        name: 'nonexistent-tool'
-                    }
-                },
-                CallToolResultSchema
-            )
-        ).rejects.toThrow(/Tool nonexistent-tool not found/);
+                    type: 'text',
+                    text: expect.stringContaining('Tool nonexistent-tool not found')
+                }
+            ])
+        );
     });
 
     /***
