@@ -2558,4 +2558,113 @@ describe('OAuth Authorization', () => {
             expect(body.get('refresh_token')).toBe('refresh123');
         });
     });
+
+    describe('RequestInit headers passthrough', () => {
+        it('custom headers from RequestInit are passed to auth discovery requests', async () => {
+            const { createFetchWithInit } = await import('../shared/transport.js');
+
+            const customFetch = jest.fn().mockResolvedValue({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    resource: 'https://resource.example.com',
+                    authorization_servers: ['https://auth.example.com']
+                })
+            });
+
+            // Create a wrapped fetch with custom headers
+            const wrappedFetch = createFetchWithInit(customFetch, {
+                headers: {
+                    'user-agent': 'MyApp/1.0',
+                    'x-custom-header': 'test-value'
+                }
+            });
+
+            await discoverOAuthProtectedResourceMetadata('https://resource.example.com', undefined, wrappedFetch);
+
+            expect(customFetch).toHaveBeenCalledTimes(1);
+            const [url, options] = customFetch.mock.calls[0];
+
+            expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
+            expect(options.headers).toMatchObject({
+                'user-agent': 'MyApp/1.0',
+                'x-custom-header': 'test-value',
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+            });
+        });
+
+        it('auth-specific headers override base headers from RequestInit', async () => {
+            const { createFetchWithInit } = await import('../shared/transport.js');
+
+            const customFetch = jest.fn().mockResolvedValue({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    issuer: 'https://auth.example.com',
+                    authorization_endpoint: 'https://auth.example.com/authorize',
+                    token_endpoint: 'https://auth.example.com/token',
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['S256']
+                })
+            });
+
+            // Create a wrapped fetch with a custom Accept header
+            const wrappedFetch = createFetchWithInit(customFetch, {
+                headers: {
+                    'Accept': 'text/plain',
+                    'user-agent': 'MyApp/1.0'
+                }
+            });
+
+            await discoverAuthorizationServerMetadata('https://auth.example.com', {
+                fetchFn: wrappedFetch
+            });
+
+            expect(customFetch).toHaveBeenCalled();
+            const [url, options] = customFetch.mock.calls[0];
+
+            // Auth-specific Accept header should override base Accept header
+            expect(options.headers).toMatchObject({
+                'Accept': 'application/json',  // Auth-specific value wins
+                'user-agent': 'MyApp/1.0',     // Base value preserved
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+            });
+        });
+
+        it('other RequestInit options are passed through', async () => {
+            const { createFetchWithInit } = await import('../shared/transport.js');
+
+            const customFetch = jest.fn().mockResolvedValue({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    resource: 'https://resource.example.com',
+                    authorization_servers: ['https://auth.example.com']
+                })
+            });
+
+            // Create a wrapped fetch with various RequestInit options
+            const wrappedFetch = createFetchWithInit(customFetch, {
+                credentials: 'include',
+                mode: 'cors',
+                cache: 'no-cache',
+                headers: {
+                    'user-agent': 'MyApp/1.0'
+                }
+            });
+
+            await discoverOAuthProtectedResourceMetadata('https://resource.example.com', undefined, wrappedFetch);
+
+            expect(customFetch).toHaveBeenCalledTimes(1);
+            const [url, options] = customFetch.mock.calls[0];
+
+            // All RequestInit options should be preserved
+            expect(options.credentials).toBe('include');
+            expect(options.mode).toBe('cors');
+            expect(options.cache).toBe('no-cache');
+            expect(options.headers).toMatchObject({
+                'user-agent': 'MyApp/1.0'
+            });
+        });
+    });
 });
