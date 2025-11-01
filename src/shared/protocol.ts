@@ -72,6 +72,11 @@ export type ProtocolOptions = {
      * handle task creation, status tracking, and result storage.
      */
     taskStore?: TaskStore;
+    /**
+     * Default polling interval (in milliseconds) for task status checks when no pollFrequency
+     * is provided by the server. Defaults to 5000ms if not specified.
+     */
+    defaultTaskPollInterval?: number;
 };
 
 /**
@@ -863,7 +868,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             });
         });
 
-        return new PendingRequest(this, taskCreated, result, resultSchema, taskId);
+        return new PendingRequest(this, taskCreated, result, resultSchema, taskId, this._options?.defaultTaskPollInterval);
     }
 
     /**

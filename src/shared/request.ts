@@ -3,7 +3,7 @@ import { Protocol } from './protocol.js';
 import { Request, Notification, Result, Task, GetTaskResult } from '../types.js';
 import { isTerminal } from './task.js';
 
-const DEFAULT_POLLING_INTERNAL = 5000;
+const DEFAULT_TASK_POLLING_INTERVAL = 5000;
 
 const DEFAULT_HANDLER = () => Promise.resolve();
 
@@ -18,7 +18,8 @@ export class PendingRequest<SendRequestT extends Request, SendNotificationT exte
         readonly taskCreatedHandle: Promise<void>,
         readonly resultHandle: Promise<SendResultT>,
         readonly resultSchema: ZodType,
-        readonly taskId?: string
+        readonly taskId?: string,
+        readonly defaultTaskPollInterval?: number
     ) {}
 
     /**
@@ -66,7 +67,9 @@ export class PendingRequest<SendRequestT extends Request, SendNotificationT exte
         do {
             task = await this.protocol.getTask({ taskId: taskId });
             await onTaskStatus(task);
-            await new Promise(resolve => setTimeout(resolve, task.pollFrequency ?? DEFAULT_POLLING_INTERNAL));
+            await new Promise(resolve =>
+                setTimeout(resolve, task.pollFrequency ?? this.defaultTaskPollInterval ?? DEFAULT_TASK_POLLING_INTERVAL)
+            );
         } while (!isTerminal(task.status));
 
         // Process result
