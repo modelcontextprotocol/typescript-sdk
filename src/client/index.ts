@@ -44,7 +44,8 @@ import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema
     ToolListChangedNotificationSchema,
-    ToolListChangedOptions
+    ToolListChangedOptions,
+    ToolListChangedOptionsSchema
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
@@ -169,11 +170,11 @@ export type ClientOptions = ProtocolOptions & {
     /**
      * Configure automatic refresh behavior for tool list changed notifications
      *
+     * Here's an example of how to get the updated tool list when the tool list changed notification is received:
+     *
      * @example
-     * ```ts
+     * ```typescript
      * {
-     *   autoRefresh: true,
-     *   debounceMs: 300,
      *   onToolListChanged: (err, tools) => {
      *     if (err) {
      *       console.error('Failed to refresh tool list:', err);
@@ -185,10 +186,13 @@ export type ClientOptions = ProtocolOptions & {
      * }
      * ```
      *
+     * Here is an example of how to manually refresh the tool list when the tool list changed notification is received:
+     *
      * @example
-     * ```ts
+     * ```typescript
      * {
      *   autoRefresh: false,
+     *   debounceMs: 0,
      *   onToolListChanged: (err, tools) => {
      *     // err is always null when autoRefresh is false
      *
@@ -807,12 +811,26 @@ export class Client<
     public setToolListChangedOptions(options: ToolListChangedOptions | null): void {
         // Set up tool list changed options and add notification handler
         if (options) {
-            const toolListChangedOptions: ToolListChangedOptions = {
-                autoRefresh: !!options.autoRefresh,
-                debounceMs: options.debounceMs ?? 300,
-                onToolListChanged: options.onToolListChanged
-            };
+            const parseResult = ToolListChangedOptionsSchema.safeParse(options);
+            if (parseResult.error) {
+                throw new Error(`Tool List Changed options are invalid: ${parseResult.error.message}`);
+            }
+
+            const toolListChangedOptions = parseResult.data;
             this._toolListChangedOptions = toolListChangedOptions;
+
+            const refreshToolList = async () => {
+                let tools: Tool[] | null = null;
+                let error: Error | null = null;
+                try {
+                    const result = await this.listTools();
+                    tools = result.tools;
+                } catch (e) {
+                    error = e instanceof Error ? e : new Error(String(e));
+                }
+                toolListChangedOptions.onToolListChanged?.(error, tools);
+            };
+
             this.setNotificationHandler(ToolListChangedNotificationSchema, () => {
                 // If autoRefresh is false, call the callback for the notification, but without tools data
                 if (!toolListChangedOptions.autoRefresh) {
@@ -820,23 +838,18 @@ export class Client<
                     return;
                 }
 
-                // Clear any pending debounce timer
-                if (this._toolListChangedDebounceTimer) {
-                    clearTimeout(this._toolListChangedDebounceTimer);
-                }
-
-                // Set up debounced refresh
-                this._toolListChangedDebounceTimer = setTimeout(async () => {
-                    let tools: Tool[] | null = null;
-                    let error: Error | null = null;
-                    try {
-                        const result = await this.listTools();
-                        tools = result.tools;
-                    } catch (e) {
-                        error = e instanceof Error ? e : new Error(String(e));
+                if (toolListChangedOptions.debounceMs) {
+                    // Clear any pending debounce timer
+                    if (this._toolListChangedDebounceTimer) {
+                        clearTimeout(this._toolListChangedDebounceTimer);
                     }
-                    toolListChangedOptions.onToolListChanged?.(error, tools);
-                }, toolListChangedOptions.debounceMs);
+
+                    // Set up debounced refresh
+                    this._toolListChangedDebounceTimer = setTimeout(refreshToolList, toolListChangedOptions.debounceMs);
+                } else {
+                    // No debounce, refresh immediately
+                    refreshToolList();
+                }
             });
         }
         // Reset tool list changed options and remove notification handler

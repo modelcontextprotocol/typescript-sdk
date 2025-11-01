@@ -1390,9 +1390,9 @@ export const ToolListChangedOptionsSchema = z.object({
      *
      * If `onToolListChanged` is also provided, it will be called after the tool list is auto refreshed.
      *
-     * @default false
+     * @default true
      */
-    autoRefresh: z.boolean().optional(),
+    autoRefresh: z.boolean().default(true),
     /**
      * Debounce time in milliseconds for tool list changed notification processing.
      *
@@ -1400,7 +1400,7 @@ export const ToolListChangedOptionsSchema = z.object({
      *
      * @default 300
      */
-    debounceMs: z.number().int().optional(),
+    debounceMs: z.number().int().default(300),
     /**
      * This callback is always called when the server sends a tool list changed notification.
      *
@@ -1409,7 +1409,7 @@ export const ToolListChangedOptionsSchema = z.object({
     onToolListChanged: z.function(z.tuple([z.instanceof(Error).nullable(), z.array(ToolSchema).nullable()]), z.void())
 });
 
-export type ToolListChangedOptions = z.infer<typeof ToolListChangedOptionsSchema>;
+export type ToolListChangedOptions = z.input<typeof ToolListChangedOptionsSchema>;
 
 /* Logging */
 /**
