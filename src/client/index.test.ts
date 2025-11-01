@@ -13,6 +13,7 @@ import {
     ListResourcesRequestSchema,
     ListToolsRequestSchema,
     CallToolRequestSchema,
+    CallToolResultSchema,
     CreateMessageRequestSchema,
     ElicitRequestSchema,
     ListRootsRequestSchema,
@@ -21,6 +22,7 @@ import {
 import { Transport } from '../shared/transport.js';
 import { Server } from '../server/index.js';
 import { InMemoryTransport } from '../inMemory.js';
+import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
 
 /***
  * Test: Initialize with Matching Protocol Version
@@ -1237,5 +1239,691 @@ describe('outputSchema validation', () => {
         await expect(client.callTool({ name: 'strict-tool' })).rejects.toThrow(
             /Structured content does not match the tool's output schema/
         );
+    });
+});
+
+describe('Task-based execution', () => {
+    describe('Client calling server', () => {
+        let serverTaskStore: InMemoryTaskStore;
+
+        beforeEach(() => {
+            serverTaskStore = new InMemoryTaskStore();
+        });
+
+        afterEach(() => {
+            serverTaskStore?.cleanup();
+        });
+
+        test('should create task on server via tool call', async () => {
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tools: {}
+                    },
+                    taskStore: serverTaskStore
+                }
+            );
+
+            server.setRequestHandler(CallToolRequestSchema, async request => {
+                if (request.params.name === 'test-tool') {
+                    return {
+                        content: [{ type: 'text', text: 'Tool executed successfully!' }]
+                    };
+                }
+                throw new Error('Unknown tool');
+            });
+
+            server.setRequestHandler(ListToolsRequestSchema, async () => ({
+                tools: [
+                    {
+                        name: 'test-tool',
+                        description: 'A test tool',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {}
+                        }
+                    }
+                ]
+            }));
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Client creates task on server via tool call
+            const taskId = 'test-task-create';
+            const pendingRequest = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+                task: {
+                    taskId,
+                    keepAlive: 60000
+                }
+            });
+
+            await pendingRequest.result();
+
+            // Verify task was created successfully
+            const task = await client.getTask({ taskId });
+            expect(task.status).toBe('completed');
+        });
+
+        test('should query task status from server using getTask', async () => {
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tools: {}
+                    },
+                    taskStore: serverTaskStore
+                }
+            );
+
+            server.setRequestHandler(CallToolRequestSchema, async request => {
+                if (request.params.name === 'test-tool') {
+                    return {
+                        content: [{ type: 'text', text: 'Success!' }]
+                    };
+                }
+                throw new Error('Unknown tool');
+            });
+
+            server.setRequestHandler(ListToolsRequestSchema, async () => ({
+                tools: [
+                    {
+                        name: 'test-tool',
+                        description: 'A test tool',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {}
+                        }
+                    }
+                ]
+            }));
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Create a task
+            const taskId = 'test-task-get';
+            const pending = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+                task: { taskId, keepAlive: 60000 }
+            });
+            await pending.result();
+
+            // Query task status
+            const task = await client.getTask({ taskId });
+            expect(task).toBeDefined();
+            expect(task.taskId).toBe(taskId);
+            expect(task.status).toBe('completed');
+        });
+
+        test('should query task result from server using getTaskResult', async () => {
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tools: {}
+                    },
+                    taskStore: serverTaskStore
+                }
+            );
+
+            server.setRequestHandler(CallToolRequestSchema, async request => {
+                if (request.params.name === 'test-tool') {
+                    return {
+                        content: [{ type: 'text', text: 'Result data!' }]
+                    };
+                }
+                throw new Error('Unknown tool');
+            });
+
+            server.setRequestHandler(ListToolsRequestSchema, async () => ({
+                tools: [
+                    {
+                        name: 'test-tool',
+                        description: 'A test tool',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {}
+                        }
+                    }
+                ]
+            }));
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Create a task
+            const taskId = 'test-task-result';
+            const pending = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+                task: { taskId, keepAlive: 60000 }
+            });
+            await pending.result();
+
+            // Query task result
+            const result = await client.getTaskResult({ taskId }, CallToolResultSchema);
+            expect(result.content).toEqual([{ type: 'text', text: 'Result data!' }]);
+        });
+
+        test('should query task list from server using listTasks', async () => {
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tools: {}
+                    },
+                    taskStore: serverTaskStore
+                }
+            );
+
+            server.setRequestHandler(CallToolRequestSchema, async request => {
+                if (request.params.name === 'test-tool') {
+                    return {
+                        content: [{ type: 'text', text: 'Success!' }]
+                    };
+                }
+                throw new Error('Unknown tool');
+            });
+
+            server.setRequestHandler(ListToolsRequestSchema, async () => ({
+                tools: [
+                    {
+                        name: 'test-tool',
+                        description: 'A test tool',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {}
+                        }
+                    }
+                ]
+            }));
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Create multiple tasks
+            const taskIds = ['task-list-1', 'task-list-2'];
+
+            for (const taskId of taskIds) {
+                const pending = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+                    task: { taskId, keepAlive: 60000 }
+                });
+                await pending.result();
+            }
+
+            // Query task list
+            const taskList = await client.listTasks();
+            expect(taskList.tasks.length).toBeGreaterThanOrEqual(2);
+            for (const taskId of taskIds) {
+                expect(taskList.tasks).toContainEqual(
+                    expect.objectContaining({
+                        taskId,
+                        status: 'completed'
+                    })
+                );
+            }
+        });
+    });
+
+    describe('Server calling client', () => {
+        let clientTaskStore: InMemoryTaskStore;
+
+        beforeEach(() => {
+            clientTaskStore = new InMemoryTaskStore();
+        });
+
+        afterEach(() => {
+            clientTaskStore?.cleanup();
+        });
+
+        test('should create task on client via server elicitation', async () => {
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {}
+                    },
+                    taskStore: clientTaskStore
+                }
+            );
+
+            client.setRequestHandler(ElicitRequestSchema, async () => ({
+                action: 'accept',
+                content: {
+                    username: 'test-user'
+                }
+            }));
+
+            const server = new Server({
+                name: 'test-server',
+                version: '1.0.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Server creates task on client via elicitation
+            const taskId = 'elicit-task-create';
+            const ElicitResultSchema = z.object({
+                action: z.enum(['accept', 'decline', 'cancel']),
+                content: z.record(z.unknown()).optional()
+            });
+
+            const pendingRequest = server.beginRequest(
+                {
+                    method: 'elicitation/create',
+                    params: {
+                        message: 'Please provide your username',
+                        requestedSchema: {
+                            type: 'object',
+                            properties: {
+                                username: { type: 'string' }
+                            },
+                            required: ['username']
+                        }
+                    }
+                },
+                ElicitResultSchema,
+                { task: { taskId, keepAlive: 60000 } }
+            );
+
+            await pendingRequest.result();
+
+            // Verify task was created
+            const task = await server.getTask({ taskId });
+            expect(task.status).toBe('completed');
+        });
+
+        test('should query task status from client using getTask', async () => {
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {}
+                    },
+                    taskStore: clientTaskStore
+                }
+            );
+
+            client.setRequestHandler(ElicitRequestSchema, async () => ({
+                action: 'accept',
+                content: { username: 'test-user' }
+            }));
+
+            const server = new Server({
+                name: 'test-server',
+                version: '1.0.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Create a task on client
+            const taskId = 'elicit-task-get';
+            const ElicitResultSchema = z.object({
+                action: z.enum(['accept', 'decline', 'cancel']),
+                content: z.record(z.unknown()).optional()
+            });
+
+            const pending = server.beginRequest(
+                {
+                    method: 'elicitation/create',
+                    params: {
+                        message: 'Please provide info',
+                        requestedSchema: {
+                            type: 'object',
+                            properties: { username: { type: 'string' } }
+                        }
+                    }
+                },
+                ElicitResultSchema,
+                { task: { taskId, keepAlive: 60000 } }
+            );
+            await pending.result();
+
+            // Query task status
+            const task = await server.getTask({ taskId });
+            expect(task).toBeDefined();
+            expect(task.taskId).toBe(taskId);
+            expect(task.status).toBe('completed');
+        });
+
+        test('should query task result from client using getTaskResult', async () => {
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {}
+                    },
+                    taskStore: clientTaskStore
+                }
+            );
+
+            client.setRequestHandler(ElicitRequestSchema, async () => ({
+                action: 'accept',
+                content: { username: 'result-user' }
+            }));
+
+            const server = new Server({
+                name: 'test-server',
+                version: '1.0.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Create a task on client
+            const taskId = 'elicit-task-result';
+            const ElicitResultSchema = z.object({
+                action: z.enum(['accept', 'decline', 'cancel']),
+                content: z.record(z.unknown()).optional()
+            });
+
+            const pending = server.beginRequest(
+                {
+                    method: 'elicitation/create',
+                    params: {
+                        message: 'Please provide info',
+                        requestedSchema: {
+                            type: 'object',
+                            properties: { username: { type: 'string' } }
+                        }
+                    }
+                },
+                ElicitResultSchema,
+                { task: { taskId, keepAlive: 60000 } }
+            );
+            await pending.result();
+
+            // Query task result
+            const result = await server.getTaskResult({ taskId }, ElicitResultSchema);
+            expect(result.action).toBe('accept');
+            expect(result.content).toEqual({ username: 'result-user' });
+        });
+
+        test('should query task list from client using listTasks', async () => {
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {}
+                    },
+                    taskStore: clientTaskStore
+                }
+            );
+
+            client.setRequestHandler(ElicitRequestSchema, async () => ({
+                action: 'accept',
+                content: { username: 'list-user' }
+            }));
+
+            const server = new Server({
+                name: 'test-server',
+                version: '1.0.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Create multiple tasks on client
+            const ElicitResultSchema = z.object({
+                action: z.enum(['accept', 'decline', 'cancel']),
+                content: z.record(z.unknown()).optional()
+            });
+
+            const taskIds = ['elicit-list-1', 'elicit-list-2'];
+            for (const taskId of taskIds) {
+                const pending = server.beginRequest(
+                    {
+                        method: 'elicitation/create',
+                        params: {
+                            message: 'Please provide info',
+                            requestedSchema: {
+                                type: 'object',
+                                properties: { username: { type: 'string' } }
+                            }
+                        }
+                    },
+                    ElicitResultSchema,
+                    { task: { taskId, keepAlive: 60000 } }
+                );
+                await pending.result();
+            }
+
+            // Query task list
+            const taskList = await server.listTasks();
+            expect(taskList.tasks.length).toBeGreaterThanOrEqual(2);
+            for (const taskId of taskIds) {
+                expect(taskList.tasks).toContainEqual(
+                    expect.objectContaining({
+                        taskId,
+                        status: 'completed'
+                    })
+                );
+            }
+        });
+    });
+
+    test('should list tasks from server with pagination', async () => {
+        const serverTaskStore = new InMemoryTaskStore();
+
+        const server = new Server(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tools: {}
+                },
+                taskStore: serverTaskStore
+            }
+        );
+
+        server.setRequestHandler(CallToolRequestSchema, async request => {
+            if (request.params.name === 'test-tool') {
+                return {
+                    content: [{ type: 'text', text: `Result for ${request.params.arguments?.id || 'unknown'}` }]
+                };
+            }
+            throw new Error('Unknown tool');
+        });
+
+        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+            tools: [
+                {
+                    name: 'test-tool',
+                    description: 'A test tool',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {}
+                    }
+                }
+            ]
+        }));
+
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Create multiple tasks
+        const taskIds = ['task-1', 'task-2', 'task-3'];
+
+        for (const taskId of taskIds) {
+            const pending = client.beginCallTool({ name: 'test-tool', arguments: { id: taskId } }, CallToolResultSchema, {
+                task: { taskId, keepAlive: 60000 }
+            });
+            await pending.result();
+        }
+
+        // List all tasks without cursor
+        const firstPage = await client.listTasks();
+        expect(firstPage.tasks.length).toBeGreaterThan(0);
+        expect(firstPage.tasks.map(t => t.taskId)).toEqual(expect.arrayContaining(taskIds));
+
+        // If there's a cursor, test pagination
+        if (firstPage.nextCursor) {
+            const secondPage = await client.listTasks({ cursor: firstPage.nextCursor });
+            expect(secondPage.tasks).toBeDefined();
+        }
+
+        serverTaskStore.cleanup();
+    });
+
+    describe('Error scenarios', () => {
+        let serverTaskStore: InMemoryTaskStore;
+        let clientTaskStore: InMemoryTaskStore;
+
+        beforeEach(() => {
+            serverTaskStore = new InMemoryTaskStore();
+            clientTaskStore = new InMemoryTaskStore();
+        });
+
+        afterEach(() => {
+            serverTaskStore?.cleanup();
+            clientTaskStore?.cleanup();
+        });
+
+        test('should throw error when querying non-existent task from server', async () => {
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tools: {}
+                    },
+                    taskStore: serverTaskStore
+                }
+            );
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Try to get a task that doesn't exist
+            await expect(client.getTask({ taskId: 'non-existent-task' })).rejects.toThrow();
+        });
+
+        test('should throw error when querying result of non-existent task from server', async () => {
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tools: {}
+                    },
+                    taskStore: serverTaskStore
+                }
+            );
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Try to get result of a task that doesn't exist
+            await expect(client.getTaskResult({ taskId: 'non-existent-task' }, CallToolResultSchema)).rejects.toThrow();
+        });
+
+        test('should throw error when server queries non-existent task from client', async () => {
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {}
+                    },
+                    taskStore: clientTaskStore
+                }
+            );
+
+            client.setRequestHandler(ElicitRequestSchema, async () => ({
+                action: 'accept',
+                content: { username: 'test' }
+            }));
+
+            const server = new Server({
+                name: 'test-server',
+                version: '1.0.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Try to query a task that doesn't exist on client
+            await expect(server.getTask({ taskId: 'non-existent-task' })).rejects.toThrow();
+        });
     });
 });

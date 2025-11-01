@@ -1,5 +1,7 @@
 import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
 import type { Transport } from '../shared/transport.js';
+import { PendingRequest } from '../shared/request.js';
+import { v4 as uuidv4 } from '@lukeed/uuid';
 import {
     type CallToolRequest,
     CallToolResultSchema,
@@ -357,6 +359,29 @@ export class Client<
         return this.request({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
     }
 
+    /**
+     * Begins a tool call and returns a PendingRequest for granular control over task-based execution.
+     *
+     * This is useful when you want to create a task for a long-running tool call and poll for results later.
+     */
+    beginCallTool(
+        params: CallToolRequest['params'],
+        resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
+        options?: RequestOptions
+    ): PendingRequest<ClientRequest | RequestT, ClientNotification | NotificationT, ClientResult | ResultT> {
+        // Automatically add task metadata if not provided
+        const optionsWithTask = {
+            ...options,
+            task: options?.task ?? { taskId: uuidv4() }
+        };
+        return this.beginRequest({ method: 'tools/call', params }, resultSchema, optionsWithTask);
+    }
+
+    /**
+     * Calls a tool and waits for the result. Automatically validates structured output if the tool has an outputSchema.
+     *
+     * For task-based execution with granular control, use beginCallTool() instead.
+     */
     async callTool(
         params: CallToolRequest['params'],
         resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
