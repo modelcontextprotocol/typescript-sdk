@@ -820,6 +820,12 @@ export class Client<
             this._toolListChangedOptions = toolListChangedOptions;
 
             const refreshToolList = async () => {
+                // If autoRefresh is false, call the callback for the notification, but without tools data
+                if (!toolListChangedOptions.autoRefresh) {
+                    toolListChangedOptions.onToolListChanged?.(null, null);
+                    return;
+                }
+
                 let tools: Tool[] | null = null;
                 let error: Error | null = null;
                 try {
@@ -832,12 +838,6 @@ export class Client<
             };
 
             this.setNotificationHandler(ToolListChangedNotificationSchema, () => {
-                // If autoRefresh is false, call the callback for the notification, but without tools data
-                if (!toolListChangedOptions.autoRefresh) {
-                    toolListChangedOptions.onToolListChanged?.(null, null);
-                    return;
-                }
-
                 if (toolListChangedOptions.debounceMs) {
                     // Clear any pending debounce timer
                     if (this._toolListChangedDebounceTimer) {
