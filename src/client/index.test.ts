@@ -1269,17 +1269,20 @@ test('should handle tool list changed notification with auto refresh', async () 
         tools: []
     }));
 
-    const client = new Client({
-        name: 'test-client',
-        version: '1.0.0',
-    }, {
-        toolListChangedOptions: {
-            autoRefresh: true,
-            onToolListChanged: (err, tools) => {
-                notifications.push([err, tools]);
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            toolListChangedOptions: {
+                autoRefresh: true,
+                onToolListChanged: (err, tools) => {
+                    notifications.push([err, tools]);
+                }
             }
         }
-    });
+    );
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1353,17 +1356,20 @@ test('should handle tool list changed notification with manual refresh', async (
         tools: []
     }));
 
-    const client = new Client({
-        name: 'test-client',
-        version: '1.0.0',
-    }, {
-        toolListChangedOptions: {
-            autoRefresh: false,
-            onToolListChanged: (err, tools) => {
-                notifications.push([err, tools]);
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            toolListChangedOptions: {
+                autoRefresh: false,
+                onToolListChanged: (err, tools) => {
+                    notifications.push([err, tools]);
+                }
             }
         }
-    });
+    );
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 

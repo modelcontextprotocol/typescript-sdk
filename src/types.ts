@@ -1406,7 +1406,7 @@ export const ToolListChangedOptionsSchema = z.object({
      *
      * If `autoRefresh` is true, this callback will be called with updated tool list.
      */
-    onToolListChanged: z.function(z.tuple([z.instanceof(Error).nullable(), z.array(ToolSchema).nullable()]), z.void()),
+    onToolListChanged: z.function(z.tuple([z.instanceof(Error).nullable(), z.array(ToolSchema).nullable()]), z.void())
 });
 
 export type ToolListChangedOptions = z.infer<typeof ToolListChangedOptionsSchema>;

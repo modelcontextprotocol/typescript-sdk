@@ -169,7 +169,7 @@ export type ClientOptions = ProtocolOptions & {
     /**
      * Configure automatic refresh behavior for tool list changed notifications
      *
-     * @example 
+     * @example
      * ```ts
      * {
      *   autoRefresh: true,
@@ -191,7 +191,7 @@ export type ClientOptions = ProtocolOptions & {
      *   autoRefresh: false,
      *   onToolListChanged: (err, tools) => {
      *     // err is always null when autoRefresh is false
-     * 
+     *
      *     // Manually refresh the tool list
      *     const result = await this.listTools();
      *     console.log('Tool list changed:', result.tools);
@@ -810,7 +810,7 @@ export class Client<
             const toolListChangedOptions: ToolListChangedOptions = {
                 autoRefresh: !!options.autoRefresh,
                 debounceMs: options.debounceMs ?? 300,
-                onToolListChanged: options.onToolListChanged,
+                onToolListChanged: options.onToolListChanged
             };
             this._toolListChangedOptions = toolListChangedOptions;
             this.setNotificationHandler(ToolListChangedNotificationSchema, () => {
@@ -819,12 +819,12 @@ export class Client<
                     toolListChangedOptions.onToolListChanged?.(null, null);
                     return;
                 }
-        
+
                 // Clear any pending debounce timer
                 if (this._toolListChangedDebounceTimer) {
                     clearTimeout(this._toolListChangedDebounceTimer);
                 }
-        
+
                 // Set up debounced refresh
                 this._toolListChangedDebounceTimer = setTimeout(async () => {
                     let tools: Tool[] | null = null;
