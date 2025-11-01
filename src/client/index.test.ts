@@ -1276,7 +1276,6 @@ test('should handle tool list changed notification with auto refresh', async () 
         },
         {
             toolListChangedOptions: {
-                autoRefresh: true,
                 onToolListChanged: (err, tools) => {
                     notifications.push([err, tools]);
                 }
@@ -1364,6 +1363,7 @@ test('should handle tool list changed notification with manual refresh', async (
         {
             toolListChangedOptions: {
                 autoRefresh: false,
+                debounceMs: 0,
                 onToolListChanged: (err, tools) => {
                     notifications.push([err, tools]);
                 }
