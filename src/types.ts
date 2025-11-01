@@ -1381,6 +1381,36 @@ export const ToolListChangedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/tools/list_changed')
 });
 
+/**
+ * Client Options for tool list changed notifications.
+ */
+export const ToolListChangedOptionsSchema = z.object({
+    /**
+     * If true, the tool list will be refreshed automatically when a tool list changed notification is received.
+     *
+     * If `onToolListChanged` is also provided, it will be called after the tool list is auto refreshed.
+     *
+     * @default false
+     */
+    autoRefresh: z.boolean().optional(),
+    /**
+     * Debounce time in milliseconds for tool list changed notification processing.
+     *
+     * Multiple notifications received within this timeframe will only trigger one refresh.
+     *
+     * @default 300
+     */
+    debounceMs: z.number().int().optional(),
+    /**
+     * This callback is always called when the server sends a tool list changed notification.
+     *
+     * If `autoRefresh` is true, this callback will be called with updated tool list.
+     */
+    onToolListChanged: z.function(z.tuple([z.instanceof(Error).nullable(), z.array(ToolSchema).nullable()]), z.void()),
+});
+
+export type ToolListChangedOptions = z.infer<typeof ToolListChangedOptionsSchema>;
+
 /* Logging */
 /**
  * The severity of a log message.

@@ -21,6 +21,7 @@ import {
     ErrorCode,
     McpError,
     CreateTaskResultSchema
+    Tool
 } from '../types.js';
 import { Transport } from '../shared/transport.js';
 import { Server } from '../server/index.js';
@@ -1227,6 +1228,173 @@ test('should handle request timeout', async () => {
     await expect(client.listResources(undefined, { timeout: 0 })).rejects.toMatchObject({
         code: ErrorCode.RequestTimeout
     });
+});
+
+/***
+ * Test: Handle Tool List Changed Notifications with Auto Refresh
+ */
+test('should handle tool list changed notification with auto refresh', async () => {
+    // List changed notifications
+    const notifications: [Error | null, Tool[] | null][] = [];
+
+    const server = new Server(
+        {
+            name: 'test-server',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                tools: {
+                    listChanged: true
+                }
+            }
+        }
+    );
+
+    // Set up server handlers
+    server.setRequestHandler(InitializeRequestSchema, async request => ({
+        protocolVersion: request.params.protocolVersion,
+        capabilities: {
+            tools: {
+                listChanged: true
+            }
+        },
+        serverInfo: {
+            name: 'test-server',
+            version: '1.0.0'
+        }
+    }));
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        tools: []
+    }));
+
+    const client = new Client({
+        name: 'test-client',
+        version: '1.0.0',
+    }, {
+        toolListChangedOptions: {
+            autoRefresh: true,
+            onToolListChanged: (err, tools) => {
+                notifications.push([err, tools]);
+            }
+        }
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    const result1 = await client.listTools();
+    expect(result1.tools).toHaveLength(0);
+
+    // Update the tools list
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        tools: [
+            {
+                name: 'test-tool',
+                description: 'A test tool',
+                inputSchema: {
+                    type: 'object',
+                    properties: {}
+                }
+                // No outputSchema
+            }
+        ]
+    }));
+    await server.sendToolListChanged();
+
+    // Wait for the debounced notifications to be processed
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Should be 1 notification with 1 tool because autoRefresh is true
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0][0]).toBeNull();
+    expect(notifications[0][1]).toHaveLength(1);
+    expect(notifications[0][1]?.[0].name).toBe('test-tool');
+});
+
+/***
+ * Test: Handle Tool List Changed Notifications with Manual Refresh
+ */
+test('should handle tool list changed notification with manual refresh', async () => {
+    // List changed notifications
+    const notifications: [Error | null, Tool[] | null][] = [];
+
+    const server = new Server(
+        {
+            name: 'test-server',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                tools: {
+                    listChanged: true
+                }
+            }
+        }
+    );
+
+    // Set up server handlers
+    server.setRequestHandler(InitializeRequestSchema, async request => ({
+        protocolVersion: request.params.protocolVersion,
+        capabilities: {
+            tools: {
+                listChanged: true
+            }
+        },
+        serverInfo: {
+            name: 'test-server',
+            version: '1.0.0'
+        }
+    }));
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        tools: []
+    }));
+
+    const client = new Client({
+        name: 'test-client',
+        version: '1.0.0',
+    }, {
+        toolListChangedOptions: {
+            autoRefresh: false,
+            onToolListChanged: (err, tools) => {
+                notifications.push([err, tools]);
+            }
+        }
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    const result1 = await client.listTools();
+    expect(result1.tools).toHaveLength(0);
+
+    // Update the tools list
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        tools: [
+            {
+                name: 'test-tool',
+                description: 'A test tool',
+                inputSchema: {
+                    type: 'object',
+                    properties: {}
+                }
+                // No outputSchema
+            }
+        ]
+    }));
+    await server.sendToolListChanged();
+
+    // Wait for the debounced notifications to be processed
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Should be 1 notification with no tool data because autoRefresh is false
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0][0]).toBeNull();
+    expect(notifications[0][1]).toBeNull();
 });
 
 describe('outputSchema validation', () => {
