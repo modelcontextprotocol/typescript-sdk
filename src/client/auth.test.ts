@@ -712,14 +712,14 @@ describe('OAuth Authorization', () => {
         it('generates correct URLs for server with path', () => {
             const urls = buildDiscoveryUrls('https://auth.example.com/tenant1');
 
-            expect(urls).toHaveLength(4);
+            expect(urls).toHaveLength(5);
             expect(urls.map(u => ({ url: u.url.toString(), type: u.type }))).toEqual([
                 {
                     url: 'https://auth.example.com/.well-known/oauth-authorization-server/tenant1',
                     type: 'oauth'
                 },
                 {
-                    url: 'https://auth.example.com/.well-known/oauth-authorization-server',
+                    url: 'https://auth.example.com/tenant1/.well-known/oauth-authorization-server',
                     type: 'oauth'
                 },
                 {
@@ -729,6 +729,10 @@ describe('OAuth Authorization', () => {
                 {
                     url: 'https://auth.example.com/tenant1/.well-known/openid-configuration',
                     type: 'oidc'
+                },
+                {
+                    url: 'https://auth.example.com/.well-known/oauth-authorization-server',
+                    type: 'oauth'
                 }
             ]);
         });
@@ -736,7 +740,7 @@ describe('OAuth Authorization', () => {
         it('handles URL object input', () => {
             const urls = buildDiscoveryUrls(new URL('https://auth.example.com/tenant1'));
 
-            expect(urls).toHaveLength(4);
+            expect(urls).toHaveLength(5);
             expect(urls[0].url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/tenant1');
         });
     });
@@ -763,13 +767,13 @@ describe('OAuth Authorization', () => {
         };
 
         it('tries URLs in order and returns first successful metadata', async () => {
-            // First OAuth URL fails with 404
+            // First OAuth URL (path before well-known) fails with 404
             mockFetch.mockResolvedValueOnce({
                 ok: false,
                 status: 404
             });
 
-            // Second OAuth URL (root) succeeds
+            // Second OAuth URL (path after well-known) succeeds
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
@@ -784,7 +788,7 @@ describe('OAuth Authorization', () => {
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(2);
             expect(calls[0][0].toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/tenant1');
-            expect(calls[1][0].toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
+            expect(calls[1][0].toString()).toBe('https://auth.example.com/tenant1/.well-known/oauth-authorization-server');
         });
 
         it('continues on 4xx errors', async () => {
@@ -878,7 +882,7 @@ describe('OAuth Authorization', () => {
             expect(metadata).toBeUndefined();
 
             // Verify that all discovery URLs were attempted
-            expect(mockFetch).toHaveBeenCalledTimes(8); // 4 URLs × 2 attempts each (with and without headers)
+            expect(mockFetch).toHaveBeenCalledTimes(10); // 5 URLs × 2 attempts each (with and without headers)
         });
     });
 
