@@ -44,7 +44,7 @@
             "require": "./dist/validation/cfworker-provider.cjs",
             "types": "./dist/validation/cfworker-provider.d.ts"
         },
-        "./*": {
+        "./*.js": {
             "import": "./dist/*.js",
             "require": "./dist/*.cjs",
             "types": "./dist/*.d.ts"
