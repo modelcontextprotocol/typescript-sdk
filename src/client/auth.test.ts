@@ -2611,7 +2611,7 @@ describe('OAuth Authorization', () => {
             // Create a wrapped fetch with a custom Accept header
             const wrappedFetch = createFetchWithInit(customFetch, {
                 headers: {
-                    'Accept': 'text/plain',
+                    Accept: 'text/plain',
                     'user-agent': 'MyApp/1.0'
                 }
             });
@@ -2625,8 +2625,8 @@ describe('OAuth Authorization', () => {
 
             // Auth-specific Accept header should override base Accept header
             expect(options.headers).toMatchObject({
-                'Accept': 'application/json',  // Auth-specific value wins
-                'user-agent': 'MyApp/1.0',     // Base value preserved
+                Accept: 'application/json', // Auth-specific value wins
+                'user-agent': 'MyApp/1.0', // Base value preserved
                 'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
             });
         });

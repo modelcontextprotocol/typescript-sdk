@@ -258,7 +258,6 @@ export class StreamableHTTPClientTransport implements Transport {
         return Math.min(initialDelay * Math.pow(growFactor, attempt), maxDelay);
     }
 
-
     /**
      * Schedule a reconnection attempt with exponential backoff
      *

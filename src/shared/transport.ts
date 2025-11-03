@@ -39,9 +39,7 @@ export function createFetchWithInit(baseFetch: FetchLike = fetch, baseInit?: Req
             ...baseInit,
             ...init,
             // Headers need special handling - merge instead of replace
-            headers: init?.headers
-                ? { ...normalizeHeaders(baseInit.headers), ...normalizeHeaders(init.headers) }
-                : baseInit.headers
+            headers: init?.headers ? { ...normalizeHeaders(baseInit.headers), ...normalizeHeaders(init.headers) } : baseInit.headers
         };
         return baseFetch(url, mergedInit);
     };
