@@ -146,6 +146,12 @@ export type NotificationOptions = {
 };
 
 /**
+ * Options that can be given per request.
+ */
+// relatedTask is excluded as the SDK controls if this is sent according to if the source is a task.
+export type TaskRequestOptions = Omit<RequestOptions, 'relatedTask'>;
+
+/**
  * Extra data given to request handlers.
  */
 export type RequestHandlerExtra<
@@ -196,7 +202,11 @@ export type RequestHandlerExtra<
      *
      * This is used by certain transports to correctly associate related messages.
      */
-    sendRequest: <U extends ZodType<SendResultT>>(request: SendRequestT, resultSchema: U, options?: RequestOptions) => Promise<z.infer<U>>;
+    sendRequest: <U extends ZodType<SendResultT>>(
+        request: SendRequestT,
+        resultSchema: U,
+        options?: TaskRequestOptions
+    ) => Promise<z.infer<U>>;
 };
 
 /**
