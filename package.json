@@ -18,6 +18,13 @@
         "modelcontextprotocol",
         "mcp"
     ],
+    "imports": {
+        "#default-validator": {
+            "workerd": "./dist/esm/validation/default-workerd.js",
+            "import": "./dist/esm/validation/default.js",
+            "require": "./dist/cjs/validation/default.js"
+        }
+    },
     "exports": {
         ".": {
             "import": "./dist/esm/index.js",
@@ -34,11 +41,6 @@
         "./validation": {
             "import": "./dist/esm/validation/index.js",
             "require": "./dist/cjs/validation/index.js"
-        },
-        "./validation/default": {
-            "workerd": "./dist/esm/validation/default-workerd.js",
-            "import": "./dist/esm/validation/default.js",
-            "require": "./dist/cjs/validation/default.js"
         },
         "./validation/ajv": {
             "import": "./dist/esm/validation/ajv-provider.js",
@@ -65,10 +67,10 @@
     ],
     "scripts": {
         "fetch:spec-types": "curl -o spec.types.ts https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/refs/heads/main/schema/draft/schema.ts",
-        "build": "npm run build:esm && npm run build:cjs",
-        "build:esm": "mkdir -p dist/esm && echo '{\"type\": \"module\"}' > dist/esm/package.json && tsc -p tsconfig.prod.json",
+        "build": "rm -rf dist && npm run build:esm && npm run build:cjs",
+        "build:esm": "mkdir -p dist/esm && tsc -p tsconfig.prod.json",
         "build:esm:w": "npm run build:esm -- -w",
-        "build:cjs": "mkdir -p dist/cjs && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json && tsc -p tsconfig.cjs.json",
+        "build:cjs": "mkdir -p dist/cjs && tsc -p tsconfig.cjs.json",
         "build:cjs:w": "npm run build:cjs -- -w",
         "examples:simple-server:w": "tsx --watch src/examples/server/simpleStreamableHttp.ts --oauth",
         "prepack": "npm run build:esm && npm run build:cjs",

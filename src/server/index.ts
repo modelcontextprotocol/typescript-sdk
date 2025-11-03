@@ -31,7 +31,7 @@ import {
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types.js';
-import DefaultJsonSchemaValidator from '../validation/default.js';
+import DefaultJsonSchemaValidator from '#default-validator';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
 
 export type ServerOptions = ProtocolOptions & {

@@ -14,8 +14,10 @@
         "isolatedModules": true,
         "skipLibCheck": true,
         "baseUrl": ".",
+        "rootDir": "./src",
         "paths": {
-            "pkce-challenge": ["node_modules/pkce-challenge/dist/index.node"]
+            "pkce-challenge": ["node_modules/pkce-challenge/dist/index.node"],
+            "#default-validator": ["./src/validation/default.js"]
         }
     },
     "include": ["src/**/*"],
