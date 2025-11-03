@@ -1216,17 +1216,95 @@ export const NumberSchemaSchema = z
     .passthrough();
 
 /**
- * Primitive schema definition for enum fields.
+ * Schema for single-selection enumeration without display titles for options.
  */
-export const EnumSchemaSchema = z
+export const UntitledSingleSelectEnumSchema = z
     .object({
         type: z.literal('string'),
         title: z.optional(z.string()),
         description: z.optional(z.string()),
         enum: z.array(z.string()),
-        enumNames: z.optional(z.array(z.string()))
+        default: z.string().optional()
     })
     .passthrough();
+
+/**
+ * Schema for single-selection enumeration with display titles for each option.
+ */
+export const TitledSingleSelectEnumSchema = z.object({
+    type: z.literal('string'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    oneOf: z.array(
+        z.object({
+            const: z.string(),
+            title: z.string()
+        })
+    ),
+    default: z.string().optional()
+});
+
+/**
+ * Use TitledSingleSelectEnumSchema instead.
+ * This interface will be removed in a future version.
+ */
+export const LegacyTitledEnumSchema = z.object({
+    type: z.literal('string'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    enum: z.array(z.string()),
+    enumNames: z.array(z.string()).optional(),
+    default: z.string().optional()
+});
+
+// Combined single selection enumeration
+export const SingleSelectEnumSchema = z.union([UntitledSingleSelectEnumSchema, TitledSingleSelectEnumSchema, LegacyTitledEnumSchema]);
+
+/**
+ * Schema for multiple-selection enumeration without display titles for options.
+ */
+export const UntitledMultiSelectEnumSchema = z.object({
+    type: z.literal('array'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minItems: z.number().optional(),
+    maxItems: z.number().optional(),
+    items: z.object({
+        type: z.literal('string'),
+        enum: z.array(z.string())
+    }),
+    default: z.string().optional()
+});
+
+/**
+ * Schema for multiple-selection enumeration with display titles for each option.
+ */
+export const TitledMultiSelectEnumSchema = z.object({
+    type: z.literal('array'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minItems: z.number().optional(),
+    maxItems: z.number().optional(),
+    items: z.object({
+        anyOf: z.array(
+            z.object({
+                const: z.string(),
+                title: z.string()
+            })
+        )
+    }),
+    default: z.string().optional()
+});
+
+/**
+ * Combined schema for multiple-selection enumeration
+ */
+export const MultiSelectEnumSchema = z.union([UntitledMultiSelectEnumSchema, TitledMultiSelectEnumSchema]);
+
+/**
+ * Primitive schema definition for enum fields.
+ */
+export const EnumSchemaSchema = z.union([SingleSelectEnumSchema, MultiSelectEnumSchema]);
 
 /**
  * Union of all primitive schema definitions.

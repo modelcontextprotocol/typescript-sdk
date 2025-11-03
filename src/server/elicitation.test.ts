@@ -17,35 +17,57 @@ import { Server } from './index.js';
 const ajvProvider = new AjvJsonSchemaValidator();
 const cfWorkerProvider = new CfWorkerJsonSchemaValidator();
 
+let server: Server;
+let client: Client;
+
 describe('Elicitation Flow', () => {
     describe('with AJV validator', () => {
+        beforeEach(async () => {
+            server = new Server(
+                { name: 'test-server', version: '1.0.0' },
+                {
+                    capabilities: {},
+                    jsonSchemaValidator: ajvProvider
+                }
+            );
+
+            client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+        });
+
         testElicitationFlow(ajvProvider, 'AJV');
     });
 
     describe('with CfWorker validator', () => {
+        beforeEach(async () => {
+            server = new Server(
+                { name: 'test-server', version: '1.0.0' },
+                {
+                    capabilities: {},
+                    jsonSchemaValidator: cfWorkerProvider
+                }
+            );
+
+            client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+        });
+
         testElicitationFlow(cfWorkerProvider, 'CfWorker');
     });
 });
 
 function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWorkerProvider, validatorName: string) {
     test(`${validatorName}: should elicit simple object with string field`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'accept',
             content: { name: 'John Doe' }
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         const result = await server.elicitInput({
             message: 'What is your name?',
@@ -65,23 +87,10 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should elicit object with integer field`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'accept',
             content: { age: 42 }
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         const result = await server.elicitInput({
             message: 'What is your age?',
@@ -101,23 +110,10 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should elicit object with boolean field`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'accept',
             content: { agree: true }
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         const result = await server.elicitInput({
             message: 'Do you agree?',
@@ -137,16 +133,6 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should elicit complex object with multiple fields`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         const userData = {
             name: 'Jane Smith',
             email: 'jane@example.com',
@@ -162,9 +148,6 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             action: 'accept',
             content: userData
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         const result = await server.elicitInput({
             message: 'Please provide your information',
@@ -191,16 +174,6 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should reject invalid object (missing required field)`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'accept',
             content: {
@@ -208,9 +181,6 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                 // Missing required 'name' field
             }
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         await expect(
             server.elicitInput({
@@ -228,16 +198,6 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should reject invalid field type`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'accept',
             content: {
@@ -245,9 +205,6 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                 age: 'thirty' // Wrong type - should be integer
             }
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         await expect(
             server.elicitInput({
@@ -265,23 +222,10 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should reject invalid string (too short)`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'accept',
             content: { name: '' } // Too short
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         await expect(
             server.elicitInput({
@@ -298,23 +242,10 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should reject invalid integer (out of range)`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'accept',
             content: { age: 200 } // Too high
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         await expect(
             server.elicitInput({
@@ -331,23 +262,10 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should reject invalid pattern`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'accept',
             content: { zipCode: 'ABC123' } // Doesn't match pattern
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         await expect(
             server.elicitInput({
@@ -364,22 +282,9 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should allow decline action without validation`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'decline'
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         const result = await server.elicitInput({
             message: 'Please provide your information',
@@ -398,22 +303,9 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should allow cancel action without validation`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'cancel'
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         const result = await server.elicitInput({
             message: 'Please provide your information',
@@ -432,16 +324,6 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should handle multiple sequential elicitation requests`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         let requestCount = 0;
         client.setRequestHandler(ElicitRequestSchema, request => {
             requestCount++;
@@ -454,9 +336,6 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             }
             return { action: 'decline' };
         });
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         const nameResult = await server.elicitInput({
             message: 'What is your name?',
@@ -498,23 +377,10 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should validate with optional fields present`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'accept',
             content: { name: 'John', nickname: 'Johnny' }
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         const result = await server.elicitInput({
             message: 'Enter your name',
@@ -535,23 +401,10 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should validate with optional fields absent`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'accept',
             content: { name: 'John' }
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         const result = await server.elicitInput({
             message: 'Enter your name',
@@ -572,23 +425,10 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should validate email format`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'accept',
             content: { email: 'user@example.com' }
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         const result = await server.elicitInput({
             message: 'Enter your email',
@@ -608,23 +448,10 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
     });
 
     test(`${validatorName}: should reject invalid email format`, async () => {
-        const server = new Server(
-            { name: 'test-server', version: '1.0.0' },
-            {
-                capabilities: {},
-                jsonSchemaValidator: validatorProvider
-            }
-        );
-
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
-
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'accept',
             content: { email: 'not-an-email' }
         }));
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         await expect(
             server.elicitInput({
@@ -638,5 +465,370 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                 }
             })
         ).rejects.toThrow(/does not match requested schema/);
+    });
+
+    // Enums - Valid - Single Select - Untitled / Titled
+
+    test(`${validatorName}: should succeed with valid selection in single-select untitled enum`, async () => {
+        // Set up client to return valid response
+        client.setRequestHandler(ElicitRequestSchema, _request => ({
+            action: 'accept',
+            content: {
+                color: 'Red'
+            }
+        }));
+
+        // Test with valid response
+        await expect(
+            server.elicitInput({
+                message: 'Please provide your information',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        color: {
+                            type: 'string',
+                            title: 'Color Selection',
+                            description: 'Choose your favorite color',
+                            enum: ['Red', 'Green', 'Blue'],
+                            default: 'Green'
+                        }
+                    },
+                    required: ['color']
+                }
+            })
+        ).resolves.toEqual({
+            action: 'accept',
+            content: {
+                color: 'Red'
+            }
+        });
+    });
+
+    test(`${validatorName}: should succeed with valid selection in single-select titled enum`, async () => {
+        // Set up client to return valid response
+        client.setRequestHandler(ElicitRequestSchema, _request => ({
+            action: 'accept',
+            content: {
+                color: '#FF0000'
+            }
+        }));
+
+        // Test with valid response
+        await expect(
+            server.elicitInput({
+                message: 'Please provide your information',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        color: {
+                            type: 'string',
+                            title: 'Color Selection',
+                            description: 'Choose your favorite color',
+                            oneOf: [
+                                { const: '#FF0000', title: 'Red' },
+                                { const: '#00FF00', title: 'Green' },
+                                { const: '#0000FF', title: 'Blue' }
+                            ],
+                            default: ['#00FF00']
+                        }
+                    },
+                    required: ['color']
+                }
+            })
+        ).resolves.toEqual({
+            action: 'accept',
+            content: {
+                color: '#FF0000'
+            }
+        });
+    });
+
+    test(`${validatorName}: should succeed with valid selection in single-select titled legacy enum`, async () => {
+        // Set up client to return valid response
+        client.setRequestHandler(ElicitRequestSchema, _request => ({
+            action: 'accept',
+            content: {
+                color: '#FF0000'
+            }
+        }));
+
+        // Test with valid response
+        await expect(
+            server.elicitInput({
+                message: 'Please provide your information',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        color: {
+                            type: 'string',
+                            title: 'Color Selection',
+                            description: 'Choose your favorite color',
+                            enum: ['#FF0000', '#00FF00', '#0000FF'],
+                            enumNames: ['Red', 'Green', 'Blue'],
+                            default: '#00FF00'
+                        }
+                    },
+                    required: ['color']
+                }
+            })
+        ).resolves.toEqual({
+            action: 'accept',
+            content: {
+                color: '#FF0000'
+            }
+        });
+    });
+
+    // Enums - Valid - Multi Select - Untitled / Titled
+
+    test(`${validatorName}: should succeed with valid selection in multi-select untitled enum`, async () => {
+        // Set up client to return valid response
+        client.setRequestHandler(ElicitRequestSchema, _request => ({
+            action: 'accept',
+            content: {
+                color: ['Red', 'Blue']
+            }
+        }));
+
+        // Test with valid response
+        await expect(
+            server.elicitInput({
+                message: 'Please provide your information',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        color: {
+                            type: 'array',
+                            title: 'Color Selection',
+                            description: 'Choose your favorite colors',
+                            minItems: 1,
+                            maxItems: 3,
+                            items: {
+                                type: 'string',
+                                enum: ['Red', 'Green', 'Blue']
+                            }
+                        }
+                    },
+                    required: ['color']
+                }
+            })
+        ).resolves.toEqual({
+            action: 'accept',
+            content: {
+                color: ['Red', 'Blue']
+            }
+        });
+    });
+
+    test(`${validatorName}: should succeed with valid selection in multi-select titled enum`, async () => {
+        // Set up client to return valid response
+        client.setRequestHandler(ElicitRequestSchema, _request => ({
+            action: 'accept',
+            content: {
+                colors: ['#FF0000', '#0000FF']
+            }
+        }));
+
+        // Test with valid response
+        await expect(
+            server.elicitInput({
+                message: 'Please provide your information',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        colors: {
+                            type: 'array',
+                            title: 'Color Selection',
+                            description: 'Choose your favorite colors',
+                            minItems: 1,
+                            maxItems: 3,
+                            items: {
+                                anyOf: [
+                                    { const: '#FF0000', title: 'Red' },
+                                    { const: '#00FF00', title: 'Green' },
+                                    { const: '#0000FF', title: 'Blue' }
+                                ]
+                            }
+                        }
+                    },
+                    required: ['colors']
+                }
+            })
+        ).resolves.toEqual({
+            action: 'accept',
+            content: {
+                colors: ['#FF0000', '#0000FF']
+            }
+        });
+    });
+
+    // Enums - Invalid - Single Select - Untitled / Titled
+
+    test(`${validatorName}: should reject invalid selection in single-select untitled enum`, async () => {
+        // Set up client to return valid response
+        client.setRequestHandler(ElicitRequestSchema, _request => ({
+            action: 'accept',
+            content: {
+                color: 'Black' // Color not in enum list
+            }
+        }));
+
+        // Test with valid response
+        await expect(
+            server.elicitInput({
+                message: 'Please provide your information',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        color: {
+                            type: 'string',
+                            title: 'Color Selection',
+                            description: 'Choose your favorite color',
+                            enum: ['Red', 'Green', 'Blue'],
+                            default: 'Green'
+                        }
+                    },
+                    required: ['color']
+                }
+            })
+        ).rejects.toThrow(/^MCP error -32602: Elicitation response content does not match requested schema/);
+    });
+
+    test(`${validatorName}: should reject invalid selection in single-select titled enum`, async () => {
+        // Set up client to return valid response
+        client.setRequestHandler(ElicitRequestSchema, _request => ({
+            action: 'accept',
+            content: {
+                color: 'Red' // Should be "#FF0000" (const not title)
+            }
+        }));
+
+        // Test with valid response
+        await expect(
+            server.elicitInput({
+                message: 'Please provide your information',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        color: {
+                            type: 'string',
+                            title: 'Color Selection',
+                            description: 'Choose your favorite color',
+                            oneOf: [
+                                { const: '#FF0000', title: 'Red' },
+                                { const: '#00FF00', title: 'Green' },
+                                { const: '#0000FF', title: 'Blue' }
+                            ],
+                            default: ['#00FF00']
+                        }
+                    },
+                    required: ['color']
+                }
+            })
+        ).rejects.toThrow(/^MCP error -32602: Elicitation response content does not match requested schema/);
+    });
+
+    test(`${validatorName}: should reject invalid selection in single-select titled legacy enum`, async () => {
+        // Set up client to return valid response
+        client.setRequestHandler(ElicitRequestSchema, _request => ({
+            action: 'accept',
+            content: {
+                color: 'Red' // Should be "#FF0000" (enum not enumNames)
+            }
+        }));
+
+        // Test with valid response
+        await expect(
+            server.elicitInput({
+                message: 'Please provide your information',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        color: {
+                            type: 'string',
+                            title: 'Color Selection',
+                            description: 'Choose your favorite color',
+                            enum: ['#FF0000', '#00FF00', '#0000FF'],
+                            enumNames: ['Red', 'Green', 'Blue'],
+                            default: '#00FF00'
+                        }
+                    },
+                    required: ['color']
+                }
+            })
+        ).rejects.toThrow(/^MCP error -32602: Elicitation response content does not match requested schema/);
+    });
+
+    // Enums - Invalid - Multi Select - Untitled / Titled
+
+    test(`${validatorName}: should reject invalid selection in multi-select untitled enum`, async () => {
+        // Set up client to return valid response
+        client.setRequestHandler(ElicitRequestSchema, _request => ({
+            action: 'accept',
+            content: {
+                color: 'Red' // Should be array, not string
+            }
+        }));
+
+        // Test with valid response
+        await expect(
+            server.elicitInput({
+                message: 'Please provide your information',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        color: {
+                            type: 'array',
+                            title: 'Color Selection',
+                            description: 'Choose your favorite colors',
+                            minItems: 1,
+                            maxItems: 3,
+                            items: {
+                                type: 'string',
+                                enum: ['Red', 'Green', 'Blue']
+                            }
+                        }
+                    },
+                    required: ['color']
+                }
+            })
+        ).rejects.toThrow(/^MCP error -32602: Elicitation response content does not match requested schema/);
+    });
+
+    test(`${validatorName}: should reject invalid selection in multi-select titled enum`, async () => {
+        // Set up client to return valid response
+        client.setRequestHandler(ElicitRequestSchema, _request => ({
+            action: 'accept',
+            content: {
+                colors: ['Red', 'Blue'] // Should be  ["#FF0000", "#0000FF"] (const not title)
+            }
+        }));
+
+        // Test with valid response
+        await expect(
+            server.elicitInput({
+                message: 'Please provide your information',
+                requestedSchema: {
+                    type: 'object',
+                    properties: {
+                        colors: {
+                            type: 'array',
+                            title: 'Color Selection',
+                            description: 'Choose your favorite colors',
+                            minItems: 1,
+                            maxItems: 3,
+                            items: {
+                                anyOf: [
+                                    { const: '#FF0000', title: 'Red' },
+                                    { const: '#00FF00', title: 'Green' },
+                                    { const: '#0000FF', title: 'Blue' }
+                                ]
+                            }
+                        }
+                    },
+                    required: ['colors']
+                }
+            })
+        ).rejects.toThrow(/^MCP error -32602: Elicitation response content does not match requested schema/);
     });
 }
