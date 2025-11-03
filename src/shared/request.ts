@@ -36,13 +36,21 @@ export class PendingRequest<SendRequestT extends Request, SendNotificationT exte
         // Whichever is successful first (or a failure if all fail) is returned.
         return Promise.allSettled([
             (async () => {
-                // Blocks for a notifications/tasks/created with the provided task ID
-                await this.taskCreatedHandle;
-                await onTaskCreated();
-                return await this.taskHandler(this.taskId!, {
+                // Start task handler immediately without waiting for creation notification
+                const taskPromise = this.taskHandler(this.taskId!, {
                     onTaskCreated,
                     onTaskStatus
                 });
+
+                // Call onTaskCreated callback when notification arrives, but don't block taskHandler
+                // The promise is tied to the lifecycle of taskPromise, so it won't leak
+                this.taskCreatedHandle
+                    .then(() => onTaskCreated())
+                    .catch(() => {
+                        // Silently ignore if notification never arrives or fails
+                    });
+
+                return await taskPromise;
             })(),
             this.resultHandle
         ]).then(([task, result]) => {
