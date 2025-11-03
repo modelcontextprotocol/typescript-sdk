@@ -613,14 +613,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         return;
                     }
 
-                    // Send the response
-                    await capturedTransport?.send({
-                        result,
-                        jsonrpc: '2.0',
-                        id: request.id
-                    });
-
-                    // Store the result if this was a task-based request
+                    // Store the result if this was a task-based request.
+                    // This needs to be done before attempting to send the response so that
+                    // we can handle the case where the client has disconnected but will come
+                    // back to retrieve the result later.
                     if (taskMetadata && this._taskStore) {
                         try {
                             await this._taskStore.storeTaskResult(taskMetadata.taskId, result);
@@ -628,6 +624,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                             throw new McpError(ErrorCode.InternalError, `Failed to store task result: ${error}`);
                         }
                     }
+
+                    // Send the response
+                    await capturedTransport?.send({
+                        result,
+                        jsonrpc: '2.0',
+                        id: request.id
+                    });
                 },
                 async error => {
                     if (abortController.signal.aborted) {
