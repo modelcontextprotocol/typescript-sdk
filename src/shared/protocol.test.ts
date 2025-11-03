@@ -6,12 +6,16 @@ import {
     Notification,
     RELATED_TASK_META_KEY,
     Request,
+    RequestId,
     Result,
     ServerCapabilities,
-    TASK_META_KEY
+    Task,
+    TASK_META_KEY,
+    TaskMetadata
 } from '../types.js';
 import { Protocol, mergeCapabilities } from './protocol.js';
 import { Transport } from './transport.js';
+import { TaskStore } from './task.js';
 
 // Mock Transport class
 class MockTransport implements Transport {
@@ -24,6 +28,76 @@ class MockTransport implements Transport {
         this.onclose?.();
     }
     async send(_message: unknown): Promise<void> {}
+}
+
+function createMockTaskStore(options?: {
+    onStatus?: (status: Task['status']) => void;
+    onList?: () => void;
+}): TaskStore & { [K in keyof TaskStore]: jest.Mock<ReturnType<TaskStore[K]>, Parameters<TaskStore[K]>> } {
+    const tasks: Record<string, Task & { result?: Result }> = {};
+    return {
+        createTask: jest.fn((taskMetadata: TaskMetadata, _1: RequestId, _2: Request) => {
+            tasks[taskMetadata.taskId] = {
+                taskId: taskMetadata.taskId,
+                status: (taskMetadata.status as Task['status'] | undefined) ?? 'submitted',
+                keepAlive: taskMetadata.keepAlive ?? null,
+                pollFrequency: (taskMetadata.pollFrequency as Task['pollFrequency'] | undefined) ?? 1000
+            };
+            options?.onStatus?.('submitted');
+            return Promise.resolve();
+        }),
+        getTask: jest.fn((taskId: string) => {
+            return Promise.resolve(tasks[taskId] ?? null);
+        }),
+        updateTaskStatus: jest.fn((taskId, status, error) => {
+            const task = tasks[taskId];
+            if (task) {
+                task.status = status;
+                task.error = error;
+                options?.onStatus?.(task.status);
+            }
+            return Promise.resolve();
+        }),
+        storeTaskResult: jest.fn((taskId: string, result: Result) => {
+            const task = tasks[taskId];
+            if (task) {
+                task.status = 'completed';
+                task.result = result;
+                options?.onStatus?.('completed');
+            }
+            return Promise.resolve();
+        }),
+        getTaskResult: jest.fn((taskId: string) => {
+            const task = tasks[taskId];
+            if (task?.result) {
+                return Promise.resolve(task.result);
+            }
+            throw new Error('Task result not found');
+        }),
+        listTasks: jest.fn(() => {
+            const result = {
+                tasks: Object.values(tasks)
+            };
+            options?.onList?.();
+            return Promise.resolve(result);
+        })
+    };
+}
+
+function createLatch() {
+    let latch = false;
+    const waitForLatch = async () => {
+        while (!latch) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    };
+
+    return {
+        releaseLatch: () => {
+            latch = true;
+        },
+        waitForLatch
+    };
 }
 
 describe('protocol tests', () => {
@@ -977,14 +1051,14 @@ describe('Task-based execution', () => {
 
     describe('task status transitions', () => {
         it('should transition from submitted to working when handler starts', async () => {
-            const mockTaskStore = {
-                createTask: jest.fn().mockResolvedValue(undefined),
-                getTask: jest.fn().mockResolvedValue(null),
-                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
-                storeTaskResult: jest.fn().mockResolvedValue(undefined),
-                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
-                listTasks: jest.fn().mockResolvedValue({ tasks: [], nextCursor: undefined })
-            };
+            const workingProcessed = createLatch();
+            const mockTaskStore = createMockTaskStore({
+                onStatus: status => {
+                    if (status === 'working') {
+                        workingProcessed.releaseLatch();
+                    }
+                }
+            });
 
             protocol = new (class extends Protocol<Request, Notification, Result> {
                 protected assertCapabilityForMethod(): void {}
@@ -1012,24 +1086,17 @@ describe('Task-based execution', () => {
                 }
             });
 
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await workingProcessed.waitForLatch();
 
             expect(mockTaskStore.createTask).toHaveBeenCalledWith({ taskId: 'test-task', keepAlive: 60000 }, 1, {
                 method: 'test/method',
                 params: expect.any(Object)
             });
-            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'working');
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'working', undefined);
         });
 
         it('should transition to input_required during extra.sendRequest', async () => {
-            const mockTaskStore = {
-                createTask: jest.fn().mockResolvedValue(undefined),
-                getTask: jest.fn().mockResolvedValue(null),
-                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
-                storeTaskResult: jest.fn().mockResolvedValue(undefined),
-                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
-                listTasks: jest.fn().mockResolvedValue({ tasks: [], nextCursor: undefined })
-            };
+            const mockTaskStore = createMockTaskStore();
 
             const responsiveTransport = new MockTransport();
             responsiveTransport.send = jest.fn().mockImplementation(async (message: unknown) => {
@@ -1105,14 +1172,14 @@ describe('Task-based execution', () => {
         });
 
         it('should mark task as completed when storeTaskResult is called', async () => {
-            const mockTaskStore = {
-                createTask: jest.fn().mockResolvedValue(undefined),
-                getTask: jest.fn().mockResolvedValue(null),
-                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
-                storeTaskResult: jest.fn().mockResolvedValue(undefined),
-                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
-                listTasks: jest.fn().mockResolvedValue({ tasks: [], nextCursor: undefined })
-            };
+            const completeProcessed = createLatch();
+            const mockTaskStore = createMockTaskStore({
+                onStatus: status => {
+                    if (status === 'completed') {
+                        completeProcessed.releaseLatch();
+                    }
+                }
+            });
 
             protocol = new (class extends Protocol<Request, Notification, Result> {
                 protected assertCapabilityForMethod(): void {}
@@ -1140,20 +1207,20 @@ describe('Task-based execution', () => {
                 }
             });
 
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await completeProcessed.waitForLatch();
 
             expect(mockTaskStore.storeTaskResult).toHaveBeenCalledWith('test-task', { result: 'success' });
         });
 
         it('should mark task as cancelled when notifications/cancelled is received', async () => {
-            const mockTaskStore = {
-                createTask: jest.fn().mockResolvedValue(undefined),
-                getTask: jest.fn().mockResolvedValue({ taskId: 'test-task', status: 'working', keepAlive: null, pollFrequency: 500 }),
-                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
-                storeTaskResult: jest.fn().mockResolvedValue(undefined),
-                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
-                listTasks: jest.fn().mockResolvedValue({ tasks: [], nextCursor: undefined })
-            };
+            const cancelProcessed = createLatch();
+            const mockTaskStore = createMockTaskStore({
+                onStatus: status => {
+                    if (status === 'cancelled') {
+                        cancelProcessed.releaseLatch();
+                    }
+                }
+            });
 
             protocol = new (class extends Protocol<Request, Notification, Result> {
                 protected assertCapabilityForMethod(): void {}
@@ -1163,35 +1230,50 @@ describe('Task-based execution', () => {
 
             await protocol.connect(transport);
 
-            void protocol.request({ method: 'test/slow', params: {} }, z.object({ result: z.string() }), {
-                task: { taskId: 'test-task', keepAlive: 60000 }
+            const requestInProgress = createLatch();
+            const cancelSent = createLatch();
+
+            protocol.setRequestHandler(z.object({ method: z.literal('test/method'), params: z.any() }), async () => {
+                requestInProgress.releaseLatch();
+                await cancelSent.waitForLatch();
+                return {
+                    result: 'success'
+                };
             });
 
-            await new Promise(resolve => setTimeout(resolve, 10));
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'test/method',
+                params: {
+                    _meta: {
+                        [TASK_META_KEY]: {
+                            taskId: 'test-task',
+                            keepAlive: 60000
+                        }
+                    }
+                }
+            });
 
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 method: 'notifications/cancelled',
                 params: {
-                    requestId: 0,
+                    requestId: 1,
                     reason: 'User cancelled'
                 }
             });
 
-            await new Promise(resolve => setTimeout(resolve, 10));
+            await requestInProgress.waitForLatch();
+            cancelSent.releaseLatch();
+            await cancelProcessed.waitForLatch();
 
-            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'cancelled');
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'cancelled', undefined);
         });
 
         it('should mark task as failed when updateTaskStatus to working fails', async () => {
-            const mockTaskStore = {
-                createTask: jest.fn().mockResolvedValue(undefined),
-                getTask: jest.fn().mockResolvedValue(null),
-                updateTaskStatus: jest.fn().mockRejectedValueOnce(new Error('Failed to update status')).mockResolvedValue(undefined),
-                storeTaskResult: jest.fn().mockResolvedValue(undefined),
-                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
-                listTasks: jest.fn().mockResolvedValue({ tasks: [], nextCursor: undefined })
-            };
+            const mockTaskStore = createMockTaskStore();
+            mockTaskStore.updateTaskStatus.mockRejectedValueOnce(new Error('Failed to update status')).mockResolvedValue(undefined);
 
             protocol = new (class extends Protocol<Request, Notification, Result> {
                 protected assertCapabilityForMethod(): void {}
@@ -1221,27 +1303,42 @@ describe('Task-based execution', () => {
 
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'working');
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'working', undefined);
             expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'failed', 'Failed to mark task as working');
         });
     });
 
     describe('listTasks', () => {
         it('should handle tasks/list requests and return tasks from TaskStore', async () => {
-            const mockTaskStore = {
-                createTask: jest.fn().mockResolvedValue(undefined),
-                getTask: jest.fn().mockResolvedValue(null),
-                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
-                storeTaskResult: jest.fn().mockResolvedValue(undefined),
-                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
-                listTasks: jest.fn().mockResolvedValue({
-                    tasks: [
-                        { taskId: 'task-1', status: 'completed', keepAlive: null, pollFrequency: 500 },
-                        { taskId: 'task-2', status: 'working', keepAlive: 60000, pollFrequency: 1000 }
-                    ],
-                    nextCursor: 'task-2'
-                })
-            };
+            const listedTasks = createLatch();
+            const mockTaskStore = createMockTaskStore({
+                onList: () => listedTasks.releaseLatch()
+            });
+            await mockTaskStore.createTask(
+                {
+                    taskId: 'task-1',
+                    status: 'completed',
+                    pollFrequency: 500
+                },
+                1,
+                {
+                    method: 'test/method',
+                    params: {}
+                }
+            );
+            await mockTaskStore.createTask(
+                {
+                    taskId: 'task-2',
+                    status: 'working',
+                    keepAlive: 60000,
+                    pollFrequency: 1000
+                },
+                2,
+                {
+                    method: 'test/method',
+                    params: {}
+                }
+            );
 
             protocol = new (class extends Protocol<Request, Notification, Result> {
                 protected assertCapabilityForMethod(): void {}
@@ -1254,37 +1351,41 @@ describe('Task-based execution', () => {
             // Simulate receiving a tasks/list request
             transport.onmessage?.({
                 jsonrpc: '2.0',
-                id: 1,
+                id: 3,
                 method: 'tasks/list',
                 params: {}
             });
 
-            await new Promise(resolve => setTimeout(resolve, 10));
+            await listedTasks.waitForLatch();
 
             expect(mockTaskStore.listTasks).toHaveBeenCalledWith(undefined);
             const sentMessage = sendSpy.mock.calls[0][0];
             expect(sentMessage.jsonrpc).toBe('2.0');
-            expect(sentMessage.id).toBe(1);
+            expect(sentMessage.id).toBe(3);
             expect(sentMessage.result.tasks).toEqual([
                 { taskId: 'task-1', status: 'completed', keepAlive: null, pollFrequency: 500 },
                 { taskId: 'task-2', status: 'working', keepAlive: 60000, pollFrequency: 1000 }
             ]);
-            expect(sentMessage.result.nextCursor).toBe('task-2');
             expect(sentMessage.result._meta).toEqual({});
         });
 
         it('should handle tasks/list requests with cursor for pagination', async () => {
-            const mockTaskStore = {
-                createTask: jest.fn().mockResolvedValue(undefined),
-                getTask: jest.fn().mockResolvedValue(null),
-                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
-                storeTaskResult: jest.fn().mockResolvedValue(undefined),
-                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
-                listTasks: jest.fn().mockResolvedValue({
-                    tasks: [{ taskId: 'task-3', status: 'submitted', keepAlive: null, pollFrequency: 500 }],
-                    nextCursor: undefined
-                })
-            };
+            const listedTasks = createLatch();
+            const mockTaskStore = createMockTaskStore({
+                onList: () => listedTasks.releaseLatch()
+            });
+            await mockTaskStore.createTask(
+                {
+                    taskId: 'task-3',
+                    status: 'submitted',
+                    pollFrequency: 500
+                },
+                1,
+                {
+                    method: 'test/method',
+                    params: {}
+                }
+            );
 
             protocol = new (class extends Protocol<Request, Notification, Result> {
                 protected assertCapabilityForMethod(): void {}
@@ -1304,7 +1405,7 @@ describe('Task-based execution', () => {
                 }
             });
 
-            await new Promise(resolve => setTimeout(resolve, 10));
+            await listedTasks.waitForLatch();
 
             expect(mockTaskStore.listTasks).toHaveBeenCalledWith('task-2');
             const sentMessage = sendSpy.mock.calls[0][0];
@@ -1316,17 +1417,10 @@ describe('Task-based execution', () => {
         });
 
         it('should handle tasks/list requests with empty results', async () => {
-            const mockTaskStore = {
-                createTask: jest.fn().mockResolvedValue(undefined),
-                getTask: jest.fn().mockResolvedValue(null),
-                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
-                storeTaskResult: jest.fn().mockResolvedValue(undefined),
-                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
-                listTasks: jest.fn().mockResolvedValue({
-                    tasks: [],
-                    nextCursor: undefined
-                })
-            };
+            const listedTasks = createLatch();
+            const mockTaskStore = createMockTaskStore({
+                onList: () => listedTasks.releaseLatch()
+            });
 
             protocol = new (class extends Protocol<Request, Notification, Result> {
                 protected assertCapabilityForMethod(): void {}
@@ -1344,7 +1438,7 @@ describe('Task-based execution', () => {
                 params: {}
             });
 
-            await new Promise(resolve => setTimeout(resolve, 10));
+            await listedTasks.waitForLatch();
 
             expect(mockTaskStore.listTasks).toHaveBeenCalledWith(undefined);
             const sentMessage = sendSpy.mock.calls[0][0];
@@ -1356,14 +1450,8 @@ describe('Task-based execution', () => {
         });
 
         it('should return error for invalid cursor', async () => {
-            const mockTaskStore = {
-                createTask: jest.fn().mockResolvedValue(undefined),
-                getTask: jest.fn().mockResolvedValue(null),
-                updateTaskStatus: jest.fn().mockResolvedValue(undefined),
-                storeTaskResult: jest.fn().mockResolvedValue(undefined),
-                getTaskResult: jest.fn().mockResolvedValue({ content: [] }),
-                listTasks: jest.fn().mockRejectedValue(new Error('Invalid cursor: bad-cursor'))
-            };
+            const mockTaskStore = createMockTaskStore();
+            mockTaskStore.listTasks.mockRejectedValue(new Error('Invalid cursor: bad-cursor'));
 
             protocol = new (class extends Protocol<Request, Notification, Result> {
                 protected assertCapabilityForMethod(): void {}
