@@ -670,7 +670,6 @@ export async function discoverOAuthMetadata(
  * URLs are returned in priority order:
  * 1. OAuth metadata at the given URL
  * 2. OIDC metadata endpoints at the given URL
- * 3. OAuth metadata at root (if URL has path)
  */
 export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url: URL; type: 'oauth' | 'oidc' }[] {
     const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
@@ -706,12 +705,6 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
         type: 'oauth'
     });
 
-    // Insert well-known after the path: https://example.com/tenant1/.well-known/oauth-authorization-server
-    urlsToTry.push({
-        url: new URL(`${pathname}/.well-known/oauth-authorization-server`, url.origin),
-        type: 'oauth'
-    });
-
     // 2. OIDC metadata endpoints
     // RFC 8414 style: Insert /.well-known/openid-configuration before the path
     urlsToTry.push({
@@ -723,13 +716,6 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
     urlsToTry.push({
         url: new URL(`${pathname}/.well-known/openid-configuration`, url.origin),
         type: 'oidc'
-    });
-
-    // 3. OAuth metadata at root
-    // Root path: https://example.com/.well-known/oauth-authorization-server
-    urlsToTry.push({
-        url: new URL('/.well-known/oauth-authorization-server', url.origin),
-        type: 'oauth'
     });
 
     return urlsToTry;
