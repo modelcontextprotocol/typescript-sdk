@@ -2621,7 +2621,7 @@ describe('OAuth Authorization', () => {
             });
 
             expect(customFetch).toHaveBeenCalled();
-            const [url, options] = customFetch.mock.calls[0];
+            const [, options] = customFetch.mock.calls[0];
 
             // Auth-specific Accept header should override base Accept header
             expect(options.headers).toMatchObject({
@@ -2656,7 +2656,7 @@ describe('OAuth Authorization', () => {
             await discoverOAuthProtectedResourceMetadata('https://resource.example.com', undefined, wrappedFetch);
 
             expect(customFetch).toHaveBeenCalledTimes(1);
-            const [url, options] = customFetch.mock.calls[0];
+            const [, options] = customFetch.mock.calls[0];
 
             // All RequestInit options should be preserved
             expect(options.credentials).toBe('include');
