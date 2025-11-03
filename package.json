@@ -70,7 +70,7 @@
         "prepack": "npm run build:esm && npm run build:cjs",
         "lint": "eslint src/ && prettier --check .",
         "lint:fix": "eslint src/ --fix && prettier --write .",
-        "check": "npm run typecheck && npm run lint",
+        "check": "npm run fetch:spec-types && npm run typecheck && npm run lint",
         "test": "npm run fetch:spec-types && jest",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false src/cli.ts server",
