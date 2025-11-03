@@ -699,10 +699,16 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
         pathname = pathname.slice(0, -1);
     }
 
-    // 1. OAuth metadata at the given URL
+    // OAuth metadata at the given URL
     // Insert well-known before the path: https://example.com/.well-known/oauth-authorization-server/tenant1
     urlsToTry.push({
         url: new URL(`/.well-known/oauth-authorization-server${pathname}`, url.origin),
+        type: 'oauth'
+    });
+
+    // Some servers like Okta append the well-known after the path
+    urlsToTry.push({
+        url: new URL(`${pathname}/.well-known/oauth-authorization-server`, url.origin),
         type: 'oauth'
     });
 
@@ -712,12 +718,13 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
         type: 'oauth'
     });
 
-    // 3. OIDC metadata endpoints
+    // OIDC metadata endpoints
     // RFC 8414 style: Insert /.well-known/openid-configuration before the path
     urlsToTry.push({
         url: new URL(`/.well-known/openid-configuration${pathname}`, url.origin),
         type: 'oidc'
     });
+
     // OIDC Discovery 1.0 style: Append /.well-known/openid-configuration after the path
     urlsToTry.push({
         url: new URL(`${pathname}/.well-known/openid-configuration`, url.origin),
