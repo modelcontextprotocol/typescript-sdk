@@ -1,9 +1,0 @@
-{
-    "extends": "./tsconfig.json",
-    "compilerOptions": {
-        "module": "commonjs",
-        "moduleResolution": "node",
-        "outDir": "./dist/cjs"
-    },
-    "exclude": ["**/*.test.ts", "src/__mocks__/**/*"]
-}
