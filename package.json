@@ -60,6 +60,7 @@
     ],
     "scripts": {
         "fetch:spec-types": "curl -o spec.types.ts https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/refs/heads/main/schema/draft/schema.ts",
+        "typecheck": "tsgo --noEmit",
         "build": "npm run build:esm && npm run build:cjs",
         "build:esm": "mkdir -p dist/esm && echo '{\"type\": \"module\"}' > dist/esm/package.json && tsc -p tsconfig.prod.json",
         "build:esm:w": "npm run build:esm -- -w",
@@ -69,6 +70,7 @@
         "prepack": "npm run build:esm && npm run build:cjs",
         "lint": "eslint src/ && prettier --check .",
         "lint:fix": "eslint src/ --fix && prettier --write .",
+        "check": "npm run typecheck && npm run lint",
         "test": "npm run fetch:spec-types && jest",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false src/cli.ts server",
@@ -111,6 +113,7 @@
         "@types/node": "^22.0.2",
         "@types/supertest": "^6.0.2",
         "@types/ws": "^8.5.12",
+        "@typescript/native-preview": "^7.0.0-dev.20251103.1",
         "eslint": "^9.8.0",
         "eslint-config-prettier": "^10.1.8",
         "jest": "^29.7.0",
