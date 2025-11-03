@@ -6,7 +6,7 @@
  *   (note: a few don't have SDK types, see MISSING_SDK_TYPES below)
  */
 import * as SDKTypes from './types.js';
-import * as SpecTypes from '../spec.types.js';
+import * as SpecTypes from './spec.types.js';
 import fs from 'node:fs';
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -443,7 +443,7 @@ const sdkTypeChecks = {
 };
 
 // This file is .gitignore'd, and fetched by `npm run fetch:spec-types` (called by `npm run test`)
-const SPEC_TYPES_FILE = 'spec.types.ts';
+const SPEC_TYPES_FILE = 'src/spec.types.ts';
 const SDK_TYPES_FILE = 'src/types.ts';
 
 const MISSING_SDK_TYPES = [
