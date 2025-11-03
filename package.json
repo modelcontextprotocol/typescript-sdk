@@ -53,6 +53,15 @@
     "files": [
         "dist"
     ],
+    "tsdown": {
+        "entry": ["src/**/*.ts", "!src/**/*.test.ts", "!src/__mocks__/**", "!src/examples/**"],
+        "format": ["esm", "cjs"],
+        "outDir": "dist",
+        "target": "es2018",
+        "dts": true,
+        "shims": true,
+        "platform": "node"
+    },
     "scripts": {
         "fetch:spec-types": "curl -o spec.types.ts https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/refs/heads/main/schema/draft/schema.ts",
         "build": "tsdown",
