@@ -54,8 +54,16 @@
         "dist"
     ],
     "tsdown": {
-        "entry": ["src/**/*.ts", "!src/**/*.test.ts", "!src/__mocks__/**", "!src/examples/**"],
-        "format": ["esm", "cjs"],
+        "entry": [
+            "src/**/*.ts",
+            "!src/**/*.test.ts",
+            "!src/__mocks__/**",
+            "!src/examples/**"
+        ],
+        "format": [
+            "esm",
+            "cjs"
+        ],
         "outDir": "dist",
         "target": "es2018",
         "dts": true,
