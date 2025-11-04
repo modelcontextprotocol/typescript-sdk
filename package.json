@@ -19,54 +19,63 @@
         "mcp"
     ],
     "exports": {
-        ".": {
-            "import": "./dist/esm/index.js",
-            "require": "./dist/cjs/index.js"
-        },
         "./client": {
-            "import": "./dist/esm/client/index.js",
-            "require": "./dist/cjs/client/index.js"
+            "types": "./dist/client/index.d.ts",
+            "import": "./dist/client/index.js",
+            "require": "./dist/client/index.cjs"
         },
         "./server": {
-            "import": "./dist/esm/server/index.js",
-            "require": "./dist/cjs/server/index.js"
+            "types": "./dist/server/index.d.ts",
+            "import": "./dist/server/index.js",
+            "require": "./dist/server/index.cjs"
         },
         "./validation": {
-            "import": "./dist/esm/validation/index.js",
-            "require": "./dist/cjs/validation/index.js"
+            "types": "./dist/validation/index.d.ts",
+            "import": "./dist/validation/index.js",
+            "require": "./dist/validation/index.cjs"
         },
         "./validation/ajv": {
-            "import": "./dist/esm/validation/ajv-provider.js",
-            "require": "./dist/cjs/validation/ajv-provider.js"
+            "types": "./dist/validation/ajv-provider.d.ts",
+            "import": "./dist/validation/ajv-provider.js",
+            "require": "./dist/validation/ajv-provider.cjs"
         },
         "./validation/cfworker": {
-            "import": "./dist/esm/validation/cfworker-provider.js",
-            "require": "./dist/cjs/validation/cfworker-provider.js"
+            "types": "./dist/validation/cfworker-provider.d.ts",
+            "import": "./dist/validation/cfworker-provider.js",
+            "require": "./dist/validation/cfworker-provider.cjs"
         },
-        "./*": {
-            "import": "./dist/esm/*",
-            "require": "./dist/cjs/*"
-        }
-    },
-    "typesVersions": {
-        "*": {
-            "*": [
-                "./dist/esm/*"
-            ]
+        "./*.js": {
+            "types": "./dist/*.d.ts",
+            "import": "./dist/*.js",
+            "require": "./dist/*.cjs"
         }
     },
     "files": [
         "dist"
     ],
+    "tsdown": {
+        "entry": [
+            "src/**/*.ts",
+            "!src/**/*.test.ts",
+            "!src/__mocks__/**",
+            "!src/examples/**"
+        ],
+        "format": [
+            "esm",
+            "cjs"
+        ],
+        "outDir": "dist",
+        "target": "es2018",
+        "dts": true,
+        "shims": true,
+        "platform": "node"
+    },
     "scripts": {
         "fetch:spec-types": "curl -o spec.types.ts https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/refs/heads/main/schema/draft/schema.ts",
-        "build": "npm run build:esm && npm run build:cjs",
-        "build:esm": "mkdir -p dist/esm && echo '{\"type\": \"module\"}' > dist/esm/package.json && tsc -p tsconfig.prod.json",
-        "build:esm:w": "npm run build:esm -- -w",
-        "build:cjs": "mkdir -p dist/cjs && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json && tsc -p tsconfig.cjs.json",
-        "build:cjs:w": "npm run build:cjs -- -w",
+        "build": "tsdown",
+        "build:w": "tsdown --watch",
         "examples:simple-server:w": "tsx --watch src/examples/server/simpleStreamableHttp.ts --oauth",
-        "prepack": "npm run build:esm && npm run build:cjs",
+        "prepack": "npm run build",
         "lint": "eslint src/ && prettier --check .",
         "lint:fix": "eslint src/ --fix && prettier --write .",
         "test": "npm run fetch:spec-types && jest",
@@ -117,6 +126,7 @@
         "prettier": "3.6.2",
         "supertest": "^7.0.0",
         "ts-jest": "^29.2.4",
+        "tsdown": "^0.15.12",
         "tsx": "^4.16.5",
         "typescript": "^5.5.4",
         "typescript-eslint": "^8.0.0",
