@@ -156,7 +156,7 @@ export class Client<
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
-    private _toolListChangedOptions: ToolListChangedOptions | null = null;
+    private _toolListChangedOptions?: ToolListChangedOptions;
     private _toolListChangedDebounceTimer?: ReturnType<typeof setTimeout>;
 
     /**
@@ -499,7 +499,7 @@ export class Client<
             const refreshToolList = async () => {
                 // If autoRefresh is false, call the callback for the notification, but without tools data
                 if (!toolListChangedOptions.autoRefresh) {
-                    toolListChangedOptions.onToolListChanged?.(null, null);
+                    toolListChangedOptions.onToolListChanged(null, null);
                     return;
                 }
 
@@ -511,7 +511,7 @@ export class Client<
                 } catch (e) {
                     error = e instanceof Error ? e : new Error(String(e));
                 }
-                toolListChangedOptions.onToolListChanged?.(error, tools);
+                toolListChangedOptions.onToolListChanged(error, tools);
             };
 
             this.setNotificationHandler(ToolListChangedNotificationSchema, () => {
@@ -531,15 +531,19 @@ export class Client<
         }
         // Reset tool list changed options and remove notification handler
         else {
-            this._toolListChangedOptions = null;
+            this._toolListChangedOptions = undefined;
             this.removeNotificationHandler(ToolListChangedNotificationSchema.shape.method.value);
+            if (this._toolListChangedDebounceTimer) {
+                clearTimeout(this._toolListChangedDebounceTimer);
+                this._toolListChangedDebounceTimer = undefined;
+            }
         }
     }
 
     /**
      * Gets the current tool list changed options
      */
-    public getToolListChangedOptions(): ToolListChangedOptions | null {
+    public getToolListChangedOptions(): ToolListChangedOptions | undefined {
         return this._toolListChangedOptions;
     }
 
