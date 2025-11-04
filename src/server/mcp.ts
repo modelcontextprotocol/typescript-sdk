@@ -55,8 +55,10 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    private _schemaGenerationOptions: SchemaGenerationOption = {};
 
-    constructor(serverInfo: Implementation, options?: ServerOptions) {
+    constructor(serverInfo: Implementation, options?: ServerOptions & SchemaGenerationOption) {
+        this._schemaGenerationOptions = options || {};
         this.server = new Server(serverInfo, options);
     }
 
@@ -105,7 +107,8 @@ export class McpServer {
                             inputSchema: tool.inputSchema
                                 ? (zodToJsonSchema(tool.inputSchema, {
                                       strictUnions: true,
-                                      pipeStrategy: 'input'
+                                      pipeStrategy: 'input',
+                                      ...(this._schemaGenerationOptions.zodToJsonSchemaOptions ?? {})
                                   }) as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
@@ -115,7 +118,8 @@ export class McpServer {
                         if (tool.outputSchema) {
                             toolDefinition.outputSchema = zodToJsonSchema(tool.outputSchema, {
                                 strictUnions: true,
-                                pipeStrategy: 'output'
+                                pipeStrategy: 'output',
+                                ...(this._schemaGenerationOptions.zodToJsonSchemaOptions ?? {})
                             }) as Tool['outputSchema'];
                         }
 
@@ -1016,6 +1020,21 @@ export class ResourceTemplate {
         return this._callbacks.complete?.[variable];
     }
 }
+
+/**
+ * Options for schema generation.
+ */
+export type SchemaGenerationOption = {
+    /**
+     * Options for zod-to-json-schema conversion.
+     * Only one field is currently supported: `$refStrategy`, and with two possible values where
+     * the library accepts two others which are not relevant here.
+     * Useful to set to 'none' to avoid $ref generation because some clients do not support them well.
+     */
+    zodToJsonSchemaOptions?: {
+        $refStrategy?: 'root' | 'none';
+    };
+};
 
 /**
  * Callback for a tool handler registered with Server.tool().

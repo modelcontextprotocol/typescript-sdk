@@ -1685,6 +1685,141 @@ describe('tool()', () => {
         expect(result.tools[0].name).toBe('test-without-meta');
         expect(result.tools[0]._meta).toBeUndefined();
     });
+
+    /***
+     * Test: Tool Registration with a complex schema containing $refs should keep the $refs by default
+     */
+    test('should register tool with a schema with $refs by default', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        const addressType = z.object({
+            street: z.string(),
+            city: z.string()
+        });
+
+        mcpServer.registerTool(
+            'test-with-complex-schema',
+            {
+                description: 'A tool with a complex schema with refs',
+                inputSchema: {
+                    name: z.string(),
+                    primary_address: addressType,
+                    secondary_address: addressType
+                },
+                outputSchema: {
+                    name: z.string(),
+                    primary_address: addressType,
+                    secondary_address: addressType
+                }
+            },
+            async ({ name }) => ({
+                content: [{ type: 'text', text: `Hello, ${name}!` }]
+            })
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+        const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+
+        expect(result.tools).toHaveLength(1);
+        expect(result.tools[0].name).toBe('test-with-complex-schema');
+        expect(result.tools[0].inputSchema).toMatchObject({
+            type: 'object',
+            properties: {
+                name: { type: 'string' },
+                primary_address: { type: 'object', properties: { street: { type: 'string' }, city: { type: 'string' } } },
+                secondary_address: { $ref: '#/properties/primary_address' }
+            }
+        });
+        expect(result.tools[0].outputSchema).toMatchObject({
+            type: 'object',
+            properties: {
+                name: { type: 'string' },
+                primary_address: { type: 'object', properties: { street: { type: 'string' }, city: { type: 'string' } } },
+                secondary_address: { $ref: '#/properties/primary_address' }
+            }
+        });
+    });
+
+    /***
+     * Test: Tool Registration with a complex schema containing $refs should not use $refs when disabled
+     */
+    test('should register tool with a schema with not $refs if configured', async () => {
+        const mcpServer = new McpServer(
+            {
+                name: 'test server',
+                version: '1.0'
+            },
+            {
+                zodToJsonSchemaOptions: {
+                    $refStrategy: 'none'
+                }
+            }
+        );
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        const addressType = z.object({
+            street: z.string(),
+            city: z.string()
+        });
+
+        mcpServer.registerTool(
+            'test-with-complex-schema',
+            {
+                description: 'A tool with a complex schema with refs',
+                inputSchema: {
+                    name: z.string(),
+                    primary_address: addressType,
+                    secondary_address: addressType
+                },
+                outputSchema: {
+                    name: z.string(),
+                    primary_address: addressType,
+                    secondary_address: addressType
+                }
+            },
+            async ({ name }) => ({
+                content: [{ type: 'text', text: `Hello, ${name}!` }]
+            })
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+        const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+
+        expect(result.tools).toHaveLength(1);
+        expect(result.tools[0].name).toBe('test-with-complex-schema');
+        expect(result.tools[0].inputSchema).toMatchObject({
+            type: 'object',
+            properties: {
+                name: { type: 'string' },
+                primary_address: { type: 'object', properties: { street: { type: 'string' }, city: { type: 'string' } } },
+                secondary_address: { type: 'object', properties: { street: { type: 'string' }, city: { type: 'string' } } }
+            }
+        });
+        expect(result.tools[0].outputSchema).toMatchObject({
+            type: 'object',
+            properties: {
+                name: { type: 'string' },
+                primary_address: { type: 'object', properties: { street: { type: 'string' }, city: { type: 'string' } } },
+                secondary_address: { type: 'object', properties: { street: { type: 'string' }, city: { type: 'string' } } }
+            }
+        });
+    });
 });
 
 describe('resource()', () => {

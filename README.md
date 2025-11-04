@@ -1399,6 +1399,24 @@ This setup allows you to:
 - Provide custom documentation URLs
 - Maintain control over the OAuth flow while delegating to an external provider
 
+### Schema generation compatibility
+
+Some MCP clients doesn't support schemas with $refs very well, specially with large schemas. You can pass options to the McpServer constructor that explicitly request generating an input / output schema with no $ref.
+
+```typescript
+const mcpServer = new McpServer(
+    {
+        name: 'test server',
+        version: '1.0'
+    },
+    {
+        zodToJsonSchemaOptions: {
+            $refStrategy: 'none'
+        }
+    }
+);
+```
+
 ### Backwards Compatibility
 
 Clients and servers with StreamableHttp transport can maintain [backwards compatibility](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility) with the deprecated HTTP+SSE transport (from protocol version 2024-11-05) as follows
