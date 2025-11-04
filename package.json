@@ -20,34 +20,34 @@
     ],
     "exports": {
         "./client": {
+            "types": "./dist/client/index.d.ts",
             "import": "./dist/client/index.js",
-            "require": "./dist/client/index.cjs",
-            "types": "./dist/client/index.d.ts"
+            "require": "./dist/client/index.cjs"
         },
         "./server": {
+            "types": "./dist/server/index.d.ts",
             "import": "./dist/server/index.js",
-            "require": "./dist/server/index.cjs",
-            "types": "./dist/server/index.d.ts"
+            "require": "./dist/server/index.cjs"
         },
         "./validation": {
+            "types": "./dist/validation/index.d.ts",
             "import": "./dist/validation/index.js",
-            "require": "./dist/validation/index.cjs",
-            "types": "./dist/validation/index.d.ts"
+            "require": "./dist/validation/index.cjs"
         },
         "./validation/ajv": {
+            "types": "./dist/validation/ajv-provider.d.ts",
             "import": "./dist/validation/ajv-provider.js",
-            "require": "./dist/validation/ajv-provider.cjs",
-            "types": "./dist/validation/ajv-provider.d.ts"
+            "require": "./dist/validation/ajv-provider.cjs"
         },
         "./validation/cfworker": {
+            "types": "./dist/validation/cfworker-provider.d.ts",
             "import": "./dist/validation/cfworker-provider.js",
-            "require": "./dist/validation/cfworker-provider.cjs",
-            "types": "./dist/validation/cfworker-provider.d.ts"
+            "require": "./dist/validation/cfworker-provider.cjs"
         },
         "./*.js": {
+            "types": "./dist/*.d.ts",
             "import": "./dist/*.js",
-            "require": "./dist/*.cjs",
-            "types": "./dist/*.d.ts"
+            "require": "./dist/*.cjs"
         }
     },
     "files": [
