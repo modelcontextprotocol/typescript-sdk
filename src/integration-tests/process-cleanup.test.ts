@@ -4,7 +4,7 @@ import { StdioServerTransport } from '../server/stdio.js';
 describe('Process cleanup', () => {
     jest.setTimeout(5000); // 5 second timeout
 
-    it('should exit cleanly after closing transport', async () => {
+    it('server should exit cleanly after closing transport', async () => {
         const server = new Server(
             {
                 name: 'test-server',
