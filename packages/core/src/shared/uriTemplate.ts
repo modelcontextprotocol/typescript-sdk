@@ -247,38 +247,93 @@ export class UriTemplate {
 
     match(uri: string): Variables | null {
         UriTemplate.validateLength(uri, MAX_TEMPLATE_LENGTH, 'URI');
+
+        // Split URI into path and query parts
+        const queryIndex = uri.indexOf('?');
+        const pathPart = queryIndex === -1 ? uri : uri.slice(0, queryIndex);
+        const queryPart = queryIndex === -1 ? '' : uri.slice(queryIndex + 1);
+
+        // Build regex pattern for path (non-query) parts
         let pattern = '^';
-        const names: Array<{ name: string; exploded: boolean }> = [];
+        const names: Array<{ name: string; exploded: boolean; isQuery: boolean }> = [];
+        const queryParts: Array<{ name: string; exploded: boolean }> = [];
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
                 pattern += this.escapeRegExp(part);
             } else {
-                const patterns = this.partToRegExp(part);
-                for (const { pattern: partPattern, name } of patterns) {
-                    pattern += partPattern;
-                    names.push({ name, exploded: part.exploded });
+                if (part.operator === '?' || part.operator === '&') {
+                    // Collect query parameter names for later extraction
+                    for (const name of part.names) {
+                        queryParts.push({ name, exploded: part.exploded });
+                    }
+                } else {
+                    // Handle non-query parts normally
+                    const patterns = this.partToRegExp(part);
+                    for (const { pattern: partPattern, name } of patterns) {
+                        pattern += partPattern;
+                        names.push({ name, exploded: part.exploded, isQuery: false });
+                    }
                 }
             }
         }
 
-        pattern += '$';
+        // Match the path part (without query parameters)
+        pattern += '(?:\\?.*)?$'; // Allow optional query string at the end
         UriTemplate.validateLength(pattern, MAX_REGEX_LENGTH, 'Generated regex pattern');
         const regex = new RegExp(pattern);
-        const match = uri.match(regex);
+        const match = pathPart.match(regex);
 
         if (!match) return null;
 
         const result: Variables = {};
-        for (let i = 0; i < names.length; i++) {
-            const { name, exploded } = names[i]!;
-            const value = match[i + 1]!;
-            const cleanName = name.replace('*', '');
 
-            if (exploded && value.includes(',')) {
-                result[cleanName] = value.split(',');
-            } else {
-                result[cleanName] = value;
+        // Extract non-query parameters
+        let matchIndex = 0;
+        for (const { name, exploded, isQuery } of names) {
+            if (!isQuery) {
+                const value = match[matchIndex + 1];
+                const cleanName = name.replace('*', '');
+
+                if (value === undefined) {
+                    result[cleanName] = '';
+                } else if (exploded && value && value.includes(',')) {
+                    result[cleanName] = value.split(',');
+                } else {
+                    result[cleanName] = value;
+                }
+                matchIndex++;
+            }
+        }
+
+        // Extract query parameters from query string
+        if (queryParts.length > 0) {
+            const queryParams = new Map<string, string>();
+            if (queryPart) {
+                // Parse query string
+                const pairs = queryPart.split('&');
+                for (const pair of pairs) {
+                    const equalIndex = pair.indexOf('=');
+                    if (equalIndex !== -1) {
+                        const key = decodeURIComponent(pair.slice(0, equalIndex));
+                        const value = decodeURIComponent(pair.slice(equalIndex + 1));
+                        queryParams.set(key, value);
+                    }
+                }
+            }
+
+            // Extract values for each expected query parameter
+            for (const { name, exploded } of queryParts) {
+                const cleanName = name.replace('*', '');
+                const value = queryParams.get(cleanName);
+
+                if (value === undefined) {
+                    result[cleanName] = '';
+                } else if (exploded && value.includes(',')) {
+                    result[cleanName] = value.split(',');
+                } else {
+                    result[cleanName] = value;
+                }
             }
         }
 
