@@ -226,6 +226,12 @@ export class StdioClientTransport implements Transport {
 
             if (processToClose.exitCode === null) {
                 try {
+                    processToClose.stdin?.end();
+                } catch {
+                    // ignore errors in trying to close stdin
+                }
+
+                try {
                     processToClose.kill('SIGKILL');
                 } catch {
                     // we did our best
