@@ -10,6 +10,8 @@ import {
     GetTaskPayloadRequestSchema,
     ListTasksRequestSchema,
     ListTasksResultSchema,
+    DeleteTaskRequestSchema,
+    DeleteTaskResultSchema,
     isJSONRPCError,
     isJSONRPCRequest,
     isJSONRPCResponse,
@@ -352,6 +354,20 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     throw new McpError(
                         ErrorCode.InvalidParams,
                         `Failed to list tasks: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                }
+            });
+
+            this.setRequestHandler(DeleteTaskRequestSchema, async (request, extra) => {
+                try {
+                    await this._taskStore!.deleteTask(request.params.taskId, extra.sessionId);
+                    return {
+                        _meta: {}
+                    } as SendResultT;
+                } catch (error) {
+                    throw new McpError(
+                        ErrorCode.InvalidRequest,
+                        `Failed to delete task: ${error instanceof Error ? error.message : String(error)}`
                     );
                 }
             });
@@ -984,6 +1000,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     async listTasks(params?: { cursor?: string }, options?: RequestOptions): Promise<z.infer<typeof ListTasksResultSchema>> {
         // @ts-expect-error SendRequestT cannot directly contain ListTasksRequest, but we ensure all type instantiations contain it anyways
         return this.request({ method: 'tasks/list', params }, ListTasksResultSchema, options);
+    }
+
+    /**
+     * Deletes a specific task.
+     */
+    async deleteTask(params: { taskId: string }, options?: RequestOptions): Promise<z.infer<typeof DeleteTaskResultSchema>> {
+        // @ts-expect-error SendRequestT cannot directly contain DeleteTaskRequest, but we ensure all type instantiations contain it anyways
+        return this.request({ method: 'tasks/delete', params }, DeleteTaskResultSchema, options);
     }
 
     /**

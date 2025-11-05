@@ -62,6 +62,15 @@ export interface TaskStore {
      * @returns An object containing the tasks array and an optional nextCursor
      */
     listTasks(cursor?: string, sessionId?: string): Promise<{ tasks: Task[]; nextCursor?: string }>;
+
+    /**
+     * Deletes a specific task and its associated data.
+     *
+     * @param taskId - The task identifier
+     * @param sessionId - Optional session ID for binding the operation to a specific session
+     * @throws Error if the task doesn't exist or cannot be deleted
+     */
+    deleteTask(taskId: string, sessionId?: string): Promise<void>;
 }
 
 /**

@@ -444,4 +444,58 @@ describe('InMemoryTaskStore', () => {
             expect(store.getAllTasks()).toHaveLength(0);
         });
     });
+
+    describe('deleteTask', () => {
+        it('should delete an existing task', async () => {
+            await store.createTask({ taskId: 'task-to-delete' }, 1, {
+                method: 'tools/call',
+                params: {}
+            });
+
+            expect(await store.getTask('task-to-delete')).toBeDefined();
+
+            await store.deleteTask('task-to-delete');
+
+            expect(await store.getTask('task-to-delete')).toBeNull();
+        });
+
+        it('should throw error when deleting non-existent task', async () => {
+            await expect(store.deleteTask('non-existent')).rejects.toThrow('Task with ID non-existent not found');
+        });
+
+        it('should clear cleanup timer when deleting task with keepAlive', async () => {
+            jest.useFakeTimers();
+
+            await store.createTask({ taskId: 'task-with-timer', keepAlive: 1000 }, 1, {
+                method: 'tools/call',
+                params: {}
+            });
+
+            expect(await store.getTask('task-with-timer')).toBeDefined();
+
+            await store.deleteTask('task-with-timer');
+
+            // Fast-forward past keepAlive time
+            jest.advanceTimersByTime(1001);
+
+            // Task should not exist (it was deleted immediately, not cleaned up by timer)
+            expect(await store.getTask('task-with-timer')).toBeNull();
+
+            jest.useRealTimers();
+        });
+
+        it('should delete task with result', async () => {
+            await store.createTask({ taskId: 'task-with-result' }, 1, {
+                method: 'tools/call',
+                params: {}
+            });
+
+            const result = { content: [{ type: 'text' as const, text: 'Result' }] };
+            await store.storeTaskResult('task-with-result', result);
+
+            await store.deleteTask('task-with-result');
+
+            expect(await store.getTask('task-with-result')).toBeNull();
+        });
+    });
 });

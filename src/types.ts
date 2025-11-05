@@ -573,6 +573,21 @@ export const ListTasksResultSchema = PaginatedResultSchema.extend({
     tasks: z.array(TaskSchema)
 });
 
+/**
+ * A request to delete a specific task.
+ */
+export const DeleteTaskRequestSchema = RequestSchema.extend({
+    method: z.literal('tasks/delete'),
+    params: BaseRequestParamsSchema.extend({
+        taskId: z.string()
+    })
+});
+
+/**
+ * The response to a tasks/delete request.
+ */
+export const DeleteTaskResultSchema = ResultSchema;
+
 /* Resources */
 /**
  * The contents of a specific resource or sub-resource.
@@ -1696,6 +1711,8 @@ export type GetTaskResult = Infer<typeof GetTaskResultSchema>;
 export type GetTaskPayloadRequest = Infer<typeof GetTaskPayloadRequestSchema>;
 export type ListTasksRequest = Infer<typeof ListTasksRequestSchema>;
 export type ListTasksResult = Infer<typeof ListTasksResultSchema>;
+export type DeleteTaskRequest = Infer<typeof DeleteTaskRequestSchema>;
+export type DeleteTaskResult = Infer<typeof DeleteTaskResultSchema>;
 
 /* Pagination */
 export type PaginatedRequest = Infer<typeof PaginatedRequestSchema>;

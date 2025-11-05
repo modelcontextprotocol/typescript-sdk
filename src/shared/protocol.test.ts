@@ -80,6 +80,13 @@ function createMockTaskStore(options?: {
             };
             options?.onList?.();
             return Promise.resolve(result);
+        }),
+        deleteTask: jest.fn((taskId: string) => {
+            if (tasks[taskId]) {
+                delete tasks[taskId];
+                return Promise.resolve();
+            }
+            return Promise.reject(new Error(`Task with ID ${taskId} not found`));
         })
     };
 }
@@ -1559,6 +1566,129 @@ describe('Task-based execution', () => {
             expect(result.tasks).toHaveLength(1);
             expect(result.tasks[0].taskId).toBe('task-11');
             expect(result.nextCursor).toBe('task-11');
+        });
+    });
+
+    describe('deleteTask', () => {
+        it('should handle tasks/delete requests and delete task from TaskStore', async () => {
+            const taskDeleted = createLatch();
+            const mockTaskStore = createMockTaskStore();
+            await mockTaskStore.createTask(
+                {
+                    taskId: 'task-to-delete'
+                },
+                1,
+                {
+                    method: 'test/method',
+                    params: {}
+                }
+            );
+
+            mockTaskStore.deleteTask.mockImplementation(async (taskId: string) => {
+                if (taskId === 'task-to-delete') {
+                    taskDeleted.releaseLatch();
+                    return;
+                }
+                throw new Error('Task not found');
+            });
+
+            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+            const serverTransport = new MockTransport();
+            const sendSpy = jest.spyOn(serverTransport, 'send');
+
+            await serverProtocol.connect(serverTransport);
+
+            serverTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 5,
+                method: 'tasks/delete',
+                params: {
+                    taskId: 'task-to-delete'
+                }
+            });
+
+            await taskDeleted.waitForLatch();
+
+            expect(mockTaskStore.deleteTask).toHaveBeenCalledWith('task-to-delete', undefined);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const sentMessage = sendSpy.mock.calls[0][0] as any;
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(5);
+            expect(sentMessage.result._meta).toBeDefined();
+        });
+
+        it('should return error with code -32600 when task does not exist', async () => {
+            const taskDeleted = createLatch();
+            const mockTaskStore = createMockTaskStore();
+
+            mockTaskStore.deleteTask.mockImplementation(async () => {
+                taskDeleted.releaseLatch();
+                throw new Error('Task with ID non-existent not found');
+            });
+
+            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+            const serverTransport = new MockTransport();
+            const sendSpy = jest.spyOn(serverTransport, 'send');
+
+            await serverProtocol.connect(serverTransport);
+
+            serverTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 6,
+                method: 'tasks/delete',
+                params: {
+                    taskId: 'non-existent'
+                }
+            });
+
+            await taskDeleted.waitForLatch();
+
+            expect(mockTaskStore.deleteTask).toHaveBeenCalledWith('non-existent', undefined);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const sentMessage = sendSpy.mock.calls[0][0] as any;
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(6);
+            expect(sentMessage.error).toBeDefined();
+            expect(sentMessage.error.code).toBe(-32600); // InvalidRequest error code
+            expect(sentMessage.error.message).toContain('Failed to delete task');
+        });
+
+        it('should call deleteTask method from client side', async () => {
+            await protocol.connect(transport);
+
+            const deleteTaskPromise = protocol.deleteTask({ taskId: 'task-to-delete' });
+
+            // Simulate server response
+            setTimeout(() => {
+                transport.onmessage?.({
+                    jsonrpc: '2.0',
+                    id: sendSpy.mock.calls[0][0].id,
+                    result: {
+                        _meta: {}
+                    }
+                });
+            }, 0);
+
+            const result = await deleteTaskPromise;
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    method: 'tasks/delete',
+                    params: {
+                        taskId: 'task-to-delete'
+                    }
+                }),
+                expect.any(Object)
+            );
+            expect(result._meta).toBeDefined();
         });
     });
 });
