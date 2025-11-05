@@ -451,6 +451,26 @@ const MISSING_SDK_TYPES = [
     'Role',
     'Error', // The inner error object of a JSONRPCError
 
+    // Params types are not exported as standalone types in the SDK (they're inferred from Zod schemas):
+    'RequestParams',
+    'NotificationParams',
+    'CancelledNotificationParams',
+    'InitializeRequestParams',
+    'ProgressNotificationParams',
+    'PaginatedRequestParams',
+    'ResourceRequestParams',
+    'ReadResourceRequestParams',
+    'SubscribeRequestParams',
+    'UnsubscribeRequestParams',
+    'SetLevelRequestParams',
+    'GetPromptRequestParams',
+    'CompleteRequestParams',
+    'CallToolRequestParams',
+    'CreateMessageRequestParams',
+    'LoggingMessageNotificationParams',
+    'ResourceUpdatedNotificationParams',
+    'ElicitRequestParams',
+
     // These aren't supported by the SDK yet:
     // TODO: Add definitions to the SDK
     'Annotations',
