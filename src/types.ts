@@ -27,30 +27,28 @@ const RequestMetaSchema = z
     })
     .passthrough();
 
-const BaseRequestParamsSchema = z
-    .object({
-        _meta: z.optional(RequestMetaSchema)
-    })
-    .passthrough();
+const BaseRequestParamsSchema = z.object({
+    _meta: z.optional(RequestMetaSchema)
+});
 
 export const RequestSchema = z.object({
     method: z.string(),
-    params: z.optional(BaseRequestParamsSchema)
+    params: z.optional(z.record(z.any()))
 });
 
-const BaseNotificationParamsSchema = z
-    .object({
-        /**
-         * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-         * for notes on _meta usage.
-         */
-        _meta: z.optional(z.object({}).passthrough())
-    })
-    .passthrough();
+const NotificationsMetaSchema = z.object({}).passthrough();
+
+const BaseNotificationParamsSchema = z.object({
+    /**
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on _meta usage.
+     */
+    _meta: z.optional(NotificationsMetaSchema)
+});
 
 export const NotificationSchema = z.object({
     method: z.string(),
-    params: z.optional(BaseNotificationParamsSchema)
+    params: z.optional(z.record(z.any()))
 });
 
 export const ResultSchema = z
@@ -395,7 +393,8 @@ export const InitializeResultSchema = ResultSchema.extend({
  * This notification is sent from the client to the server after initialization has finished.
  */
 export const InitializedNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/initialized')
+    method: z.literal('notifications/initialized'),
+    params: z.optional(BaseNotificationParamsSchema)
 });
 
 export const isInitializedNotification = (value: unknown): value is InitializedNotification =>
@@ -406,26 +405,25 @@ export const isInitializedNotification = (value: unknown): value is InitializedN
  * A ping, issued by either the server or the client, to check that the other party is still alive. The receiver must promptly respond, or else may be disconnected.
  */
 export const PingRequestSchema = RequestSchema.extend({
-    method: z.literal('ping')
+    method: z.literal('ping'),
+    params: z.optional(BaseRequestParamsSchema)
 });
 
 /* Progress notifications */
-export const ProgressSchema = z
-    .object({
-        /**
-         * The progress thus far. This should increase every time progress is made, even if the total is unknown.
-         */
-        progress: z.number(),
-        /**
-         * Total number of items to process (or total progress required), if known.
-         */
-        total: z.optional(z.number()),
-        /**
-         * An optional message describing the current progress.
-         */
-        message: z.optional(z.string())
-    })
-    .passthrough();
+export const ProgressSchema = z.object({
+    /**
+     * The progress thus far. This should increase every time progress is made, even if the total is unknown.
+     */
+    progress: z.number(),
+    /**
+     * Total number of items to process (or total progress required), if known.
+     */
+    total: z.optional(z.number()),
+    /**
+     * An optional message describing the current progress.
+     */
+    message: z.optional(z.string())
+});
 
 /**
  * An out-of-band notification used to inform the receiver of a progress update for a long-running request.
@@ -622,7 +620,8 @@ export const ReadResourceResultSchema = ResultSchema.extend({
  * An optional notification from the server to the client, informing it that the list of resources it can read from has changed. This may be issued by servers without any previous subscription from the client.
  */
 export const ResourceListChangedNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/resources/list_changed')
+    method: z.literal('notifications/resources/list_changed'),
+    params: z.optional(BaseNotificationParamsSchema)
 });
 
 /**
@@ -860,7 +859,8 @@ export const GetPromptResultSchema = ResultSchema.extend({
  * An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This may be issued by servers without any previous subscription from the client.
  */
 export const PromptListChangedNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/prompts/list_changed')
+    method: z.literal('notifications/prompts/list_changed'),
+    params: z.optional(BaseNotificationParamsSchema)
 });
 
 /* Tools */
@@ -1037,7 +1037,8 @@ export const CallToolRequestSchema = RequestSchema.extend({
  * An optional notification from the server to the client, informing it that the list of tools it offers has changed. This may be issued by servers without any previous subscription from the client.
  */
 export const ToolListChangedNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/tools/list_changed')
+    method: z.literal('notifications/tools/list_changed'),
+    params: z.optional(BaseNotificationParamsSchema)
 });
 
 /* Logging */
