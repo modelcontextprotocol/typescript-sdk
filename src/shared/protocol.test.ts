@@ -1088,11 +1088,16 @@ describe('Task-based execution', () => {
 
             await workingProcessed.waitForLatch();
 
-            expect(mockTaskStore.createTask).toHaveBeenCalledWith({ taskId: 'test-task', keepAlive: 60000 }, 1, {
-                method: 'test/method',
-                params: expect.any(Object)
-            });
-            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'working', undefined);
+            expect(mockTaskStore.createTask).toHaveBeenCalledWith(
+                { taskId: 'test-task', keepAlive: 60000 },
+                1,
+                {
+                    method: 'test/method',
+                    params: expect.any(Object)
+                },
+                undefined
+            );
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'working', undefined, undefined);
         });
 
         it('should transition to input_required during extra.sendRequest', async () => {
@@ -1209,7 +1214,7 @@ describe('Task-based execution', () => {
 
             await completeProcessed.waitForLatch();
 
-            expect(mockTaskStore.storeTaskResult).toHaveBeenCalledWith('test-task', { result: 'success' });
+            expect(mockTaskStore.storeTaskResult).toHaveBeenCalledWith('test-task', { result: 'success' }, undefined);
         });
 
         it('should mark task as cancelled when notifications/cancelled is received', async () => {
@@ -1268,7 +1273,7 @@ describe('Task-based execution', () => {
             cancelSent.releaseLatch();
             await cancelProcessed.waitForLatch();
 
-            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'cancelled', undefined);
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'cancelled', undefined, undefined);
         });
 
         it('should mark task as failed when updateTaskStatus to working fails', async () => {
@@ -1303,8 +1308,8 @@ describe('Task-based execution', () => {
 
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'working', undefined);
-            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'failed', 'Failed to mark task as working');
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'working', undefined, undefined);
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'failed', 'Failed to mark task as working', undefined);
         });
     });
 
@@ -1358,7 +1363,7 @@ describe('Task-based execution', () => {
 
             await listedTasks.waitForLatch();
 
-            expect(mockTaskStore.listTasks).toHaveBeenCalledWith(undefined);
+            expect(mockTaskStore.listTasks).toHaveBeenCalledWith(undefined, undefined);
             const sentMessage = sendSpy.mock.calls[0][0];
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(3);
@@ -1407,7 +1412,7 @@ describe('Task-based execution', () => {
 
             await listedTasks.waitForLatch();
 
-            expect(mockTaskStore.listTasks).toHaveBeenCalledWith('task-2');
+            expect(mockTaskStore.listTasks).toHaveBeenCalledWith('task-2', undefined);
             const sentMessage = sendSpy.mock.calls[0][0];
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(2);
@@ -1440,7 +1445,7 @@ describe('Task-based execution', () => {
 
             await listedTasks.waitForLatch();
 
-            expect(mockTaskStore.listTasks).toHaveBeenCalledWith(undefined);
+            expect(mockTaskStore.listTasks).toHaveBeenCalledWith(undefined, undefined);
             const sentMessage = sendSpy.mock.calls[0][0];
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(3);
@@ -1473,7 +1478,7 @@ describe('Task-based execution', () => {
 
             await new Promise(resolve => setTimeout(resolve, 10));
 
-            expect(mockTaskStore.listTasks).toHaveBeenCalledWith('bad-cursor');
+            expect(mockTaskStore.listTasks).toHaveBeenCalledWith('bad-cursor', undefined);
             const sentMessage = sendSpy.mock.calls[0][0];
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(4);

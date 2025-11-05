@@ -300,8 +300,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         // Install task handlers if TaskStore is provided
         this._taskStore = _options?.taskStore;
         if (this._taskStore) {
-            this.setRequestHandler(GetTaskRequestSchema, async request => {
-                const task = await this._taskStore!.getTask(request.params.taskId);
+            this.setRequestHandler(GetTaskRequestSchema, async (request, extra) => {
+                const task = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
                 if (!task) {
                     throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
                 }
@@ -317,8 +317,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 } as SendResultT;
             });
 
-            this.setRequestHandler(GetTaskPayloadRequestSchema, async request => {
-                const task = await this._taskStore!.getTask(request.params.taskId);
+            this.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra) => {
+                const task = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
                 if (!task) {
                     throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
                 }
@@ -327,7 +327,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     throw new McpError(ErrorCode.InvalidParams, `Cannot retrieve result: Task status is '${task.status}', not 'completed'`);
                 }
 
-                const result = await this._taskStore!.getTaskResult(request.params.taskId);
+                const result = await this._taskStore!.getTaskResult(request.params.taskId, extra.sessionId);
                 return {
                     ...result,
                     _meta: {
@@ -339,9 +339,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 } as SendResultT;
             });
 
-            this.setRequestHandler(ListTasksRequestSchema, async request => {
+            this.setRequestHandler(ListTasksRequestSchema, async (request, extra) => {
                 try {
-                    const { tasks, nextCursor } = await this._taskStore!.listTasks(request.params?.cursor);
+                    const { tasks, nextCursor } = await this._taskStore!.listTasks(request.params?.cursor, extra.sessionId);
                     // @ts-expect-error SendResultT cannot contain ListTasksResult, but we include it in our derived types everywhere else
                     return {
                         tasks,
@@ -364,12 +364,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         controller?.abort(notification.params.reason);
     }
 
-    private async _postcancel(requestId: RequestId): Promise<void> {
+    private async _postcancel(requestId: RequestId, sessionId?: string): Promise<void> {
         // If this request had a task, mark it as cancelled in storage
         const taskId = this._requestIdToTaskId.get(requestId);
         if (taskId && this._taskStore) {
             try {
-                await this._setTaskStatus(taskId, 'cancelled');
+                await this._setTaskStatus(taskId, 'cancelled', undefined, sessionId);
             } catch (error) {
                 this._onerror(new Error(`Failed to cancel task ${taskId}: ${error}`));
             }
@@ -542,14 +542,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 const relatedTask = taskMetadata ? { taskId: taskMetadata.taskId } : undefined;
                 if (taskMetadata) {
                     // Allow this to throw to the caller (request handler)
-                    await this._setTaskStatus(taskMetadata.taskId, 'input_required');
+                    await this._setTaskStatus(taskMetadata.taskId, 'input_required', undefined, capturedTransport?.sessionId);
                 }
                 try {
                     return await this.request(r, resultSchema, { ...options, relatedRequestId: request.id, relatedTask });
                 } finally {
                     if (taskMetadata) {
                         // Allow this to throw to the caller (request handler)
-                        await this._setTaskStatus(taskMetadata.taskId, 'working');
+                        await this._setTaskStatus(taskMetadata.taskId, 'working', undefined, capturedTransport?.sessionId);
                     }
                 }
             },
@@ -563,15 +563,20 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             .then(async () => {
                 // If this request asked for task creation, create the task and send notification
                 if (taskMetadata && this._taskStore) {
-                    const task = await this._taskStore.getTask(taskMetadata.taskId);
+                    const task = await this._taskStore.getTask(taskMetadata.taskId, capturedTransport?.sessionId);
                     if (task) {
                         throw new McpError(ErrorCode.InvalidParams, `Task ID already exists: ${taskMetadata.taskId}`);
                     }
 
-                    await this._taskStore.createTask(taskMetadata, request.id, {
-                        method: request.method,
-                        params: request.params
-                    });
+                    await this._taskStore.createTask(
+                        taskMetadata,
+                        request.id,
+                        {
+                            method: request.method,
+                            params: request.params
+                        },
+                        capturedTransport?.sessionId
+                    );
                     this._requestIdToTaskId.set(request.id, taskMetadata.taskId);
 
                     // Send task created notification
@@ -594,10 +599,15 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 // If this request had a task, mark it as working
                 if (taskMetadata) {
                     try {
-                        await this._setTaskStatus(taskMetadata.taskId, 'working');
+                        await this._setTaskStatus(taskMetadata.taskId, 'working', undefined, capturedTransport?.sessionId);
                     } catch {
                         try {
-                            await this._setTaskStatus(taskMetadata.taskId, 'failed', 'Failed to mark task as working');
+                            await this._setTaskStatus(
+                                taskMetadata.taskId,
+                                'failed',
+                                'Failed to mark task as working',
+                                capturedTransport?.sessionId
+                            );
                         } catch (error) {
                             throw new McpError(ErrorCode.InternalError, `Failed to mark task as working: ${error}`);
                         }
@@ -609,7 +619,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 async result => {
                     if (abortController.signal.aborted) {
                         // Request was cancelled
-                        await this._postcancel(request.id);
+                        await this._postcancel(request.id, capturedTransport?.sessionId);
                         return;
                     }
 
@@ -619,7 +629,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     // back to retrieve the result later.
                     if (taskMetadata && this._taskStore) {
                         try {
-                            await this._taskStore.storeTaskResult(taskMetadata.taskId, result);
+                            await this._taskStore.storeTaskResult(taskMetadata.taskId, result, capturedTransport?.sessionId);
                         } catch (error) {
                             throw new McpError(ErrorCode.InternalError, `Failed to store task result: ${error}`);
                         }
@@ -635,7 +645,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 async error => {
                     if (abortController.signal.aborted) {
                         // Request was cancelled
-                        await this._postcancel(request.id);
+                        await this._postcancel(request.id, capturedTransport?.sessionId);
                         return;
                     }
 
@@ -918,7 +928,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private async _setTaskStatus<Status extends Task['status'], ErrorReason extends Status extends 'failed' ? string : never>(
         taskId: string,
         status: Status,
-        errorReason?: ErrorReason
+        errorReason?: ErrorReason,
+        sessionId?: string
     ) {
         if (!this._taskStore) {
             // No task store configured
@@ -929,7 +940,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             // Check the current task status to avoid overwriting terminal states
             // as a safeguard for when the TaskStore implementation doesn't try
             // to avoid this.
-            const task = await this._taskStore.getTask(taskId);
+            const task = await this._taskStore.getTask(taskId, sessionId);
             if (!task) {
                 return;
             }
@@ -941,7 +952,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 return;
             }
 
-            await this._taskStore.updateTaskStatus(taskId, status, errorReason);
+            await this._taskStore.updateTaskStatus(taskId, status, errorReason, sessionId);
         } catch (error) {
             throw new Error(`Failed to update status of task "${taskId}" to "${status}": ${error}`);
         }

@@ -21,7 +21,7 @@ export class InMemoryTaskStore implements TaskStore {
     private tasks = new Map<string, StoredTask>();
     private cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-    async createTask(metadata: TaskMetadata, requestId: RequestId, request: Request): Promise<void> {
+    async createTask(metadata: TaskMetadata, requestId: RequestId, request: Request, _sessionId?: string): Promise<void> {
         const taskId = metadata.taskId;
 
         if (this.tasks.has(taskId)) {
@@ -52,12 +52,12 @@ export class InMemoryTaskStore implements TaskStore {
         }
     }
 
-    async getTask(taskId: string): Promise<Task | null> {
+    async getTask(taskId: string, _sessionId?: string): Promise<Task | null> {
         const stored = this.tasks.get(taskId);
         return stored ? { ...stored.task } : null;
     }
 
-    async storeTaskResult(taskId: string, result: Result): Promise<void> {
+    async storeTaskResult(taskId: string, result: Result, _sessionId?: string): Promise<void> {
         const stored = this.tasks.get(taskId);
         if (!stored) {
             throw new Error(`Task with ID ${taskId} not found`);
@@ -82,7 +82,7 @@ export class InMemoryTaskStore implements TaskStore {
         }
     }
 
-    async getTaskResult(taskId: string): Promise<Result> {
+    async getTaskResult(taskId: string, _sessionId?: string): Promise<Result> {
         const stored = this.tasks.get(taskId);
         if (!stored) {
             throw new Error(`Task with ID ${taskId} not found`);
@@ -95,7 +95,7 @@ export class InMemoryTaskStore implements TaskStore {
         return stored.result;
     }
 
-    async updateTaskStatus(taskId: string, status: Task['status'], error?: string): Promise<void> {
+    async updateTaskStatus(taskId: string, status: Task['status'], error?: string, _sessionId?: string): Promise<void> {
         const stored = this.tasks.get(taskId);
         if (!stored) {
             throw new Error(`Task with ID ${taskId} not found`);
@@ -122,7 +122,7 @@ export class InMemoryTaskStore implements TaskStore {
         }
     }
 
-    async listTasks(cursor?: string): Promise<{ tasks: Task[]; nextCursor?: string }> {
+    async listTasks(cursor?: string, _sessionId?: string): Promise<{ tasks: Task[]; nextCursor?: string }> {
         const PAGE_SIZE = 10;
         const allTaskIds = Array.from(this.tasks.keys());
 
