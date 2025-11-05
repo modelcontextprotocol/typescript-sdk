@@ -71,8 +71,8 @@
         "lint:fix": "eslint src/ --fix && prettier --write .",
         "test": "npm run fetch:spec-types && jest",
         "start": "npm run server",
-        "server": "tsx watch --clear-screen=false src/cli.ts server",
-        "client": "tsx src/cli.ts client"
+        "server": "tsx watch --clear-screen=false scripts/cli.ts server",
+        "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
         "ajv": "^8.17.1",
