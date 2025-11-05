@@ -1176,7 +1176,16 @@ export const ToolAnnotationsSchema = z
          *
          * Default: true
          */
-        openWorldHint: z.optional(z.boolean())
+        openWorldHint: z.optional(z.boolean()),
+
+        /**
+         * If true, this tool is expected to support task-augmented execution.
+         * This allows clients to handle long-running operations through polling
+         * the task system.
+         *
+         * Default: false
+         */
+        taskHint: z.optional(z.boolean())
     })
     .passthrough();
 
