@@ -315,6 +315,129 @@ export const ImplementationSchema = BaseMetadataSchema.extend({
 }).merge(IconsSchema);
 
 /**
+ * Task capabilities for clients, indicating which request types support task creation.
+ */
+export const ClientTasksCapabilitySchema = z
+    .object({
+        /**
+         * Capabilities for task creation on specific request types.
+         */
+        requests: z.optional(
+            z
+                .object({
+                    /**
+                     * Task support for sampling requests.
+                     */
+                    sampling: z.optional(
+                        z
+                            .object({
+                                createMessage: z.optional(z.boolean())
+                            })
+                            .passthrough()
+                    ),
+                    /**
+                     * Task support for elicitation requests.
+                     */
+                    elicitation: z.optional(
+                        z
+                            .object({
+                                create: z.optional(z.boolean())
+                            })
+                            .passthrough()
+                    ),
+                    /**
+                     * Task support for roots requests.
+                     */
+                    roots: z.optional(
+                        z
+                            .object({
+                                list: z.optional(z.boolean())
+                            })
+                            .passthrough()
+                    ),
+                    /**
+                     * Task support for task management requests.
+                     */
+                    tasks: z.optional(
+                        z
+                            .object({
+                                get: z.optional(z.boolean()),
+                                list: z.optional(z.boolean()),
+                                result: z.optional(z.boolean()),
+                                delete: z.optional(z.boolean())
+                            })
+                            .passthrough()
+                    )
+                })
+                .passthrough()
+        )
+    })
+    .passthrough();
+
+/**
+ * Task capabilities for servers, indicating which request types support task creation.
+ */
+export const ServerTasksCapabilitySchema = z
+    .object({
+        /**
+         * Capabilities for task creation on specific request types.
+         */
+        requests: z.optional(
+            z
+                .object({
+                    /**
+                     * Task support for tool requests.
+                     */
+                    tools: z.optional(
+                        z
+                            .object({
+                                call: z.optional(z.boolean()),
+                                list: z.optional(z.boolean())
+                            })
+                            .passthrough()
+                    ),
+                    /**
+                     * Task support for resource requests.
+                     */
+                    resources: z.optional(
+                        z
+                            .object({
+                                read: z.optional(z.boolean()),
+                                list: z.optional(z.boolean())
+                            })
+                            .passthrough()
+                    ),
+                    /**
+                     * Task support for prompt requests.
+                     */
+                    prompts: z.optional(
+                        z
+                            .object({
+                                get: z.optional(z.boolean()),
+                                list: z.optional(z.boolean())
+                            })
+                            .passthrough()
+                    ),
+                    /**
+                     * Task support for task management requests.
+                     */
+                    tasks: z.optional(
+                        z
+                            .object({
+                                get: z.optional(z.boolean()),
+                                list: z.optional(z.boolean()),
+                                result: z.optional(z.boolean()),
+                                delete: z.optional(z.boolean())
+                            })
+                            .passthrough()
+                    )
+                })
+                .passthrough()
+        )
+    })
+    .passthrough();
+
+/**
  * Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
  */
 export const ClientCapabilitiesSchema = z
@@ -343,7 +466,11 @@ export const ClientCapabilitiesSchema = z
                     listChanged: z.optional(z.boolean())
                 })
                 .passthrough()
-        )
+        ),
+        /**
+         * Present if the client supports task creation.
+         */
+        tasks: z.optional(ClientTasksCapabilitySchema)
     })
     .passthrough();
 
@@ -424,7 +551,11 @@ export const ServerCapabilitiesSchema = z
                     listChanged: z.optional(z.boolean())
                 })
                 .passthrough()
-        )
+        ),
+        /**
+         * Present if the server supports task creation.
+         */
+        tasks: z.optional(ServerTasksCapabilitySchema)
     })
     .passthrough();
 

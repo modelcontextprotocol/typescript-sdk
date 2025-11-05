@@ -577,38 +577,43 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         Promise.resolve()
             .then(async () => {
-                // If this request asked for task creation, create the task and send notification
-                if (taskMetadata && this._taskStore) {
-                    const task = await this._taskStore.getTask(taskMetadata.taskId, capturedTransport?.sessionId);
-                    if (task) {
-                        throw new McpError(ErrorCode.InvalidParams, `Task ID already exists: ${taskMetadata.taskId}`);
-                    }
+                // If this request asked for task creation, check capability first, then create the task and send notification
+                if (taskMetadata) {
+                    // Check if the request method supports task creation
+                    this.assertTaskCapability(request.method);
 
-                    await this._taskStore.createTask(
-                        taskMetadata,
-                        request.id,
-                        {
-                            method: request.method,
-                            params: request.params
-                        },
-                        capturedTransport?.sessionId
-                    );
-                    this._requestIdToTaskId.set(request.id, taskMetadata.taskId);
+                    if (this._taskStore) {
+                        const task = await this._taskStore.getTask(taskMetadata.taskId, capturedTransport?.sessionId);
+                        if (task) {
+                            throw new McpError(ErrorCode.InvalidParams, `Task ID already exists: ${taskMetadata.taskId}`);
+                        }
 
-                    // Send task created notification
-                    await this.notification(
-                        {
-                            method: 'notifications/tasks/created',
-                            params: {
-                                _meta: {
-                                    [RELATED_TASK_META_KEY]: {
-                                        taskId: taskMetadata.taskId
+                        await this._taskStore.createTask(
+                            taskMetadata,
+                            request.id,
+                            {
+                                method: request.method,
+                                params: request.params
+                            },
+                            capturedTransport?.sessionId
+                        );
+                        this._requestIdToTaskId.set(request.id, taskMetadata.taskId);
+
+                        // Send task created notification
+                        await this.notification(
+                            {
+                                method: 'notifications/tasks/created',
+                                params: {
+                                    _meta: {
+                                        [RELATED_TASK_META_KEY]: {
+                                            taskId: taskMetadata.taskId
+                                        }
                                     }
                                 }
-                            }
-                        } as SendNotificationT,
-                        { relatedRequestId: request.id }
-                    );
+                            } as SendNotificationT,
+                            { relatedRequestId: request.id }
+                        );
+                    }
                 }
             })
             .then(async () => {
@@ -775,6 +780,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     protected abstract assertRequestHandlerCapability(method: string): void;
 
     /**
+     * A method to check if task creation is supported for the given request method.
+     *
+     * This should be implemented by subclasses.
+     */
+    protected abstract assertTaskCapability(method: string): void;
+
+    /**
      * Begins a request and returns a PendingRequest object for granular control over task-based execution.
      *
      * Do not use this method to emit notifications! Use notification() instead.
@@ -811,6 +823,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             if (this._options?.enforceStrictCapabilities === true) {
                 try {
                     this.assertCapabilityForMethod(request.method);
+
+                    // If task metadata is present, also check task capabilities
+                    if (taskId) {
+                        this.assertTaskCapability(request.method);
+                    }
                 } catch (e) {
                     earlyReject(e);
                     return;

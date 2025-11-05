@@ -967,7 +967,16 @@ describe('Task-based execution', () => {
             },
             {
                 capabilities: {
-                    tools: {}
+                    tools: {},
+                    tasks: {
+                        requests: {
+                            tasks: {
+                                get: true,
+                                list: true,
+                                result: true
+                            }
+                        }
+                    }
                 },
                 taskStore
             }
@@ -998,10 +1007,28 @@ describe('Task-based execution', () => {
             ]
         }));
 
-        const client = new Client({
-            name: 'test-client',
-            version: '1.0.0'
-        });
+        const client = new Client(
+            {
+                name: 'test-client',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: true
+                            },
+                            tasks: {
+                                get: true,
+                                list: true,
+                                result: true
+                            }
+                        }
+                    }
+                }
+            }
+        );
 
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1068,10 +1095,28 @@ describe('Task-based execution', () => {
             ]
         }));
 
-        const client = new Client({
-            name: 'test-client',
-            version: '1.0.0'
-        });
+        const client = new Client(
+            {
+                name: 'test-client',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: true
+                            },
+                            tasks: {
+                                get: true,
+                                list: true,
+                                result: true
+                            }
+                        }
+                    }
+                }
+            }
+        );
 
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1092,7 +1137,16 @@ describe('Task-based execution', () => {
             },
             {
                 capabilities: {
-                    tools: {}
+                    tools: {},
+                    tasks: {
+                        requests: {
+                            tasks: {
+                                get: true,
+                                list: true,
+                                result: true
+                            }
+                        }
+                    }
                 },
                 taskStore
             }
@@ -1105,7 +1159,19 @@ describe('Task-based execution', () => {
             },
             {
                 capabilities: {
-                    elicitation: {}
+                    elicitation: {},
+                    tasks: {
+                        requests: {
+                            elicitation: {
+                                create: true
+                            },
+                            tasks: {
+                                get: true,
+                                list: true,
+                                result: true
+                            }
+                        }
+                    }
                 }
             }
         );
@@ -1231,7 +1297,19 @@ describe('Task-based execution', () => {
                 },
                 {
                     capabilities: {
-                        elicitation: {}
+                        elicitation: {},
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: true
+                                },
+                                tasks: {
+                                    get: true,
+                                    list: true,
+                                    result: true
+                                }
+                            }
+                        }
                     },
                     taskStore: clientTaskStore
                 }
@@ -1245,10 +1323,28 @@ describe('Task-based execution', () => {
                 }
             }));
 
-            const server = new Server({
-                name: 'test-server',
-                version: '1.0.0'
-            });
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: true
+                                },
+                                tasks: {
+                                    get: true,
+                                    list: true,
+                                    result: true
+                                }
+                            }
+                        }
+                    }
+                }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1295,7 +1391,19 @@ describe('Task-based execution', () => {
                 },
                 {
                     capabilities: {
-                        elicitation: {}
+                        elicitation: {},
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: true
+                                },
+                                tasks: {
+                                    get: true,
+                                    list: true,
+                                    result: true
+                                }
+                            }
+                        }
                     },
                     taskStore: clientTaskStore
                 }
@@ -1306,10 +1414,28 @@ describe('Task-based execution', () => {
                 content: { username: 'get-user' }
             }));
 
-            const server = new Server({
-                name: 'test-server',
-                version: '1.0.0'
-            });
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: true
+                                },
+                                tasks: {
+                                    get: true,
+                                    list: true,
+                                    result: true
+                                }
+                            }
+                        }
+                    }
+                }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1353,7 +1479,19 @@ describe('Task-based execution', () => {
                 },
                 {
                     capabilities: {
-                        elicitation: {}
+                        elicitation: {},
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: true
+                                },
+                                tasks: {
+                                    get: true,
+                                    list: true,
+                                    result: true
+                                }
+                            }
+                        }
                     },
                     taskStore: clientTaskStore
                 }
@@ -1364,10 +1502,28 @@ describe('Task-based execution', () => {
                 content: { username: 'result-user', confirmed: true }
             }));
 
-            const server = new Server({
-                name: 'test-server',
-                version: '1.0.0'
-            });
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: true
+                                },
+                                tasks: {
+                                    get: true,
+                                    list: true,
+                                    result: true
+                                }
+                            }
+                        }
+                    }
+                }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1413,7 +1569,19 @@ describe('Task-based execution', () => {
                 },
                 {
                     capabilities: {
-                        elicitation: {}
+                        elicitation: {},
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: true
+                                },
+                                tasks: {
+                                    get: true,
+                                    list: true,
+                                    result: true
+                                }
+                            }
+                        }
                     },
                     taskStore: clientTaskStore
                 }
@@ -1424,10 +1592,28 @@ describe('Task-based execution', () => {
                 content: { username: 'list-user' }
             }));
 
-            const server = new Server({
-                name: 'test-server',
-                version: '1.0.0'
-            });
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: true
+                                },
+                                tasks: {
+                                    get: true,
+                                    list: true,
+                                    result: true
+                                }
+                            }
+                        }
+                    }
+                }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1482,7 +1668,16 @@ describe('Task-based execution', () => {
             },
             {
                 capabilities: {
-                    tools: {}
+                    tools: {},
+                    tasks: {
+                        requests: {
+                            tasks: {
+                                get: true,
+                                list: true,
+                                result: true
+                            }
+                        }
+                    }
                 },
                 taskStore
             }
@@ -1516,10 +1711,28 @@ describe('Task-based execution', () => {
             ]
         }));
 
-        const client = new Client({
-            name: 'test-client',
-            version: '1.0.0'
-        });
+        const client = new Client(
+            {
+                name: 'test-client',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: true
+                            },
+                            tasks: {
+                                get: true,
+                                list: true,
+                                result: true
+                            }
+                        }
+                    }
+                }
+            }
+        );
 
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1578,16 +1791,43 @@ describe('Task-based execution', () => {
                 },
                 {
                     capabilities: {
-                        tools: {}
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tasks: {
+                                    get: true,
+                                    list: true,
+                                    result: true
+                                }
+                            }
+                        }
                     },
                     taskStore
                 }
             );
 
-            const client = new Client({
-                name: 'test-client',
-                version: '1.0.0'
-            });
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: true
+                                },
+                                tasks: {
+                                    get: true,
+                                    list: true,
+                                    result: true
+                                }
+                            }
+                        }
+                    }
+                }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1605,7 +1845,19 @@ describe('Task-based execution', () => {
                 },
                 {
                     capabilities: {
-                        elicitation: {}
+                        elicitation: {},
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: true
+                                },
+                                tasks: {
+                                    get: true,
+                                    list: true,
+                                    result: true
+                                }
+                            }
+                        }
                     },
                     taskStore: clientTaskStore
                 }
@@ -1616,10 +1868,28 @@ describe('Task-based execution', () => {
                 content: { username: 'test' }
             }));
 
-            const server = new Server({
-                name: 'test-server',
-                version: '1.0.0'
-            });
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: true
+                                },
+                                tasks: {
+                                    get: true,
+                                    list: true,
+                                    result: true
+                                }
+                            }
+                        }
+                    }
+                }
+            );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1629,4 +1899,129 @@ describe('Task-based execution', () => {
             await expect(server.getTask({ taskId: 'non-existent-task' })).rejects.toThrow();
         });
     });
+});
+
+test('should respect client task capabilities', async () => {
+    const clientTaskStore = new InMemoryTaskStore();
+
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                sampling: {},
+                elicitation: {},
+                tasks: {
+                    requests: {
+                        elicitation: {
+                            create: true
+                        },
+                        tasks: {
+                            get: true,
+                            list: true,
+                            result: true
+                        }
+                    }
+                }
+            },
+            taskStore: clientTaskStore
+        }
+    );
+
+    client.setRequestHandler(ElicitRequestSchema, async () => ({
+        action: 'accept',
+        content: { username: 'test-user' }
+    }));
+
+    const server = new Server(
+        {
+            name: 'test-server',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                tasks: {
+                    requests: {
+                        elicitation: {
+                            create: true
+                        },
+                        tasks: {
+                            get: true,
+                            list: true,
+                            result: true
+                        }
+                    }
+                }
+            },
+            enforceStrictCapabilities: true
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Client supports task creation for elicitation/create and task methods
+    expect(server.getClientCapabilities()).toEqual({
+        sampling: {},
+        elicitation: {},
+        tasks: {
+            requests: {
+                elicitation: {
+                    create: true
+                },
+                tasks: {
+                    get: true,
+                    list: true,
+                    result: true
+                }
+            }
+        }
+    });
+
+    const ElicitResultSchema = z.object({
+        action: z.enum(['accept', 'decline', 'cancel']),
+        content: z.record(z.unknown()).optional()
+    });
+
+    // These should work because client supports tasks
+    const pendingRequest = server.beginRequest(
+        {
+            method: 'elicitation/create',
+            params: {
+                message: 'Test',
+                requestedSchema: {
+                    type: 'object',
+                    properties: { username: { type: 'string' } }
+                }
+            }
+        },
+        ElicitResultSchema,
+        { task: { taskId: 'test-task', keepAlive: 60000 } }
+    );
+    await expect(pendingRequest.result()).resolves.not.toThrow();
+    await expect(server.listTasks()).resolves.not.toThrow();
+    await expect(server.getTask({ taskId: 'test-task' })).resolves.not.toThrow();
+
+    // This should throw because client doesn't support task creation for sampling/createMessage
+    await expect(
+        server.beginRequest(
+            {
+                method: 'sampling/createMessage',
+                params: {
+                    messages: [],
+                    maxTokens: 10
+                }
+            },
+            z.object({
+                model: z.string(),
+                role: z.string(),
+                content: z.any()
+            }),
+            { task: { taskId: 'test-task-2', keepAlive: 60000 } }
+        ).result()
+    ).rejects.toThrow('Client does not support task creation for sampling/createMessage');
+
+    clientTaskStore.cleanup();
 });
