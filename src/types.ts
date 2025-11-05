@@ -503,7 +503,7 @@ export const TaskSchema = z.object({
     taskId: z.string(),
     status: z.enum(['submitted', 'working', 'input_required', 'completed', 'failed', 'cancelled', 'unknown']),
     keepAlive: z.union([z.number(), z.null()]),
-    pollFrequency: z.optional(z.number()),
+    pollInterval: z.optional(z.number()),
     error: z.optional(z.string())
 });
 

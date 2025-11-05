@@ -30,7 +30,7 @@ describe('InMemoryTaskStore', () => {
             expect(task?.taskId).toBe('task-1');
             expect(task?.status).toBe('submitted');
             expect(task?.keepAlive).toBe(60000);
-            expect(task?.pollFrequency).toBe(500);
+            expect(task?.pollInterval).toBe(500);
         });
 
         it('should create task without keepAlive', async () => {

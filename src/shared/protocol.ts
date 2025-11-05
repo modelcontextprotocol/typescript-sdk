@@ -77,7 +77,7 @@ export type ProtocolOptions = {
      */
     taskStore?: TaskStore;
     /**
-     * Default polling interval (in milliseconds) for task status checks when no pollFrequency
+     * Default polling interval (in milliseconds) for task status checks when no pollInterval
      * is provided by the server. Defaults to 5000ms if not specified.
      */
     defaultTaskPollInterval?: number;

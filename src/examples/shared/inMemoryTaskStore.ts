@@ -32,7 +32,7 @@ export class InMemoryTaskStore implements TaskStore {
             taskId,
             status: 'submitted',
             keepAlive: metadata.keepAlive ?? null,
-            pollFrequency: 500
+            pollInterval: 500
         };
 
         this.tasks.set(taskId, {

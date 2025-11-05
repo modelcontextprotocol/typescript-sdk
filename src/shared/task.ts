@@ -22,7 +22,7 @@ export interface TaskStore {
      *
      * @param taskId - The task identifier
      * @param sessionId - Optional session ID for binding the query to a specific session
-     * @returns The task state including status, keepAlive, pollFrequency, and optional error
+     * @returns The task state including status, keepAlive, pollInterval, and optional error
      */
     getTask(taskId: string, sessionId?: string): Promise<Task | null>;
 

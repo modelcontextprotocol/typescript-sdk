@@ -41,7 +41,7 @@ function createMockTaskStore(options?: {
                 taskId: taskMetadata.taskId,
                 status: (taskMetadata.status as Task['status'] | undefined) ?? 'submitted',
                 keepAlive: taskMetadata.keepAlive ?? null,
-                pollFrequency: (taskMetadata.pollFrequency as Task['pollFrequency'] | undefined) ?? 1000
+                pollInterval: (taskMetadata.pollInterval as Task['pollInterval'] | undefined) ?? 1000
             };
             options?.onStatus?.('submitted');
             return Promise.resolve();
@@ -1330,7 +1330,7 @@ describe('Task-based execution', () => {
                 {
                     taskId: 'task-1',
                     status: 'completed',
-                    pollFrequency: 500
+                    pollInterval: 500
                 },
                 1,
                 {
@@ -1343,7 +1343,7 @@ describe('Task-based execution', () => {
                     taskId: 'task-2',
                     status: 'working',
                     keepAlive: 60000,
-                    pollFrequency: 1000
+                    pollInterval: 1000
                 },
                 2,
                 {
@@ -1375,8 +1375,8 @@ describe('Task-based execution', () => {
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(3);
             expect(sentMessage.result.tasks).toEqual([
-                { taskId: 'task-1', status: 'completed', keepAlive: null, pollFrequency: 500 },
-                { taskId: 'task-2', status: 'working', keepAlive: 60000, pollFrequency: 1000 }
+                { taskId: 'task-1', status: 'completed', keepAlive: null, pollInterval: 500 },
+                { taskId: 'task-2', status: 'working', keepAlive: 60000, pollInterval: 1000 }
             ]);
             expect(sentMessage.result._meta).toEqual({});
         });
@@ -1390,7 +1390,7 @@ describe('Task-based execution', () => {
                 {
                     taskId: 'task-3',
                     status: 'submitted',
-                    pollFrequency: 500
+                    pollInterval: 500
                 },
                 1,
                 {
@@ -1423,7 +1423,7 @@ describe('Task-based execution', () => {
             const sentMessage = sendSpy.mock.calls[0][0];
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(2);
-            expect(sentMessage.result.tasks).toEqual([{ taskId: 'task-3', status: 'submitted', keepAlive: null, pollFrequency: 500 }]);
+            expect(sentMessage.result.tasks).toEqual([{ taskId: 'task-3', status: 'submitted', keepAlive: null, pollInterval: 500 }]);
             expect(sentMessage.result.nextCursor).toBeUndefined();
             expect(sentMessage.result._meta).toEqual({});
         });
@@ -1506,7 +1506,7 @@ describe('Task-based execution', () => {
                     jsonrpc: '2.0',
                     id: sendSpy.mock.calls[0][0].id,
                     result: {
-                        tasks: [{ taskId: 'task-1', status: 'completed', keepAlive: null, pollFrequency: 500 }],
+                        tasks: [{ taskId: 'task-1', status: 'completed', keepAlive: null, pollInterval: 500 }],
                         nextCursor: undefined,
                         _meta: {
                             [TASK_META_KEY]: expect.objectContaining({
@@ -1541,7 +1541,7 @@ describe('Task-based execution', () => {
                     jsonrpc: '2.0',
                     id: sendSpy.mock.calls[0][0].id,
                     result: {
-                        tasks: [{ taskId: 'task-11', status: 'working', keepAlive: 30000, pollFrequency: 1000 }],
+                        tasks: [{ taskId: 'task-11', status: 'working', keepAlive: 30000, pollInterval: 1000 }],
                         nextCursor: 'task-11',
                         _meta: {
                             [TASK_META_KEY]: expect.objectContaining({

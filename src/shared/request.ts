@@ -76,7 +76,7 @@ export class PendingRequest<SendRequestT extends Request, SendNotificationT exte
             task = await this.protocol.getTask({ taskId: taskId });
             await onTaskStatus(task);
             await new Promise(resolve =>
-                setTimeout(resolve, task.pollFrequency ?? this.defaultTaskPollInterval ?? DEFAULT_TASK_POLLING_INTERVAL)
+                setTimeout(resolve, task.pollInterval ?? this.defaultTaskPollInterval ?? DEFAULT_TASK_POLLING_INTERVAL)
             );
         } while (!isTerminal(task.status));
 
