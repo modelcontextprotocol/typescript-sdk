@@ -33,6 +33,7 @@ import {
     type Request,
     type Result,
     type ServerCapabilities,
+    StreamToolCallResultSchema,
     SUPPORTED_PROTOCOL_VERSIONS,
     type SubscribeRequest,
     type Tool,
@@ -436,5 +437,109 @@ export class Client<
 
     async sendRootsListChanged() {
         return this.notification({ method: 'notifications/roots/list_changed' });
+    }
+
+    /**
+     * Initiates a streaming tool call.
+     *
+     * @param params Tool call parameters including tool name and initial arguments
+     * @param options Request options
+     * @returns Promise resolving to stream information including callId
+     */
+    async streamTool(
+        params: {
+            name: string;
+            arguments?: Record<string, unknown>;
+            estimatedSize?: number;
+        },
+        options?: RequestOptions
+    ) {
+        this.assertCapability('tools', 'tools/stream_call');
+
+        if (!this._serverCapabilities?.tools?.streaming) {
+            throw new Error('Server does not support tool streaming');
+        }
+
+        return this.request({ method: 'tools/stream_call', params }, StreamToolCallResultSchema, options);
+    }
+
+    /**
+     * Sends a chunk of data for an active streaming tool call.
+     *
+     * @param callId The stream call ID returned by streamTool()
+     * @param argument The argument name to send data for
+     * @param data The chunk data to send
+     * @param isFinal Whether this is the final chunk for this argument
+     */
+    async sendStreamChunk(callId: string, argument: string, data: unknown, isFinal: boolean = false): Promise<void> {
+        this.assertCapability('tools', 'tools/stream_chunk');
+
+        if (!this._serverCapabilities?.tools?.streaming) {
+            throw new Error('Server does not support tool streaming');
+        }
+
+        await this.notification({
+            method: 'tools/stream_chunk',
+            params: {
+                callId,
+                argument,
+                data,
+                isFinal
+            }
+        });
+    }
+
+    /**
+     * Completes a streaming tool call, triggering the actual tool execution.
+     *
+     * @param callId The stream call ID returned by streamTool()
+     */
+    async completeStream(callId: string): Promise<void> {
+        this.assertCapability('tools', 'tools/stream_complete');
+
+        if (!this._serverCapabilities?.tools?.streaming) {
+            throw new Error('Server does not support tool streaming');
+        }
+
+        await this.notification({
+            method: 'tools/stream_complete',
+            params: {
+                callId
+            }
+        });
+    }
+
+    /**
+     * Convenience method that handles the complete streaming workflow:
+     * 1. Initiates streaming
+     * 2. Sends all provided data as chunks
+     * 3. Completes the stream
+     *
+     * @param toolName The name of the tool to call
+     * @param argumentData Map of argument names to their data (will be sent as single chunks)
+     * @param options Request options
+     * @returns Promise resolving to the stream call ID
+     */
+    async streamToolComplete(toolName: string, argumentData: Record<string, unknown>, options?: RequestOptions): Promise<string> {
+        // Start streaming
+        const streamResult = await this.streamTool(
+            {
+                name: toolName,
+                arguments: {}
+            },
+            options
+        );
+
+        const callId = streamResult.callId;
+
+        // Send all arguments as chunks
+        for (const [argumentName, data] of Object.entries(argumentData)) {
+            await this.sendStreamChunk(callId, argumentName, data, true);
+        }
+
+        // Complete the stream
+        await this.completeStream(callId);
+
+        return callId;
     }
 }
