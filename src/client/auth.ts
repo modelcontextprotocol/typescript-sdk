@@ -3,6 +3,7 @@ import { LATEST_PROTOCOL_VERSION } from '../types.js';
 import {
     OAuthClientMetadata,
     OAuthClientInformation,
+    OAuthClientInformationMixed,
     OAuthTokens,
     OAuthMetadata,
     OAuthClientInformationFull,
@@ -56,7 +57,7 @@ export interface OAuthClientProvider {
      * server, or returns `undefined` if the client is not registered with the
      * server.
      */
-    clientInformation(): OAuthClientInformation | undefined | Promise<OAuthClientInformation | undefined>;
+    clientInformation(): OAuthClientInformationMixed | undefined | Promise<OAuthClientInformationMixed | undefined>;
 
     /**
      * If implemented, this permits the OAuth client to dynamically register with
@@ -66,7 +67,7 @@ export interface OAuthClientProvider {
      * This method is not required to be implemented if client information is
      * statically known (e.g., pre-registered).
      */
-    saveClientInformation?(clientInformation: OAuthClientInformationFull): void | Promise<void>;
+    saveClientInformation?(clientInformation: OAuthClientInformationMixed): void | Promise<void>;
 
     /**
      * Loads any existing OAuth tokens for the current session, or returns
@@ -149,6 +150,13 @@ export class UnauthorizedError extends Error {
 
 type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
 
+function isClientAuthMethod(method: string): method is ClientAuthMethod {
+    return ['client_secret_basic', 'client_secret_post', 'none'].includes(method);
+}
+
+const AUTHORIZATION_CODE_RESPONSE_TYPE = 'code';
+const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
+
 /**
  * Determines the best client authentication method to use based on server support and client configuration.
  *
@@ -161,12 +169,22 @@ type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
  * @param supportedMethods - Authentication methods supported by the authorization server
  * @returns The selected authentication method
  */
-function selectClientAuthMethod(clientInformation: OAuthClientInformation, supportedMethods: string[]): ClientAuthMethod {
+export function selectClientAuthMethod(clientInformation: OAuthClientInformationMixed, supportedMethods: string[]): ClientAuthMethod {
     const hasClientSecret = clientInformation.client_secret !== undefined;
 
     // If server doesn't specify supported methods, use RFC 6749 defaults
     if (supportedMethods.length === 0) {
         return hasClientSecret ? 'client_secret_post' : 'none';
+    }
+
+    // Prefer the method returned by the server during client registration if valid and supported
+    if (
+        'token_endpoint_auth_method' in clientInformation &&
+        clientInformation.token_endpoint_auth_method &&
+        isClientAuthMethod(clientInformation.token_endpoint_auth_method) &&
+        supportedMethods.includes(clientInformation.token_endpoint_auth_method)
+    ) {
+        return clientInformation.token_endpoint_auth_method;
     }
 
     // Try methods in priority order (most secure first)
@@ -464,7 +482,45 @@ export async function selectResourceURL(
 }
 
 /**
+ * Extract resource_metadata and scope from WWW-Authenticate header.
+ */
+export function extractWWWAuthenticateParams(res: Response): { resourceMetadataUrl?: URL; scope?: string } {
+    const authenticateHeader = res.headers.get('WWW-Authenticate');
+    if (!authenticateHeader) {
+        return {};
+    }
+
+    const [type, scheme] = authenticateHeader.split(' ');
+    if (type.toLowerCase() !== 'bearer' || !scheme) {
+        return {};
+    }
+
+    const resourceMetadataRegex = /resource_metadata="([^"]*)"/;
+    const resourceMetadataMatch = resourceMetadataRegex.exec(authenticateHeader);
+
+    const scopeRegex = /scope="([^"]*)"/;
+    const scopeMatch = scopeRegex.exec(authenticateHeader);
+
+    let resourceMetadataUrl: URL | undefined;
+    if (resourceMetadataMatch) {
+        try {
+            resourceMetadataUrl = new URL(resourceMetadataMatch[1]);
+        } catch {
+            // Ignore invalid URL
+        }
+    }
+
+    const scope = scopeMatch?.[1] || undefined;
+
+    return {
+        resourceMetadataUrl,
+        scope
+    };
+}
+
+/**
  * Extract resource_metadata from response header.
+ * @deprecated Use `extractWWWAuthenticateParams` instead.
  */
 export function extractResourceMetadataUrl(res: Response): URL | undefined {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
@@ -652,8 +708,7 @@ export async function discoverOAuthMetadata(
  * Builds a list of discovery URLs to try for authorization server metadata.
  * URLs are returned in priority order:
  * 1. OAuth metadata at the given URL
- * 2. OAuth metadata at root (if URL has path)
- * 3. OIDC metadata endpoints
+ * 2. OIDC metadata endpoints at the given URL
  */
 export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url: URL; type: 'oauth' | 'oidc' }[] {
     const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
@@ -689,18 +744,13 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
         type: 'oauth'
     });
 
-    // Root path: https://example.com/.well-known/oauth-authorization-server
-    urlsToTry.push({
-        url: new URL('/.well-known/oauth-authorization-server', url.origin),
-        type: 'oauth'
-    });
-
-    // 3. OIDC metadata endpoints
+    // 2. OIDC metadata endpoints
     // RFC 8414 style: Insert /.well-known/openid-configuration before the path
     urlsToTry.push({
         url: new URL(`/.well-known/openid-configuration${pathname}`, url.origin),
         type: 'oidc'
     });
+
     // OIDC Discovery 1.0 style: Append /.well-known/openid-configuration after the path
     urlsToTry.push({
         url: new URL(`${pathname}/.well-known/openid-configuration`, url.origin),
@@ -736,7 +786,10 @@ export async function discoverAuthorizationServerMetadata(
         protocolVersion?: string;
     } = {}
 ): Promise<AuthorizationServerMetadata | undefined> {
-    const headers = { 'MCP-Protocol-Version': protocolVersion };
+    const headers = {
+        'MCP-Protocol-Version': protocolVersion,
+        Accept: 'application/json'
+    };
 
     // Get the list of URLs to try
     const urlsToTry = buildDiscoveryUrls(authorizationServerUrl);
@@ -767,16 +820,7 @@ export async function discoverAuthorizationServerMetadata(
         if (type === 'oauth') {
             return OAuthMetadataSchema.parse(await response.json());
         } else {
-            const metadata = OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
-
-            // MCP spec requires OIDC providers to support S256 PKCE
-            if (!metadata.code_challenge_methods_supported?.includes('S256')) {
-                throw new Error(
-                    `Incompatible OIDC provider at ${endpointUrl}: does not support S256 code challenge method required by MCP specification`
-                );
-            }
-
-            return metadata;
+            return OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
         }
     }
 
@@ -797,26 +841,26 @@ export async function startAuthorization(
         resource
     }: {
         metadata?: AuthorizationServerMetadata;
-        clientInformation: OAuthClientInformation;
+        clientInformation: OAuthClientInformationMixed;
         redirectUrl: string | URL;
         scope?: string;
         state?: string;
         resource?: URL;
     }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
-    const responseType = 'code';
-    const codeChallengeMethod = 'S256';
-
     let authorizationUrl: URL;
     if (metadata) {
         authorizationUrl = new URL(metadata.authorization_endpoint);
 
-        if (!metadata.response_types_supported.includes(responseType)) {
-            throw new Error(`Incompatible auth server: does not support response type ${responseType}`);
+        if (!metadata.response_types_supported.includes(AUTHORIZATION_CODE_RESPONSE_TYPE)) {
+            throw new Error(`Incompatible auth server: does not support response type ${AUTHORIZATION_CODE_RESPONSE_TYPE}`);
         }
 
-        if (!metadata.code_challenge_methods_supported || !metadata.code_challenge_methods_supported.includes(codeChallengeMethod)) {
-            throw new Error(`Incompatible auth server: does not support code challenge method ${codeChallengeMethod}`);
+        if (
+            metadata.code_challenge_methods_supported &&
+            !metadata.code_challenge_methods_supported.includes(AUTHORIZATION_CODE_CHALLENGE_METHOD)
+        ) {
+            throw new Error(`Incompatible auth server: does not support code challenge method ${AUTHORIZATION_CODE_CHALLENGE_METHOD}`);
         }
     } else {
         authorizationUrl = new URL('/authorize', authorizationServerUrl);
@@ -827,10 +871,10 @@ export async function startAuthorization(
     const codeVerifier = challenge.code_verifier;
     const codeChallenge = challenge.code_challenge;
 
-    authorizationUrl.searchParams.set('response_type', responseType);
+    authorizationUrl.searchParams.set('response_type', AUTHORIZATION_CODE_RESPONSE_TYPE);
     authorizationUrl.searchParams.set('client_id', clientInformation.client_id);
     authorizationUrl.searchParams.set('code_challenge', codeChallenge);
-    authorizationUrl.searchParams.set('code_challenge_method', codeChallengeMethod);
+    authorizationUrl.searchParams.set('code_challenge_method', AUTHORIZATION_CODE_CHALLENGE_METHOD);
     authorizationUrl.searchParams.set('redirect_uri', String(redirectUrl));
 
     if (state) {
@@ -880,7 +924,7 @@ export async function exchangeAuthorization(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        clientInformation: OAuthClientInformation;
+        clientInformation: OAuthClientInformationMixed;
         authorizationCode: string;
         codeVerifier: string;
         redirectUri: string | URL;
@@ -959,7 +1003,7 @@ export async function refreshAuthorization(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        clientInformation: OAuthClientInformation;
+        clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
         resource?: URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
@@ -1025,7 +1069,7 @@ export async function registerClient(
         clientMetadata,
         fetchFn
     }: {
-        metadata?: OAuthMetadata;
+        metadata?: AuthorizationServerMetadata;
         resourceMetadata?: OAuthProtectedResourceMetadata;
         clientMetadata: OAuthClientMetadata;
         fetchFn?: FetchLike;

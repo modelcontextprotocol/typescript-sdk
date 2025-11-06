@@ -8,9 +8,10 @@ import {
     refreshAuthorization,
     registerClient,
     discoverOAuthProtectedResourceMetadata,
-    extractResourceMetadataUrl,
+    extractWWWAuthenticateParams,
     auth,
-    type OAuthClientProvider
+    type OAuthClientProvider,
+    selectClientAuthMethod
 } from './auth.js';
 import { ServerError } from '../server/auth/errors.js';
 import { AuthorizationServerMetadata } from '../shared/auth.js';
@@ -25,7 +26,7 @@ describe('OAuth Authorization', () => {
         mockFetch.mockReset();
     });
 
-    describe('extractResourceMetadataUrl', () => {
+    describe('extractWWWAuthenticateParams', () => {
         it('returns resource metadata url when present', async () => {
             const resourceUrl = 'https://resource.example.com/.well-known/oauth-protected-resource';
             const mockResponse = {
@@ -34,39 +35,56 @@ describe('OAuth Authorization', () => {
                 }
             } as unknown as Response;
 
-            expect(extractResourceMetadataUrl(mockResponse)).toEqual(new URL(resourceUrl));
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ resourceMetadataUrl: new URL(resourceUrl) });
         });
 
-        it('returns undefined if not bearer', async () => {
+        it('returns scope when present', async () => {
+            const scope = 'read';
+            const mockResponse = {
+                headers: {
+                    get: jest.fn(name => (name === 'WWW-Authenticate' ? `Bearer realm="mcp", scope="${scope}"` : null))
+                }
+            } as unknown as Response;
+
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ scope: scope });
+        });
+
+        it('returns empty object if not bearer', async () => {
             const resourceUrl = 'https://resource.example.com/.well-known/oauth-protected-resource';
+            const scope = 'read';
             const mockResponse = {
                 headers: {
-                    get: jest.fn(name => (name === 'WWW-Authenticate' ? `Basic realm="mcp", resource_metadata="${resourceUrl}"` : null))
+                    get: jest.fn(name =>
+                        name === 'WWW-Authenticate' ? `Basic realm="mcp", resource_metadata="${resourceUrl}", scope="${scope}"` : null
+                    )
                 }
             } as unknown as Response;
 
-            expect(extractResourceMetadataUrl(mockResponse)).toBeUndefined();
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({});
         });
 
-        it('returns undefined if resource_metadata not present', async () => {
+        it('returns empty object if resource_metadata and scope not present', async () => {
             const mockResponse = {
                 headers: {
-                    get: jest.fn(name => (name === 'WWW-Authenticate' ? `Basic realm="mcp"` : null))
+                    get: jest.fn(name => (name === 'WWW-Authenticate' ? `Bearer realm="mcp"` : null))
                 }
             } as unknown as Response;
 
-            expect(extractResourceMetadataUrl(mockResponse)).toBeUndefined();
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({});
         });
 
-        it('returns undefined on invalid url', async () => {
+        it('returns undefined resourceMetadataUrl on invalid url', async () => {
             const resourceUrl = 'invalid-url';
+            const scope = 'read';
             const mockResponse = {
                 headers: {
-                    get: jest.fn(name => (name === 'WWW-Authenticate' ? `Basic realm="mcp", resource_metadata="${resourceUrl}"` : null))
+                    get: jest.fn(name =>
+                        name === 'WWW-Authenticate' ? `Bearer realm="mcp", resource_metadata="${resourceUrl}", scope="${scope}"` : null
+                    )
                 }
             } as unknown as Response;
 
-            expect(extractResourceMetadataUrl(mockResponse)).toBeUndefined();
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ scope: scope });
         });
     });
 
@@ -712,14 +730,10 @@ describe('OAuth Authorization', () => {
         it('generates correct URLs for server with path', () => {
             const urls = buildDiscoveryUrls('https://auth.example.com/tenant1');
 
-            expect(urls).toHaveLength(4);
+            expect(urls).toHaveLength(3);
             expect(urls.map(u => ({ url: u.url.toString(), type: u.type }))).toEqual([
                 {
                     url: 'https://auth.example.com/.well-known/oauth-authorization-server/tenant1',
-                    type: 'oauth'
-                },
-                {
-                    url: 'https://auth.example.com/.well-known/oauth-authorization-server',
                     type: 'oauth'
                 },
                 {
@@ -736,7 +750,7 @@ describe('OAuth Authorization', () => {
         it('handles URL object input', () => {
             const urls = buildDiscoveryUrls(new URL('https://auth.example.com/tenant1'));
 
-            expect(urls).toHaveLength(4);
+            expect(urls).toHaveLength(3);
             expect(urls[0].url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/tenant1');
         });
     });
@@ -763,52 +777,28 @@ describe('OAuth Authorization', () => {
         };
 
         it('tries URLs in order and returns first successful metadata', async () => {
-            // First OAuth URL fails with 404
+            // First OAuth URL (path before well-known) fails with 404
             mockFetch.mockResolvedValueOnce({
                 ok: false,
                 status: 404
             });
 
-            // Second OAuth URL (root) succeeds
+            // Second OIDC URL (path before well-known) succeeds
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
-                json: async () => validOAuthMetadata
+                json: async () => validOpenIdMetadata
             });
 
             const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com/tenant1');
 
-            expect(metadata).toEqual(validOAuthMetadata);
+            expect(metadata).toEqual(validOpenIdMetadata);
 
             // Verify it tried the URLs in the correct order
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(2);
             expect(calls[0][0].toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/tenant1');
-            expect(calls[1][0].toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
-        });
-
-        it('throws error when OIDC provider does not support S256 PKCE', async () => {
-            // OAuth discovery fails
-            mockFetch.mockResolvedValueOnce({
-                ok: false,
-                status: 404
-            });
-
-            // OpenID Connect discovery succeeds but without S256 support
-            const invalidOpenIdMetadata = {
-                ...validOpenIdMetadata,
-                code_challenge_methods_supported: ['plain'] // Missing S256
-            };
-
-            mockFetch.mockResolvedValueOnce({
-                ok: true,
-                status: 200,
-                json: async () => invalidOpenIdMetadata
-            });
-
-            await expect(discoverAuthorizationServerMetadata('https://auth.example.com')).rejects.toThrow(
-                'does not support S256 code challenge method required by MCP specification'
-            );
+            expect(calls[1][0].toString()).toBe('https://auth.example.com/.well-known/openid-configuration/tenant1');
         });
 
         it('continues on 4xx errors', async () => {
@@ -888,7 +878,8 @@ describe('OAuth Authorization', () => {
             const calls = mockFetch.mock.calls;
             const [, options] = calls[0];
             expect(options.headers).toEqual({
-                'MCP-Protocol-Version': '2025-01-01'
+                'MCP-Protocol-Version': '2025-01-01',
+                Accept: 'application/json'
             });
         });
 
@@ -901,7 +892,26 @@ describe('OAuth Authorization', () => {
             expect(metadata).toBeUndefined();
 
             // Verify that all discovery URLs were attempted
-            expect(mockFetch).toHaveBeenCalledTimes(8); // 4 URLs × 2 attempts each (with and without headers)
+            expect(mockFetch).toHaveBeenCalledTimes(6); // 3 URLs × 2 attempts each (with and without headers)
+        });
+    });
+
+    describe('selectClientAuthMethod', () => {
+        it('selects the correct client authentication method from client information', () => {
+            const clientInfo = {
+                client_id: 'test-client-id',
+                client_secret: 'test-client-secret',
+                token_endpoint_auth_method: 'client_secret_basic'
+            };
+            const supportedMethods = ['client_secret_post', 'client_secret_basic', 'none'];
+            const authMethod = selectClientAuthMethod(clientInfo, supportedMethods);
+            expect(authMethod).toBe('client_secret_basic');
+        });
+        it('selects the correct client authentication method from supported methods', () => {
+            const clientInfo = { client_id: 'test-client-id' };
+            const supportedMethods = ['client_secret_post', 'client_secret_basic', 'none'];
+            const authMethod = selectClientAuthMethod(clientInfo, supportedMethods);
+            expect(authMethod).toBe('none');
         });
     });
 
@@ -910,6 +920,17 @@ describe('OAuth Authorization', () => {
             issuer: 'https://auth.example.com',
             authorization_endpoint: 'https://auth.example.com/auth',
             token_endpoint: 'https://auth.example.com/tkn',
+            response_types_supported: ['code'],
+            code_challenge_methods_supported: ['S256']
+        };
+
+        const validOpenIdMetadata = {
+            issuer: 'https://auth.example.com',
+            authorization_endpoint: 'https://auth.example.com/auth',
+            token_endpoint: 'https://auth.example.com/token',
+            jwks_uri: 'https://auth.example.com/jwks',
+            subject_types_supported: ['public'],
+            id_token_signing_alg_values_supported: ['RS256'],
             response_types_supported: ['code'],
             code_challenge_methods_supported: ['S256']
         };
@@ -987,9 +1008,9 @@ describe('OAuth Authorization', () => {
             expect(authorizationUrl.searchParams.get('prompt')).toBe('consent');
         });
 
-        it('uses metadata authorization_endpoint when provided', async () => {
+        it.each([validMetadata, validOpenIdMetadata])('uses metadata authorization_endpoint when provided', async baseMetadata => {
             const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
-                metadata: validMetadata,
+                metadata: baseMetadata,
                 clientInformation: validClientInfo,
                 redirectUrl: 'http://localhost:3000/callback'
             });
@@ -997,9 +1018,9 @@ describe('OAuth Authorization', () => {
             expect(authorizationUrl.toString()).toMatch(/^https:\/\/auth\.example\.com\/auth\?/);
         });
 
-        it('validates response type support', async () => {
+        it.each([validMetadata, validOpenIdMetadata])('validates response type support', async baseMetadata => {
             const metadata = {
-                ...validMetadata,
+                ...baseMetadata,
                 response_types_supported: ['token'] // Does not support 'code'
             };
 
@@ -1012,21 +1033,44 @@ describe('OAuth Authorization', () => {
             ).rejects.toThrow(/does not support response type/);
         });
 
-        it('validates PKCE support', async () => {
-            const metadata = {
-                ...validMetadata,
-                response_types_supported: ['code'],
-                code_challenge_methods_supported: ['plain'] // Does not support 'S256'
-            };
+        // https://github.com/modelcontextprotocol/typescript-sdk/issues/832
+        it.each([validMetadata, validOpenIdMetadata])(
+            'assumes supported code challenge methods includes S256 if absent',
+            async baseMetadata => {
+                const metadata = {
+                    ...baseMetadata,
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: undefined
+                };
 
-            await expect(
-                startAuthorization('https://auth.example.com', {
+                const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
                     metadata,
                     clientInformation: validClientInfo,
                     redirectUrl: 'http://localhost:3000/callback'
-                })
-            ).rejects.toThrow(/does not support code challenge method/);
-        });
+                });
+
+                expect(authorizationUrl.toString()).toMatch(/^https:\/\/auth\.example\.com\/auth\?.+&code_challenge_method=S256/);
+            }
+        );
+
+        it.each([validMetadata, validOpenIdMetadata])(
+            'validates supported code challenge methods includes S256 if present',
+            async baseMetadata => {
+                const metadata = {
+                    ...baseMetadata,
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['plain'] // Does not support 'S256'
+                };
+
+                await expect(
+                    startAuthorization('https://auth.example.com', {
+                        metadata,
+                        clientInformation: validClientInfo,
+                        redirectUrl: 'http://localhost:3000/callback'
+                    })
+                ).rejects.toThrow(/does not support code challenge method/);
+            }
+        );
     });
 
     describe('exchangeAuthorization', () => {
