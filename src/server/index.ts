@@ -29,10 +29,20 @@ import {
     type ServerRequest,
     type ServerResult,
     SetLevelRequestSchema,
-    SUPPORTED_PROTOCOL_VERSIONS
+    StreamToolCallRequestSchema,
+    StreamToolChunkNotificationSchema,
+    StreamToolCompleteNotificationSchema,
+    SUPPORTED_PROTOCOL_VERSIONS,
+    ToolAnnotations,
+    type StreamToolCallRequest,
+    type StreamToolCallResult,
+    type StreamToolChunkNotification,
+    type StreamToolCompleteNotification
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
+import { StreamManager } from './streaming.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
+import type { RequestHandlerExtra } from '../shared/protocol.js';
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -113,6 +123,7 @@ export class Server<
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
+    private _streamManager = new StreamManager();
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
@@ -133,6 +144,32 @@ export class Server<
 
         this.setRequestHandler(InitializeRequestSchema, request => this._oninitialize(request));
         this.setNotificationHandler(InitializedNotificationSchema, () => this.oninitialized?.());
+
+        // Register streaming request handlers only if tools capability is enabled
+        if (this._capabilities.tools) {
+            this.setRequestHandler(StreamToolCallRequestSchema, async (request, extra) => {
+                return this._handleStreamToolCall(request, extra);
+            });
+
+            // Register streaming notification handlers
+            this.setNotificationHandler(StreamToolChunkNotificationSchema, async notification => {
+                try {
+                    await this._handleStreamChunk(notification);
+                } catch (error) {
+                    // Log error but don't crash for notification handling errors
+                    this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                }
+            });
+
+            this.setNotificationHandler(StreamToolCompleteNotificationSchema, async notification => {
+                try {
+                    await this._handleStreamComplete(notification);
+                } catch (error) {
+                    // Log error but don't crash for notification handling errors
+                    this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                }
+            });
+        }
 
         if (this._capabilities.logging) {
             this.setRequestHandler(SetLevelRequestSchema, async (request, extra) => {
@@ -190,6 +227,11 @@ export class Server<
                 if (!this._clientCapabilities?.roots) {
                     throw new Error(`Client does not support listing roots (required for ${method})`);
                 }
+                break;
+
+            case 'tools/stream_call':
+                // For now, assume if client is connected it supports streaming
+                // Full capability negotiation would be added in a complete implementation
                 break;
 
             case 'ping':
@@ -266,6 +308,7 @@ export class Server<
 
             case 'tools/call':
             case 'tools/list':
+            case 'tools/stream_call':
                 if (!this._capabilities.tools) {
                     throw new Error(`Server does not support tools (required for ${method})`);
                 }
@@ -387,5 +430,74 @@ export class Server<
 
     async sendPromptListChanged() {
         return this.notification({ method: 'notifications/prompts/list_changed' });
+    }
+
+    /**
+     * Returns the server's capabilities.
+     */
+    public getServerCapabilities(): ServerCapabilities {
+        return this.getCapabilities();
+    }
+
+    /**
+     * Creates a new stream for the given tool name.
+     */
+    public createStream(toolName: string, annotations?: ToolAnnotations, timeoutMs?: number): string {
+        return this._streamManager.createStream(toolName, annotations, timeoutMs);
+    }
+
+    /**
+     * Gets the StreamManager instance for advanced operations.
+     */
+    public getStreamManager(): StreamManager {
+        return this._streamManager;
+    }
+
+    private async _handleStreamToolCall(
+        request: StreamToolCallRequest,
+        _extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+    ): Promise<StreamToolCallResult> {
+        const { name: toolName } = request.params;
+
+        // Check if tools capability is supported
+        if (!this._capabilities.tools) {
+            throw new McpError(ErrorCode.InvalidRequest, 'Tools not supported');
+        }
+
+        // For now, create a simple stream response
+        // In a full implementation, this would integrate with the tool registration system
+        const callId = this._streamManager.createStream(toolName);
+
+        return {
+            callId,
+            status: 'stream_open'
+        };
+    }
+
+    private async _handleStreamChunk(notification: StreamToolChunkNotification): Promise<void> {
+        const { callId, argument, data, isFinal } = notification.params;
+
+        // Check if stream exists
+        const stream = this._streamManager.getStream(callId);
+        if (!stream) {
+            throw new McpError(ErrorCode.InvalidParams, `Stream ${callId} not found`);
+        }
+
+        // Add chunk to stream
+        this._streamManager.addChunk(callId, argument, data, isFinal);
+    }
+
+    private async _handleStreamComplete(notification: StreamToolCompleteNotification): Promise<void> {
+        const { callId } = notification.params;
+
+        // Check if stream exists
+        const stream = this._streamManager.getStream(callId);
+        if (!stream) {
+            throw new McpError(ErrorCode.InvalidParams, `Stream ${callId} not found`);
+        }
+
+        // For now, just cleanup stream
+        // In a full implementation, this would trigger tool execution
+        this._streamManager.cleanupStream(callId);
     }
 }

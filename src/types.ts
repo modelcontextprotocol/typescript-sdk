@@ -864,117 +864,12 @@ export const PromptListChangedNotificationSchema = NotificationSchema.extend({
 });
 
 /* Tools */
-/**
- * Additional properties describing a Tool to clients.
- *
- * NOTE: all properties in ToolAnnotations are **hints**.
- * They are not guaranteed to provide a faithful description of
- * tool behavior (including descriptive properties like `title`).
- *
- * Clients should never make tool use decisions based on ToolAnnotations
- * received from untrusted servers.
- */
-export const ToolAnnotationsSchema = z
-    .object({
-        /**
-         * A human-readable title for the tool.
-         */
-        title: z.optional(z.string()),
-
-        /**
-         * If true, the tool does not modify its environment.
-         *
-         * Default: false
-         */
-        readOnlyHint: z.optional(z.boolean()),
-
-        /**
-         * If true, the tool may perform destructive updates to its environment.
-         * If false, the tool performs only additive updates.
-         *
-         * (This property is meaningful only when `readOnlyHint == false`)
-         *
-         * Default: true
-         */
-        destructiveHint: z.optional(z.boolean()),
-
-        /**
-         * If true, calling the tool repeatedly with the same arguments
-         * will have no additional effect on the its environment.
-         *
-         * (This property is meaningful only when `readOnlyHint == false`)
-         *
-         * Default: false
-         */
-        idempotentHint: z.optional(z.boolean()),
-
-        /**
-         * If true, this tool may interact with an "open world" of external
-         * entities. If false, the tool's domain of interaction is closed.
-         * For example, the world of a web search tool is open, whereas that
-         * of a memory tool is not.
-         *
-         * Default: true
-         */
-        openWorldHint: z.optional(z.boolean())
-    })
-    .passthrough();
-
-/**
- * Definition for a tool the client can call.
- */
-export const ToolSchema = BaseMetadataSchema.extend({
-    /**
-     * A human-readable description of the tool.
-     */
-    description: z.optional(z.string()),
-    /**
-     * A JSON Schema object defining the expected parameters for the tool.
-     */
-    inputSchema: z
-        .object({
-            type: z.literal('object'),
-            properties: z.optional(z.object({}).passthrough()),
-            required: z.optional(z.array(z.string()))
-        })
-        .passthrough(),
-    /**
-     * An optional JSON Schema object defining the structure of the tool's output returned in
-     * the structuredContent field of a CallToolResult.
-     */
-    outputSchema: z.optional(
-        z
-            .object({
-                type: z.literal('object'),
-                properties: z.optional(z.object({}).passthrough()),
-                required: z.optional(z.array(z.string()))
-            })
-            .passthrough()
-    ),
-    /**
-     * Optional additional tool information.
-     */
-    annotations: z.optional(ToolAnnotationsSchema),
-
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.optional(z.object({}).passthrough())
-}).merge(IconsSchema);
 
 /**
  * Sent from the client to request a list of tools the server has.
  */
 export const ListToolsRequestSchema = PaginatedRequestSchema.extend({
     method: z.literal('tools/list')
-});
-
-/**
- * The server's response to a tools/list request from the client.
- */
-export const ListToolsResultSchema = PaginatedResultSchema.extend({
-    tools: z.array(ToolSchema)
 });
 
 /**
@@ -1038,6 +933,285 @@ export const CallToolRequestSchema = RequestSchema.extend({
  */
 export const ToolListChangedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/tools/list_changed')
+});
+
+/* Streaming Tool Calls */
+/**
+ * Used by the client to initiate a streaming tool call provided by the server.
+ */
+export const StreamToolCallRequestSchema = RequestSchema.extend({
+    method: z.literal('tools/stream_call'),
+    params: BaseRequestParamsSchema.extend({
+        name: z.string(),
+        arguments: z.optional(z.record(z.unknown())),
+        /**
+         * Optional hint about expected stream size for optimization
+         */
+        estimatedSize: z.optional(z.number().int())
+    })
+});
+
+/**
+ * The server's response to a streaming tool call initiation.
+ */
+export const StreamToolCallResultSchema = ResultSchema.extend({
+    callId: z.string(),
+    status: z.enum(['stream_open', 'error'])
+});
+
+/**
+ * A notification from the client to the server, sending a chunk of data for a streaming tool call.
+ */
+export const StreamToolChunkNotificationSchema = NotificationSchema.extend({
+    method: z.literal('tools/stream_chunk'),
+    params: BaseNotificationParamsSchema.extend({
+        callId: z.string(),
+        /**
+         * The argument name being streamed
+         */
+        argument: z.string(),
+        /**
+         * Chunk of data for the argument
+         */
+        data: z.unknown(),
+        /**
+         * Whether this is the final chunk for this argument
+         */
+        isFinal: z.optional(z.boolean())
+    })
+});
+
+/**
+ * A notification from the client to the server, indicating that all chunks have been sent for a streaming tool call.
+ */
+export const StreamToolCompleteNotificationSchema = NotificationSchema.extend({
+    method: z.literal('tools/stream_complete'),
+    params: BaseNotificationParamsSchema.extend({
+        callId: z.string()
+    })
+});
+
+/**
+ * A notification from the server to the client, providing progress updates for a streaming tool call.
+ */
+export const StreamToolProgressNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/tools/stream_progress'),
+    params: BaseNotificationParamsSchema.extend({
+        callId: z.string(),
+        metadata: z
+            .object({
+                bytesReceived: z.number(),
+                argumentsReceived: z.array(z.string()),
+                currentContentPreview: z.optional(z.string()),
+                estimatedProgress: z.optional(z.number().min(0).max(1))
+            })
+            .passthrough()
+    })
+});
+
+/**
+ * A notification from the server to the client, providing the final result of a streaming tool call.
+ */
+export const StreamToolResultNotificationSchema = NotificationSchema.extend({
+    method: z.literal('tools/stream_result'),
+    params: BaseNotificationParamsSchema.extend({
+        callId: z.string(),
+        result: CallToolResultSchema
+    })
+});
+
+/**
+ * Configuration for stream timeout behavior.
+ */
+export const StreamTimeoutConfigSchema = z.object({
+    defaultTimeoutMs: z.number().default(30000),
+    maxTimeoutMs: z.number().default(300000),
+    warningThresholdMs: z.number().default(10000)
+});
+
+/* Tools */
+/**
+ * Additional properties describing a Tool to clients.
+ *
+ * NOTE: all properties in ToolAnnotations are **hints**.
+ * They are not guaranteed to provide a faithful description of
+ * tool behavior (including descriptive properties like `title`).
+ *
+ * Clients should never make tool use decisions based on ToolAnnotations
+ * received from untrusted servers.
+ */
+export const ToolAnnotationsSchema = z
+    .object({
+        /**
+         * A human-readable title for the tool.
+         */
+        title: z.optional(z.string()),
+
+        /**
+         * If true, the tool does not modify its environment.
+         *
+         * Default: false
+         */
+        readOnlyHint: z.optional(z.boolean()),
+
+        /**
+         * If true, the tool may perform destructive updates to its environment.
+         * If false, the tool performs only additive updates.
+         *
+         * (This property is meaningful only when `readOnlyHint == false`)
+         *
+         * Default: true
+         */
+        destructiveHint: z.optional(z.boolean()),
+
+        /**
+         * If true, calling the tool repeatedly with the same arguments
+         * will have no additional effect on the its environment.
+         *
+         * (This property is meaningful only when `readOnlyHint == false`)
+         *
+         * Default: false
+         */
+        idempotentHint: z.optional(z.boolean()),
+
+        /**
+         * If true, this tool may interact with an "open world" of external
+         * entities. If false, the tool's domain of interaction is closed.
+         * For example, the world of a web search tool is open, whereas that
+         * of a memory tool is not.
+         *
+         * Default: true
+         */
+        openWorldHint: z.optional(z.boolean()),
+
+        /**
+         * If true, this tool supports streaming of input arguments.
+         * When enabled, clients can send tool arguments incrementally
+         * via streaming instead of all at once.
+         *
+         * Default: false
+         */
+        streamingInput: z.optional(z.boolean()),
+
+        /**
+         * Specifies which arguments support streaming. If not provided,
+         * all arguments are assumed to support streaming when streamingInput is true.
+         *
+         * Each entry can specify:
+         * - name: argument name
+         * - mergeStrategy: how to combine chunks ("concatenate", "json_merge", "last")
+         */
+        streamingArguments: z.optional(
+            z.array(
+                z.object({
+                    name: z.string(),
+                    mergeStrategy: z.enum(['concatenate', 'json_merge', 'last']).default('concatenate')
+                })
+            )
+        ),
+
+        /**
+         * Timeout configuration for streaming operations on this tool.
+         * If not provided, uses the server's default timeout configuration.
+         */
+        timeoutConfig: z.optional(StreamTimeoutConfigSchema)
+    })
+    .passthrough();
+
+/**
+ * Definition for a tool the client can call.
+ */
+export const ToolSchema = BaseMetadataSchema.extend({
+    /**
+     * A human-readable description of the tool.
+     */
+    description: z.optional(z.string()),
+    /**
+     * A JSON Schema object defining the expected parameters for the tool.
+     */
+    inputSchema: z
+        .object({
+            type: z.literal('object'),
+            properties: z.optional(z.object({}).passthrough()),
+            required: z.optional(z.array(z.string()))
+        })
+        .passthrough(),
+    /**
+     * An optional JSON Schema object defining the structure of the tool's output returned in
+     * the structuredContent field of a CallToolResult.
+     */
+    outputSchema: z.optional(
+        z
+            .object({
+                type: z.literal('object'),
+                properties: z.optional(z.object({}).passthrough()),
+                required: z.optional(z.array(z.string()))
+            })
+            .passthrough()
+    ),
+    /**
+     * Optional additional tool information.
+     */
+    annotations: z.optional(ToolAnnotationsSchema),
+
+    /**
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on _meta usage.
+     */
+    _meta: z.optional(z.object({}).passthrough())
+}).merge(IconsSchema);
+
+/**
+ * The server's response to a tools/list request from the client.
+ */
+export const ListToolsResultSchema = PaginatedResultSchema.extend({
+    tools: z.array(ToolSchema)
+});
+
+/**
+ * A notification from the client to the server, requesting cancellation of an active stream.
+ */
+export const StreamToolCancelNotificationSchema = NotificationSchema.extend({
+    method: z.literal('tools/stream_cancel'),
+    params: BaseNotificationParamsSchema.extend({
+        callId: z.string(),
+        reason: z.enum(['timeout', 'error', 'user_cancel', 'network_error']),
+        metadata: z.optional(z.record(z.unknown()))
+    })
+});
+
+/**
+ * A notification from the server to the client, confirming that a stream has been cancelled.
+ */
+export const StreamToolCancelledNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/tools/stream_cancelled'),
+    params: BaseNotificationParamsSchema.extend({
+        callId: z.string(),
+        reason: z.string(),
+        finalState: z.enum(['cancelled', 'timeout', 'error'])
+    })
+});
+
+/**
+ * Enhanced stream error notification with detailed context.
+ */
+export const StreamToolErrorNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/tools/stream_error'),
+    params: BaseNotificationParamsSchema.extend({
+        callId: z.string(),
+        error: z.object({
+            code: z.number(),
+            message: z.string(),
+            data: z.optional(z.unknown()),
+            context: z.object({
+                chunkIndex: z.number(),
+                argumentName: z.string(),
+                partialData: z.unknown()
+            })
+        }),
+        recoverable: z.boolean(),
+        retryPossible: z.boolean()
+    })
 });
 
 /* Logging */
@@ -1416,20 +1590,30 @@ export const ClientRequestSchema = z.union([
     SubscribeRequestSchema,
     UnsubscribeRequestSchema,
     CallToolRequestSchema,
-    ListToolsRequestSchema
+    ListToolsRequestSchema,
+    StreamToolCallRequestSchema
 ]);
 
 export const ClientNotificationSchema = z.union([
     CancelledNotificationSchema,
     ProgressNotificationSchema,
     InitializedNotificationSchema,
-    RootsListChangedNotificationSchema
+    RootsListChangedNotificationSchema,
+    StreamToolChunkNotificationSchema,
+    StreamToolCompleteNotificationSchema,
+    StreamToolCancelNotificationSchema
 ]);
 
 export const ClientResultSchema = z.union([EmptyResultSchema, CreateMessageResultSchema, ElicitResultSchema, ListRootsResultSchema]);
 
 /* Server messages */
-export const ServerRequestSchema = z.union([PingRequestSchema, CreateMessageRequestSchema, ElicitRequestSchema, ListRootsRequestSchema]);
+export const ServerRequestSchema = z.union([
+    PingRequestSchema,
+    CreateMessageRequestSchema,
+    ElicitRequestSchema,
+    ListRootsRequestSchema,
+    StreamToolCallRequestSchema
+]);
 
 export const ServerNotificationSchema = z.union([
     CancelledNotificationSchema,
@@ -1438,7 +1622,11 @@ export const ServerNotificationSchema = z.union([
     ResourceUpdatedNotificationSchema,
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
-    PromptListChangedNotificationSchema
+    PromptListChangedNotificationSchema,
+    StreamToolProgressNotificationSchema,
+    StreamToolResultNotificationSchema,
+    StreamToolErrorNotificationSchema,
+    StreamToolCancelledNotificationSchema
 ]);
 
 export const ServerResultSchema = z.union([
@@ -1451,7 +1639,8 @@ export const ServerResultSchema = z.union([
     ListResourceTemplatesResultSchema,
     ReadResourceResultSchema,
     CallToolResultSchema,
-    ListToolsResultSchema
+    ListToolsResultSchema,
+    StreamToolCallResultSchema
 ]);
 
 export class McpError extends Error {
@@ -1596,6 +1785,18 @@ export type CallToolResult = Infer<typeof CallToolResultSchema>;
 export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
 export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
+
+/* Streaming Tool Calls */
+export type StreamToolCallRequest = Infer<typeof StreamToolCallRequestSchema>;
+export type StreamToolCallResult = Infer<typeof StreamToolCallResultSchema>;
+export type StreamToolChunkNotification = Infer<typeof StreamToolChunkNotificationSchema>;
+export type StreamToolCompleteNotification = Infer<typeof StreamToolCompleteNotificationSchema>;
+export type StreamToolProgressNotification = Infer<typeof StreamToolProgressNotificationSchema>;
+export type StreamToolResultNotification = Infer<typeof StreamToolResultNotificationSchema>;
+export type StreamToolErrorNotification = Infer<typeof StreamToolErrorNotificationSchema>;
+export type StreamToolCancelledNotification = Infer<typeof StreamToolCancelledNotificationSchema>;
+export type StreamToolCancelNotification = Infer<typeof StreamToolCancelNotificationSchema>;
+export type StreamTimeoutConfig = Infer<typeof StreamTimeoutConfigSchema>;
 
 /* Logging */
 export type LoggingLevel = Infer<typeof LoggingLevelSchema>;

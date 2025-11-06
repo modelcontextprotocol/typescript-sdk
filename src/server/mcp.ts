@@ -1,6 +1,7 @@
 import { Server, ServerOptions } from './index.js';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { z, ZodRawShape, ZodObject, ZodString, AnyZodObject, ZodTypeAny, ZodType, ZodTypeDef, ZodOptional } from 'zod';
+import { StreamValidationError } from './streaming.js';
 import {
     Implementation,
     Tool,
@@ -19,6 +20,9 @@ import {
     ReadResourceRequestSchema,
     ListToolsRequestSchema,
     CallToolRequestSchema,
+    StreamToolCallRequestSchema,
+    StreamToolChunkNotificationSchema,
+    StreamToolCompleteNotificationSchema,
     ListResourcesRequestSchema,
     ListPromptsRequestSchema,
     GetPromptRequestSchema,
@@ -31,7 +35,10 @@ import {
     ServerRequest,
     ServerNotification,
     ToolAnnotations,
-    LoggingMessageNotification
+    LoggingMessageNotification,
+    type StreamToolCallResult,
+    type StreamToolChunkNotification,
+    type StreamToolCompleteNotification
 } from '../types.js';
 import { Completable, CompletableDef } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
@@ -88,7 +95,8 @@ export class McpServer {
 
         this.server.registerCapabilities({
             tools: {
-                listChanged: true
+                listChanged: true,
+                streaming: {}
             }
         });
 
@@ -147,7 +155,6 @@ export class McpServer {
                             `Input validation error: Invalid arguments for tool ${request.params.name}: ${parseResult.error.message}`
                         );
                     }
-
                     const args = parseResult.data;
 
                     result = await Promise.resolve(cb(args, extra));
@@ -180,7 +187,212 @@ export class McpServer {
             return result;
         });
 
+        // Register streaming tool execution handlers
+        this.server.setRequestHandler(StreamToolCallRequestSchema, async (request, _extra): Promise<StreamToolCallResult> => {
+            const tool = this._registeredTools[request.params.name];
+
+            try {
+                if (!tool) {
+                    throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
+                }
+
+                if (!tool.enabled) {
+                    throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
+                }
+
+                // Create stream with tool annotations
+                const callId = this.server.createStream(request.params.name, tool.annotations);
+
+                return {
+                    callId,
+                    status: 'stream_open'
+                };
+            } catch (error) {
+                throw new McpError(
+                    ErrorCode.InternalError,
+                    `Failed to create stream for tool ${request.params.name}: ${error instanceof Error ? error.message : String(error)}`
+                );
+            }
+        });
+
+        // Register streaming notification handlers
+        this.server.setNotificationHandler(StreamToolChunkNotificationSchema, async notification => {
+            try {
+                await this._handleStreamChunk(notification);
+            } catch (error) {
+                this.server.onerror?.(error instanceof Error ? error : new Error(String(error)));
+            }
+        });
+
+        this.server.setNotificationHandler(StreamToolCompleteNotificationSchema, async notification => {
+            try {
+                await this._handleStreamComplete(notification);
+            } catch (error) {
+                this.server.onerror?.(error instanceof Error ? error : new Error(String(error)));
+            }
+        });
+
+        // Set up StreamManager error callbacks
+        const streamManager = this.server.getStreamManager();
+        streamManager.onStreamError = async (callId, error) => {
+            await this._reportStreamError(callId, error, true, false);
+        };
+
+        streamManager.onStreamTimeout = async (callId, info) => {
+            await this._reportStreamError(
+                callId,
+                new StreamValidationError(
+                    'timeout',
+                    null,
+                    `Stream timed out after ${info.elapsed}ms (last activity: ${info.lastActivity}ms ago)`,
+                    `Stream timed out after ${info.elapsed}ms`
+                ),
+                false,
+                false
+            );
+        };
+
+        streamManager.onStreamWarning = async (callId, info) => {
+            // Send warning notification only if connected
+            try {
+                await this.server.notification({
+                    method: 'notifications/tools/stream_warning',
+                    params: {
+                        callId,
+                        elapsed: info.elapsed,
+                        threshold: info.threshold,
+                        message: `Stream taking longer than expected (${info.elapsed}ms > ${info.threshold}ms)`,
+                        timestamp: new Date().toISOString()
+                    }
+                });
+            } catch {
+                // Ignore if not connected - warnings are optional
+            }
+        };
+
         this._toolHandlersInitialized = true;
+    }
+
+    /**
+     * Handles incoming stream chunks.
+     */
+    private async _handleStreamChunk(notification: StreamToolChunkNotification): Promise<void> {
+        const { callId, argument, data, isFinal } = notification.params;
+
+        // Add chunk to stream via StreamManager
+        // Error notifications will be sent via the StreamManager callbacks
+        this.server.getStreamManager().addChunk(callId, argument, data, isFinal);
+    }
+
+    /**
+     * Reports stream errors to the client via notification.
+     */
+    private async _reportStreamError(
+        callId: string,
+        error: StreamValidationError,
+        recoverable: boolean = true,
+        retryPossible: boolean = false
+    ): Promise<void> {
+        await this.server.notification({
+            method: 'notifications/tools/stream_error',
+            params: {
+                callId,
+                error: {
+                    code: ErrorCode.InvalidParams,
+                    message: `Validation failed: ${error.message}`,
+                    context: {
+                        argumentName: error.argumentName,
+                        chunkData: error.chunkData,
+                        originalError: error.originalError
+                    }
+                },
+                recoverable,
+                retryPossible,
+                timestamp: new Date().toISOString()
+            }
+        });
+    }
+
+    /**
+     * Handles stream completion and executes tool.
+     */
+    private async _handleStreamComplete(notification: StreamToolCompleteNotification): Promise<void> {
+        const { callId } = notification.params;
+
+        const streamManager = this.server.getStreamManager();
+        const stream = streamManager.getStream(callId);
+
+        if (!stream) {
+            throw new McpError(ErrorCode.InvalidParams, `Stream ${callId} not found`);
+        }
+
+        try {
+            // Get merged arguments from stream
+            const mergedArguments = streamManager.completeStream(callId);
+
+            if (!mergedArguments) {
+                throw new McpError(ErrorCode.InvalidParams, `Stream ${callId} is incomplete`);
+            }
+
+            // Find the registered tool
+            const tool = this._registeredTools[stream.toolName];
+            if (!tool) {
+                throw new McpError(ErrorCode.InvalidParams, `Tool ${stream.toolName} not found`);
+            }
+
+            if (!tool.enabled) {
+                throw new McpError(ErrorCode.InvalidParams, `Tool ${stream.toolName} disabled`);
+            }
+
+            // Execute the tool with merged arguments
+            let result: CallToolResult;
+
+            if (tool.inputSchema) {
+                const cb = tool.callback as ToolCallback<ZodRawShape>;
+                const parseResult = await tool.inputSchema.safeParseAsync(mergedArguments);
+                if (!parseResult.success) {
+                    throw new McpError(
+                        ErrorCode.InvalidParams,
+                        `Input validation error: Invalid arguments for tool ${stream.toolName}: ${parseResult.error.message}`
+                    );
+                }
+                const args = parseResult.data;
+                result = await Promise.resolve(cb(args, {} as RequestHandlerExtra<ServerRequest, ServerNotification>));
+            } else {
+                const cb = tool.callback as ToolCallback<undefined>;
+                result = await Promise.resolve(cb({} as RequestHandlerExtra<ServerRequest, ServerNotification>));
+            }
+
+            // Validate output if schema is provided
+            if (tool.outputSchema && !result.isError) {
+                if (!result.structuredContent) {
+                    throw new McpError(
+                        ErrorCode.InvalidParams,
+                        `Output validation error: Tool ${stream.toolName} has an output schema but no structured content was provided`
+                    );
+                }
+
+                const parseResult = await tool.outputSchema.safeParseAsync(result.structuredContent);
+                if (!parseResult.success) {
+                    throw new McpError(
+                        ErrorCode.InvalidParams,
+                        `Output validation error: Invalid structured content for tool ${stream.toolName}: ${parseResult.error.message}`
+                    );
+                }
+            }
+
+            // Send result back to client via notification
+            await this.server.notification({
+                method: 'tools/stream_result',
+                params: {
+                    callId,
+                    result
+                }
+            });
+        } finally {
+            // Clean up the stream
+            streamManager.cleanupStream(callId);
+        }
     }
 
     /**
