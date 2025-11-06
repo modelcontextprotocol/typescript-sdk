@@ -349,6 +349,86 @@ export class Server<
         }
     }
 
+    protected assertTaskHandlerCapability(method: string): void {
+        // Task handlers are registered in Protocol constructor before _capabilities is initialized
+        // Skip capability check for task methods during initialization
+        if (!this._capabilities) {
+            return;
+        }
+
+        if (!this._capabilities.tasks?.requests) {
+            throw new Error(`Server does not support task creation (required for ${method})`);
+        }
+
+        const requests = this._capabilities.tasks.requests;
+
+        switch (method) {
+            case 'tools/call':
+                if (!requests.tools?.call) {
+                    throw new Error(`Server does not support task creation for tools/call (required for ${method})`);
+                }
+                break;
+
+            case 'tools/list':
+                if (!requests.tools?.list) {
+                    throw new Error(`Server does not support task creation for tools/list (required for ${method})`);
+                }
+                break;
+
+            case 'resources/read':
+                if (!requests.resources?.read) {
+                    throw new Error(`Server does not support task creation for resources/read (required for ${method})`);
+                }
+                break;
+
+            case 'resources/list':
+                if (!requests.resources?.list) {
+                    throw new Error(`Server does not support task creation for resources/list (required for ${method})`);
+                }
+                break;
+
+            case 'prompts/get':
+                if (!requests.prompts?.get) {
+                    throw new Error(`Server does not support task creation for prompts/get (required for ${method})`);
+                }
+                break;
+
+            case 'prompts/list':
+                if (!requests.prompts?.list) {
+                    throw new Error(`Server does not support task creation for prompts/list (required for ${method})`);
+                }
+                break;
+
+            case 'tasks/get':
+                if (!requests.tasks?.get) {
+                    throw new Error(`Server does not support task creation for tasks/get (required for ${method})`);
+                }
+                break;
+
+            case 'tasks/list':
+                if (!requests.tasks?.list) {
+                    throw new Error(`Server does not support task creation for tasks/list (required for ${method})`);
+                }
+                break;
+
+            case 'tasks/result':
+                if (!requests.tasks?.result) {
+                    throw new Error(`Server does not support task creation for tasks/result (required for ${method})`);
+                }
+                break;
+
+            case 'tasks/delete':
+                if (!requests.tasks?.delete) {
+                    throw new Error(`Server does not support task creation for tasks/delete (required for ${method})`);
+                }
+                break;
+
+            default:
+                // Method doesn't support tasks, which is fine - no error
+                break;
+        }
+    }
+
     private async _oninitialize(request: InitializeRequest): Promise<InitializeResult> {
         const requestedVersion = request.params.protocolVersion;
 

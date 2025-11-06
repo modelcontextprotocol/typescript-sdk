@@ -970,6 +970,10 @@ describe('Task-based execution', () => {
                     tools: {},
                     tasks: {
                         requests: {
+                            tools: {
+                                call: true,
+                                list: true
+                            },
                             tasks: {
                                 get: true,
                                 list: true,
@@ -1140,6 +1144,10 @@ describe('Task-based execution', () => {
                     tools: {},
                     tasks: {
                         requests: {
+                            tools: {
+                                call: true,
+                                list: true
+                            },
                             tasks: {
                                 get: true,
                                 list: true,
@@ -1671,6 +1679,10 @@ describe('Task-based execution', () => {
                     tools: {},
                     tasks: {
                         requests: {
+                            tools: {
+                                call: true,
+                                list: true
+                            },
                             tasks: {
                                 get: true,
                                 list: true,

@@ -120,6 +120,7 @@ describe('protocol tests', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected assertTaskHandlerCapability(): void {}
         })();
     });
 
@@ -575,6 +576,7 @@ describe('protocol tests', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced_with_params'] });
             await protocol.connect(transport);
 
@@ -597,6 +599,7 @@ describe('protocol tests', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced_with_options'] });
             await protocol.connect(transport);
 
@@ -617,6 +620,7 @@ describe('protocol tests', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
 
@@ -642,6 +646,7 @@ describe('protocol tests', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
 
@@ -670,6 +675,7 @@ describe('protocol tests', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
 
@@ -696,6 +702,7 @@ describe('protocol tests', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] }); // Configure for a different method
             await protocol.connect(transport);
 
@@ -730,6 +737,7 @@ describe('protocol tests', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
 
@@ -855,6 +863,7 @@ describe('Task-based execution', () => {
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
             protected assertTaskCapability(): void {}
+            protected assertTaskHandlerCapability(): void {}
         })();
     });
 
@@ -1081,6 +1090,7 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
 
             await protocol.connect(transport);
@@ -1145,6 +1155,7 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
 
             await protocol.connect(responsiveTransport);
@@ -1209,6 +1220,7 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
 
             await protocol.connect(transport);
@@ -1251,6 +1263,7 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
 
             await protocol.connect(transport);
@@ -1305,6 +1318,7 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
 
             await protocol.connect(transport);
@@ -1371,6 +1385,7 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
 
             await protocol.connect(transport);
@@ -1419,6 +1434,7 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
 
             await protocol.connect(transport);
@@ -1455,6 +1471,7 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
 
             await protocol.connect(transport);
@@ -1487,6 +1504,7 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
 
             await protocol.connect(transport);
@@ -1615,6 +1633,7 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
             const sendSpy = jest.spyOn(serverTransport, 'send');
@@ -1654,6 +1673,7 @@ describe('Task-based execution', () => {
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
                 protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
             const sendSpy = jest.spyOn(serverTransport, 'send');

@@ -580,7 +580,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 // If this request asked for task creation, check capability first, then create the task and send notification
                 if (taskMetadata) {
                     // Check if the request method supports task creation
-                    this.assertTaskCapability(request.method);
+                    this.assertTaskHandlerCapability(request.method);
 
                     if (this._taskStore) {
                         const task = await this._taskStore.getTask(taskMetadata.taskId, capturedTransport?.sessionId);
@@ -785,6 +785,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * This should be implemented by subclasses.
      */
     protected abstract assertTaskCapability(method: string): void;
+
+    /**
+     * A method to check if task handler is supported by the local side, for the given method to be handled.
+     *
+     * This should be implemented by subclasses.
+     */
+    protected abstract assertTaskHandlerCapability(method: string): void;
 
     /**
      * Begins a request and returns a PendingRequest object for granular control over task-based execution.

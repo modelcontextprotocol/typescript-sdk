@@ -39,7 +39,7 @@ const getServer = () => {
             websiteUrl: 'https://github.com/modelcontextprotocol/typescript-sdk'
         },
         {
-            capabilities: { logging: {} },
+            capabilities: { logging: {}, tasks: { requests: { tools: { call: true } } } },
             taskStore // Enable task support
         }
     );

@@ -408,6 +408,68 @@ export class Client<
         }
     }
 
+    protected assertTaskHandlerCapability(method: string): void {
+        // Task handlers are registered in Protocol constructor before _capabilities is initialized
+        // Skip capability check for task methods during initialization
+        if (!this._capabilities) {
+            return;
+        }
+
+        if (!this._capabilities.tasks?.requests) {
+            throw new Error(`Client does not support task creation (required for ${method})`);
+        }
+
+        const requests = this._capabilities.tasks.requests;
+
+        switch (method) {
+            case 'sampling/createMessage':
+                if (!requests.sampling?.createMessage) {
+                    throw new Error(`Client does not support task creation for sampling/createMessage (required for ${method})`);
+                }
+                break;
+
+            case 'elicitation/create':
+                if (!requests.elicitation?.create) {
+                    throw new Error(`Client does not support task creation for elicitation/create (required for ${method})`);
+                }
+                break;
+
+            case 'roots/list':
+                if (!requests.roots?.list) {
+                    throw new Error(`Client does not support task creation for roots/list (required for ${method})`);
+                }
+                break;
+
+            case 'tasks/get':
+                if (!requests.tasks?.get) {
+                    throw new Error(`Client does not support task creation for tasks/get (required for ${method})`);
+                }
+                break;
+
+            case 'tasks/list':
+                if (!requests.tasks?.list) {
+                    throw new Error(`Client does not support task creation for tasks/list (required for ${method})`);
+                }
+                break;
+
+            case 'tasks/result':
+                if (!requests.tasks?.result) {
+                    throw new Error(`Client does not support task creation for tasks/result (required for ${method})`);
+                }
+                break;
+
+            case 'tasks/delete':
+                if (!requests.tasks?.delete) {
+                    throw new Error(`Client does not support task creation for tasks/delete (required for ${method})`);
+                }
+                break;
+
+            default:
+                // Method doesn't support tasks, which is fine - no error
+                break;
+        }
+    }
+
     async ping(options?: RequestOptions) {
         return this.request({ method: 'ping' }, EmptyResultSchema, options);
     }
