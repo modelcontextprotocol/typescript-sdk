@@ -8,7 +8,6 @@ import {
     CallToolResult,
     McpError,
     ErrorCode,
-    CompleteRequest,
     CompleteResult,
     PromptReference,
     ResourceTemplateReference,
@@ -31,7 +30,11 @@ import {
     ServerRequest,
     ServerNotification,
     ToolAnnotations,
-    LoggingMessageNotification
+    LoggingMessageNotification,
+    CompleteRequestPrompt,
+    CompleteRequestResourceTemplate,
+    assertCompleteRequestPrompt,
+    assertCompleteRequestResourceTemplate
 } from '../types.js';
 import { Completable, CompletableDef } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
@@ -217,9 +220,11 @@ export class McpServer {
         this.server.setRequestHandler(CompleteRequestSchema, async (request): Promise<CompleteResult> => {
             switch (request.params.ref.type) {
                 case 'ref/prompt':
+                    assertCompleteRequestPrompt(request);
                     return this.handlePromptCompletion(request, request.params.ref);
 
                 case 'ref/resource':
+                    assertCompleteRequestResourceTemplate(request);
                     return this.handleResourceCompletion(request, request.params.ref);
 
                 default:
@@ -230,7 +235,7 @@ export class McpServer {
         this._completionHandlerInitialized = true;
     }
 
-    private async handlePromptCompletion(request: CompleteRequest, ref: PromptReference): Promise<CompleteResult> {
+    private async handlePromptCompletion(request: CompleteRequestPrompt, ref: PromptReference): Promise<CompleteResult> {
         const prompt = this._registeredPrompts[ref.name];
         if (!prompt) {
             throw new McpError(ErrorCode.InvalidParams, `Prompt ${ref.name} not found`);
@@ -254,7 +259,7 @@ export class McpServer {
         return createCompletionResult(suggestions);
     }
 
-    private async handleResourceCompletion(request: CompleteRequest, ref: ResourceTemplateReference): Promise<CompleteResult> {
+    private async handleResourceCompletion(request: CompleteRequestResourceTemplate, ref: ResourceTemplateReference): Promise<CompleteResult> {
         const template = Object.values(this._registeredResourceTemplates).find(t => t.resourceTemplate.uriTemplate.toString() === ref.uri);
 
         if (!template) {
