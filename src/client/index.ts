@@ -461,7 +461,8 @@ export class Client<
         // Automatically add task metadata if not provided
         const optionsWithTask = {
             ...options,
-            task: options?.task ?? { taskId: uuidv4() }
+            // We check the server capabilities in auto-assignment, but assume the caller knows what they're doing if they pass this explicitly
+            task: options?.task ?? (this._serverCapabilities?.tasks?.requests?.tools?.call ? { taskId: uuidv4() } : undefined)
         };
         return this.beginRequest({ method: 'tools/call', params }, resultSchema, optionsWithTask);
     }
