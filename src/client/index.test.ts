@@ -1209,7 +1209,6 @@ describe('outputSchema validation', () => {
             if (request.params.name === 'strict-tool') {
                 // Return structured content with extra property
                 return {
-                    content: [],
                     structuredContent: {
                         name: 'John',
                         extraField: 'not allowed'

@@ -72,6 +72,7 @@
         "lint:fix": "eslint src/ --fix && prettier --write .",
         "check": "npm run fetch:spec-types && npm run typecheck && npm run lint",
         "test": "npm run fetch:spec-types && jest",
+        "test:no-spec": "jest --testPathIgnorePatterns=/dist/ --testPathIgnorePatterns=spec\\.types\\.test\\.ts$",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",
         "client": "tsx scripts/cli.ts client"

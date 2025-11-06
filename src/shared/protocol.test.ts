@@ -666,11 +666,13 @@ describe('mergeCapabilities', () => {
 
         const additional: ClientCapabilities = {
             experimental: {
-                feature: true
+                feature: {
+                    featureFlag: true
+                }
             },
             elicitation: {},
             roots: {
-                newProp: true
+                listChanged: true
             }
         };
 
@@ -680,10 +682,11 @@ describe('mergeCapabilities', () => {
             elicitation: {},
             roots: {
                 listChanged: true,
-                newProp: true
             },
             experimental: {
-                feature: true
+                feature: {
+                    featureFlag: true
+                }
             }
         });
     });
@@ -701,7 +704,7 @@ describe('mergeCapabilities', () => {
                 subscribe: true
             },
             prompts: {
-                newProp: true
+                listChanged: true
             }
         };
 
@@ -710,7 +713,6 @@ describe('mergeCapabilities', () => {
             logging: {},
             prompts: {
                 listChanged: true,
-                newProp: true
             },
             resources: {
                 subscribe: true

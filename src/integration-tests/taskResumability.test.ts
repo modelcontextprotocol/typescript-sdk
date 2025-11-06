@@ -151,7 +151,7 @@ describe('Transport resumability', () => {
 
         // Create first client
         const client1 = new Client({
-            id: clientId,
+            title: clientId,
             name: 'test-client',
             version: '1.0.0'
         });
@@ -223,7 +223,7 @@ describe('Transport resumability', () => {
 
         // Create second client with same client ID
         const client2 = new Client({
-            id: clientId,
+            title: clientId,
             name: 'test-client',
             version: '1.0.0'
         });

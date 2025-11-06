@@ -956,7 +956,11 @@ export const ToolSchema = BaseMetadataSchema.extend({
         .object({
             type: z.literal('object'),
             properties: z.record(z.string(), AssertObjectSchema).optional(),
-            required: z.optional(z.array(z.string()))
+            required: z.optional(z.array(z.string())),
+            /**
+             * Not in the MCP specification, but added to support the Ajv validator while removing .passthrough() which previously allowed additionalProperties to be passed through.
+             */
+            additionalProperties: z.optional(z.boolean())
         })
         .optional(),
     /**
@@ -1041,7 +1045,7 @@ export const CallToolRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
      * Arguments to pass to the tool.
      */
-    arguments: z.optional(z.record(z.string(), z.string()))
+    arguments: z.optional(z.record(z.string(), z.unknown()))
 });
 
 /**
@@ -1349,7 +1353,7 @@ export const CompleteRequestParamsSchema = BaseRequestParamsSchema.extend({
             /**
              * Previously-resolved variables in a URI template or prompt.
              */
-            arguments: z.record(z.string(), z.unknown()).optional()
+            arguments: z.record(z.string(), z.string()).optional()
         })
         .optional()
 });
