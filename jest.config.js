@@ -10,5 +10,6 @@ export default {
         '^pkce-challenge$': '<rootDir>/src/__mocks__/pkce-challenge.ts'
     },
     transformIgnorePatterns: ['/node_modules/(?!eventsource)/'],
-    testPathIgnorePatterns: ['/node_modules/', '/dist/']
+    testPathIgnorePatterns: ['/node_modules/', '/dist/'],
+    modulePathIgnorePatterns: ['<rootDir>/dist/']
 };

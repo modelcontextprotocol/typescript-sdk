@@ -6,7 +6,7 @@ import { StreamableHTTPClientTransport } from '../client/streamableHttp.js';
 import { McpServer } from '../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../server/streamableHttp.js';
 import { CallToolResultSchema, LoggingMessageNotificationSchema } from '../types.js';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 import { InMemoryEventStore } from '../examples/shared/inMemoryEventStore.js';
 
 describe('Transport resumability', () => {

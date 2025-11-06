@@ -1,4 +1,4 @@
-import { ZodLiteral, ZodObject, ZodType, z } from 'zod';
+import { AnySchema, AnyObjectSchema, SchemaOutput, safeParse, isZ4Schema } from '../server/zod-compat.js';
 import {
     CancelledNotificationSchema,
     ClientCapabilities,
@@ -152,7 +152,7 @@ export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT 
      *
      * This is used by certain transports to correctly associate related messages.
      */
-    sendRequest: <U extends ZodType<object>>(request: SendRequestT, resultSchema: U, options?: RequestOptions) => Promise<z.infer<U>>;
+    sendRequest: <U extends AnySchema>(request: SendRequestT, resultSchema: U, options?: RequestOptions) => Promise<SchemaOutput<U>>;
 };
 
 /**
@@ -489,7 +489,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Do not use this method to emit notifications! Use notification() instead.
      */
-    request<T extends ZodType<object>>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<z.infer<T>> {
+    request<T extends AnySchema>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken } = options ?? {};
 
         return new Promise((resolve, reject) => {
@@ -554,7 +554,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
 
                 try {
-                    const result = resultSchema.parse(response.result);
+                    const result = parseWithCompat(resultSchema, response.result);
                     resolve(result);
                 } catch (error) {
                     reject(error);
@@ -638,19 +638,19 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Note that this will replace any previous request handler for the same method.
      */
-    setRequestHandler<
-        T extends ZodObject<{
-            method: ZodLiteral<string>;
-        }>
-    >(
+    setRequestHandler<T extends AnyObjectSchema>(
         requestSchema: T,
-        handler: (request: z.infer<T>, extra: RequestHandlerExtra<SendRequestT, SendNotificationT>) => SendResultT | Promise<SendResultT>
+        handler: (
+            request: SchemaOutput<T>,
+            extra: RequestHandlerExtra<SendRequestT, SendNotificationT>
+        ) => SendResultT | Promise<SendResultT>
     ): void {
-        const method = requestSchema.shape.method.value;
+        const method = getMethodLiteral(requestSchema);
         this.assertRequestHandlerCapability(method);
 
         this._requestHandlers.set(method, (request, extra) => {
-            return Promise.resolve(handler(requestSchema.parse(request), extra));
+            const parsed = parseWithCompat(requestSchema, request) as SchemaOutput<T>;
+            return Promise.resolve(handler(parsed, extra));
         });
     }
 
@@ -675,13 +675,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Note that this will replace any previous notification handler for the same method.
      */
-    setNotificationHandler<
-        T extends ZodObject<{
-            method: ZodLiteral<string>;
-        }>
-    >(notificationSchema: T, handler: (notification: z.infer<T>) => void | Promise<void>): void {
-        this._notificationHandlers.set(notificationSchema.shape.method.value, notification =>
-            Promise.resolve(handler(notificationSchema.parse(notification)))
+    setNotificationHandler<T extends AnyObjectSchema>(
+        notificationSchema: T,
+        handler: (notification: SchemaOutput<T>) => void | Promise<void>
+    ): void {
+        const method = getMethodLiteral(notificationSchema);
+        this._notificationHandlers.set(method, notification =>
+            Promise.resolve(handler(parseWithCompat(notificationSchema, notification) as SchemaOutput<T>))
         );
     }
 
@@ -691,6 +691,73 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     removeNotificationHandler(method: string): void {
         this._notificationHandlers.delete(method);
     }
+}
+
+function getMethodLiteral(schema: AnyObjectSchema): string {
+    const shape = getObjectShape(schema);
+    const methodSchema = shape?.method as AnySchema | undefined;
+    if (!methodSchema) {
+        throw new Error('Schema is missing a method literal');
+    }
+
+    const value = getLiteralValue(methodSchema);
+    if (typeof value !== 'string') {
+        throw new Error('Schema method literal must be a string');
+    }
+
+    return value;
+}
+
+function parseWithCompat<S extends AnySchema>(schema: S, data: unknown): SchemaOutput<S> {
+    const result = safeParse(schema, data);
+    if (!result.success) {
+        const error = result.error instanceof Error ? result.error : new Error(String(result.error));
+        throw error;
+    }
+
+    return result.data;
+}
+
+function getObjectShape(schema: AnyObjectSchema | undefined): Record<string, AnySchema> | undefined {
+    if (!schema) return undefined;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawShape = (schema as any).shape ?? (isZ4Schema(schema as any) ? (schema as any)._zod?.def?.shape : undefined);
+    if (!rawShape) return undefined;
+
+    if (typeof rawShape === 'function') {
+        try {
+            return rawShape.call(schema);
+        } catch {
+            return undefined;
+        }
+    }
+
+    return rawShape as Record<string, AnySchema>;
+}
+
+function getLiteralValue(schema: AnySchema): unknown {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const v4Def = isZ4Schema(schema) ? (schema as any)._zod?.def : undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const legacyDef = (schema as any)._def;
+
+    const candidates = [
+        v4Def?.value,
+        legacyDef?.value,
+        Array.isArray(v4Def?.values) ? v4Def.values[0] : undefined,
+        Array.isArray(legacyDef?.values) ? legacyDef.values[0] : undefined,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (schema as any).value
+    ];
+
+    for (const candidate of candidates) {
+        if (typeof candidate !== 'undefined') {
+            return candidate;
+        }
+    }
+
+    return undefined;
 }
 
 export function mergeCapabilities<T extends ServerCapabilities | ClientCapabilities>(base: T, additional: T): T {

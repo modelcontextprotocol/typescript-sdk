@@ -1,6 +1,16 @@
 import { Server, ServerOptions } from './index.js';
-import { zodToJsonSchema } from 'zod-to-json-schema';
-import { z, ZodRawShape, ZodObject, ZodString, AnyZodObject, ZodTypeAny, ZodType, ZodTypeDef, ZodOptional } from 'zod';
+
+import {
+    AnySchema,
+    AnyObjectSchema,
+    ZodRawShapeCompat,
+    ObjectOutput,
+    normalizeObjectSchema,
+    safeParseAsync,
+    safeParse,
+    isZ4Schema
+} from './zod-compat.js';
+
 import {
     Implementation,
     Tool,
@@ -33,10 +43,13 @@ import {
     ToolAnnotations,
     LoggingMessageNotification
 } from '../types.js';
-import { Completable, CompletableDef } from './completable.js';
+
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
 import { RequestHandlerExtra } from '../shared/protocol.js';
 import { Transport } from '../shared/transport.js';
+
+import { toJsonSchemaCompat } from './zod-json-schema-compat.js';
+import { isCompletable, getCompleter } from './completable.js';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -93,7 +106,8 @@ export class McpServer {
         });
 
         this.server.setRequestHandler(
-            ListToolsRequestSchema,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ListToolsRequestSchema as unknown as any,
             (): ListToolsResult => ({
                 tools: Object.entries(this._registeredTools)
                     .filter(([, tool]) => tool.enabled)
@@ -102,29 +116,37 @@ export class McpServer {
                             name,
                             title: tool.title,
                             description: tool.description,
-                            inputSchema: tool.inputSchema
-                                ? (zodToJsonSchema(tool.inputSchema, {
-                                      strictUnions: true,
-                                      pipeStrategy: 'input'
-                                  }) as Tool['inputSchema'])
-                                : EMPTY_OBJECT_JSON_SCHEMA,
+                            inputSchema: (() => {
+                                const obj = normalizeObjectSchema(tool.inputSchema);
+                                return obj
+                                    ? (toJsonSchemaCompat(obj, {
+                                          strictUnions: true,
+                                          pipeStrategy: 'input',
+                                          target: 'draft-7'
+                                      }) as Tool['inputSchema'])
+                                    : EMPTY_OBJECT_JSON_SCHEMA;
+                            })(),
                             annotations: tool.annotations,
                             _meta: tool._meta
                         };
 
                         if (tool.outputSchema) {
-                            toolDefinition.outputSchema = zodToJsonSchema(tool.outputSchema, {
-                                strictUnions: true,
-                                pipeStrategy: 'output'
-                            }) as Tool['outputSchema'];
+                            const objOut = normalizeObjectSchema(tool.outputSchema);
+                            if (objOut) {
+                                toolDefinition.outputSchema = toJsonSchemaCompat(objOut, {
+                                    strictUnions: true,
+                                    pipeStrategy: 'output',
+                                    target: 'draft-7'
+                                }) as Tool['outputSchema'];
+                            }
                         }
 
                         return toolDefinition;
                     })
             })
         );
-
-        this.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.server.setRequestHandler(CallToolRequestSchema as unknown as any, async (request, extra): Promise<CallToolResult> => {
             const tool = this._registeredTools[request.params.name];
 
             let result: CallToolResult;
@@ -139,8 +161,9 @@ export class McpServer {
                 }
 
                 if (tool.inputSchema) {
-                    const cb = tool.callback as ToolCallback<ZodRawShape>;
-                    const parseResult = await tool.inputSchema.safeParseAsync(request.params.arguments);
+                    const inputObj = normalizeObjectSchema(tool.inputSchema) as AnyObjectSchema;
+                    const cb = tool.callback as ToolCallback<ZodRawShapeCompat>;
+                    const parseResult = await safeParseAsync(inputObj, request.params.arguments);
                     if (!parseResult.success) {
                         throw new McpError(
                             ErrorCode.InvalidParams,
@@ -165,7 +188,8 @@ export class McpServer {
                     }
 
                     // if the tool has an output schema, validate structured content
-                    const parseResult = await tool.outputSchema.safeParseAsync(result.structuredContent);
+                    const outputObj = normalizeObjectSchema(tool.outputSchema) as AnyObjectSchema;
+                    const parseResult = await safeParseAsync(outputObj, result.structuredContent);
                     if (!parseResult.success) {
                         throw new McpError(
                             ErrorCode.InvalidParams,
@@ -213,8 +237,8 @@ export class McpServer {
         this.server.registerCapabilities({
             completions: {}
         });
-
-        this.server.setRequestHandler(CompleteRequestSchema, async (request): Promise<CompleteResult> => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.server.setRequestHandler(CompleteRequestSchema as unknown as any, async (request): Promise<CompleteResult> => {
             switch (request.params.ref.type) {
                 case 'ref/prompt':
                     return this.handlePromptCompletion(request, request.params.ref);
@@ -244,13 +268,26 @@ export class McpServer {
             return EMPTY_COMPLETION_RESULT;
         }
 
-        const field = prompt.argsSchema.shape[request.params.argument.name];
-        if (!(field instanceof Completable)) {
+        const promptShape = getObjectShape(prompt.argsSchema);
+        const field = promptShape?.[request.params.argument.name];
+        if (!field) {
             return EMPTY_COMPLETION_RESULT;
         }
 
-        const def: CompletableDef<ZodString> = field._def;
-        const suggestions = await def.complete(request.params.argument.value, request.params.context);
+        // Use symbol-based completable detection
+        if (!isCompletable(field)) {
+            return EMPTY_COMPLETION_RESULT;
+        }
+
+        const completer = getCompleter(field);
+        if (!completer) {
+            return EMPTY_COMPLETION_RESULT;
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const values = await completer(request.params.argument.value as any, request.params.context);
+        // Ensure protocol expects string[]
+        const suggestions = Array.isArray(values) ? values.map(v => String(v)) : [];
         return createCompletionResult(suggestions);
     }
 
@@ -291,8 +328,8 @@ export class McpServer {
                 listChanged: true
             }
         });
-
-        this.server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.server.setRequestHandler(ListResourcesRequestSchema as unknown as any, async (request, extra) => {
             const resources = Object.entries(this._registeredResources)
                 .filter(([_, resource]) => resource.enabled)
                 .map(([uri, resource]) => ({
@@ -319,8 +356,8 @@ export class McpServer {
 
             return { resources: [...resources, ...templateResources] };
         });
-
-        this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.server.setRequestHandler(ListResourceTemplatesRequestSchema as unknown as any, async () => {
             const resourceTemplates = Object.entries(this._registeredResourceTemplates).map(([name, template]) => ({
                 name,
                 uriTemplate: template.resourceTemplate.uriTemplate.toString(),
@@ -329,8 +366,8 @@ export class McpServer {
 
             return { resourceTemplates };
         });
-
-        this.server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.server.setRequestHandler(ReadResourceRequestSchema as unknown as any, async (request, extra) => {
             const uri = new URL(request.params.uri);
 
             // First check for exact resource match
@@ -375,7 +412,8 @@ export class McpServer {
         });
 
         this.server.setRequestHandler(
-            ListPromptsRequestSchema,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ListPromptsRequestSchema as unknown as any,
             (): ListPromptsResult => ({
                 prompts: Object.entries(this._registeredPrompts)
                     .filter(([, prompt]) => prompt.enabled)
@@ -389,8 +427,8 @@ export class McpServer {
                     })
             })
         );
-
-        this.server.setRequestHandler(GetPromptRequestSchema, async (request, extra): Promise<GetPromptResult> => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.server.setRequestHandler(GetPromptRequestSchema as unknown as any, async (request, extra): Promise<GetPromptResult> => {
             const prompt = this._registeredPrompts[request.params.name];
             if (!prompt) {
                 throw new McpError(ErrorCode.InvalidParams, `Prompt ${request.params.name} not found`);
@@ -401,7 +439,8 @@ export class McpServer {
             }
 
             if (prompt.argsSchema) {
-                const parseResult = await prompt.argsSchema.safeParseAsync(request.params.arguments);
+                const inputObj = normalizeObjectSchema(prompt.argsSchema) as AnyObjectSchema;
+                const parseResult = await safeParseAsync(inputObj, request.params.arguments);
                 if (!parseResult.success) {
                     throw new McpError(
                         ErrorCode.InvalidParams,
@@ -623,7 +662,7 @@ export class McpServer {
         const registeredPrompt: RegisteredPrompt = {
             title,
             description,
-            argsSchema: argsSchema === undefined ? undefined : z.object(argsSchema),
+            argsSchema: argsSchema === undefined ? undefined : (normalizeObjectSchema(argsSchema) as AnyObjectSchema),
             callback,
             enabled: true,
             disable: () => registeredPrompt.update({ enabled: false }),
@@ -636,7 +675,8 @@ export class McpServer {
                 }
                 if (typeof updates.title !== 'undefined') registeredPrompt.title = updates.title;
                 if (typeof updates.description !== 'undefined') registeredPrompt.description = updates.description;
-                if (typeof updates.argsSchema !== 'undefined') registeredPrompt.argsSchema = z.object(updates.argsSchema);
+                if (typeof updates.argsSchema !== 'undefined')
+                    registeredPrompt.argsSchema = normalizeObjectSchema(updates.argsSchema) as AnyObjectSchema;
                 if (typeof updates.callback !== 'undefined') registeredPrompt.callback = updates.callback;
                 if (typeof updates.enabled !== 'undefined') registeredPrompt.enabled = updates.enabled;
                 this.sendPromptListChanged();
@@ -650,17 +690,17 @@ export class McpServer {
         name: string,
         title: string | undefined,
         description: string | undefined,
-        inputSchema: ZodRawShape | undefined,
-        outputSchema: ZodRawShape | undefined,
+        inputSchema: ZodRawShapeCompat | undefined,
+        outputSchema: ZodRawShapeCompat | undefined,
         annotations: ToolAnnotations | undefined,
         _meta: Record<string, unknown> | undefined,
-        callback: ToolCallback<ZodRawShape | undefined>
+        callback: ToolCallback<ZodRawShapeCompat | undefined>
     ): RegisteredTool {
         const registeredTool: RegisteredTool = {
             title,
             description,
-            inputSchema: inputSchema === undefined ? undefined : z.object(inputSchema),
-            outputSchema: outputSchema === undefined ? undefined : z.object(outputSchema),
+            inputSchema: inputSchema === undefined ? undefined : (normalizeObjectSchema(inputSchema) as AnyObjectSchema),
+            outputSchema: outputSchema === undefined ? undefined : (normalizeObjectSchema(outputSchema) as AnyObjectSchema),
             annotations,
             _meta,
             callback,
@@ -675,7 +715,14 @@ export class McpServer {
                 }
                 if (typeof updates.title !== 'undefined') registeredTool.title = updates.title;
                 if (typeof updates.description !== 'undefined') registeredTool.description = updates.description;
-                if (typeof updates.paramsSchema !== 'undefined') registeredTool.inputSchema = z.object(updates.paramsSchema);
+                if (typeof updates.paramsSchema !== 'undefined') {
+                    registeredTool.inputSchema = normalizeObjectSchema(updates.paramsSchema) as AnyObjectSchema;
+                }
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                if (typeof (updates as any).outputSchema !== 'undefined') {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    registeredTool.outputSchema = normalizeObjectSchema((updates as any).outputSchema) as AnyObjectSchema;
+                }
                 if (typeof updates.callback !== 'undefined') registeredTool.callback = updates.callback;
                 if (typeof updates.annotations !== 'undefined') registeredTool.annotations = updates.annotations;
                 if (typeof updates._meta !== 'undefined') registeredTool._meta = updates._meta;
@@ -711,7 +758,11 @@ export class McpServer {
      * between ToolAnnotations and ZodRawShape during overload resolution, as both are plain object types.
      * @deprecated Use `registerTool` instead.
      */
-    tool<Args extends ZodRawShape>(name: string, paramsSchemaOrAnnotations: Args | ToolAnnotations, cb: ToolCallback<Args>): RegisteredTool;
+    tool<Args extends ZodRawShapeCompat>(
+        name: string,
+        paramsSchemaOrAnnotations: Args | ToolAnnotations,
+        cb: ToolCallback<Args>
+    ): RegisteredTool;
 
     /**
      * Registers a tool `name` (with a description) taking either parameter schema or annotations.
@@ -722,7 +773,7 @@ export class McpServer {
      * between ToolAnnotations and ZodRawShape during overload resolution, as both are plain object types.
      * @deprecated Use `registerTool` instead.
      */
-    tool<Args extends ZodRawShape>(
+    tool<Args extends ZodRawShapeCompat>(
         name: string,
         description: string,
         paramsSchemaOrAnnotations: Args | ToolAnnotations,
@@ -733,13 +784,18 @@ export class McpServer {
      * Registers a tool with both parameter schema and annotations.
      * @deprecated Use `registerTool` instead.
      */
-    tool<Args extends ZodRawShape>(name: string, paramsSchema: Args, annotations: ToolAnnotations, cb: ToolCallback<Args>): RegisteredTool;
+    tool<Args extends ZodRawShapeCompat>(
+        name: string,
+        paramsSchema: Args,
+        annotations: ToolAnnotations,
+        cb: ToolCallback<Args>
+    ): RegisteredTool;
 
     /**
      * Registers a tool with description, parameter schema, and annotations.
      * @deprecated Use `registerTool` instead.
      */
-    tool<Args extends ZodRawShape>(
+    tool<Args extends ZodRawShapeCompat>(
         name: string,
         description: string,
         paramsSchema: Args,
@@ -756,8 +812,8 @@ export class McpServer {
         }
 
         let description: string | undefined;
-        let inputSchema: ZodRawShape | undefined;
-        let outputSchema: ZodRawShape | undefined;
+        let inputSchema: ZodRawShapeCompat | undefined;
+        let outputSchema: ZodRawShapeCompat | undefined;
         let annotations: ToolAnnotations | undefined;
 
         // Tool properties are passed as separate arguments, with omissions allowed.
@@ -775,7 +831,7 @@ export class McpServer {
 
             if (isZodRawShape(firstArg)) {
                 // We have a params schema as the first arg
-                inputSchema = rest.shift() as ZodRawShape;
+                inputSchema = rest.shift() as ZodRawShapeCompat;
 
                 // Check if the next arg is potentially annotations
                 if (rest.length > 1 && typeof rest[0] === 'object' && rest[0] !== null && !isZodRawShape(rest[0])) {
@@ -790,7 +846,7 @@ export class McpServer {
                 annotations = rest.shift() as ToolAnnotations;
             }
         }
-        const callback = rest[0] as ToolCallback<ZodRawShape | undefined>;
+        const callback = rest[0] as ToolCallback<ZodRawShapeCompat | undefined>;
 
         return this._createRegisteredTool(name, undefined, description, inputSchema, outputSchema, annotations, undefined, callback);
     }
@@ -798,7 +854,7 @@ export class McpServer {
     /**
      * Registers a tool with a config object and callback.
      */
-    registerTool<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape>(
+    registerTool<InputArgs extends ZodRawShapeCompat, OutputArgs extends ZodRawShapeCompat>(
         name: string,
         config: {
             title?: string;
@@ -824,7 +880,7 @@ export class McpServer {
             outputSchema,
             annotations,
             _meta,
-            cb as ToolCallback<ZodRawShape | undefined>
+            cb as ToolCallback<ZodRawShapeCompat | undefined>
         );
     }
 
@@ -1027,9 +1083,9 @@ export class ResourceTemplate {
  * - `content` if the tool does not have an outputSchema
  * - Both fields are optional but typically one should be provided
  */
-export type ToolCallback<Args extends undefined | ZodRawShape = undefined> = Args extends ZodRawShape
+export type ToolCallback<Args extends undefined | ZodRawShapeCompat = undefined> = Args extends ZodRawShapeCompat
     ? (
-          args: z.objectOutputType<Args, ZodTypeAny>,
+          args: ObjectOutput<Args>, // works for both z3 and z4 shapes
           extra: RequestHandlerExtra<ServerRequest, ServerNotification>
       ) => CallToolResult | Promise<CallToolResult>
     : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
@@ -1037,20 +1093,24 @@ export type ToolCallback<Args extends undefined | ZodRawShape = undefined> = Arg
 export type RegisteredTool = {
     title?: string;
     description?: string;
-    inputSchema?: AnyZodObject;
-    outputSchema?: AnyZodObject;
+
+    // Accept either an already-built object schema (z3 or z4)
+    // OR a "raw shape" that we'll wrap into an object schema at registration.
+    inputSchema?: AnyObjectSchema | ZodRawShapeCompat;
+    outputSchema?: AnyObjectSchema | ZodRawShapeCompat;
+
     annotations?: ToolAnnotations;
     _meta?: Record<string, unknown>;
-    callback: ToolCallback<undefined | ZodRawShape>;
+    callback: ToolCallback<undefined | ZodRawShapeCompat>;
     enabled: boolean;
     enable(): void;
     disable(): void;
-    update<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape>(updates: {
+    update<InputArgs extends ZodRawShapeCompat, OutputArgs extends ZodRawShapeCompat>(updates: {
         name?: string | null;
         title?: string;
         description?: string;
-        paramsSchema?: InputArgs;
-        outputSchema?: OutputArgs;
+        paramsSchema?: InputArgs | AnyObjectSchema; // allow shape or object
+        outputSchema?: OutputArgs | AnyObjectSchema;
         annotations?: ToolAnnotations;
         _meta?: Record<string, unknown>;
         callback?: ToolCallback<InputArgs>;
@@ -1065,7 +1125,7 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
 };
 
 // Helper to check if an object is a Zod schema (ZodRawShape)
-function isZodRawShape(obj: unknown): obj is ZodRawShape {
+function isZodRawShape(obj: unknown): obj is ZodRawShapeCompat {
     if (typeof obj !== 'object' || obj === null) return false;
 
     const isEmptyObject = Object.keys(obj).length === 0;
@@ -1075,15 +1135,36 @@ function isZodRawShape(obj: unknown): obj is ZodRawShape {
     return isEmptyObject || Object.values(obj as object).some(isZodTypeLike);
 }
 
-function isZodTypeLike(value: unknown): value is ZodType {
-    return (
-        value !== null &&
-        typeof value === 'object' &&
-        'parse' in value &&
-        typeof value.parse === 'function' &&
-        'safeParse' in value &&
-        typeof value.safeParse === 'function'
-    );
+function isZodTypeLike(value: unknown): value is AnySchema {
+    if (value === null || typeof value !== 'object') return false;
+    const v = value as Record<string, unknown>;
+    // Zod 4 (Mini/Classic) schemas have a private marker `_zod`
+    if ('_zod' in v) return true;
+    // Zod 3 schemas expose instance methods
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ('parse' in v && typeof (v as any).parse === 'function' && 'safeParse' in v && typeof (v as any).safeParse === 'function') {
+        return true;
+    }
+    return false;
+}
+
+function getObjectShape(schema: AnyObjectSchema | undefined): Record<string, AnySchema> | undefined {
+    if (!schema) return undefined;
+
+    // Zod v3 exposes `.shape`; Zod v4 keeps the shape on `_zod.def.shape`
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawShape = (schema as any).shape ?? (isZ4Schema(schema as any) ? (schema as any)._zod?.def?.shape : undefined);
+    if (!rawShape) return undefined;
+
+    if (typeof rawShape === 'function') {
+        try {
+            return rawShape();
+        } catch {
+            return undefined;
+        }
+    }
+
+    return rawShape as Record<string, AnySchema>;
 }
 
 /**
@@ -1153,13 +1234,12 @@ export type RegisteredResourceTemplate = {
     remove(): void;
 };
 
-type PromptArgsRawShape = {
-    [k: string]: ZodType<string, ZodTypeDef, string> | ZodOptional<ZodType<string, ZodTypeDef, string>>;
-};
+// Prompt args accept a Zod v3 or v4 (Mini) raw shape
+type PromptArgsRawShape = ZodRawShapeCompat;
 
 export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefined> = Args extends PromptArgsRawShape
     ? (
-          args: z.objectOutputType<Args, ZodTypeAny>,
+          args: ObjectOutput<Args>, // works for both z3 and z4 shapes
           extra: RequestHandlerExtra<ServerRequest, ServerNotification>
       ) => GetPromptResult | Promise<GetPromptResult>
     : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
@@ -1167,7 +1247,8 @@ export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefin
 export type RegisteredPrompt = {
     title?: string;
     description?: string;
-    argsSchema?: ZodObject<PromptArgsRawShape>;
+    // store the normalized object schema (v3 object or v4 object)
+    argsSchema?: AnyObjectSchema;
     callback: PromptCallback<undefined | PromptArgsRawShape>;
     enabled: boolean;
     enable(): void;
@@ -1183,13 +1264,24 @@ export type RegisteredPrompt = {
     remove(): void;
 };
 
-function promptArgumentsFromSchema(schema: ZodObject<PromptArgsRawShape>): PromptArgument[] {
-    return Object.entries(schema.shape).map(
-        ([name, field]): PromptArgument => ({
-            name,
-            description: field.description,
-            required: !field.isOptional()
-        })
+function promptArgumentsFromSchema(schema: AnyObjectSchema): PromptArgument[] {
+    const shape = getObjectShape(schema);
+    if (!shape) return [];
+
+    return Object.entries(shape).map(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ([name, field]: [string, any]): PromptArgument => {
+            // Determine required by attempting to parse `undefined`.
+            // If undefined fails, the arg is required.
+            const test = safeParse(field, undefined);
+            const required = !test.success;
+
+            return {
+                name,
+                description: field?.description,
+                required
+            };
+        }
     );
 }
 

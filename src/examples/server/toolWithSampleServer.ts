@@ -2,7 +2,7 @@
 
 import { McpServer } from '../../server/mcp.js';
 import { StdioServerTransport } from '../../server/stdio.js';
-import { z } from 'zod';
+import * as z from 'zod/v4'; // or import * as z from 'zod/v3';
 
 const mcpServer = new McpServer({
     name: 'tools-with-sample-server',

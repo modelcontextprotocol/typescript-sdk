@@ -1,79 +1,64 @@
-import { ZodTypeAny, ZodTypeDef, ZodType, ParseInput, ParseReturnType, RawCreateParams, ZodErrorMap, ProcessedCreateParams } from 'zod';
+// Zod-agnostic "completable" wrapper for v3 and v4
+// We attach metadata to any Zod schema (v3 or v4) using a symbol,
+// avoiding inheritance from Zod internals (which changed in v4).
+
+import type { AnySchema, SchemaInput } from './zod-compat.js';
 
 export enum McpZodTypeKind {
+    // Kept for backwards-compat with any code that imports this enum
     Completable = 'McpCompletable'
 }
 
-export type CompleteCallback<T extends ZodTypeAny = ZodTypeAny> = (
-    value: T['_input'],
+export type CompleteCallback<T extends AnySchema = AnySchema> = (
+    value: SchemaInput<T>,
     context?: {
         arguments?: Record<string, string>;
     }
-) => T['_input'][] | Promise<T['_input'][]>;
+) => SchemaInput<T>[] | Promise<SchemaInput<T>[]>;
 
-export interface CompletableDef<T extends ZodTypeAny = ZodTypeAny> extends ZodTypeDef {
-    type: T;
+// internal symbol to store completable metadata
+export const COMPLETABLE_SYMBOL: unique symbol = Symbol.for('mcp.completable');
+
+type CompletableMeta<T extends AnySchema> = {
     complete: CompleteCallback<T>;
-    typeName: McpZodTypeKind.Completable;
+};
+
+export type CompletableSchema<T extends AnySchema> = T & {
+    [COMPLETABLE_SYMBOL]: CompletableMeta<T>;
+};
+
+/**
+ * Wraps a Zod schema (v3 or v4) with autocompletion capability by attaching
+ * a non-enumerable symbol-based metadata field. No subclassing; parsing behavior
+ * remains entirely delegated to the underlying schema.
+ */
+export function completable<T extends AnySchema>(schema: T, complete: CompleteCallback<T>): CompletableSchema<T> {
+    // Define as non-enumerable, non-configurable metadata
+    Object.defineProperty(schema as object, COMPLETABLE_SYMBOL, {
+        value: { complete } as CompletableMeta<T>,
+        enumerable: false,
+        writable: false,
+        configurable: false
+    });
+    return schema as CompletableSchema<T>;
 }
 
-export class Completable<T extends ZodTypeAny> extends ZodType<T['_output'], CompletableDef<T>, T['_input']> {
-    _parse(input: ParseInput): ParseReturnType<this['_output']> {
-        const { ctx } = this._processInputParams(input);
-        const data = ctx.data;
-        return this._def.type._parse({
-            data,
-            path: ctx.path,
-            parent: ctx
-        });
-    }
+/** Type guard: is this schema completable? */
+export function isCompletable(schema: unknown): schema is CompletableSchema<AnySchema> {
+    return !!schema && typeof schema === 'object' && COMPLETABLE_SYMBOL in (schema as object);
+}
 
-    unwrap() {
-        return this._def.type;
-    }
-
-    static create = <T extends ZodTypeAny>(
-        type: T,
-        params: RawCreateParams & {
-            complete: CompleteCallback<T>;
-        }
-    ): Completable<T> => {
-        return new Completable({
-            type,
-            typeName: McpZodTypeKind.Completable,
-            complete: params.complete,
-            ...processCreateParams(params)
-        });
-    };
+/** Retrieve the completer callback, if present. */
+export function getCompleter<T extends AnySchema>(schema: T): CompleteCallback<T> | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const meta = (schema as any)[COMPLETABLE_SYMBOL] as CompletableMeta<T> | undefined;
+    return meta?.complete as CompleteCallback<T> | undefined;
 }
 
 /**
- * Wraps a Zod type to provide autocompletion capabilities. Useful for, e.g., prompt arguments in MCP.
+ * Backwards-compat "unwrap": previously a class returned `.unwrap()`.
+ * Now it's a no-op helper that simply returns the input schema.
  */
-export function completable<T extends ZodTypeAny>(schema: T, complete: CompleteCallback<T>): Completable<T> {
-    return Completable.create(schema, { ...schema._def, complete });
-}
-
-// Not sure why this isn't exported from Zod:
-// https://github.com/colinhacks/zod/blob/f7ad26147ba291cb3fb257545972a8e00e767470/src/types.ts#L130
-function processCreateParams(params: RawCreateParams): ProcessedCreateParams {
-    if (!params) return {};
-    const { errorMap, invalid_type_error, required_error, description } = params;
-    if (errorMap && (invalid_type_error || required_error)) {
-        throw new Error(`Can't use "invalid_type_error" or "required_error" in conjunction with custom error map.`);
-    }
-    if (errorMap) return { errorMap: errorMap, description };
-    const customMap: ZodErrorMap = (iss, ctx) => {
-        const { message } = params;
-
-        if (iss.code === 'invalid_enum_value') {
-            return { message: message ?? ctx.defaultError };
-        }
-        if (typeof ctx.data === 'undefined') {
-            return { message: message ?? required_error ?? ctx.defaultError };
-        }
-        if (iss.code !== 'invalid_type') return { message: ctx.defaultError };
-        return { message: message ?? invalid_type_error ?? ctx.defaultError };
-    };
-    return { errorMap: customMap, description };
+export function unwrapCompletable<T extends AnySchema>(schema: T): T {
+    return schema;
 }

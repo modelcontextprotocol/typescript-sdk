@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 /**
  * Reusable URL validation that disallows javascript: scheme

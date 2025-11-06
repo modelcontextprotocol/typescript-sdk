@@ -8,3 +8,5 @@ node_modules
 **/dist
 .github/CODEOWNERS
 pnpm-lock.yaml
+# vendored code
+src/_vendor/
