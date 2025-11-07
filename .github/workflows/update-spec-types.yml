@@ -47,23 +47,25 @@ jobs:
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
 
-                  git checkout -b update-spec-types
+                  git checkout -B update-spec-types
                   git add src/spec.types.ts
                   git commit -m "chore: update spec.types.ts from upstream"
                   git push -f origin update-spec-types
 
                   # Create PR if it doesn't exist, or update if it does
+                  PR_BODY="This PR updates \`src/spec.types.ts\` from the Model Context Protocol specification.
+
+                  Source file: https://github.com/modelcontextprotocol/modelcontextprotocol/blob/${{ steps.check_changes.outputs.sha }}/schema/draft/schema.ts
+
+                  This is an automated update triggered by the nightly cron job."
+
                   if gh pr view update-spec-types &>/dev/null; then
-                    echo "PR already exists, updating..."
+                    echo "PR already exists, updating description..."
+                    gh pr edit update-spec-types --body "$PR_BODY"
                   else
                     gh pr create \
                       --title "chore: update spec.types.ts from upstream" \
-                      --body "This PR updates \`src/spec.types.ts\` from the Model Context Protocol specification.
-
-                  Source: https://github.com/modelcontextprotocol/modelcontextprotocol
-                  Commit: ${{ steps.check_changes.outputs.sha }}
-
-                  This is an automated update triggered by the nightly cron job." \
+                      --body "$PR_BODY" \
                       --base main \
                       --head update-spec-types
                   fi
