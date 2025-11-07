@@ -68,8 +68,6 @@ export const NotificationSchema = z.object({
     params: NotificationsParamsSchema.passthrough().optional()
 });
 
-export const NotificationParamsSchema = z.intersection(NotificationsParamsSchema, z.record(z.string(), z.unknown()).optional());
-
 export const ResultSchema = z
     .object({
         /**
