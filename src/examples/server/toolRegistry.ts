@@ -3,7 +3,7 @@ import { RequestHandlerExtra } from "../../shared/protocol.js";
 import { z } from "zod";
 import type {
   Tool,
-  ToolCallContent,
+  ToolUseContent,
   ToolResultContent, 
   ServerRequest,
   ServerNotification,
@@ -40,7 +40,7 @@ export class ToolRegistry {
     }
   }
   
-  async callTools(toolCalls: ToolCallContent[], extra: RequestHandlerExtra<ServerRequest, ServerNotification>): Promise<ToolResultContent[]> {
+  async callTools(toolCalls: ToolUseContent[], extra: RequestHandlerExtra<ServerRequest, ServerNotification>): Promise<ToolResultContent[]> {
       return Promise.all(toolCalls.map(async ({ name, id, input }) => {
           const tool = this.toolDefinitions[name];
           if (!tool) {

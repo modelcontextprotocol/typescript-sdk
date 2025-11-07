@@ -44,7 +44,7 @@ import {
   CallToolRequestSchema,
   isJSONRPCNotification,
   Tool,
-  ToolCallContent,
+  ToolUseContent,
   LoggingMessageNotification,
   JSONRPCNotification,
   AssistantMessageContent,
@@ -193,7 +193,7 @@ function contentToMcp(content: ContentBlock): CreateMessageResult['content'] {
                 id: content.id,
                 name: content.name,
                 input: content.input,
-            } as ToolCallContent;
+            } as ToolUseContent;
         default:
             throw new Error(`[contentToMcp] Unsupported content type: ${(content as any).type}`);
     }

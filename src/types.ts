@@ -821,7 +821,7 @@ export const AudioContentSchema = z.object({
  * A tool call request from an assistant (LLM).
  * Represents the assistant's request to use a tool.
  */
-export const ToolCallContentSchema = z
+export const ToolUseContentSchema = z
   .object({
     type: z.literal("tool_use"),
     /**
@@ -1195,7 +1195,7 @@ export const ToolChoiceSchema = z
 
 /**
  * The result of a tool execution, provided by the user (server).
- * Represents the outcome of invoking a tool requested via ToolCallContent.
+ * Represents the outcome of invoking a tool requested via ToolUseContent.
  */
 export const ToolResultContentSchema = z
     .object({
@@ -1239,7 +1239,7 @@ export const AssistantMessageContentSchema = z.discriminatedUnion("type", [
   TextContentSchema,
   ImageContentSchema,
   AudioContentSchema,
-  ToolCallContentSchema,
+  ToolUseContentSchema,
 ]);
 
 /**
@@ -1340,7 +1340,7 @@ export const CreateMessageResultSchema = ResultSchema.extend({
      */
     role: z.literal("assistant"),
     /**
-     * Response content. May be ToolCallContent if stopReason is "toolUse".
+     * Response content. May be ToolUseContent if stopReason is "toolUse".
      */
     content: z.union([AssistantMessageContentSchema, z.array(AssistantMessageContentSchema)]),
 });
@@ -1770,7 +1770,7 @@ export type GetPromptRequest = Infer<typeof GetPromptRequestSchema>;
 export type TextContent = Infer<typeof TextContentSchema>;
 export type ImageContent = Infer<typeof ImageContentSchema>;
 export type AudioContent = Infer<typeof AudioContentSchema>;
-export type ToolCallContent = Infer<typeof ToolCallContentSchema>;
+export type ToolUseContent = Infer<typeof ToolUseContentSchema>;
 export type ToolResultContent = Infer<typeof ToolResultContentSchema>;
 export type EmbeddedResource = Infer<typeof EmbeddedResourceSchema>;
 export type ResourceLink = Infer<typeof ResourceLinkSchema>;

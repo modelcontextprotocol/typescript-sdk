@@ -34,7 +34,7 @@ import { resolve, relative } from "node:path";
 import type {
   SamplingMessage,
   Tool,
-  ToolCallContent,
+  ToolUseContent,
   CreateMessageResult,
   CreateMessageRequest,
   ToolResultContent, 

@@ -9,7 +9,7 @@ import { RequestHandlerExtra } from "../../shared/protocol.js";
 import type {
   SamplingMessage,
   Tool,
-  ToolCallContent,
+  ToolUseContent,
   CreateMessageResult,
   CreateMessageRequest,
   RequestId,
@@ -103,7 +103,7 @@ export async function runToolLoop(
     if (response.stopReason === "toolUse") {
       const contentArray = Array.isArray(response.content) ? response.content : [response.content];
       const toolCalls = contentArray.filter(
-        (content): content is ToolCallContent => content.type === "tool_use"
+        (content): content is ToolUseContent => content.type === "tool_use"
       );
 
       await options.server.sendLoggingMessage({

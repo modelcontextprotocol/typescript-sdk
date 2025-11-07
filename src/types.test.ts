@@ -6,7 +6,7 @@ import {
     PromptMessageSchema,
     CallToolResultSchema,
     CompleteRequestSchema,
-    ToolCallContentSchema,
+    ToolUseContentSchema,
     ToolResultContentSchema,
     ToolChoiceSchema,
     UserMessageSchema,
@@ -322,7 +322,7 @@ describe('Types', () => {
     });
 
     describe("SEP-1577: Sampling with Tools", () => {
-        describe("ToolCallContent", () => {
+        describe("ToolUseContent", () => {
             test("should validate a tool call content", () => {
                 const toolCall = {
                     type: "tool_use",
@@ -331,7 +331,7 @@ describe('Types', () => {
                     input: { city: "San Francisco", units: "celsius" }
                 };
 
-                const result = ToolCallContentSchema.safeParse(toolCall);
+                const result = ToolUseContentSchema.safeParse(toolCall);
                 expect(result.success).toBe(true);
                 if (result.success) {
                     expect(result.data.type).toBe("tool_use");
@@ -350,7 +350,7 @@ describe('Types', () => {
                     _meta: { custom: "data" }
                 };
 
-                const result = ToolCallContentSchema.safeParse(toolCall);
+                const result = ToolUseContentSchema.safeParse(toolCall);
                 expect(result.success).toBe(true);
                 if (result.success) {
                     expect(result.data._meta).toEqual({ custom: "data" });
@@ -364,7 +364,7 @@ describe('Types', () => {
                     // missing id and input
                 };
 
-                const result = ToolCallContentSchema.safeParse(invalidToolCall);
+                const result = ToolUseContentSchema.safeParse(invalidToolCall);
                 expect(result.success).toBe(false);
             });
         });
