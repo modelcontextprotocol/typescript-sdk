@@ -177,8 +177,7 @@ mcpServer.registerTool(
                         startTime: {
                             type: 'string',
                             title: 'Start Time',
-                            description: 'Event start time (HH:MM)',
-                            pattern: '^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'
+                            description: 'Event start time (HH:MM)'
                         },
                         duration: {
                             type: 'integer',
@@ -268,8 +267,7 @@ mcpServer.registerTool(
                         zipCode: {
                             type: 'string',
                             title: 'ZIP/Postal Code',
-                            description: '5-digit ZIP code',
-                            pattern: '^[0-9]{5}$'
+                            description: '5-digit ZIP code'
                         },
                         phone: {
                             type: 'string',
