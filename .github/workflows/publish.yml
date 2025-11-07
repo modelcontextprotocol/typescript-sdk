@@ -10,7 +10,7 @@ on:
             - '!**'
 
 jobs:
-    build:
+    pkg-publish:
         runs-on: ubuntu-latest
 
         steps:
