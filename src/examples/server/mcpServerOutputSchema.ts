@@ -13,6 +13,8 @@ const server = new McpServer({
     version: '1.0.0'
 });
 
+const weatherConditions = ['sunny', 'cloudy', 'rainy', 'stormy', 'snowy'] as const;
+
 // Define a tool with structured output - Weather data
 server.registerTool(
     'get_weather',
@@ -27,7 +29,7 @@ server.registerTool(
                 celsius: z.number(),
                 fahrenheit: z.number()
             }),
-            conditions: z.enum(['sunny', 'cloudy', 'rainy', 'stormy', 'snowy']),
+            conditions: z.enum(weatherConditions),
             humidity: z.number().min(0).max(100),
             wind: z.object({
                 speed_kmh: z.number(),
@@ -41,7 +43,7 @@ server.registerTool(
         void country;
         // Simulate weather API call
         const temp_c = Math.round((Math.random() * 35 - 5) * 10) / 10;
-        const conditions = ['sunny', 'cloudy', 'rainy', 'stormy', 'snowy'][Math.floor(Math.random() * 5)];
+        const conditions = weatherConditions[Math.floor(Math.random() * weatherConditions.length)];
 
         const structuredContent = {
             temperature: {

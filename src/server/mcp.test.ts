@@ -1127,6 +1127,8 @@ describe('tool()', () => {
 
     /***
      * Test: Tool with Output Schema Must Provide Structured Content
+     *
+     * We expect a type error as well, as outputSchema is defined, but structuredContent is not returned.
      */
     test('should throw error when tool with outputSchema returns no structuredContent', async () => {
         const mcpServer = new McpServer({
@@ -1152,6 +1154,7 @@ describe('tool()', () => {
                     resultType: z.string()
                 }
             },
+            // @ts-expect-error - This is a test - we are not providing structuredContent. The type system is not able to infer the correct type, so we need ts-expect-error for the test.
             async ({ input }) => ({
                 // Only return content without structuredContent
                 content: [
@@ -1213,6 +1216,7 @@ describe('tool()', () => {
                     resultType: z.string()
                 }
             },
+            // @ts-expect-error - This is a test - we are not providing structuredContent. The type system is not able to infer the correct type, so we need ts-expect-error for the test.
             async ({ input }) => ({
                 content: [
                     {
@@ -1274,6 +1278,7 @@ describe('tool()', () => {
                     timestamp: z.string()
                 }
             },
+            // @ts-expect-error - This is a test - we are not providing a valid structuredContent. The type system is not able to infer the correct type, so we need ts-expect-error for the test.
             async ({ input }) => ({
                 content: [
                     {
