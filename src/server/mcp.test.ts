@@ -1407,12 +1407,14 @@ describe('tool()', () => {
 
         expect(receivedRequestId).toBeDefined();
         expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
-        expect(result.content).toEqual(expect.arrayContaining([
-            {
-                type: 'text',
-                text: expect.stringContaining('Received request ID:')
-            }
-        ]));
+        expect(result.content).toEqual(
+            expect.arrayContaining([
+                {
+                    type: 'text',
+                    text: expect.stringContaining('Received request ID:')
+                }
+            ])
+        );
     });
 
     /***
@@ -1786,12 +1788,14 @@ describe('resource()', () => {
         );
 
         expect(result.contents).toHaveLength(1);
-        expect(result.contents).toEqual(expect.arrayContaining([
-            {
-                text: expect.stringContaining('Updated content'),
-                uri: 'test://resource'
-            }
-        ]));
+        expect(result.contents).toEqual(
+            expect.arrayContaining([
+                {
+                    text: expect.stringContaining('Updated content'),
+                    uri: 'test://resource'
+                }
+            ])
+        );
 
         // Update happened before transport was connected, so no notifications should be expected
         expect(notifications).toHaveLength(0);
@@ -1856,12 +1860,14 @@ describe('resource()', () => {
         );
 
         expect(result.contents).toHaveLength(1);
-        expect(result.contents).toEqual(expect.arrayContaining([
-            {
-                text: expect.stringContaining('Updated content'),
-                uri: 'test://resource/123'
-            }
-        ]));
+        expect(result.contents).toEqual(
+            expect.arrayContaining([
+                {
+                    text: expect.stringContaining('Updated content'),
+                    uri: 'test://resource/123'
+                }
+            ])
+        );
 
         // Update happened before transport was connected, so no notifications should be expected
         expect(notifications).toHaveLength(0);
@@ -2210,12 +2216,14 @@ describe('resource()', () => {
             ReadResourceResultSchema
         );
 
-        expect(result.contents).toEqual(expect.arrayContaining([
-            {
-                text: expect.stringContaining('Category: books, ID: 123'),
-                uri: 'test://resource/books/123'
-            }
-        ]));
+        expect(result.contents).toEqual(
+            expect.arrayContaining([
+                {
+                    text: expect.stringContaining('Category: books, ID: 123'),
+                    uri: 'test://resource/books/123'
+                }
+            ])
+        );
     });
 
     /***
@@ -2576,12 +2584,14 @@ describe('resource()', () => {
 
         expect(receivedRequestId).toBeDefined();
         expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
-        expect(result.contents).toEqual(expect.arrayContaining([
-            {
-                text: expect.stringContaining(`Received request ID:`),
-                uri: 'test://resource'
-            }
-        ]));
+        expect(result.contents).toEqual(
+            expect.arrayContaining([
+                {
+                    text: expect.stringContaining(`Received request ID:`),
+                    uri: 'test://resource'
+                }
+            ])
+        );
     });
 });
 
@@ -2687,15 +2697,17 @@ describe('prompt()', () => {
         );
 
         expect(result.messages).toHaveLength(1);
-        expect(result.messages).toEqual(expect.arrayContaining([
-            {
-                role: 'assistant',
-                content: {
-                    type: 'text',
-                    text: 'Updated response'
+        expect(result.messages).toEqual(
+            expect.arrayContaining([
+                {
+                    role: 'assistant',
+                    content: {
+                        type: 'text',
+                        text: 'Updated response'
+                    }
                 }
-            }
-        ]));
+            ])
+        );
 
         // Update happened before transport was connected, so no notifications should be expected
         expect(notifications).toHaveLength(0);
@@ -2787,15 +2799,17 @@ describe('prompt()', () => {
         );
 
         expect(getResult.messages).toHaveLength(1);
-        expect(getResult.messages).toEqual(expect.arrayContaining([
-            {
-                role: 'assistant',
-                content: {
-                    type: 'text',
-                    text: 'Updated: test, value'
+        expect(getResult.messages).toEqual(
+            expect.arrayContaining([
+                {
+                    role: 'assistant',
+                    content: {
+                        type: 'text',
+                        text: 'Updated: test, value'
+                    }
                 }
-            }
-        ]));
+            ])
+        );
 
         // Update happened before transport was connected, so no notifications should be expected
         expect(notifications).toHaveLength(0);
@@ -3452,15 +3466,17 @@ describe('prompt()', () => {
 
         expect(receivedRequestId).toBeDefined();
         expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
-        expect(result.messages).toEqual(expect.arrayContaining([
-            {
-                role: 'assistant',
-                content: {
-                    type: 'text',
-                    text: expect.stringContaining(`Received request ID:`)
+        expect(result.messages).toEqual(
+            expect.arrayContaining([
+                {
+                    role: 'assistant',
+                    content: {
+                        type: 'text',
+                        text: expect.stringContaining(`Received request ID:`)
+                    }
                 }
-            }
-        ]));
+            ])
+        );
     });
 
     /***

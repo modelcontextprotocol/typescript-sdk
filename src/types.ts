@@ -50,16 +50,9 @@ const BaseRequestParamsSchema = z.object({
     _meta: RequestMetaSchema.optional()
 });
 
-export const RequestParamsSchema = z.intersection(BaseRequestParamsSchema, z.record(z.string(), z.unknown()).optional());
-
 export const RequestSchema = z.object({
     method: z.string(),
     params: BaseRequestParamsSchema.passthrough().optional()
-});
-
-export const RequestSchemaWithParams = z.object({
-    method: z.string(),
-    params: RequestParamsSchema
 });
 
 const NotificationsParamsSchema = z.object({
@@ -76,11 +69,6 @@ export const NotificationSchema = z.object({
 });
 
 export const NotificationParamsSchema = z.intersection(NotificationsParamsSchema, z.record(z.string(), z.unknown()).optional());
-
-export const NotificationSchemaWithParams = z.object({
-    method: z.string(),
-    params: NotificationParamsSchema
-});
 
 export const ResultSchema = z
     .object({
@@ -1366,15 +1354,13 @@ export const CompleteRequestSchema = RequestSchema.extend({
 });
 
 export function assertCompleteRequestPrompt(request: CompleteRequest): asserts request is CompleteRequestPrompt {
-    if(request.params.ref.type !== 'ref/prompt')
-    {
+    if (request.params.ref.type !== 'ref/prompt') {
         throw new TypeError(`Expected CompleteRequestPrompt, but got ${request.params.ref.type}`);
     }
 }
 
 export function assertCompleteRequestResourceTemplate(request: CompleteRequest): asserts request is CompleteRequestResourceTemplate {
-    if(request.params.ref.type !== 'ref/resource')
-    {
+    if (request.params.ref.type !== 'ref/resource') {
         throw new TypeError(`Expected CompleteRequestResourceTemplate, but got ${request.params.ref.type}`);
     }
 }
@@ -1683,8 +1669,12 @@ export type ResourceReference = ResourceTemplateReference;
 export type PromptReference = Infer<typeof PromptReferenceSchema>;
 export type CompleteRequestParams = Infer<typeof CompleteRequestParamsSchema>;
 export type CompleteRequest = Infer<typeof CompleteRequestSchema>;
-export type CompleteRequestResourceTemplate = ExpandRecursively<Omit<CompleteRequest, 'params'> & { params: Omit<CompleteRequestParams, 'ref'> & { ref: ResourceTemplateReference } }>;
-export type CompleteRequestPrompt = ExpandRecursively<Omit<CompleteRequest, 'params'> & { params: Omit<CompleteRequestParams, 'ref'> & { ref: PromptReference } }>;
+export type CompleteRequestResourceTemplate = ExpandRecursively<
+    Omit<CompleteRequest, 'params'> & { params: Omit<CompleteRequestParams, 'ref'> & { ref: ResourceTemplateReference } }
+>;
+export type CompleteRequestPrompt = ExpandRecursively<
+    Omit<CompleteRequest, 'params'> & { params: Omit<CompleteRequestParams, 'ref'> & { ref: PromptReference } }
+>;
 export type CompleteResult = Infer<typeof CompleteResultSchema>;
 
 /* Roots */

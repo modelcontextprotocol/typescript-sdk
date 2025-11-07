@@ -681,7 +681,7 @@ describe('mergeCapabilities', () => {
             sampling: {},
             elicitation: {},
             roots: {
-                listChanged: true,
+                listChanged: true
             },
             experimental: {
                 feature: {
@@ -712,7 +712,7 @@ describe('mergeCapabilities', () => {
         expect(merged).toEqual({
             logging: {},
             prompts: {
-                listChanged: true,
+                listChanged: true
             },
             resources: {
                 subscribe: true

@@ -99,7 +99,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ResourceUpdatedNotificationParams: (sdk: SDKTypes.ResourceUpdatedNotificationParams, spec: SpecTypes.ResourceUpdatedNotificationParams) => {
+    ResourceUpdatedNotificationParams: (
+        sdk: SDKTypes.ResourceUpdatedNotificationParams,
+        spec: SpecTypes.ResourceUpdatedNotificationParams
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -115,7 +118,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    LoggingMessageNotificationParams: (sdk: MakeUnknownsNotOptional<SDKTypes.LoggingMessageNotificationParams>, spec: SpecTypes.LoggingMessageNotificationParams) => {
+    LoggingMessageNotificationParams: (
+        sdk: MakeUnknownsNotOptional<SDKTypes.LoggingMessageNotificationParams>,
+        spec: SpecTypes.LoggingMessageNotificationParams
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -279,7 +285,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ToolListChangedNotification: (sdk: RemovePassthrough<WithJSONRPC<SDKTypes.ToolListChangedNotification>>, spec: SpecTypes.ToolListChangedNotification) => {
+    ToolListChangedNotification: (
+        sdk: RemovePassthrough<WithJSONRPC<SDKTypes.ToolListChangedNotification>>,
+        spec: SpecTypes.ToolListChangedNotification
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -324,7 +333,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    InitializedNotification: (sdk: RemovePassthrough<WithJSONRPC<SDKTypes.InitializedNotification>>, spec: SpecTypes.InitializedNotification) => {
+    InitializedNotification: (
+        sdk: RemovePassthrough<WithJSONRPC<SDKTypes.InitializedNotification>>,
+        spec: SpecTypes.InitializedNotification
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -343,10 +355,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ListResourceTemplatesResult: (
-        sdk: SDKTypes.ListResourceTemplatesResult,
-        spec: SpecTypes.ListResourceTemplatesResult
-    ) => {
+    ListResourceTemplatesResult: (sdk: SDKTypes.ListResourceTemplatesResult, spec: SpecTypes.ListResourceTemplatesResult) => {
         sdk = spec;
         spec = sdk;
     },
@@ -458,10 +467,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    CreateMessageRequest: (
-        sdk: WithJSONRPCRequest<SDKTypes.CreateMessageRequest>,
-        spec: SpecTypes.CreateMessageRequest
-    ) => {
+    CreateMessageRequest: (sdk: WithJSONRPCRequest<SDKTypes.CreateMessageRequest>, spec: SpecTypes.CreateMessageRequest) => {
         sdk = spec;
         spec = sdk;
     },
@@ -496,7 +502,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ServerNotification: (sdk: MakeUnknownsNotOptional<RemovePassthrough<WithJSONRPC<SDKTypes.ServerNotification>>>, spec: SpecTypes.ServerNotification) => {
+    ServerNotification: (
+        sdk: MakeUnknownsNotOptional<RemovePassthrough<WithJSONRPC<SDKTypes.ServerNotification>>>,
+        spec: SpecTypes.ServerNotification
+    ) => {
         sdk = spec;
         spec = sdk;
     },

@@ -259,7 +259,10 @@ export class McpServer {
         return createCompletionResult(suggestions);
     }
 
-    private async handleResourceCompletion(request: CompleteRequestResourceTemplate, ref: ResourceTemplateReference): Promise<CompleteResult> {
+    private async handleResourceCompletion(
+        request: CompleteRequestResourceTemplate,
+        ref: ResourceTemplateReference
+    ): Promise<CompleteResult> {
         const template = Object.values(this._registeredResourceTemplates).find(t => t.resourceTemplate.uriTemplate.toString() === ref.uri);
 
         if (!template) {
