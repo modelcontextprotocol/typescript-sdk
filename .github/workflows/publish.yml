@@ -1,4 +1,6 @@
 name: Publish Any Commit
+permissions:
+  contents: read
 on:
   pull_request:
   push:
