@@ -25,7 +25,7 @@ jobs:
             - run: npm run check
             - run: npm run build
             - run: npm test
-            - run: npm npx pkg-pr-new publish
+            - run: npx pkg-pr-new publish
 
     publish:
         runs-on: ubuntu-latest
