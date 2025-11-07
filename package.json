@@ -59,7 +59,7 @@
         "dist"
     ],
     "scripts": {
-        "fetch:spec-types": "curl -o ./src/spec.types.ts https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/refs/heads/main/schema/draft/schema.ts",
+        "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
         "typecheck": "tsgo --noEmit",
         "build": "npm run build:esm && npm run build:cjs",
         "build:esm": "mkdir -p dist/esm && echo '{\"type\": \"module\"}' > dist/esm/package.json && tsc -p tsconfig.prod.json",
@@ -70,8 +70,8 @@
         "prepack": "npm run build:esm && npm run build:cjs",
         "lint": "eslint src/ && prettier --check .",
         "lint:fix": "eslint src/ --fix && prettier --write .",
-        "check": "npm run fetch:spec-types && npm run typecheck && npm run lint",
-        "test": "npm run fetch:spec-types && jest",
+        "check": "npm run typecheck && npm run lint",
+        "test": "jest",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",
         "client": "tsx scripts/cli.ts client"
