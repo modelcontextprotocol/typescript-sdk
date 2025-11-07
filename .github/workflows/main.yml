@@ -22,8 +22,9 @@ jobs:
                   cache: npm
 
             - run: npm ci
+            - run: npm run check
             - run: npm run build
-            - run: npm run lint
+            - run: npm test
 
     test:
         runs-on: ubuntu-latest

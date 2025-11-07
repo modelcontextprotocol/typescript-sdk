@@ -3583,7 +3583,7 @@ describe('Tool title precedence', () => {
                 description: 'Tool with regular title'
             },
             async () => ({
-                content: [{ type: 'text', text: 'Response' }]
+                content: [{ type: 'text' as const, text: 'Response' }]
             })
         );
 
@@ -3598,7 +3598,7 @@ describe('Tool title precedence', () => {
                 }
             },
             async () => ({
-                content: [{ type: 'text', text: 'Response' }]
+                content: [{ type: 'text' as const, text: 'Response' }]
             })
         );
 
@@ -4160,5 +4160,241 @@ describe('elicitInput()', () => {
                 text: 'No booking made. Original date not available.'
             }
         ]);
+    });
+});
+
+describe('Tools with union and intersection schemas', () => {
+    test('should support union schemas', async () => {
+        const server = new McpServer({
+            name: 'test',
+            version: '1.0.0'
+        });
+
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        const unionSchema = z.union([
+            z.object({ type: z.literal('email'), email: z.string().email() }),
+            z.object({ type: z.literal('phone'), phone: z.string() })
+        ]);
+
+        server.registerTool('contact', { inputSchema: unionSchema }, async args => {
+            if (args.type === 'email') {
+                return {
+                    content: [{ type: 'text', text: `Email contact: ${args.email}` }]
+                };
+            } else {
+                return {
+                    content: [{ type: 'text', text: `Phone contact: ${args.phone}` }]
+                };
+            }
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+
+        const emailResult = await client.callTool({
+            name: 'contact',
+            arguments: {
+                type: 'email',
+                email: 'test@example.com'
+            }
+        });
+
+        expect(emailResult.content).toEqual([
+            {
+                type: 'text',
+                text: 'Email contact: test@example.com'
+            }
+        ]);
+
+        const phoneResult = await client.callTool({
+            name: 'contact',
+            arguments: {
+                type: 'phone',
+                phone: '+1234567890'
+            }
+        });
+
+        expect(phoneResult.content).toEqual([
+            {
+                type: 'text',
+                text: 'Phone contact: +1234567890'
+            }
+        ]);
+    });
+
+    test('should support intersection schemas', async () => {
+        const server = new McpServer({
+            name: 'test',
+            version: '1.0.0'
+        });
+
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        const baseSchema = z.object({ id: z.string() });
+        const extendedSchema = z.object({ name: z.string(), age: z.number() });
+        const intersectionSchema = z.intersection(baseSchema, extendedSchema);
+
+        server.registerTool('user', { inputSchema: intersectionSchema }, async args => {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `User: ${args.id}, ${args.name}, ${args.age} years old`
+                    }
+                ]
+            };
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+
+        const result = await client.callTool({
+            name: 'user',
+            arguments: {
+                id: '123',
+                name: 'John Doe',
+                age: 30
+            }
+        });
+
+        expect(result.content).toEqual([
+            {
+                type: 'text',
+                text: 'User: 123, John Doe, 30 years old'
+            }
+        ]);
+    });
+
+    test('should support complex nested schemas', async () => {
+        const server = new McpServer({
+            name: 'test',
+            version: '1.0.0'
+        });
+
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        const schema = z.object({
+            items: z.array(
+                z.union([
+                    z.object({ type: z.literal('text'), content: z.string() }),
+                    z.object({ type: z.literal('number'), value: z.number() })
+                ])
+            )
+        });
+
+        server.registerTool('process', { inputSchema: schema }, async args => {
+            const processed = args.items.map(item => {
+                if (item.type === 'text') {
+                    return item.content.toUpperCase();
+                } else {
+                    return item.value * 2;
+                }
+            });
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `Processed: ${processed.join(', ')}`
+                    }
+                ]
+            };
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+
+        const result = await client.callTool({
+            name: 'process',
+            arguments: {
+                items: [
+                    { type: 'text', content: 'hello' },
+                    { type: 'number', value: 5 },
+                    { type: 'text', content: 'world' }
+                ]
+            }
+        });
+
+        expect(result.content).toEqual([
+            {
+                type: 'text',
+                text: 'Processed: HELLO, 10, WORLD'
+            }
+        ]);
+    });
+
+    test('should validate union schema inputs correctly', async () => {
+        const server = new McpServer({
+            name: 'test',
+            version: '1.0.0'
+        });
+
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        const unionSchema = z.union([
+            z.object({ type: z.literal('a'), value: z.string() }),
+            z.object({ type: z.literal('b'), value: z.number() })
+        ]);
+
+        server.registerTool('union-test', { inputSchema: unionSchema }, async () => {
+            return {
+                content: [{ type: 'text', text: 'Success' }]
+            };
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+
+        const invalidTypeResult = await client.callTool({
+            name: 'union-test',
+            arguments: {
+                type: 'a',
+                value: 123
+            }
+        });
+
+        expect(invalidTypeResult.isError).toBe(true);
+        expect(invalidTypeResult.content).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    type: 'text',
+                    text: expect.stringContaining('Input validation error')
+                })
+            ])
+        );
+
+        const invalidDiscriminatorResult = await client.callTool({
+            name: 'union-test',
+            arguments: {
+                type: 'c',
+                value: 'test'
+            }
+        });
+
+        expect(invalidDiscriminatorResult.isError).toBe(true);
+        expect(invalidDiscriminatorResult.content).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    type: 'text',
+                    text: expect.stringContaining('Input validation error')
+                })
+            ])
+        );
     });
 });
