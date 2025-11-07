@@ -153,19 +153,19 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ProgressNotification: (sdk: WithJSONRPC<SDKTypes.ProgressNotification>, spec: SpecTypes.ProgressNotification) => {
+    ProgressNotification: (sdk: RemovePassthrough<WithJSONRPC<SDKTypes.ProgressNotification>>, spec: SpecTypes.ProgressNotification) => {
         sdk = spec;
         spec = sdk;
     },
-    SubscribeRequest: (sdk: WithJSONRPCRequest<SDKTypes.SubscribeRequest>, spec: SpecTypes.SubscribeRequest) => {
+    SubscribeRequest: (sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.SubscribeRequest>>, spec: SpecTypes.SubscribeRequest) => {
         sdk = spec;
         spec = sdk;
     },
-    UnsubscribeRequest: (sdk: WithJSONRPCRequest<SDKTypes.UnsubscribeRequest>, spec: SpecTypes.UnsubscribeRequest) => {
+    UnsubscribeRequest: (sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.UnsubscribeRequest>>, spec: SpecTypes.UnsubscribeRequest) => {
         sdk = spec;
         spec = sdk;
     },
-    PaginatedRequest: (sdk: WithJSONRPCRequest<SDKTypes.PaginatedRequest>, spec: SpecTypes.PaginatedRequest) => {
+    PaginatedRequest: (sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.PaginatedRequest>>, spec: SpecTypes.PaginatedRequest) => {
         sdk = spec;
         spec = sdk;
     },
@@ -269,7 +269,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ListToolsRequest: (sdk: WithJSONRPCRequest<SDKTypes.ListToolsRequest>, spec: SpecTypes.ListToolsRequest) => {
+    ListToolsRequest: (sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.ListToolsRequest>>, spec: SpecTypes.ListToolsRequest) => {
         sdk = spec;
         spec = sdk;
     },
@@ -281,7 +281,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    CallToolRequest: (sdk: WithJSONRPCRequest<SDKTypes.CallToolRequest>, spec: SpecTypes.CallToolRequest) => {
+    CallToolRequest: (sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.CallToolRequest>>, spec: SpecTypes.CallToolRequest) => {
         sdk = spec;
         spec = sdk;
     },
@@ -313,7 +313,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ResourceUpdatedNotification: (sdk: WithJSONRPC<SDKTypes.ResourceUpdatedNotification>, spec: SpecTypes.ResourceUpdatedNotification) => {
+    ResourceUpdatedNotification: (
+        sdk: RemovePassthrough<WithJSONRPC<SDKTypes.ResourceUpdatedNotification>>,
+        spec: SpecTypes.ResourceUpdatedNotification
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -325,7 +328,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    SetLevelRequest: (sdk: WithJSONRPCRequest<SDKTypes.SetLevelRequest>, spec: SpecTypes.SetLevelRequest) => {
+    SetLevelRequest: (sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.SetLevelRequest>>, spec: SpecTypes.SetLevelRequest) => {
         sdk = spec;
         spec = sdk;
     },
@@ -340,7 +343,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ListResourcesRequest: (sdk: WithJSONRPCRequest<SDKTypes.ListResourcesRequest>, spec: SpecTypes.ListResourcesRequest) => {
+    ListResourcesRequest: (
+        sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.ListResourcesRequest>>,
+        spec: SpecTypes.ListResourcesRequest
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -349,7 +355,7 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     ListResourceTemplatesRequest: (
-        sdk: WithJSONRPCRequest<SDKTypes.ListResourceTemplatesRequest>,
+        sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.ListResourceTemplatesRequest>>,
         spec: SpecTypes.ListResourceTemplatesRequest
     ) => {
         sdk = spec;
@@ -359,7 +365,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ReadResourceRequest: (sdk: WithJSONRPCRequest<SDKTypes.ReadResourceRequest>, spec: SpecTypes.ReadResourceRequest) => {
+    ReadResourceRequest: (
+        sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.ReadResourceRequest>>,
+        spec: SpecTypes.ReadResourceRequest
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -395,7 +404,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ListPromptsRequest: (sdk: WithJSONRPCRequest<SDKTypes.ListPromptsRequest>, spec: SpecTypes.ListPromptsRequest) => {
+    ListPromptsRequest: (sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.ListPromptsRequest>>, spec: SpecTypes.ListPromptsRequest) => {
         sdk = spec;
         spec = sdk;
     },
@@ -403,7 +412,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    GetPromptRequest: (sdk: WithJSONRPCRequest<SDKTypes.GetPromptRequest>, spec: SpecTypes.GetPromptRequest) => {
+    GetPromptRequest: (sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.GetPromptRequest>>, spec: SpecTypes.GetPromptRequest) => {
         sdk = spec;
         spec = sdk;
     },
@@ -496,7 +505,7 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     LoggingMessageNotification: (
-        sdk: MakeUnknownsNotOptional<WithJSONRPC<SDKTypes.LoggingMessageNotification>>,
+        sdk: RemovePassthrough<MakeUnknownsNotOptional<WithJSONRPC<SDKTypes.LoggingMessageNotification>>>,
         spec: SpecTypes.LoggingMessageNotification
     ) => {
         sdk = spec;
@@ -520,6 +529,14 @@ const sdkTypeChecks = {
     Icons: (sdk: SDKTypes.Icons, spec: SpecTypes.Icons) => {
         sdk = spec;
         spec = sdk;
+    },
+    ModelHint: (sdk: SDKTypes.ModelHint, spec: SpecTypes.ModelHint) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ModelPreferences: (sdk: SDKTypes.ModelPreferences, spec: SpecTypes.ModelPreferences) => {
+        sdk = spec;
+        spec = sdk;
     }
 };
 
@@ -531,12 +548,9 @@ const MISSING_SDK_TYPES = [
     // These are inlined in the SDK:
     'Role',
     'Error', // The inner error object of a JSONRPCError
-
     // These aren't supported by the SDK yet:
     // TODO: Add definitions to the SDK
-    'Annotations',
-    'ModelHint',
-    'ModelPreferences'
+    'Annotations'
 ];
 
 function extractExportedTypes(source: string): string[] {
@@ -560,10 +574,16 @@ describe('Spec Types', () => {
         }
     });
 
-    describe('Compatibility tests', () => {
-        it.each(typesToCheck)('%s should have a compatibility test', type => {
-            expect(sdkTypeChecks[type as keyof typeof sdkTypeChecks]).toBeDefined();
-        });
+    it('should have comprehensive compatibility tests', () => {
+        const missingTests = [];
+
+        for (const typeName of typesToCheck) {
+            if (!sdkTypeChecks[typeName as keyof typeof sdkTypeChecks]) {
+                missingTests.push(typeName);
+            }
+        }
+
+        expect(missingTests).toHaveLength(0);
     });
 
     describe('Missing SDK Types', () => {

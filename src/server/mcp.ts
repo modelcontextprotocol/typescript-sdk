@@ -1,6 +1,6 @@
 import { Server, ServerOptions } from './index.js';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { z, ZodRawShape, ZodObject, ZodString, AnyZodObject, ZodTypeAny, ZodType, ZodTypeDef, ZodOptional } from 'zod';
+import { z, ZodRawShape, ZodObject, ZodString, ZodTypeAny, ZodType, ZodTypeDef, ZodOptional } from 'zod';
 import {
     Implementation,
     Tool,
@@ -658,8 +658,8 @@ export class McpServer {
         name: string,
         title: string | undefined,
         description: string | undefined,
-        inputSchema: ZodRawShape | undefined,
-        outputSchema: ZodRawShape | undefined,
+        inputSchema: ZodRawShape | ZodType<object> | undefined,
+        outputSchema: ZodRawShape | ZodType<object> | undefined,
         annotations: ToolAnnotations | undefined,
         _meta: Record<string, unknown> | undefined,
         callback: ToolCallback<ZodRawShape | undefined>
@@ -667,8 +667,8 @@ export class McpServer {
         const registeredTool: RegisteredTool = {
             title,
             description,
-            inputSchema: inputSchema === undefined ? undefined : z.object(inputSchema),
-            outputSchema: outputSchema === undefined ? undefined : z.object(outputSchema),
+            inputSchema: getZodSchemaObject(inputSchema),
+            outputSchema: getZodSchemaObject(outputSchema),
             annotations,
             _meta,
             callback,
@@ -806,7 +806,7 @@ export class McpServer {
     /**
      * Registers a tool with a config object and callback.
      */
-    registerTool<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape>(
+    registerTool<InputArgs extends ZodRawShape | ZodType<object>, OutputArgs extends ZodRawShape | ZodType<object>>(
         name: string,
         config: {
             title?: string;
@@ -1035,18 +1035,20 @@ export class ResourceTemplate {
  * - `content` if the tool does not have an outputSchema
  * - Both fields are optional but typically one should be provided
  */
-export type ToolCallback<Args extends undefined | ZodRawShape = undefined> = Args extends ZodRawShape
+export type ToolCallback<Args extends undefined | ZodRawShape | ZodType<object> = undefined> = Args extends ZodRawShape
     ? (
           args: z.objectOutputType<Args, ZodTypeAny>,
           extra: RequestHandlerExtra<ServerRequest, ServerNotification>
       ) => CallToolResult | Promise<CallToolResult>
-    : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
+    : Args extends ZodType<infer T>
+      ? (args: T, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>
+      : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
 
 export type RegisteredTool = {
     title?: string;
     description?: string;
-    inputSchema?: AnyZodObject;
-    outputSchema?: AnyZodObject;
+    inputSchema?: ZodType<object>;
+    outputSchema?: ZodType<object>;
     annotations?: ToolAnnotations;
     _meta?: Record<string, unknown>;
     callback: ToolCallback<undefined | ZodRawShape>;
@@ -1092,6 +1094,22 @@ function isZodTypeLike(value: unknown): value is ZodType {
         'safeParse' in value &&
         typeof value.safeParse === 'function'
     );
+}
+
+/**
+ * Converts a provided Zod schema to a Zod object if it is a ZodRawShape,
+ * otherwise returns the schema as is.
+ */
+function getZodSchemaObject(schema: ZodRawShape | ZodType<object> | undefined): ZodType<object> | undefined {
+    if (!schema) {
+        return undefined;
+    }
+
+    if (isZodRawShape(schema)) {
+        return z.object(schema);
+    }
+
+    return schema;
 }
 
 /**

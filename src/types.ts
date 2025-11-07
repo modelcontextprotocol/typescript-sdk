@@ -1645,6 +1645,8 @@ export type LoggingMessageNotificationParams = Infer<typeof LoggingMessageNotifi
 export type LoggingMessageNotification = Infer<typeof LoggingMessageNotificationSchema>;
 
 /* Sampling */
+export type ModelHint = Infer<typeof ModelHintSchema>;
+export type ModelPreferences = Infer<typeof ModelPreferencesSchema>;
 export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
 export type CreateMessageRequestParams = Infer<typeof CreateMessageRequestParamsSchema>;
 export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
