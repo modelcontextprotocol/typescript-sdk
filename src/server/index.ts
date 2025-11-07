@@ -1,37 +1,38 @@
-import { mergeCapabilities, Protocol, ProtocolOptions, RequestOptions } from '../shared/protocol.js';
+import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
 import {
-    ClientCapabilities,
-    CreateMessageRequest,
+    type ClientCapabilities,
+    type CreateMessageRequest,
     CreateMessageResultSchema,
-    ElicitRequest,
-    ElicitResult,
+    type ElicitRequest,
+    type ElicitResult,
     ElicitResultSchema,
     EmptyResultSchema,
-    Implementation,
-    InitializedNotificationSchema,
-    InitializeRequest,
-    InitializeRequestSchema,
-    InitializeResult,
-    LATEST_PROTOCOL_VERSION,
-    ListRootsRequest,
-    ListRootsResultSchema,
-    LoggingMessageNotification,
-    McpError,
     ErrorCode,
-    Notification,
-    Request,
-    ResourceUpdatedNotification,
-    Result,
-    ServerCapabilities,
-    ServerNotification,
-    ServerRequest,
-    ServerResult,
-    SUPPORTED_PROTOCOL_VERSIONS,
-    LoggingLevel,
+    type Implementation,
+    InitializedNotificationSchema,
+    type InitializeRequest,
+    InitializeRequestSchema,
+    type InitializeResult,
+    LATEST_PROTOCOL_VERSION,
+    type ListRootsRequest,
+    ListRootsResultSchema,
+    type LoggingLevel,
+    LoggingLevelSchema,
+    type LoggingMessageNotification,
+    McpError,
+    type Notification,
+    type Request,
+    type ResourceUpdatedNotification,
+    type Result,
+    type ServerCapabilities,
+    type ServerNotification,
+    type ServerRequest,
+    type ServerResult,
     SetLevelRequestSchema,
-    LoggingLevelSchema
+    SUPPORTED_PROTOCOL_VERSIONS
 } from '../types.js';
-import Ajv from 'ajv';
+import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
+import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -43,6 +44,37 @@ export type ServerOptions = ProtocolOptions & {
      * Optional instructions describing how to use the server and its features.
      */
     instructions?: string;
+
+    /**
+     * JSON Schema validator for elicitation response validation.
+     *
+     * The validator is used to validate user input returned from elicitation
+     * requests against the requested schema.
+     *
+     * @default AjvJsonSchemaValidator
+     *
+     * @example
+     * ```typescript
+     * // ajv (default)
+     * const server = new Server(
+     *   { name: 'my-server', version: '1.0.0' },
+     *   {
+     *     capabilities: {}
+     *     jsonSchemaValidator: new AjvJsonSchemaValidator()
+     *   }
+     * );
+     *
+     * // @cfworker/json-schema
+     * const server = new Server(
+     *   { name: 'my-server', version: '1.0.0' },
+     *   {
+     *     capabilities: {},
+     *     jsonSchemaValidator: new CfWorkerJsonSchemaValidator()
+     *   }
+     * );
+     * ```
+     */
+    jsonSchemaValidator?: jsonSchemaValidator;
 };
 
 /**
@@ -69,6 +101,7 @@ export type ServerOptions = ProtocolOptions & {
  *   version: "1.0.0"
  * })
  * ```
+ * @deprecated Use `McpServer` instead for the high-level API. Only use `Server` for advanced use cases.
  */
 export class Server<
     RequestT extends Request = Request,
@@ -79,6 +112,7 @@ export class Server<
     private _clientVersion?: Implementation;
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
+    private _jsonSchemaValidator: jsonSchemaValidator;
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
@@ -95,6 +129,7 @@ export class Server<
         super(options);
         this._capabilities = options?.capabilities ?? {};
         this._instructions = options?.instructions;
+        this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
 
         this.setRequestHandler(InitializeRequestSchema, request => this._oninitialize(request));
         this.setNotificationHandler(InitializedNotificationSchema, () => this.oninitialized?.());
@@ -202,9 +237,9 @@ export class Server<
 
     protected assertRequestHandlerCapability(method: string): void {
         switch (method) {
-            case 'sampling/createMessage':
-                if (!this._capabilities.sampling) {
-                    throw new Error(`Server does not support sampling (required for ${method})`);
+            case 'completion/complete':
+                if (!this._capabilities.completions) {
+                    throw new Error(`Server does not support completions (required for ${method})`);
                 }
                 break;
 
@@ -289,24 +324,25 @@ export class Server<
         const result = await this.request({ method: 'elicitation/create', params }, ElicitResultSchema, options);
 
         // Validate the response content against the requested schema if action is "accept"
-        if (result.action === 'accept' && result.content) {
+        if (result.action === 'accept' && result.content && params.requestedSchema) {
             try {
-                const ajv = new Ajv();
+                const validator = this._jsonSchemaValidator.getValidator(params.requestedSchema as JsonSchemaType);
+                const validationResult = validator(result.content);
 
-                const validate = ajv.compile(params.requestedSchema);
-                const isValid = validate(result.content);
-
-                if (!isValid) {
+                if (!validationResult.valid) {
                     throw new McpError(
                         ErrorCode.InvalidParams,
-                        `Elicitation response content does not match requested schema: ${ajv.errorsText(validate.errors)}`
+                        `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`
                     );
                 }
             } catch (error) {
                 if (error instanceof McpError) {
                     throw error;
                 }
-                throw new McpError(ErrorCode.InternalError, `Error validating elicitation response: ${error}`);
+                throw new McpError(
+                    ErrorCode.InternalError,
+                    `Error validating elicitation response: ${error instanceof Error ? error.message : String(error)}`
+                );
             }
         }
 
