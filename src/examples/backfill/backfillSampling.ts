@@ -256,16 +256,16 @@ function contentBlockFromMcp(content: AssistantMessageContent | UserMessageConte
                     } else if (c.type === 'image') {
                         return makeImageBlock(c.data, c.mimeType);
                     } else if (c.type === 'resource') {
-                        if (c.resource.mimeType === 'text/plain') {
+                        if (c.resource.mimeType === 'text/plain' && 'text' in c.resource) {
                             return <TextBlockParam>{type: 'text', text: c.resource.text};
-                        } else if (c.resource.mimeType?.startsWith('image/') && typeof c.resource.blob === 'string') {
+                        } else if (c.resource.mimeType?.startsWith('image/') && 'blob' in c.resource && typeof c.resource.blob === 'string') {
                             return makeImageBlock(c.resource.blob, c.resource.mimeType);
-                        } else if (c.resource.mimeType === 'application/pdf') {
+                        } else if (c.resource.mimeType === 'application/pdf' && 'blob' in c.resource) {
                             return <DocumentBlockParam>{
                                 type: 'document',
                                 source: {
                                     type: 'base64',
-                                    data: c.resource.data,
+                                    data: c.resource.blob,
                                     media_type: 'application/pdf',
                                 },
                             };
@@ -281,7 +281,7 @@ function contentBlockFromMcp(content: AssistantMessageContent | UserMessageConte
                             type: 'document',
                             source: {
                                 type: 'url',
-                                url: c.url,
+                                url: c.uri,
                             },
                         }
                     } else {

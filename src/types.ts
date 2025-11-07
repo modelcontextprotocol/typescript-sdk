@@ -296,7 +296,6 @@ export const ClientCapabilitiesSchema = z.object({
             tools: AssertObjectSchema.optional(),
         })
         .optional(),
-    sampling: AssertObjectSchema.optional(),
     /**
      * Present if the client supports eliciting user input.
      */

@@ -80,7 +80,7 @@ export async function runToolLoop(
       maxTokens: 4000,
       tools: iteration < maxIterations ? options.registry.tools : undefined,
       // Don't allow tool calls at the last iteration: finish with an answer no matter what!
-      tool_choice: iteration < maxIterations ? defaultToolChoice : { mode: "none" },
+      toolChoice: iteration < maxIterations ? defaultToolChoice : { mode: "none" },
     });
 
     // Aggregate usage statistics from the response
@@ -138,14 +138,14 @@ export async function runToolLoop(
       if (unexpectedBlocks.length > 0) {
         throw new Error(`Expected text content in final answer, but got: ${unexpectedBlocks.map(b => b.type).join(", ")}`);
       }
-      
+
       await options.server.sendLoggingMessage({
         level: "info",
         data: `Tool loop completed after ${iteration} iteration(s)`,
       });
 
       return {
-        answer: contentArray.map(block => block.text).join("\n\n"),
+        answer: contentArray.map(block => block.type === 'text' ? block.text : '').join("\n\n"),
         transcript: messages,
         usage
       };

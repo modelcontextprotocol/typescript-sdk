@@ -32,11 +32,11 @@ export class ToolRegistry {
       server.registerTool(name, {
         title: tool.title,
         description: tool.description,
-        inputSchema: tool.inputSchema?.shape,
-        outputSchema: tool.outputSchema?.shape,
+        inputSchema: tool.inputSchema,
+        outputSchema: tool.outputSchema,
         annotations: tool.annotations,
         _meta: tool._meta,
-      }, tool.callback);
+      }, tool.callback as any);
     }
   }
   
