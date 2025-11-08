@@ -1273,7 +1273,7 @@ export const UntitledMultiSelectEnumSchema = z.object({
         type: z.literal('string'),
         enum: z.array(z.string())
     }),
-    default: z.string().optional()
+    default: z.array(z.string()).optional()
 });
 
 /**
@@ -1293,7 +1293,7 @@ export const TitledMultiSelectEnumSchema = z.object({
             })
         )
     }),
-    default: z.string().optional()
+    default: z.array(z.string()).optional()
 });
 
 /**
