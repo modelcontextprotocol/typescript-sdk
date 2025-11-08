@@ -529,7 +529,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                                 { const: '#00FF00', title: 'Green' },
                                 { const: '#0000FF', title: 'Blue' }
                             ],
-                            default: ['#00FF00']
+                            default: '#00FF00'
                         }
                     },
                     required: ['color']
@@ -719,7 +719,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                                 { const: '#00FF00', title: 'Green' },
                                 { const: '#0000FF', title: 'Blue' }
                             ],
-                            default: ['#00FF00']
+                            default: '#00FF00'
                         }
                     },
                     required: ['color']
