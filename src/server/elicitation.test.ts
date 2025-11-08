@@ -586,7 +586,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         client.setRequestHandler(ElicitRequestSchema, _request => ({
             action: 'accept',
             content: {
-                color: ['Red', 'Blue']
+                colors: ['Red', 'Blue']
             }
         }));
 
@@ -597,7 +597,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                 requestedSchema: {
                     type: 'object',
                     properties: {
-                        color: {
+                        colors: {
                             type: 'array',
                             title: 'Color Selection',
                             description: 'Choose your favorite colors',
@@ -609,13 +609,13 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                             }
                         }
                     },
-                    required: ['color']
+                    required: ['colors']
                 }
             })
         ).resolves.toEqual({
             action: 'accept',
             content: {
-                color: ['Red', 'Blue']
+                colors: ['Red', 'Blue']
             }
         });
     });
