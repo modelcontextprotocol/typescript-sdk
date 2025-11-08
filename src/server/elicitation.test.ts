@@ -159,7 +159,6 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                     age: { type: 'integer', minimum: 0, maximum: 150 },
                     street: { type: 'string' },
                     city: { type: 'string' },
-                    // @ts-expect-error - pattern is not a valid property by MCP spec, however it is making use of the Ajv validator
                     zipCode: { type: 'string', pattern: '^[0-9]{5}$' },
                     newsletter: { type: 'boolean' },
                     notifications: { type: 'boolean' }
@@ -274,7 +273,6 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                 requestedSchema: {
                     type: 'object',
                     properties: {
-                        // @ts-expect-error - pattern is not a valid property by MCP spec, however it is making use of the Ajv validator
                         zipCode: { type: 'string', pattern: '^[0-9]{5}$' }
                     },
                     required: ['zipCode']
