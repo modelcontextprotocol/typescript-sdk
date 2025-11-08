@@ -237,9 +237,9 @@ export class Server<
 
     protected assertRequestHandlerCapability(method: string): void {
         switch (method) {
-            case 'sampling/createMessage':
-                if (!this._capabilities.sampling) {
-                    throw new Error(`Server does not support sampling (required for ${method})`);
+            case 'completion/complete':
+                if (!this._capabilities.completions) {
+                    throw new Error(`Server does not support completions (required for ${method})`);
                 }
                 break;
 
