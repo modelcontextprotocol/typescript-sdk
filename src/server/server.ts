@@ -101,6 +101,7 @@ export type ServerOptions = ProtocolOptions & {
  *   version: "1.0.0"
  * })
  * ```
+ * @deprecated Use `McpServer` instead for the high-level API. Only use `Server` for advanced use cases.
  */
 export class Server<
     RequestT extends Request = Request,
@@ -236,9 +237,9 @@ export class Server<
 
     protected assertRequestHandlerCapability(method: string): void {
         switch (method) {
-            case 'sampling/createMessage':
-                if (!this._capabilities.sampling) {
-                    throw new Error(`Server does not support sampling (required for ${method})`);
+            case 'completion/complete':
+                if (!this._capabilities.completions) {
+                    throw new Error(`Server does not support completions (required for ${method})`);
                 }
                 break;
 

@@ -481,7 +481,45 @@ export async function selectResourceURL(
 }
 
 /**
+ * Extract resource_metadata and scope from WWW-Authenticate header.
+ */
+export function extractWWWAuthenticateParams(res: Response): { resourceMetadataUrl?: URL; scope?: string } {
+    const authenticateHeader = res.headers.get('WWW-Authenticate');
+    if (!authenticateHeader) {
+        return {};
+    }
+
+    const [type, scheme] = authenticateHeader.split(' ');
+    if (type.toLowerCase() !== 'bearer' || !scheme) {
+        return {};
+    }
+
+    const resourceMetadataRegex = /resource_metadata="([^"]*)"/;
+    const resourceMetadataMatch = resourceMetadataRegex.exec(authenticateHeader);
+
+    const scopeRegex = /scope="([^"]*)"/;
+    const scopeMatch = scopeRegex.exec(authenticateHeader);
+
+    let resourceMetadataUrl: URL | undefined;
+    if (resourceMetadataMatch) {
+        try {
+            resourceMetadataUrl = new URL(resourceMetadataMatch[1]);
+        } catch {
+            // Ignore invalid URL
+        }
+    }
+
+    const scope = scopeMatch?.[1] || undefined;
+
+    return {
+        resourceMetadataUrl,
+        scope
+    };
+}
+
+/**
  * Extract resource_metadata from response header.
+ * @deprecated Use `extractWWWAuthenticateParams` instead.
  */
 export function extractResourceMetadataUrl(res: Response): URL | undefined {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
@@ -669,8 +707,7 @@ export async function discoverOAuthMetadata(
  * Builds a list of discovery URLs to try for authorization server metadata.
  * URLs are returned in priority order:
  * 1. OAuth metadata at the given URL
- * 2. OAuth metadata at root (if URL has path)
- * 3. OIDC metadata endpoints
+ * 2. OIDC metadata endpoints at the given URL
  */
 export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url: URL; type: 'oauth' | 'oidc' }[] {
     const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
@@ -706,18 +743,13 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
         type: 'oauth'
     });
 
-    // Root path: https://example.com/.well-known/oauth-authorization-server
-    urlsToTry.push({
-        url: new URL('/.well-known/oauth-authorization-server', url.origin),
-        type: 'oauth'
-    });
-
-    // 3. OIDC metadata endpoints
+    // 2. OIDC metadata endpoints
     // RFC 8414 style: Insert /.well-known/openid-configuration before the path
     urlsToTry.push({
         url: new URL(`/.well-known/openid-configuration${pathname}`, url.origin),
         type: 'oidc'
     });
+
     // OIDC Discovery 1.0 style: Append /.well-known/openid-configuration after the path
     urlsToTry.push({
         url: new URL(`${pathname}/.well-known/openid-configuration`, url.origin),
