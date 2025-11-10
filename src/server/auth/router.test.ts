@@ -266,6 +266,24 @@ describe('MCP Auth Router', () => {
             expect(response.body.scopes_supported).toEqual(['read', 'write']);
             expect(response.body.resource_name).toBe('Test API');
         });
+
+        it('handles path components in issuer URL', async () => {
+            const app = express();
+
+            const options: AuthRouterOptions = {
+                provider: mockProvider,
+                issuerUrl: new URL('https://auth.example.com/oauth')
+            };
+            app.use(mcpAuthRouter(options));
+
+            const response = await supertest(app).get('/.well-known/oauth-authorization-server/oauth');
+
+            expect(response.status).toBe(200);
+            expect(response.body.authorization_endpoint).toBe('https://auth.example.com/oauth/authorize');
+            expect(response.body.token_endpoint).toBe('https://auth.example.com/oauth/token');
+            expect(response.body.registration_endpoint).toBe('https://auth.example.com/oauth/register');
+            expect(response.body.revocation_endpoint).toBe('https://auth.example.com/oauth/revoke');
+        });
     });
 
     describe('Endpoint routing', () => {
