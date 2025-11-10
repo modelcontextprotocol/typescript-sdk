@@ -609,6 +609,51 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         });
     });
 
+    test(`${validatorName}: should default missing fields from schema defaults`, async () => {
+        const server = new Server(
+            { name: 'test-server', version: '1.0.0' },
+            {
+                capabilities: {},
+                jsonSchemaValidator: validatorProvider
+            }
+        );
+
+        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
+
+        // Client returns no values; SDK should apply defaults automatically (and validate)
+        client.setRequestHandler(ElicitRequestSchema, _request => ({
+            action: 'accept',
+            content: {}
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await server.elicitInput({
+            message: 'Provide your preferences',
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    subscribe: { type: 'boolean', default: true },
+                    nickname: { type: 'string', default: 'Guest' },
+                    age: { type: 'integer', minimum: 0, maximum: 150, default: 18 },
+                    color: { type: 'string', enum: ['red', 'green'], default: 'green' }
+                },
+                required: ['subscribe', 'nickname', 'age', 'color']
+            }
+        });
+
+        expect(result).toEqual({
+            action: 'accept',
+            content: {
+                subscribe: true,
+                nickname: 'Guest',
+                age: 18,
+                color: 'green'
+            }
+        });
+    });
+
     test(`${validatorName}: should reject invalid email format`, async () => {
         const server = new Server(
             { name: 'test-server', version: '1.0.0' },

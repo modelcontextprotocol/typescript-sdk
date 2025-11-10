@@ -1198,9 +1198,9 @@ export const CreateMessageResultSchema = ResultSchema.extend({
  */
 export const BooleanSchemaSchema = z.object({
     type: z.literal('boolean'),
-    title: z.optional(z.string()),
-    description: z.optional(z.string()),
-    default: z.optional(z.boolean())
+    title: z.string().optional(),
+    description: z.string().optional(),
+    default: z.boolean().optional()
 });
 
 /**
@@ -1208,11 +1208,12 @@ export const BooleanSchemaSchema = z.object({
  */
 export const StringSchemaSchema = z.object({
     type: z.literal('string'),
-    title: z.optional(z.string()),
-    description: z.optional(z.string()),
-    minLength: z.optional(z.number()),
-    maxLength: z.optional(z.number()),
-    format: z.optional(z.enum(['email', 'uri', 'date', 'date-time']))
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minLength: z.number().optional(),
+    maxLength: z.number().optional(),
+    format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
+    default: z.string().optional()
 });
 
 /**
@@ -1220,10 +1221,11 @@ export const StringSchemaSchema = z.object({
  */
 export const NumberSchemaSchema = z.object({
     type: z.enum(['number', 'integer']),
-    title: z.optional(z.string()),
-    description: z.optional(z.string()),
-    minimum: z.optional(z.number()),
-    maximum: z.optional(z.number())
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minimum: z.number().optional(),
+    maximum: z.number().optional(),
+    default: z.number().optional()
 });
 
 /**
@@ -1231,10 +1233,11 @@ export const NumberSchemaSchema = z.object({
  */
 export const EnumSchemaSchema = z.object({
     type: z.literal('string'),
-    title: z.optional(z.string()),
-    description: z.optional(z.string()),
+    title: z.string().optional(),
+    description: z.string().optional(),
     enum: z.array(z.string()),
-    enumNames: z.optional(z.array(z.string()))
+    enumNames: z.array(z.string()).optional(),
+    default: z.string().optional()
 });
 
 /**
