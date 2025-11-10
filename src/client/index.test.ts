@@ -219,8 +219,7 @@ test('should connect new client to old, supported server version', async () => {
     const client = new Client(
         {
             name: 'new client',
-            version: '1.0',
-            protocolVersion: LATEST_PROTOCOL_VERSION
+            version: '1.0'
         },
         {
             capabilities: {
@@ -281,8 +280,7 @@ test('should negotiate version when client is old, and newer server supports its
     const client = new Client(
         {
             name: 'old client',
-            version: '1.0',
-            protocolVersion: OLD_VERSION
+            version: '1.0'
         },
         {
             capabilities: {
@@ -344,8 +342,7 @@ test("should throw when client is old, and server doesn't support its version", 
     const client = new Client(
         {
             name: 'old client',
-            version: '1.0',
-            protocolVersion: OLD_VERSION
+            version: '1.0'
         },
         {
             capabilities: {

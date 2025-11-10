@@ -1183,16 +1183,24 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     }
 }
 
-export function mergeCapabilities<T extends ServerCapabilities | ClientCapabilities>(base: T, additional: T): T {
-    return Object.entries(additional).reduce(
-        (acc, [key, value]) => {
-            if (value && typeof value === 'object') {
-                acc[key] = acc[key] ? { ...acc[key], ...value } : value;
-            } else {
-                acc[key] = value;
-            }
-            return acc;
-        },
-        { ...base }
-    );
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function mergeCapabilities(base: ServerCapabilities, additional: Partial<ServerCapabilities>): ServerCapabilities;
+export function mergeCapabilities(base: ClientCapabilities, additional: Partial<ClientCapabilities>): ClientCapabilities;
+export function mergeCapabilities<T extends ServerCapabilities | ClientCapabilities>(base: T, additional: Partial<T>): T {
+    const result: T = { ...base };
+    for (const key in additional) {
+        const k = key as keyof T;
+        const addValue = additional[k];
+        if (addValue === undefined) continue;
+        const baseValue = result[k];
+        if (isPlainObject(baseValue) && isPlainObject(addValue)) {
+            result[k] = { ...(baseValue as Record<string, unknown>), ...(addValue as Record<string, unknown>) } as T[typeof k];
+        } else {
+            result[k] = addValue as T[typeof k];
+        }
+    }
+    return result;
 }

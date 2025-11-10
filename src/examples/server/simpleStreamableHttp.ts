@@ -17,8 +17,8 @@ import {
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import { InMemoryTaskStore } from '../shared/inMemoryTaskStore.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
-import { OAuthMetadata } from 'src/shared/auth.js';
-import { checkResourceAllowed } from 'src/shared/auth-utils.js';
+import { OAuthMetadata } from '../../shared/auth.js';
+import { checkResourceAllowed } from '../../shared/auth-utils.js';
 
 import cors from 'cors';
 
