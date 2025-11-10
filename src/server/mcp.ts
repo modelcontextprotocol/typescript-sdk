@@ -31,6 +31,10 @@ import {
     ServerNotification,
     ToolAnnotations,
     LoggingMessageNotification,
+    CreateTaskResult,
+    GetTaskResult,
+    Result,
+    TASK_META_KEY,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     assertCompleteRequestPrompt,
@@ -38,8 +42,9 @@ import {
 } from '../types.js';
 import { Completable, CompletableDef } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
-import { RequestHandlerExtra } from '../shared/protocol.js';
+import { RequestHandlerExtra, RequestTaskStore } from '../shared/protocol.js';
 import { Transport } from '../shared/transport.js';
+import { isTerminal } from '../shared/task.js';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -837,6 +842,51 @@ export class McpServer {
     }
 
     /**
+     * Registers a task-based tool with a config object and callback.
+     */
+    registerToolTask<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape>(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            inputSchema?: InputArgs;
+            outputSchema?: OutputArgs;
+            annotations?: ToolAnnotations;
+            _meta?: Record<string, unknown>;
+        },
+        handler: ToolTaskHandler<InputArgs>
+    ): RegisteredTool {
+        // TODO: Attach to individual request handlers and remove this wrapper
+        const cb: ToolCallback<InputArgs> = (async (...args) => {
+            const [inputArgs, extra] = args;
+
+            const taskStore = extra.taskStore;
+            if (!taskStore) {
+                throw new Error('Task store is not available');
+            }
+
+            const taskMetadata = extra._meta?.[TASK_META_KEY];
+            const taskId = taskMetadata?.taskId;
+            if (!taskId) {
+                throw new Error('No task ID provided');
+            }
+
+            // Internal polling to allow using this interface before internals are hooked up
+            const taskExtra = { ...extra, taskId, taskStore };
+            let task = await handler.createTask(inputArgs, taskExtra);
+            do {
+                await new Promise(resolve => setTimeout(resolve, task.pollInterval ?? 5000));
+                task = await handler.getTask(inputArgs, taskExtra);
+            } while (!isTerminal(task.status));
+
+            const result: CallToolResult = await handler.getTaskResult(inputArgs, taskExtra);
+            return result;
+        }) as ToolCallback<InputArgs>;
+
+        return this.registerTool(name, { ...config, annotations: { ...config.annotations, taskHint: true } }, cb);
+    }
+
+    /**
      * Registers a zero-argument prompt `name`, which will run the given function when the client calls it.
      * @deprecated Use `registerPrompt` instead.
      */
@@ -1043,6 +1093,21 @@ export type ToolCallback<Args extends undefined | ZodRawShape | ZodType<object> 
     : Args extends ZodType<infer T>
       ? (args: T, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>
       : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
+
+export interface TaskRequestHandlerExtra extends RequestHandlerExtra<ServerRequest, ServerNotification> {
+    taskId: string;
+    taskStore: RequestTaskStore;
+}
+
+export type TaskRequestHandler<SendResultT extends Result, Args extends undefined | ZodRawShape = undefined> = Args extends ZodRawShape
+    ? (args: z.objectOutputType<Args, ZodTypeAny>, extra: TaskRequestHandlerExtra) => SendResultT | Promise<SendResultT>
+    : (extra: TaskRequestHandlerExtra) => SendResultT | Promise<SendResultT>;
+
+export interface ToolTaskHandler<Args extends undefined | ZodRawShape = undefined> {
+    createTask: TaskRequestHandler<CreateTaskResult, Args>;
+    getTask: TaskRequestHandler<GetTaskResult, Args>;
+    getTaskResult: TaskRequestHandler<CallToolResult, Args>;
+}
 
 export type RegisteredTool = {
     title?: string;

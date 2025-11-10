@@ -2495,14 +2495,16 @@ test('should respect server task capabilities', async () => {
 
     // This should throw because server doesn't support task creation for tools/list
     await expect(
-        client.beginRequest(
-            {
-                method: 'tools/list',
-                params: {}
-            },
-            z.object({ tools: z.array(z.any()) }),
-            { task: { taskId: 'test-task-2', keepAlive: 60000 } }
-        ).result()
+        client
+            .beginRequest(
+                {
+                    method: 'tools/list',
+                    params: {}
+                },
+                z.object({ tools: z.array(z.any()) }),
+                { task: { taskId: 'test-task-2', keepAlive: 60000 } }
+            )
+            .result()
     ).rejects.toThrow('Server does not support task creation for tools/list');
 
     serverTaskStore.cleanup();

@@ -664,6 +664,8 @@ export const TaskSchema = z.object({
     error: z.optional(z.string())
 });
 
+export const CreateTaskResultSchema = ResultSchema.merge(TaskSchema);
+
 /**
  * An out-of-band notification used to inform the receiver of a task being created.
  */
@@ -1732,7 +1734,8 @@ export const ClientResultSchema = z.union([
     ElicitResultSchema,
     ListRootsResultSchema,
     GetTaskResultSchema,
-    ListTasksResultSchema
+    ListTasksResultSchema,
+    CreateTaskResultSchema
 ]);
 
 /* Server messages */
@@ -1769,7 +1772,8 @@ export const ServerResultSchema = z.union([
     CallToolResultSchema,
     ListToolsResultSchema,
     GetTaskResultSchema,
-    ListTasksResultSchema
+    ListTasksResultSchema,
+    CreateTaskResultSchema
 ]);
 
 export class McpError extends Error {
@@ -1877,6 +1881,7 @@ export type ProgressNotification = Infer<typeof ProgressNotificationSchema>;
 export type Task = Infer<typeof TaskSchema>;
 export type TaskMetadata = Infer<typeof TaskMetadataSchema>;
 export type RelatedTaskMetadata = Infer<typeof RelatedTaskMetadataSchema>;
+export type CreateTaskResult = Infer<typeof CreateTaskResultSchema>;
 export type TaskCreatedNotification = Infer<typeof TaskCreatedNotificationSchema>;
 export type GetTaskRequest = Infer<typeof GetTaskRequestSchema>;
 export type GetTaskResult = Infer<typeof GetTaskResultSchema>;

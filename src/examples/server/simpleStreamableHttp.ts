@@ -454,7 +454,7 @@ const getServer = () => {
     );
 
     // Register a long-running tool that demonstrates task execution
-    server.registerTool(
+    server.registerToolTask(
         'delay',
         {
             title: 'Delay',
@@ -463,16 +463,37 @@ const getServer = () => {
                 duration: z.number().describe('Duration in milliseconds').default(5000)
             }
         },
-        async ({ duration }): Promise<CallToolResult> => {
-            await new Promise(resolve => setTimeout(resolve, duration));
-            return {
-                content: [
-                    {
-                        type: 'text',
-                        text: `Completed ${duration}ms delay`
-                    }
-                ]
-            };
+        {
+            async createTask({ duration }, { taskId, taskStore, taskRequestedKeepAlive }) {
+                // Simulate out-of-band work
+                (async () => {
+                    await new Promise(resolve => setTimeout(resolve, duration));
+                    await taskStore.storeTaskResult(taskId, {
+                        content: [
+                            {
+                                type: 'text',
+                                text: `Completed ${duration}ms delay`
+                            }
+                        ]
+                    });
+                })();
+                return await taskStore.createTask({
+                    taskId,
+                    keepAlive: taskRequestedKeepAlive
+                });
+            },
+            async getTask(_args, { taskId, taskStore }) {
+                const task = await taskStore.getTask(taskId);
+                if (!task) {
+                    throw new Error(`Task ${taskId} not found`);
+                }
+
+                return task;
+            },
+            async getTaskResult(_args, { taskId, taskStore }) {
+                const result = await taskStore.getTaskResult(taskId);
+                return result as CallToolResult;
+            }
         }
     );
 

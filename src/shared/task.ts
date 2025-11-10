@@ -14,8 +14,9 @@ export interface TaskStore {
      * @param requestId - The JSON-RPC request ID
      * @param request - The original request that triggered task creation
      * @param sessionId - Optional session ID for binding the task to a specific session
+     * @returns The task state including status, keepAlive, pollInterval, and optional error
      */
-    createTask(task: TaskMetadata, requestId: RequestId, request: Request, sessionId?: string): Promise<void>;
+    createTask(task: TaskMetadata, requestId: RequestId, request: Request, sessionId?: string): Promise<Task>;
 
     /**
      * Gets the current status of a task.

@@ -21,7 +21,7 @@ export class InMemoryTaskStore implements TaskStore {
     private tasks = new Map<string, StoredTask>();
     private cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-    async createTask(metadata: TaskMetadata, requestId: RequestId, request: Request, _sessionId?: string): Promise<void> {
+    async createTask(metadata: TaskMetadata, requestId: RequestId, request: Request, _sessionId?: string): Promise<Task> {
         const taskId = metadata.taskId;
 
         if (this.tasks.has(taskId)) {
@@ -50,6 +50,8 @@ export class InMemoryTaskStore implements TaskStore {
 
             this.cleanupTimers.set(taskId, timer);
         }
+
+        return task;
     }
 
     async getTask(taskId: string, _sessionId?: string): Promise<Task | null> {

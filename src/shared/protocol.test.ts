@@ -37,14 +37,14 @@ function createMockTaskStore(options?: {
     const tasks: Record<string, Task & { result?: Result }> = {};
     return {
         createTask: jest.fn((taskMetadata: TaskMetadata, _1: RequestId, _2: Request) => {
-            tasks[taskMetadata.taskId] = {
+            const task = (tasks[taskMetadata.taskId] = {
                 taskId: taskMetadata.taskId,
                 status: (taskMetadata.status as Task['status'] | undefined) ?? 'submitted',
                 keepAlive: taskMetadata.keepAlive ?? null,
                 pollInterval: (taskMetadata.pollInterval as Task['pollInterval'] | undefined) ?? 1000
-            };
+            });
             options?.onStatus?.('submitted');
-            return Promise.resolve();
+            return Promise.resolve(task);
         }),
         getTask: jest.fn((taskId: string) => {
             return Promise.resolve(tasks[taskId] ?? null);
