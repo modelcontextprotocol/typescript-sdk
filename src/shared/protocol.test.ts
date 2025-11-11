@@ -40,11 +40,11 @@ function createMockTaskStore(options?: {
         createTask: jest.fn((taskMetadata: TaskMetadata, _1: RequestId, _2: Request) => {
             const task = (tasks[taskMetadata.taskId] = {
                 taskId: taskMetadata.taskId,
-                status: (taskMetadata.status as Task['status'] | undefined) ?? 'submitted',
+                status: (taskMetadata.status as Task['status'] | undefined) ?? 'working',
                 keepAlive: taskMetadata.keepAlive ?? null,
                 pollInterval: (taskMetadata.pollInterval as Task['pollInterval'] | undefined) ?? 1000
             });
-            options?.onStatus?.('submitted');
+            options?.onStatus?.('working');
             return Promise.resolve(task);
         }),
         getTask: jest.fn((taskId: string) => {
@@ -1362,7 +1362,6 @@ describe('Task-based execution', () => {
             await mockTaskStore.createTask(
                 {
                     taskId: 'task-3',
-                    status: 'submitted',
                     pollInterval: 500
                 },
                 1,
@@ -1398,7 +1397,7 @@ describe('Task-based execution', () => {
             const sentMessage = sendSpy.mock.calls[0][0];
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(2);
-            expect(sentMessage.result.tasks).toEqual([{ taskId: 'task-3', status: 'submitted', keepAlive: null, pollInterval: 500 }]);
+            expect(sentMessage.result.tasks).toEqual([{ taskId: 'task-3', status: 'working', keepAlive: null, pollInterval: 500 }]);
             expect(sentMessage.result.nextCursor).toBeUndefined();
             expect(sentMessage.result._meta).toEqual({});
         });

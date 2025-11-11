@@ -13,7 +13,7 @@ describe('InMemoryTaskStore', () => {
     });
 
     describe('createTask', () => {
-        it('should create a new task with submitted status', async () => {
+        it('should create a new task with working status', async () => {
             const metadata: TaskMetadata = {
                 taskId: 'task-1',
                 keepAlive: 60000
@@ -28,7 +28,7 @@ describe('InMemoryTaskStore', () => {
             const task = await store.getTask('task-1');
             expect(task).toBeDefined();
             expect(task?.taskId).toBe('task-1');
-            expect(task?.status).toBe('submitted');
+            expect(task?.status).toBe('working');
             expect(task?.keepAlive).toBe(60000);
             expect(task?.pollInterval).toBe(500);
         });
@@ -99,9 +99,7 @@ describe('InMemoryTaskStore', () => {
             });
         });
 
-        it('should update task status from submitted to working', async () => {
-            await store.updateTaskStatus('status-test', 'working');
-
+        it('should keep task status as working', async () => {
             const task = await store.getTask('status-test');
             expect(task?.status).toBe('working');
         });

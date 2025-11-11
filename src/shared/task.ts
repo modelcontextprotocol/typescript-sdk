@@ -79,8 +79,8 @@ export interface TaskStore {
  * Terminal states are those where the task has finished and will not change.
  *
  * @param status - The task status to check
- * @returns True if the status is terminal (completed, failed, cancelled, or unknown)
+ * @returns True if the status is terminal (completed, failed, or cancelled)
  */
 export function isTerminal(status: Task['status']): boolean {
-    return status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'unknown';
+    return status === 'completed' || status === 'failed' || status === 'cancelled';
 }

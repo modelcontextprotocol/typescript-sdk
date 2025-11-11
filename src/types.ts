@@ -604,7 +604,7 @@ export const PaginatedResultSchema = ResultSchema.extend({
  */
 export const TaskSchema = z.object({
     taskId: z.string(),
-    status: z.enum(['submitted', 'working', 'input_required', 'completed', 'failed', 'cancelled', 'unknown']),
+    status: z.enum(['working', 'input_required', 'completed', 'failed', 'cancelled']),
     keepAlive: z.union([z.number(), z.null()]),
     pollInterval: z.optional(z.number()),
     error: z.optional(z.string())

@@ -30,7 +30,7 @@ export class InMemoryTaskStore implements TaskStore {
 
         const task: Task = {
             taskId,
-            status: 'submitted',
+            status: 'working',
             keepAlive: metadata.keepAlive ?? null,
             pollInterval: metadata.pollInterval ?? 500
         };
