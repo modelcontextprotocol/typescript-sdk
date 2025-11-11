@@ -3,7 +3,8 @@ import {
     type ClientCapabilities,
     type CreateMessageRequest,
     CreateMessageResultSchema,
-    type ElicitRequest,
+    ElicitRequestFormParams,
+    ElicitRequestURLParams,
     type ElicitResult,
     ElicitResultSchema,
     EmptyResultSchema,
@@ -326,15 +327,15 @@ export class Server<
         return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
-    async elicitInput(params: ElicitRequest['params'], options?: RequestOptions): Promise<ElicitResult> {
-        const mode = params.mode;
+    async elicitFormInput(params: Omit<ElicitRequestFormParams, 'mode'>, options?: RequestOptions): Promise<ElicitResult> {
+        const mode = 'form';
         if (!this._clientCapabilities?.elicitation?.[mode]) {
             throw new Error(`Client does not support ${mode} elicitation.`);
         }
-        const result = await this.request({ method: 'elicitation/create', params }, ElicitResultSchema, options);
+        const result = await this.request({ method: 'elicitation/create', params: { ...params, mode } }, ElicitResultSchema, options);
 
-        // If this is a form payload, validate the response content against the requested schema if action is "accept"
-        if (mode === 'form' && result.action === 'accept' && result.content && params.requestedSchema) {
+        // Validate the response content against the requested schema if action is "accept"
+        if (result.action === 'accept' && result.content && params.requestedSchema) {
             try {
                 const validator = this._jsonSchemaValidator.getValidator(params.requestedSchema as JsonSchemaType);
                 const validationResult = validator(result.content);
@@ -356,6 +357,15 @@ export class Server<
             }
         }
 
+        return result;
+    }
+
+    async elicitUrl(params: Omit<ElicitRequestURLParams, 'mode'>, options?: RequestOptions): Promise<ElicitResult> {
+        const mode = 'url';
+        if (!this._clientCapabilities?.elicitation?.[mode]) {
+            throw new Error(`Client does not support ${mode} elicitation.`);
+        }
+        const result = await this.request({ method: 'elicitation/create', params: { ...params, mode } }, ElicitResultSchema, options);
         return result;
     }
 

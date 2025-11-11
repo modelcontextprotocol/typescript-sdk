@@ -215,7 +215,7 @@ const getServer = () => {
 
             try {
                 // Use the underlying server instance to elicit input from the client
-                const result = await server.server.elicitInput({
+                const result = await server.server.elicitFormInput({
                     message,
                     requestedSchema
                 });

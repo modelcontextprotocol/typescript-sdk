@@ -4097,7 +4097,7 @@ describe('elicitInput()', () => {
 
                 if (!available) {
                     // Ask user if they want to try alternative dates
-                    const result = await mcpServer.server.elicitInput({
+                    const result = await mcpServer.server.elicitFormInput({
                         message: `No tables available at ${restaurant} on ${date}. Would you like to check alternative dates?`,
                         requestedSchema: {
                             type: 'object',

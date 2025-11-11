@@ -625,7 +625,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
                     console.log(`Session initialized with ID: ${sessionId}`);
                     transports[sessionId] = transport;
                     sessionsNeedingElicitation[sessionId] = {
-                        elicitationSender: server.server.elicitInput.bind(server.server),
+                        elicitationSender: server.server.elicitUrl.bind(server.server),
                         notificationSender: async (notification: ElicitationCompleteNotification) => {
                             await server.server.notification(notification);
                         }

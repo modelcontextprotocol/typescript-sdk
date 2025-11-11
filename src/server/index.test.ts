@@ -308,7 +308,7 @@ test('should respect client elicitation capabilities', async () => {
 
     // This should work because elicitation is supported by the client
     await expect(
-        server.elicitInput({
+        server.elicitFormInput({
             message: 'Please provide your username',
             requestedSchema: {
                 type: 'object',
@@ -390,7 +390,7 @@ test('should validate elicitation response against requested schema', async () =
 
     // Test with valid response
     await expect(
-        server.elicitInput({
+        server.elicitFormInput({
             message: 'Please provide your information',
             requestedSchema: {
                 type: 'object',
@@ -466,7 +466,7 @@ test('should reject elicitation response with invalid data', async () => {
 
     // Test with invalid response
     await expect(
-        server.elicitInput({
+        server.elicitFormInput({
             message: 'Please provide your information',
             requestedSchema: {
                 type: 'object',
@@ -544,7 +544,7 @@ test('should allow elicitation reject and cancel without validation', async () =
 
     // Test reject - should not validate
     await expect(
-        server.elicitInput({
+        server.elicitFormInput({
             message: 'Please provide your name',
             requestedSchema: schema
         })
@@ -554,7 +554,7 @@ test('should allow elicitation reject and cancel without validation', async () =
 
     // Test cancel - should not validate
     await expect(
-        server.elicitInput({
+        server.elicitFormInput({
             message: 'Please provide your name',
             requestedSchema: schema
         })
