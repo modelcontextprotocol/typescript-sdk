@@ -37,10 +37,10 @@ describe('validateToolName', () => {
       expect(result.warnings).toHaveLength(0);
     });
 
-    test('should accept names with forward slashes', () => {
+    test('should reject names with forward slashes', () => {
       const result = validateToolName('user/profile/update');
-      expect(result.isValid).toBe(true);
-      expect(result.warnings).toHaveLength(0);
+      expect(result.isValid).toBe(false);
+      expect(result.warnings).toContain('Tool name contains invalid characters: "/"');
     });
 
     test('should accept mixed character names', () => {
@@ -222,10 +222,10 @@ describe('edge cases and robustness', () => {
     expect(result.warnings).toContain('Tool name starts or ends with a dash, which may cause parsing issues in some contexts');
   });
 
-  test('should warn about names with only forward slashes', () => {
+  test('should reject names with only forward slashes', () => {
     const result = validateToolName('///');
-    expect(result.isValid).toBe(true);
-    expect(result.warnings).toContain('Tool name starts or ends with a slash, which may cause parsing issues in some contexts');
+    expect(result.isValid).toBe(false);
+    expect(result.warnings).toContain('Tool name contains invalid characters: "/"');
   });
 
   test('should handle names with mixed valid and invalid characters', () => {

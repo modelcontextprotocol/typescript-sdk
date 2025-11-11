@@ -4,14 +4,14 @@
  * Tool names SHOULD be between 1 and 128 characters in length (inclusive).
  * Tool names are case-sensitive.
  * Allowed characters: uppercase and lowercase ASCII letters (A-Z, a-z), digits
- * (0-9), underscore (_), dash (-), dot (.), and forward slash (/).
+ * (0-9), underscore (_), dash (-), and dot (.).
  * Tool names SHOULD NOT contain spaces, commas, or other special characters.
  */
 
 /**
  * Regular expression for valid tool names according to SEP-986 specification
  */
-const TOOL_NAME_REGEX = /^[A-Za-z0-9._/-]{1,128}$/;
+const TOOL_NAME_REGEX = /^[A-Za-z0-9._-]{1,128}$/;
 
 /**
  * Validates a tool name according to the SEP specification
@@ -56,21 +56,17 @@ export function validateToolName(name: string): {
   if (name.startsWith('.') || name.endsWith('.')) {
     warnings.push("Tool name starts or ends with a dot, which may cause parsing issues in some contexts");
   }
-  
-  if (name.startsWith('/') || name.endsWith('/')) {
-    warnings.push("Tool name starts or ends with a slash, which may cause parsing issues in some contexts");
-  }
-  
+
   // Check for invalid characters
   if (!TOOL_NAME_REGEX.test(name)) {
     const invalidChars = name
       .split('')
-      .filter(char => !/[A-Za-z0-9._/-]/.test(char))
+      .filter(char => !/[A-Za-z0-9._-]/.test(char))
       .filter((char, index, arr) => arr.indexOf(char) === index); // Remove duplicates
-    
+
     warnings.push(
       `Tool name contains invalid characters: ${invalidChars.map(c => `"${c}"`).join(', ')}`,
-      "Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), dot (.), and forward slash (/)"
+      "Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)"
     );
     
     return {
