@@ -286,7 +286,17 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Present if the client supports eliciting user input.
      */
-    elicitation: AssertObjectSchema.optional(),
+    elicitation: z.intersection(
+        z
+            .object({
+                /**
+                 * Whether the client should apply defaults to the user input.
+                 */
+                applyDefaults: z.boolean().optional()
+            })
+            .optional(),
+        z.record(z.string(), z.unknown()).optional()
+    ),
     /**
      * Present if the client supports listing roots.
      */
@@ -1198,9 +1208,9 @@ export const CreateMessageResultSchema = ResultSchema.extend({
  */
 export const BooleanSchemaSchema = z.object({
     type: z.literal('boolean'),
-    title: z.optional(z.string()),
-    description: z.optional(z.string()),
-    default: z.optional(z.boolean())
+    title: z.string().optional(),
+    description: z.string().optional(),
+    default: z.boolean().optional()
 });
 
 /**
@@ -1208,11 +1218,12 @@ export const BooleanSchemaSchema = z.object({
  */
 export const StringSchemaSchema = z.object({
     type: z.literal('string'),
-    title: z.optional(z.string()),
-    description: z.optional(z.string()),
-    minLength: z.optional(z.number()),
-    maxLength: z.optional(z.number()),
-    format: z.optional(z.enum(['email', 'uri', 'date', 'date-time']))
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minLength: z.number().optional(),
+    maxLength: z.number().optional(),
+    format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
+    default: z.string().optional()
 });
 
 /**
@@ -1220,10 +1231,11 @@ export const StringSchemaSchema = z.object({
  */
 export const NumberSchemaSchema = z.object({
     type: z.enum(['number', 'integer']),
-    title: z.optional(z.string()),
-    description: z.optional(z.string()),
-    minimum: z.optional(z.number()),
-    maximum: z.optional(z.number())
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minimum: z.number().optional(),
+    maximum: z.number().optional(),
+    default: z.number().optional()
 });
 
 /**
@@ -1267,11 +1279,7 @@ export const LegacyTitledEnumSchemaSchema = z.object({
 });
 
 // Combined single selection enumeration
-export const SingleSelectEnumSchemaSchema = z.union([
-    UntitledSingleSelectEnumSchemaSchema,
-    TitledSingleSelectEnumSchemaSchema,
-    LegacyTitledEnumSchemaSchema
-]);
+export const SingleSelectEnumSchemaSchema = z.union([UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema]);
 
 /**
  * Schema for multiple-selection enumeration without display titles for options.
@@ -1317,12 +1325,12 @@ export const MultiSelectEnumSchemaSchema = z.union([UntitledMultiSelectEnumSchem
 /**
  * Primitive schema definition for enum fields.
  */
-export const EnumSchemaSchema = z.union([SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema]);
+export const EnumSchemaSchema = z.union([SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema, LegacyTitledEnumSchemaSchema]);
 
 /**
  * Union of all primitive schema definitions.
  */
-export const PrimitiveSchemaDefinitionSchema = z.union([BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema, EnumSchemaSchema]);
+export const PrimitiveSchemaDefinitionSchema = z.union([EnumSchemaSchema, BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema]);
 
 /**
  * Parameters for an `elicitation/create` request.

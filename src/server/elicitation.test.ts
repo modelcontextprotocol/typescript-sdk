@@ -9,7 +9,7 @@
 
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';
-import { ElicitRequestSchema } from '../types.js';
+import { ElicitRequestParams, ElicitRequestSchema, PrimitiveSchemaDefinition } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import { CfWorkerJsonSchemaValidator } from '../validation/cfworker-provider.js';
 import { Server } from './index.js';
@@ -446,6 +446,122 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         expect(result).toEqual({
             action: 'accept',
             content: { email: 'user@example.com' }
+        });
+    });
+
+    test(`${validatorName}: should default missing fields from schema defaults`, async () => {
+        const server = new Server(
+            { name: 'test-server', version: '1.0.0' },
+            {
+                capabilities: {},
+                jsonSchemaValidator: validatorProvider
+            }
+        );
+
+        const client = new Client(
+            { name: 'test-client', version: '1.0.0' },
+            {
+                capabilities: {
+                    elicitation: {
+                        applyDefaults: true
+                    }
+                }
+            }
+        );
+
+        const testSchemaProperties: ElicitRequestParams['requestedSchema'] = {
+            type: 'object',
+            properties: {
+                subscribe: { type: 'boolean', default: true },
+                nickname: { type: 'string', default: 'Guest' },
+                age: { type: 'integer', minimum: 0, maximum: 150, default: 18 },
+                color: { type: 'string', enum: ['red', 'green'], default: 'green' },
+                untitledSingleSelectEnum: {
+                    type: 'string',
+                    title: 'Untitled Single Select Enum',
+                    description: 'Choose your favorite color',
+                    enum: ['red', 'green', 'blue'],
+                    default: 'green'
+                },
+                untitledMultipleSelectEnum: {
+                    type: 'array',
+                    title: 'Untitled Multiple Select Enum',
+                    description: 'Choose your favorite colors',
+                    minItems: 1,
+                    maxItems: 3,
+                    items: { type: 'string', enum: ['red', 'green', 'blue'] },
+                    default: ['green', 'blue']
+                },
+                titledSingleSelectEnum: {
+                    type: 'string',
+                    title: 'Single Select Enum',
+                    description: 'Choose your favorite color',
+                    oneOf: [
+                        { const: 'red', title: 'Red' },
+                        { const: 'green', title: 'Green' },
+                        { const: 'blue', title: 'Blue' }
+                    ],
+                    default: 'green'
+                },
+                titledMultipleSelectEnum: {
+                    type: 'array',
+                    title: 'Multiple Select Enum',
+                    description: 'Choose your favorite colors',
+                    minItems: 1,
+                    maxItems: 3,
+                    items: {
+                        anyOf: [
+                            { const: 'red', title: 'Red' },
+                            { const: 'green', title: 'Green' },
+                            { const: 'blue', title: 'Blue' }
+                        ]
+                    },
+                    default: ['green', 'blue']
+                },
+                optionalWithADefault: { type: 'string', default: 'default value' }
+            },
+            required: [
+                'subscribe',
+                'nickname',
+                'age',
+                'color',
+                'titledSingleSelectEnum',
+                'titledMultipleSelectEnum',
+                'untitledSingleSelectEnum',
+                'untitledMultipleSelectEnum'
+            ]
+        };
+
+        // Client returns no values; SDK should apply defaults automatically (and validate)
+        client.setRequestHandler(ElicitRequestSchema, request => {
+            expect(request.params.requestedSchema).toEqual(testSchemaProperties);
+            return {
+                action: 'accept',
+                content: {}
+            };
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await server.elicitInput({
+            message: 'Provide your preferences',
+            requestedSchema: testSchemaProperties
+        });
+
+        expect(result).toEqual({
+            action: 'accept',
+            content: {
+                subscribe: true,
+                nickname: 'Guest',
+                age: 18,
+                color: 'green',
+                untitledSingleSelectEnum: 'green',
+                untitledMultipleSelectEnum: ['green', 'blue'],
+                titledSingleSelectEnum: 'green',
+                titledMultipleSelectEnum: ['green', 'blue'],
+                optionalWithADefault: 'default value'
+            }
         });
     });
 

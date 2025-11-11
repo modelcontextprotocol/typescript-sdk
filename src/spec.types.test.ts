@@ -62,6 +62,19 @@ type MakeUnknownsNotOptional<T> =
                       }
           : T;
 
+// Targeted fix: in spec, treat ClientCapabilities.elicitation?: object as Record<string, unknown>
+type FixSpecClientCapabilities<T> = T extends { elicitation?: object }
+    ? Omit<T, 'elicitation'> & { elicitation?: Record<string, unknown> }
+    : T;
+
+type FixSpecInitializeRequestParams<T> = T extends { capabilities: infer C }
+    ? Omit<T, 'capabilities'> & { capabilities: FixSpecClientCapabilities<C> }
+    : T;
+
+type FixSpecInitializeRequest<T> = T extends { params: infer P } ? Omit<T, 'params'> & { params: FixSpecInitializeRequestParams<P> } : T;
+
+type FixSpecClientRequest<T> = T extends { params: infer P } ? Omit<T, 'params'> & { params: FixSpecInitializeRequestParams<P> } : T;
+
 const sdkTypeChecks = {
     RequestParams: (sdk: SDKTypes.RequestParams, spec: SpecTypes.RequestParams) => {
         sdk = spec;
@@ -75,7 +88,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    InitializeRequestParams: (sdk: SDKTypes.InitializeRequestParams, spec: SpecTypes.InitializeRequestParams) => {
+    InitializeRequestParams: (
+        sdk: SDKTypes.InitializeRequestParams,
+        spec: FixSpecInitializeRequestParams<SpecTypes.InitializeRequestParams>
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -508,7 +524,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    InitializeRequest: (sdk: WithJSONRPCRequest<SDKTypes.InitializeRequest>, spec: SpecTypes.InitializeRequest) => {
+    InitializeRequest: (
+        sdk: WithJSONRPCRequest<SDKTypes.InitializeRequest>,
+        spec: FixSpecInitializeRequest<SpecTypes.InitializeRequest>
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -516,7 +535,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ClientCapabilities: (sdk: SDKTypes.ClientCapabilities, spec: SpecTypes.ClientCapabilities) => {
+    ClientCapabilities: (sdk: SDKTypes.ClientCapabilities, spec: FixSpecClientCapabilities<SpecTypes.ClientCapabilities>) => {
         sdk = spec;
         spec = sdk;
     },
@@ -524,7 +543,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ClientRequest: (sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.ClientRequest>>, spec: SpecTypes.ClientRequest) => {
+    ClientRequest: (
+        sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.ClientRequest>>,
+        spec: FixSpecClientRequest<SpecTypes.ClientRequest>
+    ) => {
         sdk = spec;
         spec = sdk;
     },
