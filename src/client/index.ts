@@ -42,7 +42,6 @@ import {
     ToolListChangedNotificationSchema,
     ToolListChangedOptions,
     ToolListChangedOptionsSchema
-
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
