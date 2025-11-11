@@ -70,23 +70,6 @@ function applyElicitationDefaults(schema: JsonSchemaType | undefined, data: unkn
             }
         }
     }
-
-    // Combine schemas
-    if (Array.isArray(schema.allOf)) {
-        for (const sub of schema.allOf) {
-            applyElicitationDefaults(sub, data);
-        }
-    }
-    if (Array.isArray(schema.anyOf)) {
-        for (const sub of schema.anyOf) {
-            applyElicitationDefaults(sub, data);
-        }
-    }
-    if (Array.isArray(schema.oneOf)) {
-        for (const sub of schema.oneOf) {
-            applyElicitationDefaults(sub, data);
-        }
-    }
 }
 
 export type ClientOptions = ProtocolOptions & {
