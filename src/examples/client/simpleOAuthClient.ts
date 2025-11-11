@@ -27,7 +27,8 @@ class InMemoryOAuthClientProvider implements OAuthClientProvider {
     constructor(
         private readonly _redirectUrl: string | URL,
         private readonly _clientMetadata: OAuthClientMetadata,
-        onRedirect?: (url: URL) => void
+        onRedirect?: (url: URL) => void,
+        public readonly clientMetadataUrl?: string
     ) {
         this._onRedirect =
             onRedirect ||
@@ -88,7 +89,10 @@ class InteractiveOAuthClient {
         output: process.stdout
     });
 
-    constructor(private serverUrl: string) {}
+    constructor(
+        private serverUrl: string,
+        private clientMetadataUrl?: string
+    ) {}
 
     /**
      * Prompts user for input via readline
@@ -221,11 +225,16 @@ class InteractiveOAuthClient {
         };
 
         console.log('🔐 Creating OAuth provider...');
-        const oauthProvider = new InMemoryOAuthClientProvider(CALLBACK_URL, clientMetadata, (redirectUrl: URL) => {
-            console.log(`📌 OAuth redirect handler called - opening browser`);
-            console.log(`Opening browser to: ${redirectUrl.toString()}`);
-            this.openBrowser(redirectUrl.toString());
-        });
+        const oauthProvider = new InMemoryOAuthClientProvider(
+            CALLBACK_URL,
+            clientMetadata,
+            (redirectUrl: URL) => {
+                console.log(`📌 OAuth redirect handler called - opening browser`);
+                console.log(`Opening browser to: ${redirectUrl.toString()}`);
+                this.openBrowser(redirectUrl.toString());
+            },
+            this.clientMetadataUrl
+        );
         console.log('🔐 OAuth provider created');
 
         console.log('👤 Creating MCP client...');
@@ -388,13 +397,18 @@ class InteractiveOAuthClient {
  * Main entry point
  */
 async function main(): Promise<void> {
-    const serverUrl = process.env.MCP_SERVER_URL || DEFAULT_SERVER_URL;
+    const args = process.argv.slice(2);
+    const serverUrl = args[0] || DEFAULT_SERVER_URL;
+    const clientMetadataUrl = args[1];
 
     console.log('🚀 Simple MCP OAuth Client');
     console.log(`Connecting to: ${serverUrl}`);
+    if (clientMetadataUrl) {
+        console.log(`Client Metadata URL: ${clientMetadataUrl}`);
+    }
     console.log();
 
-    const client = new InteractiveOAuthClient(serverUrl);
+    const client = new InteractiveOAuthClient(serverUrl, clientMetadataUrl);
 
     // Handle graceful shutdown
     process.on('SIGINT', () => {
