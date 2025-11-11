@@ -1,6 +1,6 @@
 import { Server, ServerOptions } from './index.js';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { z, ZodRawShape, ZodObject, ZodString, AnyZodObject, ZodTypeAny, ZodType, ZodTypeDef, ZodOptional } from 'zod';
+import { z, ZodRawShape, ZodObject, ZodString, ZodTypeAny, ZodType, ZodTypeDef, ZodOptional } from 'zod';
 import {
     Implementation,
     Tool,
@@ -8,7 +8,6 @@ import {
     CallToolResult,
     McpError,
     ErrorCode,
-    CompleteRequest,
     CompleteResult,
     PromptReference,
     ResourceTemplateReference,
@@ -31,7 +30,11 @@ import {
     ServerRequest,
     ServerNotification,
     ToolAnnotations,
-    LoggingMessageNotification
+    LoggingMessageNotification,
+    CompleteRequestPrompt,
+    CompleteRequestResourceTemplate,
+    assertCompleteRequestPrompt,
+    assertCompleteRequestResourceTemplate
 } from '../types.js';
 import { CompletableDef, isCompletable } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
@@ -217,9 +220,11 @@ export class McpServer {
         this.server.setRequestHandler(CompleteRequestSchema, async (request): Promise<CompleteResult> => {
             switch (request.params.ref.type) {
                 case 'ref/prompt':
+                    assertCompleteRequestPrompt(request);
                     return this.handlePromptCompletion(request, request.params.ref);
 
                 case 'ref/resource':
+                    assertCompleteRequestResourceTemplate(request);
                     return this.handleResourceCompletion(request, request.params.ref);
 
                 default:
@@ -230,7 +235,7 @@ export class McpServer {
         this._completionHandlerInitialized = true;
     }
 
-    private async handlePromptCompletion(request: CompleteRequest, ref: PromptReference): Promise<CompleteResult> {
+    private async handlePromptCompletion(request: CompleteRequestPrompt, ref: PromptReference): Promise<CompleteResult> {
         const prompt = this._registeredPrompts[ref.name];
         if (!prompt) {
             throw new McpError(ErrorCode.InvalidParams, `Prompt ${ref.name} not found`);
@@ -254,7 +259,10 @@ export class McpServer {
         return createCompletionResult(suggestions);
     }
 
-    private async handleResourceCompletion(request: CompleteRequest, ref: ResourceTemplateReference): Promise<CompleteResult> {
+    private async handleResourceCompletion(
+        request: CompleteRequestResourceTemplate,
+        ref: ResourceTemplateReference
+    ): Promise<CompleteResult> {
         const template = Object.values(this._registeredResourceTemplates).find(t => t.resourceTemplate.uriTemplate.toString() === ref.uri);
 
         if (!template) {
@@ -666,8 +674,8 @@ export class McpServer {
         name: string,
         title: string | undefined,
         description: string | undefined,
-        inputSchema: ZodRawShape | undefined,
-        outputSchema: ZodRawShape | undefined,
+        inputSchema: ZodRawShape | ZodType<object> | undefined,
+        outputSchema: ZodRawShape | ZodType<object> | undefined,
         annotations: ToolAnnotations | undefined,
         _meta: Record<string, unknown> | undefined,
         callback: ToolCallback<ZodRawShape | undefined>
@@ -675,8 +683,8 @@ export class McpServer {
         const registeredTool: RegisteredTool = {
             title,
             description,
-            inputSchema: inputSchema === undefined ? undefined : z.object(inputSchema),
-            outputSchema: outputSchema === undefined ? undefined : z.object(outputSchema),
+            inputSchema: getZodSchemaObject(inputSchema),
+            outputSchema: getZodSchemaObject(outputSchema),
             annotations,
             _meta,
             callback,
@@ -814,7 +822,7 @@ export class McpServer {
     /**
      * Registers a tool with a config object and callback.
      */
-    registerTool<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape>(
+    registerTool<InputArgs extends ZodRawShape | ZodType<object>, OutputArgs extends ZodRawShape | ZodType<object>>(
         name: string,
         config: {
             title?: string;
@@ -1043,18 +1051,20 @@ export class ResourceTemplate {
  * - `content` if the tool does not have an outputSchema
  * - Both fields are optional but typically one should be provided
  */
-export type ToolCallback<Args extends undefined | ZodRawShape = undefined> = Args extends ZodRawShape
+export type ToolCallback<Args extends undefined | ZodRawShape | ZodType<object> = undefined> = Args extends ZodRawShape
     ? (
           args: z.objectOutputType<Args, ZodTypeAny>,
           extra: RequestHandlerExtra<ServerRequest, ServerNotification>
       ) => CallToolResult | Promise<CallToolResult>
-    : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
+    : Args extends ZodType<infer T>
+      ? (args: T, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>
+      : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
 
 export type RegisteredTool = {
     title?: string;
     description?: string;
-    inputSchema?: AnyZodObject;
-    outputSchema?: AnyZodObject;
+    inputSchema?: ZodType<object>;
+    outputSchema?: ZodType<object>;
     annotations?: ToolAnnotations;
     _meta?: Record<string, unknown>;
     callback: ToolCallback<undefined | ZodRawShape>;
@@ -1100,6 +1110,22 @@ function isZodTypeLike(value: unknown): value is ZodType {
         'safeParse' in value &&
         typeof value.safeParse === 'function'
     );
+}
+
+/**
+ * Converts a provided Zod schema to a Zod object if it is a ZodRawShape,
+ * otherwise returns the schema as is.
+ */
+function getZodSchemaObject(schema: ZodRawShape | ZodType<object> | undefined): ZodType<object> | undefined {
+    if (!schema) {
+        return undefined;
+    }
+
+    if (isZodRawShape(schema)) {
+        return z.object(schema);
+    }
+
+    return schema;
 }
 
 /**

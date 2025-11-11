@@ -71,7 +71,7 @@ export interface Transport {
      *
      * The requestInfo can be used to get the original request information (headers, etc.)
      */
-    onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
+    onmessage?: <T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void;
 
     /**
      * The session ID generated for this connection.
