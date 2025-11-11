@@ -1,4 +1,4 @@
-import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
+import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions, type RequestHandlerExtra } from '../shared/protocol.js';
 import type { Transport } from '../shared/transport.js';
 import {
     type CallToolRequest,
@@ -10,6 +10,8 @@ import {
     type CompatibilityCallToolResultSchema,
     type CompleteRequest,
     CompleteResultSchema,
+    ElicitRequestSchema,
+    type ElicitResult,
     EmptyResultSchema,
     ErrorCode,
     type GetPromptRequest,
@@ -40,6 +42,7 @@ import {
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
+import { ZodObject, ZodLiteral, z } from 'zod';
 
 export type ClientOptions = ProtocolOptions & {
     /**
@@ -436,5 +439,72 @@ export class Client<
 
     async sendRootsListChanged() {
         return this.notification({ method: 'notifications/roots/list_changed' });
+    }
+
+    /**
+     * Override setRequestHandler to automatically apply defaults for elicitation responses.
+     * When a handler is registered for ElicitRequestSchema, it wraps the handler to apply
+     * defaults from the schema before returning the response.
+     */
+    override setRequestHandler<
+        T extends ZodObject<{
+            method: ZodLiteral<string>;
+        }>
+    >(
+        requestSchema: T,
+        handler: (
+            request: z.infer<T>,
+            extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+        ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
+    ): void {
+        const method = requestSchema.shape.method.value;
+
+        // Special handling for elicitation requests to apply defaults
+        if (method === 'elicitation/create') {
+            const wrappedHandler = async (
+                request: z.infer<typeof ElicitRequestSchema>,
+                extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+            ): Promise<ElicitResult> => {
+                // Call the original handler
+                const result = (await handler(request as z.infer<T>, extra)) as ElicitResult;
+
+                // Only apply defaults if action is 'accept' and content exists
+                if (result.action === 'accept' && result.content) {
+                    // Convert requestedSchema to JSON Schema format for validation
+                    const jsonSchema = {
+                        type: 'object' as const,
+                        properties: request.params.requestedSchema.properties,
+                        required: request.params.requestedSchema.required
+                    };
+
+                    try {
+                        // Get validator which will apply defaults during validation
+                        const validator = this._jsonSchemaValidator.getValidator(jsonSchema);
+                        const validationResult = validator(result.content);
+
+                        if (!validationResult.valid) {
+                            throw new McpError(
+                                ErrorCode.InvalidParams,
+                                `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`
+                            );
+                        }
+                    } catch (error) {
+                        if (error instanceof McpError) {
+                            throw error;
+                        }
+                        // If validation fails, log but don't block - defaults were applied in-place
+                        // This handles edge cases where schema might not perfectly match
+                    }
+                }
+
+                return result;
+            };
+
+            // Register the wrapped handler using the parent's setRequestHandler
+            super.setRequestHandler(ElicitRequestSchema, wrappedHandler);
+        } else {
+            // For all other request types, use default behavior
+            super.setRequestHandler(requestSchema, handler);
+        }
     }
 }
