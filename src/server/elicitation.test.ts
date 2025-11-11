@@ -9,7 +9,7 @@
 
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';
-import { ElicitRequestParams, ElicitRequestSchema, PrimitiveSchemaDefinition } from '../types.js';
+import { ElicitRequestParams, ElicitRequestSchema } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import { CfWorkerJsonSchemaValidator } from '../validation/cfworker-provider.js';
 import { Server } from './index.js';
