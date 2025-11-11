@@ -411,7 +411,17 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Present if the client supports eliciting user input.
      */
-    elicitation: AssertObjectSchema.optional(),
+    elicitation: z.intersection(
+        z
+            .object({
+                /**
+                 * Whether the client should apply defaults to the user input.
+                 */
+                applyDefaults: z.boolean().optional()
+            })
+            .optional(),
+        z.record(z.string(), z.unknown()).optional()
+    ),
     /**
      * Present if the client supports listing roots.
      */
@@ -1417,9 +1427,9 @@ export const CreateMessageResultSchema = ResultSchema.extend({
  */
 export const BooleanSchemaSchema = z.object({
     type: z.literal('boolean'),
-    title: z.optional(z.string()),
-    description: z.optional(z.string()),
-    default: z.optional(z.boolean())
+    title: z.string().optional(),
+    description: z.string().optional(),
+    default: z.boolean().optional()
 });
 
 /**
@@ -1427,11 +1437,12 @@ export const BooleanSchemaSchema = z.object({
  */
 export const StringSchemaSchema = z.object({
     type: z.literal('string'),
-    title: z.optional(z.string()),
-    description: z.optional(z.string()),
-    minLength: z.optional(z.number()),
-    maxLength: z.optional(z.number()),
-    format: z.optional(z.enum(['email', 'uri', 'date', 'date-time']))
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minLength: z.number().optional(),
+    maxLength: z.number().optional(),
+    format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
+    default: z.string().optional()
 });
 
 /**
@@ -1439,27 +1450,106 @@ export const StringSchemaSchema = z.object({
  */
 export const NumberSchemaSchema = z.object({
     type: z.enum(['number', 'integer']),
-    title: z.optional(z.string()),
-    description: z.optional(z.string()),
-    minimum: z.optional(z.number()),
-    maximum: z.optional(z.number())
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minimum: z.number().optional(),
+    maximum: z.number().optional(),
+    default: z.number().optional()
 });
+
+/**
+ * Schema for single-selection enumeration without display titles for options.
+ */
+export const UntitledSingleSelectEnumSchemaSchema = z.object({
+    type: z.literal('string'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    enum: z.array(z.string()),
+    default: z.string().optional()
+});
+
+/**
+ * Schema for single-selection enumeration with display titles for each option.
+ */
+export const TitledSingleSelectEnumSchemaSchema = z.object({
+    type: z.literal('string'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    oneOf: z.array(
+        z.object({
+            const: z.string(),
+            title: z.string()
+        })
+    ),
+    default: z.string().optional()
+});
+
+/**
+ * Use TitledSingleSelectEnumSchema instead.
+ * This interface will be removed in a future version.
+ */
+export const LegacyTitledEnumSchemaSchema = z.object({
+    type: z.literal('string'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    enum: z.array(z.string()),
+    enumNames: z.array(z.string()).optional(),
+    default: z.string().optional()
+});
+
+// Combined single selection enumeration
+export const SingleSelectEnumSchemaSchema = z.union([UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema]);
+
+/**
+ * Schema for multiple-selection enumeration without display titles for options.
+ */
+export const UntitledMultiSelectEnumSchemaSchema = z.object({
+    type: z.literal('array'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minItems: z.number().optional(),
+    maxItems: z.number().optional(),
+    items: z.object({
+        type: z.literal('string'),
+        enum: z.array(z.string())
+    }),
+    default: z.array(z.string()).optional()
+});
+
+/**
+ * Schema for multiple-selection enumeration with display titles for each option.
+ */
+export const TitledMultiSelectEnumSchemaSchema = z.object({
+    type: z.literal('array'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minItems: z.number().optional(),
+    maxItems: z.number().optional(),
+    items: z.object({
+        anyOf: z.array(
+            z.object({
+                const: z.string(),
+                title: z.string()
+            })
+        )
+    }),
+    default: z.array(z.string()).optional()
+});
+
+/**
+ * Combined schema for multiple-selection enumeration
+ */
+export const MultiSelectEnumSchemaSchema = z.union([UntitledMultiSelectEnumSchemaSchema, TitledMultiSelectEnumSchemaSchema]);
 
 /**
  * Primitive schema definition for enum fields.
  */
-export const EnumSchemaSchema = z.object({
-    type: z.literal('string'),
-    title: z.optional(z.string()),
-    description: z.optional(z.string()),
-    enum: z.array(z.string()),
-    enumNames: z.optional(z.array(z.string()))
-});
+export const EnumSchemaSchema = z.union([LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema]);
 
 /**
  * Union of all primitive schema definitions.
  */
-export const PrimitiveSchemaDefinitionSchema = z.union([BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema, EnumSchemaSchema]);
+export const PrimitiveSchemaDefinitionSchema = z.union([EnumSchemaSchema, BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema]);
 
 /**
  * Parameters for an `elicitation/create` request.
@@ -1504,7 +1594,7 @@ export const ElicitResultSchema = ResultSchema.extend({
      * The submitted form data, only present when action is "accept".
      * Contains values matching the requested schema.
      */
-    content: z.record(z.union([z.string(), z.number(), z.boolean()])).optional()
+    content: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional()
 });
 
 /* Autocomplete */
@@ -1911,7 +2001,16 @@ export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
 export type BooleanSchema = Infer<typeof BooleanSchemaSchema>;
 export type StringSchema = Infer<typeof StringSchemaSchema>;
 export type NumberSchema = Infer<typeof NumberSchemaSchema>;
+
 export type EnumSchema = Infer<typeof EnumSchemaSchema>;
+export type UntitledSingleSelectEnumSchema = Infer<typeof UntitledSingleSelectEnumSchemaSchema>;
+export type TitledSingleSelectEnumSchema = Infer<typeof TitledSingleSelectEnumSchemaSchema>;
+export type LegacyTitledEnumSchema = Infer<typeof LegacyTitledEnumSchemaSchema>;
+export type UntitledMultiSelectEnumSchema = Infer<typeof UntitledMultiSelectEnumSchemaSchema>;
+export type TitledMultiSelectEnumSchema = Infer<typeof TitledMultiSelectEnumSchemaSchema>;
+export type SingleSelectEnumSchema = Infer<typeof SingleSelectEnumSchemaSchema>;
+export type MultiSelectEnumSchema = Infer<typeof MultiSelectEnumSchemaSchema>;
+
 export type PrimitiveSchemaDefinition = Infer<typeof PrimitiveSchemaDefinitionSchema>;
 export type ElicitRequestParams = Infer<typeof ElicitRequestParamsSchema>;
 export type ElicitRequest = Infer<typeof ElicitRequestSchema>;

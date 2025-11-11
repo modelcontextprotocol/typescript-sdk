@@ -62,6 +62,19 @@ type MakeUnknownsNotOptional<T> =
                       }
           : T;
 
+// Targeted fix: in spec, treat ClientCapabilities.elicitation?: object as Record<string, unknown>
+type FixSpecClientCapabilities<T> = T extends { elicitation?: object }
+    ? Omit<T, 'elicitation'> & { elicitation?: Record<string, unknown> }
+    : T;
+
+type FixSpecInitializeRequestParams<T> = T extends { capabilities: infer C }
+    ? Omit<T, 'capabilities'> & { capabilities: FixSpecClientCapabilities<C> }
+    : T;
+
+type FixSpecInitializeRequest<T> = T extends { params: infer P } ? Omit<T, 'params'> & { params: FixSpecInitializeRequestParams<P> } : T;
+
+type FixSpecClientRequest<T> = T extends { params: infer P } ? Omit<T, 'params'> & { params: FixSpecInitializeRequestParams<P> } : T;
+
 const sdkTypeChecks = {
     RequestParams: (sdk: SDKTypes.RequestParams, spec: SpecTypes.RequestParams) => {
         sdk = spec;
@@ -75,7 +88,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    InitializeRequestParams: (sdk: SDKTypes.InitializeRequestParams, spec: SpecTypes.InitializeRequestParams) => {
+    InitializeRequestParams: (
+        sdk: SDKTypes.InitializeRequestParams,
+        spec: FixSpecInitializeRequestParams<SpecTypes.InitializeRequestParams>
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -464,6 +480,34 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
+    UntitledSingleSelectEnumSchema: (sdk: SDKTypes.UntitledSingleSelectEnumSchema, spec: SpecTypes.UntitledSingleSelectEnumSchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    TitledSingleSelectEnumSchema: (sdk: SDKTypes.TitledSingleSelectEnumSchema, spec: SpecTypes.TitledSingleSelectEnumSchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    SingleSelectEnumSchema: (sdk: SDKTypes.SingleSelectEnumSchema, spec: SpecTypes.SingleSelectEnumSchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    UntitledMultiSelectEnumSchema: (sdk: SDKTypes.UntitledMultiSelectEnumSchema, spec: SpecTypes.UntitledMultiSelectEnumSchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    TitledMultiSelectEnumSchema: (sdk: SDKTypes.TitledMultiSelectEnumSchema, spec: SpecTypes.TitledMultiSelectEnumSchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    MultiSelectEnumSchema: (sdk: SDKTypes.MultiSelectEnumSchema, spec: SpecTypes.MultiSelectEnumSchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    LegacyTitledEnumSchema: (sdk: SDKTypes.LegacyTitledEnumSchema, spec: SpecTypes.LegacyTitledEnumSchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
     PrimitiveSchemaDefinition: (sdk: SDKTypes.PrimitiveSchemaDefinition, spec: SpecTypes.PrimitiveSchemaDefinition) => {
         sdk = spec;
         spec = sdk;
@@ -480,7 +524,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    InitializeRequest: (sdk: WithJSONRPCRequest<SDKTypes.InitializeRequest>, spec: SpecTypes.InitializeRequest) => {
+    InitializeRequest: (
+        sdk: WithJSONRPCRequest<SDKTypes.InitializeRequest>,
+        spec: FixSpecInitializeRequest<SpecTypes.InitializeRequest>
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -488,7 +535,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ClientCapabilities: (sdk: SDKTypes.ClientCapabilities, spec: SpecTypes.ClientCapabilities) => {
+    ClientCapabilities: (sdk: SDKTypes.ClientCapabilities, spec: FixSpecClientCapabilities<SpecTypes.ClientCapabilities>) => {
         sdk = spec;
         spec = sdk;
     },
@@ -496,7 +543,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ClientRequest: (sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.ClientRequest>>, spec: SpecTypes.ClientRequest) => {
+    ClientRequest: (
+        sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.ClientRequest>>,
+        spec: FixSpecClientRequest<SpecTypes.ClientRequest>
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -565,7 +615,7 @@ describe('Spec Types', () => {
     it('should define some expected types', () => {
         expect(specTypes).toContain('JSONRPCNotification');
         expect(specTypes).toContain('ElicitResult');
-        expect(specTypes).toHaveLength(112);
+        expect(specTypes).toHaveLength(119);
     });
 
     it('should have up to date list of missing sdk types', () => {
