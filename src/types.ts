@@ -310,7 +310,19 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Present if the client supports sampling from an LLM.
      */
-    sampling: AssertObjectSchema.optional(),
+    sampling: z
+        .object({
+            /**
+             * Present if the client supports non-'none' values for includeContext parameter.
+             */
+            context: AssertObjectSchema.optional(),
+            /**
+             * Present if the client supports tools and tool_choice parameters in sampling requests.
+             * Presence indicates full tool calling support.
+             */
+            tools: AssertObjectSchema.optional(),
+        })
+        .optional(),
     /**
      * Present if the client supports eliciting user input.
      */
@@ -833,6 +845,36 @@ export const AudioContentSchema = z.object({
 });
 
 /**
+ * A tool call request from an assistant (LLM).
+ * Represents the assistant's request to use a tool.
+ */
+export const ToolUseContentSchema = z
+  .object({
+    type: z.literal("tool_use"),
+    /**
+     * The name of the tool to invoke.
+     * Must match a tool name from the request's tools array.
+     */
+    name: z.string(),
+    /**
+     * Unique identifier for this tool call.
+     * Used to correlate with ToolResultContent in subsequent messages.
+     */
+    id: z.string(),
+    /**
+     * Arguments to pass to the tool.
+     * Must conform to the tool's inputSchema.
+     */
+    input: z.object({}).passthrough(),
+    /**
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on _meta usage.
+     */
+    _meta: z.optional(z.object({}).passthrough()),
+  })
+  .passthrough();
+
+/**
  * The contents of a resource, embedded into a prompt or tool call result.
  */
 export const EmbeddedResourceSchema = z.object({
@@ -1159,12 +1201,98 @@ export const ModelPreferencesSchema = z.object({
 });
 
 /**
- * Describes a message issued to or received from an LLM API.
+ * Controls tool usage behavior in sampling requests.
  */
-export const SamplingMessageSchema = z.object({
-    role: z.enum(['user', 'assistant']),
-    content: z.union([TextContentSchema, ImageContentSchema, AudioContentSchema])
-});
+export const ToolChoiceSchema = z
+    .object({
+        /**
+         * Controls when tools are used:
+         * - "auto": Model decides whether to use tools (default)
+         * - "required": Model MUST use at least one tool before completing
+         */
+        mode: z.optional(z.enum(["auto", "required", "none"])),
+        /**
+         * If true, model should not use multiple tools in parallel.
+         * Some models may ignore this hint.
+         * Default: false
+         */
+        disable_parallel_tool_use: z.optional(z.boolean()),
+    })
+    .passthrough();
+
+/**
+ * The result of a tool execution, provided by the user (server).
+ * Represents the outcome of invoking a tool requested via ToolUseContent.
+ */
+export const ToolResultContentSchema = z
+    .object({
+        type: z.literal("tool_result"),
+        toolUseId: z.string().describe("The unique identifier for the corresponding tool call."),
+        content: z.array(ContentBlockSchema).default([]),
+        structuredContent: z.object({}).passthrough().optional(),
+        isError: z.optional(z.boolean()),
+
+        /**
+         * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+         * for notes on _meta usage.
+         */
+        _meta: z.optional(z.object({}).passthrough()),
+    })
+    .passthrough();
+
+export const UserMessageContentSchema = z.discriminatedUnion("type", [
+  TextContentSchema,
+  ImageContentSchema,
+  AudioContentSchema,
+  ToolResultContentSchema,
+]);
+
+/**
+ * A message from the user (server) in a sampling conversation.
+ */
+export const UserMessageSchema = z
+  .object({
+    role: z.literal("user"),
+    content: z.union([UserMessageContentSchema, z.array(UserMessageContentSchema)]),
+    /**
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on _meta usage.
+     */
+    _meta: z.optional(z.object({}).passthrough()),
+  })
+  .passthrough();
+
+export const AssistantMessageContentSchema = z.discriminatedUnion("type", [
+  TextContentSchema,
+  ImageContentSchema,
+  AudioContentSchema,
+  ToolUseContentSchema,
+]);
+
+/**
+ * A message from the assistant (LLM) in a sampling conversation.
+ */
+export const AssistantMessageSchema = z
+  .object({
+    role: z.literal("assistant"),
+    content: z.union([AssistantMessageContentSchema, z.array(AssistantMessageContentSchema)]),
+    /**
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on _meta usage.
+     */
+    _meta: z.optional(z.object({}).passthrough()),
+  })
+  .passthrough();
+
+/**
+ * Describes a message issued to or received from an LLM API.
+ * This is a discriminated union of UserMessage and AssistantMessage, where
+ * each role has its own set of allowed content types.
+ */
+export const SamplingMessageSchema = z.discriminatedUnion("role", [
+  UserMessageSchema,
+  AssistantMessageSchema,
+]);
 
 /**
  * Parameters for a `sampling/createMessage` request.
@@ -1181,6 +1309,7 @@ export const CreateMessageRequestParamsSchema = BaseRequestParamsSchema.extend({
     systemPrompt: z.string().optional(),
     /**
      * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt. The client MAY ignore this request.
+     * Values different from 'none' require clientCapabilities.sampling.context
      */
     includeContext: z.enum(['none', 'thisServer', 'allServers']).optional(),
     temperature: z.number().optional(),
@@ -1194,7 +1323,17 @@ export const CreateMessageRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
      * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
      */
-    metadata: AssertObjectSchema.optional()
+    metadata: AssertObjectSchema.optional(),
+    /**
+     * Tool definitions for the LLM to use.
+     * Requires clientCapabilities.sampling.tools.
+     */
+    tools: z.optional(z.array(ToolSchema)),
+    /**
+     * Controls tool usage behavior.
+     * Requires clientCapabilities.sampling.tools and tools parameter.
+     */
+    toolChoice: z.optional(ToolChoiceSchema),
 });
 /**
  * A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
@@ -1214,10 +1353,23 @@ export const CreateMessageResultSchema = ResultSchema.extend({
     model: z.string(),
     /**
      * The reason why sampling stopped.
+     * Standard values:
+     * - "endTurn": Natural end of the assistant's turn
+     * - "stopSequence": A stop sequence was encountered
+     * - "maxTokens": Maximum token limit was reached
+     * - "toolUse": The model wants to use one or more tools
      */
-    stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens']).or(z.string())),
-    role: z.enum(['user', 'assistant']),
-    content: z.discriminatedUnion('type', [TextContentSchema, ImageContentSchema, AudioContentSchema])
+    stopReason: z.optional(
+        z.enum(["endTurn", "stopSequence", "maxTokens", "toolUse"]).or(z.string()),
+    ),
+    /**
+     * The role is always "assistant" in responses from the LLM.
+     */
+    role: z.literal("assistant"),
+    /**
+     * Response content. May be ToolUseContent if stopReason is "toolUse".
+     */
+    content: z.union([AssistantMessageContentSchema, z.array(AssistantMessageContentSchema)]),
 });
 
 /* Elicitation */
@@ -1813,6 +1965,8 @@ export type GetPromptRequest = Infer<typeof GetPromptRequestSchema>;
 export type TextContent = Infer<typeof TextContentSchema>;
 export type ImageContent = Infer<typeof ImageContentSchema>;
 export type AudioContent = Infer<typeof AudioContentSchema>;
+export type ToolUseContent = Infer<typeof ToolUseContentSchema>;
+export type ToolResultContent = Infer<typeof ToolResultContentSchema>;
 export type EmbeddedResource = Infer<typeof EmbeddedResourceSchema>;
 export type ResourceLink = Infer<typeof ResourceLinkSchema>;
 export type ContentBlock = Infer<typeof ContentBlockSchema>;
@@ -1839,12 +1993,17 @@ export type LoggingMessageNotificationParams = Infer<typeof LoggingMessageNotifi
 export type LoggingMessageNotification = Infer<typeof LoggingMessageNotificationSchema>;
 
 /* Sampling */
+export type ToolChoice = Infer<typeof ToolChoiceSchema>;
+export type UserMessage = Infer<typeof UserMessageSchema>;
+export type AssistantMessage = Infer<typeof AssistantMessageSchema>;
 export type ModelHint = Infer<typeof ModelHintSchema>;
 export type ModelPreferences = Infer<typeof ModelPreferencesSchema>;
 export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
 export type CreateMessageRequestParams = Infer<typeof CreateMessageRequestParamsSchema>;
 export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
 export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
+export type AssistantMessageContent = Infer<typeof AssistantMessageContentSchema>;
+export type UserMessageContent = Infer<typeof UserMessageContentSchema>;
 
 /* Elicitation */
 export type BooleanSchema = Infer<typeof BooleanSchemaSchema>;
