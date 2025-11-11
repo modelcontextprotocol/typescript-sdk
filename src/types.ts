@@ -44,7 +44,12 @@ export const TaskMetadataSchema = z
         /**
          * Time in milliseconds to ask to keep task results available after completion. Only used with taskId.
          */
-        keepAlive: z.number().optional()
+        keepAlive: z.number().optional(),
+
+        /**
+         * Time in milliseconds to wait between task status requests. Only used with taskId.
+         */
+        pollInterval: z.optional(z.number())
     })
     /**
      * Passthrough required here because we want to allow any additional fields to be added to the request meta.

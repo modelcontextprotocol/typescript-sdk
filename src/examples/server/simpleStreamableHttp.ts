@@ -479,7 +479,8 @@ const getServer = () => {
                 })();
                 return await taskStore.createTask({
                     taskId,
-                    keepAlive: taskRequestedKeepAlive
+                    keepAlive: taskRequestedKeepAlive,
+                    pollInterval: 100
                 });
             },
             async getTask(_args, { taskId, taskStore }) {
