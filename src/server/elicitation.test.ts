@@ -651,9 +651,16 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             }
         );
 
-        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {
-            applyDefaults: true
-        } } });
+        const client = new Client(
+            { name: 'test-client', version: '1.0.0' },
+            {
+                capabilities: {
+                    elicitation: {
+                        applyDefaults: true
+                    }
+                }
+            }
+        );
 
         // Client returns no values; SDK should apply defaults automatically (and validate)
         client.setRequestHandler(ElicitRequestSchema, request => {

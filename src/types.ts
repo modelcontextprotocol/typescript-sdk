@@ -286,12 +286,17 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Present if the client supports eliciting user input.
      */
-    elicitation: z.intersection(z.object({
-        /**
-         * Whether the client should apply defaults to the user input.
-         */
-        applyDefaults: z.boolean().optional(),
-    }).optional(), z.record(z.string(), z.unknown()).optional()),
+    elicitation: z.intersection(
+        z
+            .object({
+                /**
+                 * Whether the client should apply defaults to the user input.
+                 */
+                applyDefaults: z.boolean().optional()
+            })
+            .optional(),
+        z.record(z.string(), z.unknown()).optional()
+    ),
     /**
      * Present if the client supports listing roots.
      */
@@ -1248,7 +1253,7 @@ export const EnumSchemaSchema = z.object({
 /**
  * Union of all primitive schema definitions.
  */
-export const PrimitiveSchemaDefinitionSchema = z.union([EnumSchemaSchema,BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema]);
+export const PrimitiveSchemaDefinitionSchema = z.union([EnumSchemaSchema, BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema]);
 
 /**
  * Parameters for an `elicitation/create` request.

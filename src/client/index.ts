@@ -97,7 +97,6 @@ function applyElicitationDefaults(schema: JsonSchemaType | undefined, data: unkn
     }
 }
 
-
 export type ClientOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this client.
