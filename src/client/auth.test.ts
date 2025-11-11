@@ -11,7 +11,8 @@ import {
     extractWWWAuthenticateParams,
     auth,
     type OAuthClientProvider,
-    selectClientAuthMethod
+    selectClientAuthMethod,
+    isHttpsUrl
 } from './auth.js';
 import { ServerError } from '../server/auth/errors.js';
 import { AuthorizationServerMetadata } from '../shared/auth.js';
@@ -2474,6 +2475,264 @@ describe('OAuth Authorization', () => {
             expect(body.get('client_id')).toBe('client123');
             expect(body.get('client_secret')).toBe('secret123');
             expect(body.get('refresh_token')).toBe('refresh123');
+        });
+    });
+
+    describe('isHttpsUrl', () => {
+        it('returns true for valid HTTPS URL with path', () => {
+            expect(isHttpsUrl('https://example.com/client-metadata.json')).toBe(true);
+        });
+
+        it('returns true for HTTPS URL with query params', () => {
+            expect(isHttpsUrl('https://example.com/metadata?version=1')).toBe(true);
+        });
+
+        it('returns false for HTTPS URL without path', () => {
+            expect(isHttpsUrl('https://example.com')).toBe(false);
+            expect(isHttpsUrl('https://example.com/')).toBe(false);
+        });
+
+        it('returns false for HTTP URL', () => {
+            expect(isHttpsUrl('http://example.com/metadata')).toBe(false);
+        });
+
+        it('returns false for non-URL strings', () => {
+            expect(isHttpsUrl('not a url')).toBe(false);
+        });
+
+        it('returns false for undefined', () => {
+            expect(isHttpsUrl(undefined)).toBe(false);
+        });
+
+        it('returns false for empty string', () => {
+            expect(isHttpsUrl('')).toBe(false);
+        });
+
+        it('returns false for javascript: scheme', () => {
+            expect(isHttpsUrl('javascript:alert(1)')).toBe(false);
+        });
+
+        it('returns false for data: scheme', () => {
+            expect(isHttpsUrl('data:text/html,<script>alert(1)</script>')).toBe(false);
+        });
+    });
+
+    describe('SEP-991: URL-based Client ID fallback logic', () => {
+        const validClientMetadata = {
+            redirect_uris: ['http://localhost:3000/callback'],
+            client_name: 'Test Client',
+            client_uri: 'https://example.com/client-metadata.json'
+        };
+
+        const mockProvider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return validClientMetadata;
+            },
+            clientInformation: jest.fn().mockResolvedValue(undefined),
+            saveClientInformation: jest.fn().mockResolvedValue(undefined),
+            tokens: jest.fn().mockResolvedValue(undefined),
+            saveTokens: jest.fn().mockResolvedValue(undefined),
+            redirectToAuthorization: jest.fn().mockResolvedValue(undefined),
+            saveCodeVerifier: jest.fn().mockResolvedValue(undefined),
+            codeVerifier: jest.fn().mockResolvedValue('verifier123')
+        };
+
+        beforeEach(() => {
+            jest.clearAllMocks();
+        });
+
+        it('uses URL-based client ID when server supports it', async () => {
+            // Mock protected resource metadata discovery (404 to skip)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                json: async () => ({})
+            });
+
+            // Mock authorization server metadata discovery to return support for URL-based client IDs
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    issuer: 'https://server.example.com',
+                    authorization_endpoint: 'https://server.example.com/authorize',
+                    token_endpoint: 'https://server.example.com/token',
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['S256'],
+                    client_id_metadata_document_supported: true // SEP-991 support
+                })
+            });
+
+            await auth(mockProvider, {
+                serverUrl: 'https://server.example.com'
+            });
+
+            // Should save URL-based client info
+            expect(mockProvider.saveClientInformation).toHaveBeenCalledWith({
+                client_id: 'https://example.com/client-metadata.json'
+            });
+        });
+
+        it('falls back to DCR when server does not support URL-based client IDs', async () => {
+            // Mock protected resource metadata discovery (404 to skip)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                json: async () => ({})
+            });
+
+            // Mock authorization server metadata discovery without SEP-991 support
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    issuer: 'https://server.example.com',
+                    authorization_endpoint: 'https://server.example.com/authorize',
+                    token_endpoint: 'https://server.example.com/token',
+                    registration_endpoint: 'https://server.example.com/register',
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['S256']
+                    // No client_id_metadata_document_supported
+                })
+            });
+
+            // Mock DCR response
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 201,
+                json: async () => ({
+                    client_id: 'generated-uuid',
+                    client_secret: 'generated-secret',
+                    redirect_uris: ['http://localhost:3000/callback']
+                })
+            });
+
+            await auth(mockProvider, {
+                serverUrl: 'https://server.example.com'
+            });
+
+            // Should save DCR client info
+            expect(mockProvider.saveClientInformation).toHaveBeenCalledWith({
+                client_id: 'generated-uuid',
+                client_secret: 'generated-secret',
+                redirect_uris: ['http://localhost:3000/callback']
+            });
+        });
+
+        it('falls back to DCR when client_uri is not an HTTPS URL', async () => {
+            const providerWithInvalidUri = {
+                ...mockProvider,
+                get clientMetadata() {
+                    return {
+                        ...validClientMetadata,
+                        client_uri: 'http://example.com/metadata' // HTTP not HTTPS
+                    };
+                }
+            };
+
+            // Mock protected resource metadata discovery (404 to skip)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                json: async () => ({})
+            });
+
+            // Mock authorization server metadata discovery with SEP-991 support
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    issuer: 'https://server.example.com',
+                    authorization_endpoint: 'https://server.example.com/authorize',
+                    token_endpoint: 'https://server.example.com/token',
+                    registration_endpoint: 'https://server.example.com/register',
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['S256'],
+                    client_id_metadata_document_supported: true
+                })
+            });
+
+            // Mock DCR response
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 201,
+                json: async () => ({
+                    client_id: 'generated-uuid',
+                    client_secret: 'generated-secret',
+                    redirect_uris: ['http://localhost:3000/callback']
+                })
+            });
+
+            await auth(providerWithInvalidUri, {
+                serverUrl: 'https://server.example.com'
+            });
+
+            // Should fall back to DCR despite server supporting URL-based client IDs
+            expect(mockProvider.saveClientInformation).toHaveBeenCalledWith({
+                client_id: 'generated-uuid',
+                client_secret: 'generated-secret',
+                redirect_uris: ['http://localhost:3000/callback']
+            });
+        });
+
+        it('falls back to DCR when client_uri is missing', async () => {
+            const providerWithoutUri = {
+                ...mockProvider,
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                        // No client_uri
+                    };
+                }
+            };
+
+            // Mock protected resource metadata discovery (404 to skip)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                json: async () => ({})
+            });
+
+            // Mock authorization server metadata discovery with SEP-991 support
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    issuer: 'https://server.example.com',
+                    authorization_endpoint: 'https://server.example.com/authorize',
+                    token_endpoint: 'https://server.example.com/token',
+                    registration_endpoint: 'https://server.example.com/register',
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['S256'],
+                    client_id_metadata_document_supported: true
+                })
+            });
+
+            // Mock DCR response
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 201,
+                json: async () => ({
+                    client_id: 'generated-uuid',
+                    client_secret: 'generated-secret',
+                    redirect_uris: ['http://localhost:3000/callback']
+                })
+            });
+
+            await auth(providerWithoutUri, {
+                serverUrl: 'https://server.example.com'
+            });
+
+            // Should fall back to DCR
+            expect(mockProvider.saveClientInformation).toHaveBeenCalledWith({
+                client_id: 'generated-uuid',
+                client_secret: 'generated-secret',
+                redirect_uris: ['http://localhost:3000/callback']
+            });
         });
     });
 });

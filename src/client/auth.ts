@@ -378,18 +378,31 @@ async function authInternal(
             throw new Error('Existing OAuth client information is required when exchanging an authorization code');
         }
 
-        if (!provider.saveClientInformation) {
-            throw new Error('OAuth client information must be saveable for dynamic registration');
+        const supportsUrlBasedClientId = metadata?.client_id_metadata_document_supported === true;
+        const clientUri = provider.clientMetadata.client_uri;
+        const shouldUseUrlBasedClientId = supportsUrlBasedClientId && clientUri && isHttpsUrl(clientUri);
+
+        if (shouldUseUrlBasedClientId) {
+            // SEP-991: URL-based Client IDs
+            clientInformation = {
+                client_id: clientUri
+            };
+            await provider.saveClientInformation?.(clientInformation);
+        } else {
+            // Fallback to dynamic registration
+            if (!provider.saveClientInformation) {
+                throw new Error('OAuth client information must be saveable for dynamic registration');
+            }
+
+            const fullInformation = await registerClient(authorizationServerUrl, {
+                metadata,
+                clientMetadata: provider.clientMetadata,
+                fetchFn
+            });
+
+            await provider.saveClientInformation(fullInformation);
+            clientInformation = fullInformation;
         }
-
-        const fullInformation = await registerClient(authorizationServerUrl, {
-            metadata,
-            clientMetadata: provider.clientMetadata,
-            fetchFn
-        });
-
-        await provider.saveClientInformation(fullInformation);
-        clientInformation = fullInformation;
     }
 
     // Exchange authorization code for tokens
@@ -453,6 +466,20 @@ async function authInternal(
     await provider.saveCodeVerifier(codeVerifier);
     await provider.redirectToAuthorization(authorizationUrl);
     return 'REDIRECT';
+}
+
+/**
+ * SEP-991: URL-based Client IDs
+ * Validate that the client_id is a valid URL with https scheme
+ */
+export function isHttpsUrl(value?: string): boolean {
+    if (!value) return false;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'https:' && url.pathname !== '/';
+    } catch {
+        return false;
+    }
 }
 
 export async function selectResourceURL(
