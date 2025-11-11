@@ -11,8 +11,7 @@ function createDefaultAjvInstance(): Ajv {
         strict: false,
         validateFormats: true,
         validateSchema: false,
-        allErrors: true,
-        useDefaults: true
+        allErrors: true
     });
 
     const addFormats = _addFormats as unknown as typeof _addFormats.default;
