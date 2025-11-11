@@ -1239,9 +1239,37 @@ export const NumberSchemaSchema = z.object({
 });
 
 /**
- * Primitive schema definition for enum fields.
+ * Schema for single-selection enumeration without display titles for options.
  */
-export const EnumSchemaSchema = z.object({
+export const UntitledSingleSelectEnumSchemaSchema = z.object({
+    type: z.literal('string'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    enum: z.array(z.string()),
+    default: z.string().optional()
+});
+
+/**
+ * Schema for single-selection enumeration with display titles for each option.
+ */
+export const TitledSingleSelectEnumSchemaSchema = z.object({
+    type: z.literal('string'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    oneOf: z.array(
+        z.object({
+            const: z.string(),
+            title: z.string()
+        })
+    ),
+    default: z.string().optional()
+});
+
+/**
+ * Use TitledSingleSelectEnumSchema instead.
+ * This interface will be removed in a future version.
+ */
+export const LegacyTitledEnumSchemaSchema = z.object({
     type: z.literal('string'),
     title: z.string().optional(),
     description: z.string().optional(),
@@ -1249,6 +1277,55 @@ export const EnumSchemaSchema = z.object({
     enumNames: z.array(z.string()).optional(),
     default: z.string().optional()
 });
+
+// Combined single selection enumeration
+export const SingleSelectEnumSchemaSchema = z.union([UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema]);
+
+/**
+ * Schema for multiple-selection enumeration without display titles for options.
+ */
+export const UntitledMultiSelectEnumSchemaSchema = z.object({
+    type: z.literal('array'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minItems: z.number().optional(),
+    maxItems: z.number().optional(),
+    items: z.object({
+        type: z.literal('string'),
+        enum: z.array(z.string())
+    }),
+    default: z.array(z.string()).optional()
+});
+
+/**
+ * Schema for multiple-selection enumeration with display titles for each option.
+ */
+export const TitledMultiSelectEnumSchemaSchema = z.object({
+    type: z.literal('array'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minItems: z.number().optional(),
+    maxItems: z.number().optional(),
+    items: z.object({
+        anyOf: z.array(
+            z.object({
+                const: z.string(),
+                title: z.string()
+            })
+        )
+    }),
+    default: z.array(z.string()).optional()
+});
+
+/**
+ * Combined schema for multiple-selection enumeration
+ */
+export const MultiSelectEnumSchemaSchema = z.union([UntitledMultiSelectEnumSchemaSchema, TitledMultiSelectEnumSchemaSchema]);
+
+/**
+ * Primitive schema definition for enum fields.
+ */
+export const EnumSchemaSchema = z.union([LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema]);
 
 /**
  * Union of all primitive schema definitions.
@@ -1298,7 +1375,7 @@ export const ElicitResultSchema = ResultSchema.extend({
      * The submitted form data, only present when action is "accept".
      * Contains values matching the requested schema.
      */
-    content: z.record(z.union([z.string(), z.number(), z.boolean()])).optional()
+    content: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional()
 });
 
 /* Autocomplete */
@@ -1667,7 +1744,16 @@ export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
 export type BooleanSchema = Infer<typeof BooleanSchemaSchema>;
 export type StringSchema = Infer<typeof StringSchemaSchema>;
 export type NumberSchema = Infer<typeof NumberSchemaSchema>;
+
 export type EnumSchema = Infer<typeof EnumSchemaSchema>;
+export type UntitledSingleSelectEnumSchema = Infer<typeof UntitledSingleSelectEnumSchemaSchema>;
+export type TitledSingleSelectEnumSchema = Infer<typeof TitledSingleSelectEnumSchemaSchema>;
+export type LegacyTitledEnumSchema = Infer<typeof LegacyTitledEnumSchemaSchema>;
+export type UntitledMultiSelectEnumSchema = Infer<typeof UntitledMultiSelectEnumSchemaSchema>;
+export type TitledMultiSelectEnumSchema = Infer<typeof TitledMultiSelectEnumSchemaSchema>;
+export type SingleSelectEnumSchema = Infer<typeof SingleSelectEnumSchemaSchema>;
+export type MultiSelectEnumSchema = Infer<typeof MultiSelectEnumSchemaSchema>;
+
 export type PrimitiveSchemaDefinition = Infer<typeof PrimitiveSchemaDefinitionSchema>;
 export type ElicitRequestParams = Infer<typeof ElicitRequestParamsSchema>;
 export type ElicitRequest = Infer<typeof ElicitRequestSchema>;

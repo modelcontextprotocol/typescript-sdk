@@ -480,6 +480,34 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
+    UntitledSingleSelectEnumSchema: (sdk: SDKTypes.UntitledSingleSelectEnumSchema, spec: SpecTypes.UntitledSingleSelectEnumSchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    TitledSingleSelectEnumSchema: (sdk: SDKTypes.TitledSingleSelectEnumSchema, spec: SpecTypes.TitledSingleSelectEnumSchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    SingleSelectEnumSchema: (sdk: SDKTypes.SingleSelectEnumSchema, spec: SpecTypes.SingleSelectEnumSchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    UntitledMultiSelectEnumSchema: (sdk: SDKTypes.UntitledMultiSelectEnumSchema, spec: SpecTypes.UntitledMultiSelectEnumSchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    TitledMultiSelectEnumSchema: (sdk: SDKTypes.TitledMultiSelectEnumSchema, spec: SpecTypes.TitledMultiSelectEnumSchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    MultiSelectEnumSchema: (sdk: SDKTypes.MultiSelectEnumSchema, spec: SpecTypes.MultiSelectEnumSchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    LegacyTitledEnumSchema: (sdk: SDKTypes.LegacyTitledEnumSchema, spec: SpecTypes.LegacyTitledEnumSchema) => {
+        sdk = spec;
+        spec = sdk;
+    },
     PrimitiveSchemaDefinition: (sdk: SDKTypes.PrimitiveSchemaDefinition, spec: SpecTypes.PrimitiveSchemaDefinition) => {
         sdk = spec;
         spec = sdk;
@@ -587,7 +615,7 @@ describe('Spec Types', () => {
     it('should define some expected types', () => {
         expect(specTypes).toContain('JSONRPCNotification');
         expect(specTypes).toContain('ElicitResult');
-        expect(specTypes).toHaveLength(112);
+        expect(specTypes).toHaveLength(119);
     });
 
     it('should have up to date list of missing sdk types', () => {
