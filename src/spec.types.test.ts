@@ -71,13 +71,9 @@ type FixSpecInitializeRequestParams<T> = T extends { capabilities: infer C }
     ? Omit<T, 'capabilities'> & { capabilities: FixSpecClientCapabilities<C> }
     : T;
 
-type FixSpecInitializeRequest<T> = T extends { params: infer P }
-    ? Omit<T, 'params'> & { params: FixSpecInitializeRequestParams<P> }
-    : T;
+type FixSpecInitializeRequest<T> = T extends { params: infer P } ? Omit<T, 'params'> & { params: FixSpecInitializeRequestParams<P> } : T;
 
-type FixSpecClientRequest<T> = T extends { params: infer P }
-    ? Omit<T, 'params'> & { params: FixSpecInitializeRequestParams<P> }
-    : T;
+type FixSpecClientRequest<T> = T extends { params: infer P } ? Omit<T, 'params'> & { params: FixSpecInitializeRequestParams<P> } : T;
 
 const sdkTypeChecks = {
     RequestParams: (sdk: SDKTypes.RequestParams, spec: SpecTypes.RequestParams) => {
@@ -511,10 +507,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ClientCapabilities: (
-        sdk: SDKTypes.ClientCapabilities,
-        spec: FixSpecClientCapabilities<SpecTypes.ClientCapabilities>
-    ) => {
+    ClientCapabilities: (sdk: SDKTypes.ClientCapabilities, spec: FixSpecClientCapabilities<SpecTypes.ClientCapabilities>) => {
         sdk = spec;
         spec = sdk;
     },
