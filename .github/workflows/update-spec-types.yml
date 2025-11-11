@@ -1,0 +1,71 @@
+name: Update Spec Types
+
+on:
+    schedule:
+        # Run nightly at 4 AM UTC
+        - cron: '0 4 * * *'
+    workflow_dispatch:
+
+permissions:
+    contents: write
+    pull-requests: write
+
+jobs:
+    update-spec-types:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '24'
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Fetch latest spec types
+              run: npm run fetch:spec-types
+
+            - name: Check for changes
+              id: check_changes
+              run: |
+                  if git diff --quiet src/spec.types.ts; then
+                    echo "has_changes=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "has_changes=true" >> $GITHUB_OUTPUT
+                    LATEST_SHA=$(grep "Last updated from commit:" src/spec.types.ts | cut -d: -f2 | tr -d ' ')
+                    echo "sha=$LATEST_SHA" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Create Pull Request
+              if: steps.check_changes.outputs.has_changes == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+
+                  git checkout -B update-spec-types
+                  git add src/spec.types.ts
+                  git commit -m "chore: update spec.types.ts from upstream"
+                  git push -f origin update-spec-types
+
+                  # Create PR if it doesn't exist, or update if it does
+                  PR_BODY="This PR updates \`src/spec.types.ts\` from the Model Context Protocol specification.
+
+                  Source file: https://github.com/modelcontextprotocol/modelcontextprotocol/blob/${{ steps.check_changes.outputs.sha }}/schema/draft/schema.ts
+
+                  This is an automated update triggered by the nightly cron job."
+
+                  if gh pr view update-spec-types &>/dev/null; then
+                    echo "PR already exists, updating description..."
+                    gh pr edit update-spec-types --body "$PR_BODY"
+                  else
+                    gh pr create \
+                      --title "chore: update spec.types.ts from upstream" \
+                      --body "$PR_BODY" \
+                      --base main \
+                      --head update-spec-types
+                  fi

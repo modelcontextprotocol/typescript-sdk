@@ -702,9 +702,7 @@ test('should handle server cancelling a request', async () => {
             version: '1.0'
         },
         {
-            capabilities: {
-                sampling: {}
-            }
+            capabilities: {}
         }
     );
 
@@ -763,9 +761,7 @@ test('should handle request timeout', async () => {
             version: '1.0'
         },
         {
-            capabilities: {
-                sampling: {}
-            }
+            capabilities: {}
         }
     );
 

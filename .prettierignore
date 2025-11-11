@@ -8,3 +8,6 @@ node_modules
 **/dist
 .github/CODEOWNERS
 pnpm-lock.yaml
+
+# Ignore generated files
+src/spec.types.ts

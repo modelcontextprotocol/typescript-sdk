@@ -16,6 +16,9 @@ export default tseslint.config(
         }
     },
     {
+        ignores: ['src/spec.types.ts']
+    },
+    {
         files: ['src/client/**/*.ts', 'src/server/**/*.ts'],
         ignores: ['**/*.test.ts'],
         rules: {

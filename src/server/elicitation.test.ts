@@ -176,6 +176,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                     age: { type: 'integer', minimum: 0, maximum: 150 },
                     street: { type: 'string' },
                     city: { type: 'string' },
+                    // @ts-expect-error - pattern is not a valid property by MCP spec, however it is making use of the Ajv validator
                     zipCode: { type: 'string', pattern: '^[0-9]{5}$' },
                     newsletter: { type: 'boolean' },
                     notifications: { type: 'boolean' }
@@ -355,6 +356,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                 requestedSchema: {
                     type: 'object',
                     properties: {
+                        // @ts-expect-error - pattern is not a valid property by MCP spec, however it is making use of the Ajv validator
                         zipCode: { type: 'string', pattern: '^[0-9]{5}$' }
                     },
                     required: ['zipCode']
@@ -604,6 +606,72 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         expect(result).toEqual({
             action: 'accept',
             content: { email: 'user@example.com' }
+        });
+    });
+
+    test(`${validatorName}: should default missing fields from schema defaults`, async () => {
+        const server = new Server(
+            { name: 'test-server', version: '1.0.0' },
+            {
+                capabilities: {},
+                jsonSchemaValidator: validatorProvider
+            }
+        );
+
+        const client = new Client(
+            { name: 'test-client', version: '1.0.0' },
+            {
+                capabilities: {
+                    elicitation: {
+                        applyDefaults: true
+                    }
+                }
+            }
+        );
+
+        // Client returns no values; SDK should apply defaults automatically (and validate)
+        client.setRequestHandler(ElicitRequestSchema, request => {
+            expect(request.params.requestedSchema).toEqual({
+                type: 'object',
+                properties: {
+                    subscribe: { type: 'boolean', default: true },
+                    nickname: { type: 'string', default: 'Guest' },
+                    age: { type: 'integer', minimum: 0, maximum: 150, default: 18 },
+                    color: { type: 'string', enum: ['red', 'green'], default: 'green' }
+                },
+                required: ['subscribe', 'nickname', 'age', 'color']
+            });
+            return {
+                action: 'accept',
+                content: {}
+            };
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await server.elicitInput({
+            message: 'Provide your preferences',
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    subscribe: { type: 'boolean', default: true },
+                    nickname: { type: 'string', default: 'Guest' },
+                    age: { type: 'integer', minimum: 0, maximum: 150, default: 18 },
+                    color: { type: 'string', enum: ['red', 'green'], default: 'green' }
+                },
+                required: ['subscribe', 'nickname', 'age', 'color']
+            }
+        });
+
+        expect(result).toEqual({
+            action: 'accept',
+            content: {
+                subscribe: true,
+                nickname: 'Guest',
+                age: 18,
+                color: 'green'
+            }
         });
     });
 

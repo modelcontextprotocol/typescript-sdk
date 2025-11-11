@@ -145,13 +145,13 @@ describe('Transport resumability', () => {
     // across client disconnection/reconnection
     it('should resume long-running notifications with lastEventId', async () => {
         // Create unique client ID for this test
-        const clientId = 'test-client-long-running';
+        const clientTitle = 'test-client-long-running';
         const notifications = [];
         let lastEventId: string | undefined;
 
         // Create first client
         const client1 = new Client({
-            id: clientId,
+            title: clientTitle,
             name: 'test-client',
             version: '1.0.0'
         });
@@ -223,7 +223,7 @@ describe('Transport resumability', () => {
 
         // Create second client with same client ID
         const client2 = new Client({
-            id: clientId,
+            title: clientTitle,
             name: 'test-client',
             version: '1.0.0'
         });
