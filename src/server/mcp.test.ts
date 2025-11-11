@@ -1701,26 +1701,38 @@ describe('tool()', () => {
         // Create a new server instance for this test
         const testServer = new McpServer({
             name: 'test server',
-            version: '1.0',
+            version: '1.0'
         });
 
         // Spy on console.warn to verify warnings are logged
         const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
 
         // Test valid tool names
-        testServer.registerTool('valid-tool-name', {
-            description: 'A valid tool name'
-        }, async () => ({ content: [{ type: 'text', text: 'Success' }] }));
+        testServer.registerTool(
+            'valid-tool-name',
+            {
+                description: 'A valid tool name'
+            },
+            async () => ({ content: [{ type: 'text' as const, text: 'Success' }] })
+        );
 
         // Test tool name with warnings (starts with dash)
-        testServer.registerTool('-warning-tool', {
-            description: 'A tool name that generates warnings'
-        }, async () => ({ content: [{ type: 'text', text: 'Success' }] }));
+        testServer.registerTool(
+            '-warning-tool',
+            {
+                description: 'A tool name that generates warnings'
+            },
+            async () => ({ content: [{ type: 'text' as const, text: 'Success' }] })
+        );
 
         // Test invalid tool name (contains spaces)
-        testServer.registerTool('invalid tool name', {
-            description: 'An invalid tool name'
-        }, async () => ({ content: [{ type: 'text', text: 'Success' }] }));
+        testServer.registerTool(
+            'invalid tool name',
+            {
+                description: 'An invalid tool name'
+            },
+            async () => ({ content: [{ type: 'text' as const, text: 'Success' }] })
+        );
 
         // Verify that warnings were issued (both for warnings and validation failures)
         expect(warnSpy).toHaveBeenCalled();
