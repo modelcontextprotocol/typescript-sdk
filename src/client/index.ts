@@ -36,10 +36,54 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS,
     type SubscribeRequest,
     type Tool,
-    type UnsubscribeRequest
+    type UnsubscribeRequest,
+    ElicitResultSchema,
+    ElicitRequestSchema
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
+import { ZodLiteral, ZodObject, z } from 'zod';
+import type { RequestHandlerExtra } from '../shared/protocol.js';
+
+/**
+ * Elicitation default application helper. Applies defaults to the data based on the schema.
+ *
+ * @param schema - The schema to apply defaults to.
+ * @param data - The data to apply defaults to.
+ */
+function applyElicitationDefaults(schema: JsonSchemaType | undefined, data: unknown): void {
+    if (!schema || data === null || typeof data !== 'object') return;
+
+    // Handle object properties
+    if (schema.type === 'object' && schema.properties && typeof schema.properties === 'object') {
+        const obj = data as Record<string, unknown>;
+        const props = schema.properties as Record<string, JsonSchemaType & { default?: unknown }>;
+        for (const key of Object.keys(props)) {
+            const propSchema = props[key];
+            // If missing or explicitly undefined, apply default if present
+            if (obj[key] === undefined && Object.prototype.hasOwnProperty.call(propSchema, 'default')) {
+                obj[key] = propSchema.default;
+            }
+            // Recurse into existing nested objects/arrays
+            if (obj[key] !== undefined) {
+                applyElicitationDefaults(propSchema, obj[key]);
+            }
+        }
+    }
+
+    if (Array.isArray(schema.anyOf)) {
+        for (const sub of schema.anyOf) {
+            applyElicitationDefaults(sub, data);
+        }
+    }
+
+    // Combine schemas
+    if (Array.isArray(schema.oneOf)) {
+        for (const sub of schema.oneOf) {
+            applyElicitationDefaults(sub, data);
+        }
+    }
+}
 
 export type ClientOptions = ProtocolOptions & {
     /**
@@ -139,6 +183,64 @@ export class Client<
         }
 
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
+    }
+
+    /**
+     * Override request handler registration to enforce client-side validation for elicitation.
+     */
+    public override setRequestHandler<
+        T extends ZodObject<{
+            method: ZodLiteral<string>;
+        }>
+    >(
+        requestSchema: T,
+        handler: (
+            request: z.infer<T>,
+            extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+        ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
+    ): void {
+        const method = requestSchema.shape.method.value;
+        if (method === 'elicitation/create') {
+            const wrappedHandler = async (
+                request: z.infer<T>,
+                extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+            ): Promise<ClientResult | ResultT> => {
+                const validatedRequest = ElicitRequestSchema.safeParse(request);
+                if (!validatedRequest.success) {
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation request: ${validatedRequest.error.message}`);
+                }
+
+                const result = await Promise.resolve(handler(request, extra));
+
+                const validationResult = ElicitResultSchema.safeParse(result);
+                if (!validationResult.success) {
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation result: ${validationResult.error.message}`);
+                }
+
+                const validatedResult = validationResult.data;
+
+                if (
+                    this._capabilities.elicitation?.applyDefaults &&
+                    validatedResult.action === 'accept' &&
+                    validatedResult.content &&
+                    validatedRequest.data.params.requestedSchema
+                ) {
+                    try {
+                        applyElicitationDefaults(validatedRequest.data.params.requestedSchema, validatedResult.content);
+                    } catch {
+                        // gracefully ignore errors in default application
+                    }
+                }
+
+                return validatedResult;
+            };
+
+            // Install the wrapped handler
+            return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
+        }
+
+        // Non-elicitation handlers use default behavior
+        return super.setRequestHandler(requestSchema, handler);
     }
 
     protected assertCapability(capability: keyof ServerCapabilities, method: string): void {
