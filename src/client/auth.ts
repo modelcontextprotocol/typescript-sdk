@@ -43,6 +43,11 @@ export interface OAuthClientProvider {
     get redirectUrl(): string | URL;
 
     /**
+     * External URL the server should use to fetch client metadata document
+     */
+    clientMetadataUrl?: string;
+
+    /**
      * Metadata about this OAuth client.
      */
     get clientMetadata(): OAuthClientMetadata;
@@ -379,13 +384,13 @@ async function authInternal(
         }
 
         const supportsUrlBasedClientId = metadata?.client_id_metadata_document_supported === true;
-        const clientUri = provider.clientMetadata.client_uri;
-        const shouldUseUrlBasedClientId = supportsUrlBasedClientId && clientUri && isHttpsUrl(clientUri);
+        const clientMetadataUrl = provider.clientMetadataUrl;
+        const shouldUseUrlBasedClientId = supportsUrlBasedClientId && clientMetadataUrl && isHttpsUrl(clientMetadataUrl);
 
         if (shouldUseUrlBasedClientId) {
             // SEP-991: URL-based Client IDs
             clientInformation = {
-                client_id: clientUri
+                client_id: clientMetadataUrl
             };
             await provider.saveClientInformation?.(clientInformation);
         } else {

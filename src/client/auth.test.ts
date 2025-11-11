@@ -2528,6 +2528,7 @@ describe('OAuth Authorization', () => {
             get redirectUrl() {
                 return 'http://localhost:3000/callback';
             },
+            clientMetadataUrl: 'https://example.com/client-metadata.json',
             get clientMetadata() {
                 return validClientMetadata;
             },
@@ -2625,12 +2626,7 @@ describe('OAuth Authorization', () => {
         it('falls back to DCR when client_uri is not an HTTPS URL', async () => {
             const providerWithInvalidUri = {
                 ...mockProvider,
-                get clientMetadata() {
-                    return {
-                        ...validClientMetadata,
-                        client_uri: 'http://example.com/metadata' // HTTP not HTTPS
-                    };
-                }
+                clientMetadataUrl: 'http://example.com/metadata'
             };
 
             // Mock protected resource metadata discovery (404 to skip)
@@ -2681,13 +2677,7 @@ describe('OAuth Authorization', () => {
         it('falls back to DCR when client_uri is missing', async () => {
             const providerWithoutUri = {
                 ...mockProvider,
-                get clientMetadata() {
-                    return {
-                        redirect_uris: ['http://localhost:3000/callback'],
-                        client_name: 'Test Client'
-                        // No client_uri
-                    };
-                }
+                clientMetadataUrl: undefined
             };
 
             // Mock protected resource metadata discovery (404 to skip)
