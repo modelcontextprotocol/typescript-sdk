@@ -39,7 +39,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         const client = new Client(
             { name: 'test-client', version: '1.0.0' },
-            { capabilities: { elicitation: {} }, jsonSchemaValidator: validatorProvider }
+            { capabilities: { elicitation: {} }}
         );
 
         client.setRequestHandler(ElicitRequestSchema, _request => ({
@@ -78,7 +78,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         const client = new Client(
             { name: 'test-client', version: '1.0.0' },
-            { capabilities: { elicitation: {} }, jsonSchemaValidator: validatorProvider }
+            { capabilities: { elicitation: {} } }
         );
 
         client.setRequestHandler(ElicitRequestSchema, _request => ({
@@ -117,7 +117,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         const client = new Client(
             { name: 'test-client', version: '1.0.0' },
-            { capabilities: { elicitation: {} }, jsonSchemaValidator: validatorProvider }
+            { capabilities: { elicitation: {} } }
         );
 
         client.setRequestHandler(ElicitRequestSchema, _request => ({
@@ -156,7 +156,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         const client = new Client(
             { name: 'test-client', version: '1.0.0' },
-            { capabilities: { elicitation: {} }, jsonSchemaValidator: validatorProvider }
+            { capabilities: { elicitation: {} } }
         );
 
         const userData = {
@@ -214,7 +214,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         const client = new Client(
             { name: 'test-client', version: '1.0.0' },
-            { capabilities: { elicitation: {} }, jsonSchemaValidator: validatorProvider }
+            { capabilities: { elicitation: {} } }
         );
 
         client.setRequestHandler(ElicitRequestSchema, _request => ({
@@ -254,7 +254,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         const client = new Client(
             { name: 'test-client', version: '1.0.0' },
-            { capabilities: { elicitation: {} }, jsonSchemaValidator: validatorProvider }
+            { capabilities: { elicitation: {} } }
         );
 
         client.setRequestHandler(ElicitRequestSchema, _request => ({
@@ -294,7 +294,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         const client = new Client(
             { name: 'test-client', version: '1.0.0' },
-            { capabilities: { elicitation: {} }, jsonSchemaValidator: validatorProvider }
+            { capabilities: { elicitation: {} } }
         );
 
         client.setRequestHandler(ElicitRequestSchema, _request => ({
@@ -330,7 +330,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         const client = new Client(
             { name: 'test-client', version: '1.0.0' },
-            { capabilities: { elicitation: {} }, jsonSchemaValidator: validatorProvider }
+            { capabilities: { elicitation: {} } }
         );
 
         client.setRequestHandler(ElicitRequestSchema, _request => ({
