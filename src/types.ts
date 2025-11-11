@@ -357,29 +357,6 @@ export const ClientTasksCapabilitySchema = z
                                 create: z.optional(z.boolean())
                             })
                             .passthrough()
-                    ),
-                    /**
-                     * Task support for roots requests.
-                     */
-                    roots: z.optional(
-                        z
-                            .object({
-                                list: z.optional(z.boolean())
-                            })
-                            .passthrough()
-                    ),
-                    /**
-                     * Task support for task management requests.
-                     */
-                    tasks: z.optional(
-                        z
-                            .object({
-                                get: z.optional(z.boolean()),
-                                list: z.optional(z.boolean()),
-                                result: z.optional(z.boolean()),
-                                delete: z.optional(z.boolean())
-                            })
-                            .passthrough()
                     )
                 })
                 .passthrough()
@@ -404,43 +381,7 @@ export const ServerTasksCapabilitySchema = z
                     tools: z.optional(
                         z
                             .object({
-                                call: z.optional(z.boolean()),
-                                list: z.optional(z.boolean())
-                            })
-                            .passthrough()
-                    ),
-                    /**
-                     * Task support for resource requests.
-                     */
-                    resources: z.optional(
-                        z
-                            .object({
-                                read: z.optional(z.boolean()),
-                                list: z.optional(z.boolean())
-                            })
-                            .passthrough()
-                    ),
-                    /**
-                     * Task support for prompt requests.
-                     */
-                    prompts: z.optional(
-                        z
-                            .object({
-                                get: z.optional(z.boolean()),
-                                list: z.optional(z.boolean())
-                            })
-                            .passthrough()
-                    ),
-                    /**
-                     * Task support for task management requests.
-                     */
-                    tasks: z.optional(
-                        z
-                            .object({
-                                get: z.optional(z.boolean()),
-                                list: z.optional(z.boolean()),
-                                result: z.optional(z.boolean()),
-                                delete: z.optional(z.boolean())
+                                call: z.optional(z.boolean())
                             })
                             .passthrough()
                     )

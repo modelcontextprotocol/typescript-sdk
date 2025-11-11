@@ -1310,28 +1310,10 @@ describe('outputSchema validation', () => {
             throw new Error('Unknown tool');
         });
 
-        const client = new Client(
-            {
-                name: 'test-client',
-                version: '1.0.0'
-            },
-            {
-                capabilities: {
-                    tasks: {
-                        requests: {
-                            tools: {
-                                call: true
-                            },
-                            tasks: {
-                                get: true,
-                                list: true,
-                                result: true
-                            }
-                        }
-                    }
-                }
-            }
-        );
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
 
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1371,13 +1353,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 tools: {
-                                    call: true,
-                                    list: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
+                                    call: true
                                 }
                             }
                         }
@@ -1386,11 +1362,21 @@ describe('Task-based execution', () => {
                 }
             );
 
-            server.setRequestHandler(CallToolRequestSchema, async request => {
+            server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+                if (extra.taskId) {
+                    await extra.taskStore?.createTask({
+                        taskId: extra.taskId,
+                        keepAlive: extra.taskRequestedKeepAlive
+                    });
+                }
                 if (request.params.name === 'test-tool') {
-                    return {
+                    const result = {
                         content: [{ type: 'text', text: 'Tool executed successfully!' }]
                     };
+                    if (extra.taskId) {
+                        await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                    }
+                    return result;
                 }
                 throw new Error('Unknown tool');
             });
@@ -1408,28 +1394,10 @@ describe('Task-based execution', () => {
                 ]
             }));
 
-            const client = new Client(
-                {
-                    name: 'test-client',
-                    version: '1.0.0'
-                },
-                {
-                    capabilities: {
-                        tasks: {
-                            requests: {
-                                tools: {
-                                    call: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
-                                }
-                            }
-                        }
-                    }
-                }
-            );
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1463,13 +1431,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 tools: {
-                                    call: true,
-                                    list: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
+                                    call: true
                                 }
                             }
                         }
@@ -1478,11 +1440,21 @@ describe('Task-based execution', () => {
                 }
             );
 
-            server.setRequestHandler(CallToolRequestSchema, async request => {
+            server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+                if (extra.taskId) {
+                    await extra.taskStore?.createTask({
+                        taskId: extra.taskId,
+                        keepAlive: extra.taskRequestedKeepAlive
+                    });
+                }
                 if (request.params.name === 'test-tool') {
-                    return {
+                    const result = {
                         content: [{ type: 'text', text: 'Success!' }]
                     };
+                    if (extra.taskId) {
+                        await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                    }
+                    return result;
                 }
                 throw new Error('Unknown tool');
             });
@@ -1500,28 +1472,10 @@ describe('Task-based execution', () => {
                 ]
             }));
 
-            const client = new Client(
-                {
-                    name: 'test-client',
-                    version: '1.0.0'
-                },
-                {
-                    capabilities: {
-                        tasks: {
-                            requests: {
-                                tools: {
-                                    call: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
-                                }
-                            }
-                        }
-                    }
-                }
-            );
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1555,11 +1509,6 @@ describe('Task-based execution', () => {
                                 tools: {
                                     call: true,
                                     list: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -1568,11 +1517,21 @@ describe('Task-based execution', () => {
                 }
             );
 
-            server.setRequestHandler(CallToolRequestSchema, async request => {
+            server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+                if (extra.taskId) {
+                    await extra.taskStore?.createTask({
+                        taskId: extra.taskId,
+                        keepAlive: extra.taskRequestedKeepAlive
+                    });
+                }
                 if (request.params.name === 'test-tool') {
-                    return {
+                    const result = {
                         content: [{ type: 'text', text: 'Result data!' }]
                     };
+                    if (extra.taskId) {
+                        await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                    }
+                    return result;
                 }
                 throw new Error('Unknown tool');
             });
@@ -1590,28 +1549,10 @@ describe('Task-based execution', () => {
                 ]
             }));
 
-            const client = new Client(
-                {
-                    name: 'test-client',
-                    version: '1.0.0'
-                },
-                {
-                    capabilities: {
-                        tasks: {
-                            requests: {
-                                tools: {
-                                    call: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
-                                }
-                            }
-                        }
-                    }
-                }
-            );
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1641,13 +1582,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 tools: {
-                                    call: true,
-                                    list: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
+                                    call: true
                                 }
                             }
                         }
@@ -1656,11 +1591,21 @@ describe('Task-based execution', () => {
                 }
             );
 
-            server.setRequestHandler(CallToolRequestSchema, async request => {
+            server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+                if (extra.taskId) {
+                    await extra.taskStore?.createTask({
+                        taskId: extra.taskId,
+                        keepAlive: extra.taskRequestedKeepAlive
+                    });
+                }
                 if (request.params.name === 'test-tool') {
-                    return {
+                    const result = {
                         content: [{ type: 'text', text: 'Success!' }]
                     };
+                    if (extra.taskId) {
+                        await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                    }
+                    return result;
                 }
                 throw new Error('Unknown tool');
             });
@@ -1678,28 +1623,10 @@ describe('Task-based execution', () => {
                 ]
             }));
 
-            const client = new Client(
-                {
-                    name: 'test-client',
-                    version: '1.0.0'
-                },
-                {
-                    capabilities: {
-                        tasks: {
-                            requests: {
-                                tools: {
-                                    call: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
-                                }
-                            }
-                        }
-                    }
-                }
-            );
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1753,11 +1680,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -1766,12 +1688,22 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async () => ({
-                action: 'accept',
-                content: {
-                    username: 'test-user'
+            client.setRequestHandler(ElicitRequestSchema, async (_request, extra) => {
+                if (extra.taskId) {
+                    await extra.taskStore?.createTask({
+                        taskId: extra.taskId,
+                        keepAlive: extra.taskRequestedKeepAlive
+                    });
                 }
-            }));
+                const result = {
+                    action: 'accept',
+                    content: { username: 'list-user' }
+                };
+                if (extra.taskId) {
+                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                }
+                return result;
+            });
 
             const server = new Server(
                 {
@@ -1784,11 +1716,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -1845,11 +1772,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -1858,10 +1780,22 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async () => ({
-                action: 'accept',
-                content: { username: 'test-user' }
-            }));
+            client.setRequestHandler(ElicitRequestSchema, async (_request, extra) => {
+                if (extra.taskId) {
+                    await extra.taskStore?.createTask({
+                        taskId: extra.taskId,
+                        keepAlive: extra.taskRequestedKeepAlive
+                    });
+                }
+                const result = {
+                    action: 'accept',
+                    content: { username: 'list-user' }
+                };
+                if (extra.taskId) {
+                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                }
+                return result;
+            });
 
             const server = new Server(
                 {
@@ -1874,11 +1808,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -1933,11 +1862,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -1946,10 +1870,22 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async () => ({
-                action: 'accept',
-                content: { username: 'result-user' }
-            }));
+            client.setRequestHandler(ElicitRequestSchema, async (_request, extra) => {
+                if (extra.taskId) {
+                    await extra.taskStore?.createTask({
+                        taskId: extra.taskId,
+                        keepAlive: extra.taskRequestedKeepAlive
+                    });
+                }
+                const result = {
+                    action: 'accept',
+                    content: { username: 'result-user' }
+                };
+                if (extra.taskId) {
+                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                }
+                return result;
+            });
 
             const server = new Server(
                 {
@@ -1962,11 +1898,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -2020,11 +1951,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -2033,10 +1959,22 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async () => ({
-                action: 'accept',
-                content: { username: 'list-user' }
-            }));
+            client.setRequestHandler(ElicitRequestSchema, async (_request, extra) => {
+                if (extra.taskId) {
+                    await extra.taskStore?.createTask({
+                        taskId: extra.taskId,
+                        keepAlive: extra.taskRequestedKeepAlive
+                    });
+                }
+                const result = {
+                    action: 'accept',
+                    content: { username: 'list-user' }
+                };
+                if (extra.taskId) {
+                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                }
+                return result;
+            });
 
             const server = new Server(
                 {
@@ -2049,11 +1987,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -2118,13 +2051,7 @@ describe('Task-based execution', () => {
                     tasks: {
                         requests: {
                             tools: {
-                                call: true,
-                                list: true
-                            },
-                            tasks: {
-                                get: true,
-                                list: true,
-                                result: true
+                                call: true
                             }
                         }
                     }
@@ -2133,11 +2060,21 @@ describe('Task-based execution', () => {
             }
         );
 
-        server.setRequestHandler(CallToolRequestSchema, async request => {
+        server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+            if (extra.taskId) {
+                await extra.taskStore?.createTask({
+                    taskId: extra.taskId,
+                    keepAlive: extra.taskRequestedKeepAlive
+                });
+            }
             if (request.params.name === 'test-tool') {
-                return {
+                const result = {
                     content: [{ type: 'text', text: `Result for ${request.params.arguments?.id || 'unknown'}` }]
                 };
+                if (extra.taskId) {
+                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                }
+                return result;
             }
             throw new Error('Unknown tool');
         });
@@ -2166,11 +2103,6 @@ describe('Task-based execution', () => {
                         requests: {
                             tools: {
                                 call: true
-                            },
-                            tasks: {
-                                get: true,
-                                list: true,
-                                result: true
                             }
                         }
                     }
@@ -2232,13 +2164,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 tools: {
-                                    call: true,
-                                    list: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
+                                    call: true
                                 }
                             }
                         }
@@ -2258,11 +2184,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 tools: {
                                     call: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -2290,13 +2211,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 tools: {
-                                    call: true,
-                                    list: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
+                                    call: true
                                 }
                             }
                         }
@@ -2316,11 +2231,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 tools: {
                                     call: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -2349,11 +2259,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -2378,11 +2283,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -2414,11 +2314,6 @@ test('should respect server task capabilities', async () => {
                     requests: {
                         tools: {
                             call: true
-                        },
-                        tasks: {
-                            get: true,
-                            list: true,
-                            result: true
                         }
                     }
                 }
@@ -2450,17 +2345,6 @@ test('should respect server task capabilities', async () => {
             version: '1.0.0'
         },
         {
-            capabilities: {
-                tasks: {
-                    requests: {
-                        tasks: {
-                            get: true,
-                            list: true,
-                            result: true
-                        }
-                    }
-                }
-            },
             enforceStrictCapabilities: true
         }
     );
@@ -2468,18 +2352,13 @@ test('should respect server task capabilities', async () => {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    // Server supports task creation for tools/call and task methods
+    // Server supports task creation for tools/call
     expect(client.getServerCapabilities()).toEqual({
         tools: {},
         tasks: {
             requests: {
                 tools: {
                     call: true
-                },
-                tasks: {
-                    get: true,
-                    list: true,
-                    result: true
                 }
             }
         }
@@ -2491,21 +2370,17 @@ test('should respect server task capabilities', async () => {
     });
     await expect(pendingRequest.result()).resolves.not.toThrow();
     await expect(client.listTasks()).resolves.not.toThrow();
-    await expect(client.getTask({ taskId: 'test-task' })).resolves.not.toThrow();
 
-    // This should throw because server doesn't support task creation for tools/list
+    // tools/list doesn't support task creation, but it shouldn't throw - it should just ignore the task metadata
     await expect(
-        client
-            .beginRequest(
-                {
-                    method: 'tools/list',
-                    params: {}
-                },
-                z.object({ tools: z.array(z.any()) }),
-                { task: { taskId: 'test-task-2', keepAlive: 60000 } }
-            )
-            .result()
-    ).rejects.toThrow('Server does not support task creation for tools/list');
+        client.request(
+            {
+                method: 'tools/list',
+                params: {}
+            },
+            z.object({ tools: z.array(z.any()) })
+        )
+    ).resolves.not.toThrow();
 
     serverTaskStore.cleanup();
 });

@@ -348,60 +348,6 @@ export class Client<
                 }
                 break;
 
-            case 'tools/list':
-                if (!requests.tools?.list) {
-                    throw new Error(`Server does not support task creation for tools/list (required for ${method})`);
-                }
-                break;
-
-            case 'resources/read':
-                if (!requests.resources?.read) {
-                    throw new Error(`Server does not support task creation for resources/read (required for ${method})`);
-                }
-                break;
-
-            case 'resources/list':
-                if (!requests.resources?.list) {
-                    throw new Error(`Server does not support task creation for resources/list (required for ${method})`);
-                }
-                break;
-
-            case 'prompts/get':
-                if (!requests.prompts?.get) {
-                    throw new Error(`Server does not support task creation for prompts/get (required for ${method})`);
-                }
-                break;
-
-            case 'prompts/list':
-                if (!requests.prompts?.list) {
-                    throw new Error(`Server does not support task creation for prompts/list (required for ${method})`);
-                }
-                break;
-
-            case 'tasks/get':
-                if (!requests.tasks?.get) {
-                    throw new Error(`Server does not support task creation for tasks/get (required for ${method})`);
-                }
-                break;
-
-            case 'tasks/list':
-                if (!requests.tasks?.list) {
-                    throw new Error(`Server does not support task creation for tasks/list (required for ${method})`);
-                }
-                break;
-
-            case 'tasks/result':
-                if (!requests.tasks?.result) {
-                    throw new Error(`Server does not support task creation for tasks/result (required for ${method})`);
-                }
-                break;
-
-            case 'tasks/delete':
-                if (!requests.tasks?.delete) {
-                    throw new Error(`Server does not support task creation for tasks/delete (required for ${method})`);
-                }
-                break;
-
             default:
                 // Method doesn't support tasks, which is fine - no error
                 break;
@@ -431,36 +377,6 @@ export class Client<
             case 'elicitation/create':
                 if (!requests.elicitation?.create) {
                     throw new Error(`Client does not support task creation for elicitation/create (required for ${method})`);
-                }
-                break;
-
-            case 'roots/list':
-                if (!requests.roots?.list) {
-                    throw new Error(`Client does not support task creation for roots/list (required for ${method})`);
-                }
-                break;
-
-            case 'tasks/get':
-                if (!requests.tasks?.get) {
-                    throw new Error(`Client does not support task creation for tasks/get (required for ${method})`);
-                }
-                break;
-
-            case 'tasks/list':
-                if (!requests.tasks?.list) {
-                    throw new Error(`Client does not support task creation for tasks/list (required for ${method})`);
-                }
-                break;
-
-            case 'tasks/result':
-                if (!requests.tasks?.result) {
-                    throw new Error(`Client does not support task creation for tasks/result (required for ${method})`);
-                }
-                break;
-
-            case 'tasks/delete':
-                if (!requests.tasks?.delete) {
-                    throw new Error(`Client does not support task creation for tasks/delete (required for ${method})`);
                 }
                 break;
 

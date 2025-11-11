@@ -653,34 +653,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         Promise.resolve()
-            .then(async () => {
-                // If this request asked for task creation, check capability first, then create the task and send notification
+            .then(() => {
+                // If this request asked for task creation, check capability first
                 if (taskMetadata) {
                     // Check if the request method supports task creation
                     this.assertTaskHandlerCapability(request.method);
-
-                    if (this._taskStore) {
-                        const task = await this._taskStore.getTask(taskMetadata.taskId, capturedTransport?.sessionId);
-                        if (task) {
-                            throw new McpError(ErrorCode.InvalidParams, `Task ID already exists: ${taskMetadata.taskId}`);
-                        }
-
-                        this._requestIdToTaskId.set(request.id, taskMetadata.taskId);
-                    }
-                }
-            })
-            .then(async () => {
-                // If this request had a task, mark it as working
-                if (taskMetadata) {
-                    try {
-                        await taskStore?.updateTaskStatus(taskMetadata.taskId, 'working', undefined);
-                    } catch {
-                        try {
-                            await taskStore?.updateTaskStatus(taskMetadata.taskId, 'failed', 'Failed to mark task as working');
-                        } catch (error) {
-                            throw new McpError(ErrorCode.InternalError, `Failed to mark task as working: ${error}`);
-                        }
-                    }
                 }
             })
             .then(() => handler(request, fullExtra))
@@ -690,18 +667,6 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         // Request was cancelled
                         await this._postcancel(request.id, capturedTransport?.sessionId);
                         return;
-                    }
-
-                    // Store the result if this was a task-based request.
-                    // This needs to be done before attempting to send the response so that
-                    // we can handle the case where the client has disconnected but will come
-                    // back to retrieve the result later.
-                    if (taskMetadata && this._taskStore) {
-                        try {
-                            await taskStore?.storeTaskResult(taskMetadata.taskId, result);
-                        } catch (error) {
-                            throw new McpError(ErrorCode.InternalError, `Failed to store task result: ${error}`);
-                        }
                     }
 
                     // Send the response

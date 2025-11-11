@@ -967,13 +967,7 @@ describe('Task-based execution', () => {
                     tasks: {
                         requests: {
                             tools: {
-                                call: true,
-                                list: true
-                            },
-                            tasks: {
-                                get: true,
-                                list: true,
-                                result: true
+                                call: true
                             }
                         }
                     }
@@ -983,13 +977,23 @@ describe('Task-based execution', () => {
         );
 
         // Set up a tool handler that simulates some work
-        server.setRequestHandler(CallToolRequestSchema, async request => {
+        server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+            if (extra.taskId) {
+                await extra.taskStore?.createTask({
+                    taskId: extra.taskId,
+                    keepAlive: extra.taskRequestedKeepAlive
+                });
+            }
             if (request.params.name === 'test-tool') {
                 // Simulate some async work
                 await new Promise(resolve => setTimeout(resolve, 10));
-                return {
+                const result = {
                     content: [{ type: 'text', text: 'Tool executed successfully!' }]
                 };
+                if (extra.taskId) {
+                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                }
+                return result;
             }
             throw new Error('Unknown tool');
         });
@@ -1018,11 +1022,6 @@ describe('Task-based execution', () => {
                         requests: {
                             tools: {
                                 call: true
-                            },
-                            tasks: {
-                                get: true,
-                                list: true,
-                                result: true
                             }
                         }
                     }
@@ -1106,11 +1105,6 @@ describe('Task-based execution', () => {
                         requests: {
                             tools: {
                                 call: true
-                            },
-                            tasks: {
-                                get: true,
-                                list: true,
-                                result: true
                             }
                         }
                     }
@@ -1141,13 +1135,7 @@ describe('Task-based execution', () => {
                     tasks: {
                         requests: {
                             tools: {
-                                call: true,
-                                list: true
-                            },
-                            tasks: {
-                                get: true,
-                                list: true,
-                                result: true
+                                call: true
                             }
                         }
                     }
@@ -1168,11 +1156,6 @@ describe('Task-based execution', () => {
                         requests: {
                             elicitation: {
                                 create: true
-                            },
-                            tasks: {
-                                get: true,
-                                list: true,
-                                result: true
                             }
                         }
                     }
@@ -1184,7 +1167,14 @@ describe('Task-based execution', () => {
         let capturedElicitRequest: z.infer<typeof ElicitRequestSchema> | null = null;
 
         // Set up client elicitation handler
-        client.setRequestHandler(ElicitRequestSchema, async request => {
+        client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            if (extra.taskId) {
+                await extra.taskStore?.createTask({
+                    taskId: extra.taskId,
+                    keepAlive: extra.taskRequestedKeepAlive
+                });
+            }
+
             // Capture the request to verify metadata later
             capturedElicitRequest = request;
 
@@ -1198,9 +1188,15 @@ describe('Task-based execution', () => {
 
         // Set up server tool that makes a nested elicitation request
         server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+            if (extra.taskId) {
+                await extra.taskStore?.createTask({
+                    taskId: extra.taskId,
+                    keepAlive: extra.taskRequestedKeepAlive
+                });
+            }
+
             if (request.params.name === 'collect-info') {
                 // During tool execution, make a nested request to the client using extra.sendRequest
-                // This should AUTOMATICALLY attach the related-task metadata
                 const elicitResult = await extra.sendRequest(
                     {
                         method: 'elicitation/create',
@@ -1221,7 +1217,7 @@ describe('Task-based execution', () => {
                     })
                 );
 
-                return {
+                const result = {
                     content: [
                         {
                             type: 'text',
@@ -1229,6 +1225,10 @@ describe('Task-based execution', () => {
                         }
                     ]
                 };
+                if (extra.taskId) {
+                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                }
+                return result;
             }
             throw new Error('Unknown tool');
         });
@@ -1306,11 +1306,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -1319,36 +1314,27 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async () => ({
-                action: 'accept',
-                content: {
-                    username: 'server-test-user',
-                    confirmed: true
+            client.setRequestHandler(ElicitRequestSchema, async (_request, extra) => {
+                if (extra.taskId) {
+                    await extra.taskStore?.createTask({
+                        taskId: extra.taskId,
+                        keepAlive: extra.taskRequestedKeepAlive
+                    });
                 }
-            }));
+                const result = {
+                    action: 'accept',
+                    content: { username: 'server-test-user', confirmed: true }
+                };
+                if (extra.taskId) {
+                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                }
+                return result;
+            });
 
-            const server = new Server(
-                {
-                    name: 'test-server',
-                    version: '1.0.0'
-                },
-                {
-                    capabilities: {
-                        tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
-                                }
-                            }
-                        }
-                    }
-                }
-            );
+            const server = new Server({
+                name: 'test-server',
+                version: '1.0.0'
+            });
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1400,11 +1386,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -1413,33 +1394,27 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async () => ({
-                action: 'accept',
-                content: { username: 'get-user' }
-            }));
-
-            const server = new Server(
-                {
-                    name: 'test-server',
-                    version: '1.0.0'
-                },
-                {
-                    capabilities: {
-                        tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
-                                }
-                            }
-                        }
-                    }
+            client.setRequestHandler(ElicitRequestSchema, async (_request, extra) => {
+                if (extra.taskId) {
+                    await extra.taskStore?.createTask({
+                        taskId: extra.taskId,
+                        keepAlive: extra.taskRequestedKeepAlive
+                    });
                 }
-            );
+                const result = {
+                    action: 'accept',
+                    content: { username: 'list-user' }
+                };
+                if (extra.taskId) {
+                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                }
+                return result;
+            });
+
+            const server = new Server({
+                name: 'test-server',
+                version: '1.0.0'
+            });
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1488,11 +1463,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -1501,33 +1471,27 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async () => ({
-                action: 'accept',
-                content: { username: 'result-user', confirmed: true }
-            }));
-
-            const server = new Server(
-                {
-                    name: 'test-server',
-                    version: '1.0.0'
-                },
-                {
-                    capabilities: {
-                        tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
-                                }
-                            }
-                        }
-                    }
+            client.setRequestHandler(ElicitRequestSchema, async (_request, extra) => {
+                if (extra.taskId) {
+                    await extra.taskStore?.createTask({
+                        taskId: extra.taskId,
+                        keepAlive: extra.taskRequestedKeepAlive
+                    });
                 }
-            );
+                const result = {
+                    action: 'accept',
+                    content: { username: 'result-user', confirmed: true }
+                };
+                if (extra.taskId) {
+                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                }
+                return result;
+            });
+
+            const server = new Server({
+                name: 'test-server',
+                version: '1.0.0'
+            });
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1578,11 +1542,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -1591,10 +1550,22 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async () => ({
-                action: 'accept',
-                content: { username: 'list-user' }
-            }));
+            client.setRequestHandler(ElicitRequestSchema, async (_request, extra) => {
+                if (extra.taskId) {
+                    await extra.taskStore?.createTask({
+                        taskId: extra.taskId,
+                        keepAlive: extra.taskRequestedKeepAlive
+                    });
+                }
+                const result = {
+                    action: 'accept',
+                    content: { username: 'list-user' }
+                };
+                if (extra.taskId) {
+                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                }
+                return result;
+            });
 
             const server = new Server(
                 {
@@ -1607,11 +1578,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -1676,13 +1642,7 @@ describe('Task-based execution', () => {
                     tasks: {
                         requests: {
                             tools: {
-                                call: true,
-                                list: true
-                            },
-                            tasks: {
-                                get: true,
-                                list: true,
-                                result: true
+                                call: true
                             }
                         }
                     }
@@ -1692,13 +1652,23 @@ describe('Task-based execution', () => {
         );
 
         // Set up a tool handler with variable delay
-        server.setRequestHandler(CallToolRequestSchema, async request => {
+        server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+            if (extra.taskId) {
+                await extra.taskStore?.createTask({
+                    taskId: extra.taskId,
+                    keepAlive: extra.taskRequestedKeepAlive
+                });
+            }
             if (request.params.name === 'async-tool') {
                 const delay = (request.params.arguments?.delay as number) || 10;
                 await new Promise(resolve => setTimeout(resolve, delay));
-                return {
+                const result = {
                     content: [{ type: 'text', text: `Completed task ${request.params.arguments?.taskNum || 'unknown'}` }]
                 };
+                if (extra.taskId) {
+                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                }
+                return result;
             }
             throw new Error('Unknown tool');
         });
@@ -1730,11 +1700,6 @@ describe('Task-based execution', () => {
                         requests: {
                             tools: {
                                 call: true
-                            },
-                            tasks: {
-                                get: true,
-                                list: true,
-                                result: true
                             }
                         }
                     }
@@ -1802,10 +1767,8 @@ describe('Task-based execution', () => {
                         tools: {},
                         tasks: {
                             requests: {
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
+                                tools: {
+                                    call: true
                                 }
                             }
                         }
@@ -1825,11 +1788,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 tools: {
                                     call: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -1858,11 +1816,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -1887,11 +1840,6 @@ describe('Task-based execution', () => {
                             requests: {
                                 elicitation: {
                                     create: true
-                                },
-                                tasks: {
-                                    get: true,
-                                    list: true,
-                                    result: true
                                 }
                             }
                         }
@@ -1925,11 +1873,6 @@ test('should respect client task capabilities', async () => {
                     requests: {
                         elicitation: {
                             create: true
-                        },
-                        tasks: {
-                            get: true,
-                            list: true,
-                            result: true
                         }
                     }
                 }
@@ -1938,10 +1881,22 @@ test('should respect client task capabilities', async () => {
         }
     );
 
-    client.setRequestHandler(ElicitRequestSchema, async () => ({
-        action: 'accept',
-        content: { username: 'test-user' }
-    }));
+    client.setRequestHandler(ElicitRequestSchema, async (_request, extra) => {
+        if (extra.taskId) {
+            await extra.taskStore?.createTask({
+                taskId: extra.taskId,
+                keepAlive: extra.taskRequestedKeepAlive
+            });
+        }
+        const result = {
+            action: 'accept',
+            content: { username: 'test-user' }
+        };
+        if (extra.taskId) {
+            await extra.taskStore?.storeTaskResult(extra.taskId, result);
+        }
+        return result;
+    });
 
     const server = new Server(
         {
@@ -1954,11 +1909,6 @@ test('should respect client task capabilities', async () => {
                     requests: {
                         elicitation: {
                             create: true
-                        },
-                        tasks: {
-                            get: true,
-                            list: true,
-                            result: true
                         }
                     }
                 }
@@ -1978,11 +1928,6 @@ test('should respect client task capabilities', async () => {
             requests: {
                 elicitation: {
                     create: true
-                },
-                tasks: {
-                    get: true,
-                    list: true,
-                    result: true
                 }
             }
         }
@@ -2014,21 +1959,23 @@ test('should respect client task capabilities', async () => {
 
     // This should throw because client doesn't support task creation for sampling/createMessage
     await expect(
-        server.beginRequest(
-            {
-                method: 'sampling/createMessage',
-                params: {
-                    messages: [],
-                    maxTokens: 10
-                }
-            },
-            z.object({
-                model: z.string(),
-                role: z.string(),
-                content: z.any()
-            }),
-            { task: { taskId: 'test-task-2', keepAlive: 60000 } }
-        ).result()
+        server
+            .beginRequest(
+                {
+                    method: 'sampling/createMessage',
+                    params: {
+                        messages: [],
+                        maxTokens: 10
+                    }
+                },
+                z.object({
+                    model: z.string(),
+                    role: z.string(),
+                    content: z.any()
+                }),
+                { task: { taskId: 'test-task-2', keepAlive: 60000 } }
+            )
+            .result()
     ).rejects.toThrow('Client does not support task creation for sampling/createMessage');
 
     clientTaskStore.cleanup();

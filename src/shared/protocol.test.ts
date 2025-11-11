@@ -1,5 +1,6 @@
 import { ZodType, z } from 'zod';
 import {
+    CallToolRequestSchema,
     ClientCapabilities,
     ErrorCode,
     McpError,
@@ -1097,15 +1098,29 @@ describe('Task-based execution', () => {
 
             await protocol.connect(transport);
 
-            protocol.setRequestHandler(z.object({ method: z.literal('test/method'), params: z.any() }), async () => ({
-                result: 'success'
-            }));
+            protocol.setRequestHandler(CallToolRequestSchema, async request => {
+                await mockTaskStore.createTask(
+                    {
+                        taskId: 'test-task',
+                        keepAlive: 60000
+                    },
+                    1,
+                    request,
+                    undefined
+                );
+                await mockTaskStore.updateTaskStatus('test-task', 'working', undefined, undefined);
+                return {
+                    result: 'success'
+                };
+            });
 
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 id: 1,
-                method: 'test/method',
+                method: 'tools/call',
                 params: {
+                    name: 'test',
+                    arguments: {},
                     _meta: {
                         [TASK_META_KEY]: {
                             taskId: 'test-task',
@@ -1121,7 +1136,7 @@ describe('Task-based execution', () => {
                 { taskId: 'test-task', keepAlive: 60000 },
                 1,
                 {
-                    method: 'test/method',
+                    method: 'tools/call',
                     params: expect.any(Object)
                 },
                 undefined
@@ -1168,7 +1183,16 @@ describe('Task-based execution', () => {
                 return Promise.resolve();
             });
 
-            protocol.setRequestHandler(z.object({ method: z.literal('test/method'), params: z.any() }), async (_request, extra) => {
+            protocol.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+                await mockTaskStore.createTask(
+                    {
+                        taskId: 'test-task',
+                        keepAlive: 60000
+                    },
+                    1,
+                    request
+                );
+                await mockTaskStore.updateTaskStatus('test-task', 'working', undefined, undefined);
                 await extra.sendRequest({ method: 'nested/request', params: {} }, z.object({ nested: z.string() }));
                 return { result: 'success' };
             });
@@ -1176,8 +1200,10 @@ describe('Task-based execution', () => {
             responsiveTransport.onmessage?.({
                 jsonrpc: '2.0',
                 id: 1,
-                method: 'test/method',
+                method: 'tools/call',
                 params: {
+                    name: 'test',
+                    arguments: {},
                     _meta: {
                         [TASK_META_KEY]: {
                             taskId: 'test-task',
@@ -1227,15 +1253,29 @@ describe('Task-based execution', () => {
 
             await protocol.connect(transport);
 
-            protocol.setRequestHandler(z.object({ method: z.literal('test/method'), params: z.any() }), async () => ({
-                result: 'success'
-            }));
+            protocol.setRequestHandler(CallToolRequestSchema, async request => {
+                await mockTaskStore.createTask(
+                    {
+                        taskId: 'test-task',
+                        keepAlive: 60000
+                    },
+                    1,
+                    request
+                );
+                await mockTaskStore.updateTaskStatus('test-task', 'working', undefined, undefined);
+                await mockTaskStore.storeTaskResult('test-task', { result: 'success' }, undefined);
+                return {
+                    result: 'success'
+                };
+            });
 
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 id: 1,
-                method: 'test/method',
+                method: 'tools/call',
                 params: {
+                    name: 'test',
+                    arguments: {},
                     _meta: {
                         [TASK_META_KEY]: {
                             taskId: 'test-task',
@@ -1248,105 +1288,6 @@ describe('Task-based execution', () => {
             await completeProcessed.waitForLatch();
 
             expect(mockTaskStore.storeTaskResult).toHaveBeenCalledWith('test-task', { result: 'success' }, undefined);
-        });
-
-        it('should mark task as cancelled when notifications/cancelled is received', async () => {
-            const cancelProcessed = createLatch();
-            const mockTaskStore = createMockTaskStore({
-                onStatus: status => {
-                    if (status === 'cancelled') {
-                        cancelProcessed.releaseLatch();
-                    }
-                }
-            });
-
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
-
-            await protocol.connect(transport);
-
-            const requestInProgress = createLatch();
-            const cancelSent = createLatch();
-
-            protocol.setRequestHandler(z.object({ method: z.literal('test/method'), params: z.any() }), async () => {
-                requestInProgress.releaseLatch();
-                await cancelSent.waitForLatch();
-                return {
-                    result: 'success'
-                };
-            });
-
-            transport.onmessage?.({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'test/method',
-                params: {
-                    _meta: {
-                        [TASK_META_KEY]: {
-                            taskId: 'test-task',
-                            keepAlive: 60000
-                        }
-                    }
-                }
-            });
-
-            transport.onmessage?.({
-                jsonrpc: '2.0',
-                method: 'notifications/cancelled',
-                params: {
-                    requestId: 1,
-                    reason: 'User cancelled'
-                }
-            });
-
-            await requestInProgress.waitForLatch();
-            cancelSent.releaseLatch();
-            await cancelProcessed.waitForLatch();
-
-            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'cancelled', undefined, undefined);
-        });
-
-        it('should mark task as failed when updateTaskStatus to working fails', async () => {
-            const mockTaskStore = createMockTaskStore();
-            mockTaskStore.updateTaskStatus.mockRejectedValueOnce(new Error('Failed to update status')).mockResolvedValue(undefined);
-
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
-
-            await protocol.connect(transport);
-
-            protocol.setRequestHandler(z.object({ method: z.literal('test/method'), params: z.any() }), async () => ({
-                result: 'success'
-            }));
-
-            transport.onmessage?.({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'test/method',
-                params: {
-                    _meta: {
-                        [TASK_META_KEY]: {
-                            taskId: 'test-task',
-                            keepAlive: 60000
-                        }
-                    }
-                }
-            });
-
-            await new Promise(resolve => setTimeout(resolve, 50));
-
-            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'working', undefined, undefined);
-            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'failed', 'Failed to mark task as working', undefined);
         });
     });
 
