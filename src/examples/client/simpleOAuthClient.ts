@@ -220,7 +220,7 @@ class InteractiveOAuthClient {
             redirect_uris: [CALLBACK_URL],
             grant_types: ['authorization_code', 'refresh_token'],
             response_types: ['code'],
-            token_endpoint_auth_method: 'client_secret_post',
+            token_endpoint_auth_method: 'client_secret_post'
         };
 
         console.log('🔐 Creating OAuth provider...');
