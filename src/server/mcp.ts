@@ -1,5 +1,5 @@
 import { Server, ServerOptions } from './index.js';
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { zodToJsonSchema } from './zodJsonSchema.js';
 import { z, ZodRawShape, ZodObject, ZodString, ZodTypeAny, ZodType, ZodTypeDef, ZodOptional } from 'zod';
 import {
     Implementation,
