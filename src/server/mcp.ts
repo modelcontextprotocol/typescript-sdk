@@ -107,7 +107,7 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (zodToJsonSchema(tool.inputSchema, {
+                                ? (zodToJsonSchema(getZodSchemaObject(tool.inputSchema) ?? z.object({}), {
                                       strictUnions: true,
                                       pipeStrategy: 'input'
                                   }) as Tool['inputSchema'])
@@ -117,7 +117,7 @@ export class McpServer {
                         };
 
                         if (tool.outputSchema) {
-                            toolDefinition.outputSchema = zodToJsonSchema(tool.outputSchema, {
+                            toolDefinition.outputSchema = zodToJsonSchema(getZodSchemaObject(tool.outputSchema) ?? z.object({}), {
                                 strictUnions: true,
                                 pipeStrategy: 'output'
                             }) as Tool['outputSchema'];
@@ -144,7 +144,11 @@ export class McpServer {
 
                 if (tool.inputSchema) {
                     const cb = tool.callback as ToolCallback<ZodRawShape>;
-                    const parseResult = await tool.inputSchema.safeParseAsync(request.params.arguments);
+                    const inputSchemaObject = getZodSchemaObject(tool.inputSchema);
+                    if (!inputSchemaObject) {
+                        throw new McpError(ErrorCode.InternalError, `Tool ${request.params.name} has invalid input schema`);
+                    }
+                    const parseResult = await inputSchemaObject.safeParseAsync(request.params.arguments);
                     if (!parseResult.success) {
                         throw new McpError(
                             ErrorCode.InvalidParams,
@@ -169,7 +173,11 @@ export class McpServer {
                     }
 
                     // if the tool has an output schema, validate structured content
-                    const parseResult = await tool.outputSchema.safeParseAsync(result.structuredContent);
+                    const outputSchemaObject = getZodSchemaObject(tool.outputSchema);
+                    if (!outputSchemaObject) {
+                        throw new McpError(ErrorCode.InternalError, `Tool ${request.params.name} has invalid output schema`);
+                    }
+                    const parseResult = await outputSchemaObject.safeParseAsync(result.structuredContent);
                     if (!parseResult.success) {
                         throw new McpError(
                             ErrorCode.InvalidParams,
@@ -671,8 +679,8 @@ export class McpServer {
         const registeredTool: RegisteredTool = {
             title,
             description,
-            inputSchema: getZodSchemaObject(inputSchema),
-            outputSchema: getZodSchemaObject(outputSchema),
+            inputSchema,
+            outputSchema,
             annotations,
             _meta,
             callback,
@@ -690,7 +698,7 @@ export class McpServer {
                 }
                 if (typeof updates.title !== 'undefined') registeredTool.title = updates.title;
                 if (typeof updates.description !== 'undefined') registeredTool.description = updates.description;
-                if (typeof updates.paramsSchema !== 'undefined') registeredTool.inputSchema = z.object(updates.paramsSchema);
+                if (typeof updates.paramsSchema !== 'undefined') registeredTool.inputSchema = updates.paramsSchema;
                 if (typeof updates.callback !== 'undefined') registeredTool.callback = updates.callback;
                 if (typeof updates.annotations !== 'undefined') registeredTool.annotations = updates.annotations;
                 if (typeof updates._meta !== 'undefined') registeredTool._meta = updates._meta;
@@ -1054,8 +1062,8 @@ export type ToolCallback<Args extends undefined | ZodRawShape | ZodType<object> 
 export type RegisteredTool = {
     title?: string;
     description?: string;
-    inputSchema?: ZodType<object>;
-    outputSchema?: ZodType<object>;
+    inputSchema?: ZodRawShape | ZodType<object>;
+    outputSchema?: ZodRawShape | ZodType<object>;
     annotations?: ToolAnnotations;
     _meta?: Record<string, unknown>;
     callback: ToolCallback<undefined | ZodRawShape>;
