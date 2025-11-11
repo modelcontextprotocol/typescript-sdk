@@ -1,6 +1,6 @@
 /**
  * Tool name validation utilities according to SEP: Specify Format for Tool Names
- * 
+ *
  * Tool names SHOULD be between 1 and 128 characters in length (inclusive).
  * Tool names are case-sensitive.
  * Allowed characters: uppercase and lowercase ASCII letters (A-Z, a-z), digits
@@ -19,66 +19,66 @@ const TOOL_NAME_REGEX = /^[A-Za-z0-9._-]{1,128}$/;
  * @returns An object containing validation result and any warnings
  */
 export function validateToolName(name: string): {
-  isValid: boolean;
-  warnings: string[];
+    isValid: boolean;
+    warnings: string[];
 } {
-  const warnings: string[] = [];
-  
-  // Check length
-  if (name.length === 0) {
-    return {
-      isValid: false,
-      warnings: ["Tool name cannot be empty"]
-    };
-  }
-  
-  if (name.length > 128) {
-    return {
-      isValid: false,
-      warnings: [`Tool name exceeds maximum length of 128 characters (current: ${name.length})`]
-    };
-  }
-  
-  // Check for specific problematic patterns (these are warnings, not validation failures)
-  if (name.includes(' ')) {
-    warnings.push("Tool name contains spaces, which may cause parsing issues");
-  }
-  
-  if (name.includes(',')) {
-    warnings.push("Tool name contains commas, which may cause parsing issues");
-  }
-  
-  // Check for potentially confusing patterns (leading/trailing dashes, dots, slashes)
-  if (name.startsWith('-') || name.endsWith('-')) {
-    warnings.push("Tool name starts or ends with a dash, which may cause parsing issues in some contexts");
-  }
-  
-  if (name.startsWith('.') || name.endsWith('.')) {
-    warnings.push("Tool name starts or ends with a dot, which may cause parsing issues in some contexts");
-  }
+    const warnings: string[] = [];
 
-  // Check for invalid characters
-  if (!TOOL_NAME_REGEX.test(name)) {
-    const invalidChars = name
-      .split('')
-      .filter(char => !/[A-Za-z0-9._-]/.test(char))
-      .filter((char, index, arr) => arr.indexOf(char) === index); // Remove duplicates
+    // Check length
+    if (name.length === 0) {
+        return {
+            isValid: false,
+            warnings: ['Tool name cannot be empty']
+        };
+    }
 
-    warnings.push(
-      `Tool name contains invalid characters: ${invalidChars.map(c => `"${c}"`).join(', ')}`,
-      "Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)"
-    );
-    
+    if (name.length > 128) {
+        return {
+            isValid: false,
+            warnings: [`Tool name exceeds maximum length of 128 characters (current: ${name.length})`]
+        };
+    }
+
+    // Check for specific problematic patterns (these are warnings, not validation failures)
+    if (name.includes(' ')) {
+        warnings.push('Tool name contains spaces, which may cause parsing issues');
+    }
+
+    if (name.includes(',')) {
+        warnings.push('Tool name contains commas, which may cause parsing issues');
+    }
+
+    // Check for potentially confusing patterns (leading/trailing dashes, dots, slashes)
+    if (name.startsWith('-') || name.endsWith('-')) {
+        warnings.push('Tool name starts or ends with a dash, which may cause parsing issues in some contexts');
+    }
+
+    if (name.startsWith('.') || name.endsWith('.')) {
+        warnings.push('Tool name starts or ends with a dot, which may cause parsing issues in some contexts');
+    }
+
+    // Check for invalid characters
+    if (!TOOL_NAME_REGEX.test(name)) {
+        const invalidChars = name
+            .split('')
+            .filter(char => !/[A-Za-z0-9._-]/.test(char))
+            .filter((char, index, arr) => arr.indexOf(char) === index); // Remove duplicates
+
+        warnings.push(
+            `Tool name contains invalid characters: ${invalidChars.map(c => `"${c}"`).join(', ')}`,
+            'Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)'
+        );
+
+        return {
+            isValid: false,
+            warnings
+        };
+    }
+
     return {
-      isValid: false,
-      warnings
+        isValid: true,
+        warnings
     };
-  }
-  
-  return {
-    isValid: true,
-    warnings
-  };
 }
 
 /**
@@ -87,15 +87,17 @@ export function validateToolName(name: string): {
  * @param warnings - Array of warning messages
  */
 export function issueToolNameWarning(name: string, warnings: string[]): void {
-  if (warnings.length > 0) {
-    console.warn(`Tool name validation warning for "${name}":`);
-    for (const warning of warnings) {
-      console.warn(`  - ${warning}`);
+    if (warnings.length > 0) {
+        console.warn(`Tool name validation warning for "${name}":`);
+        for (const warning of warnings) {
+            console.warn(`  - ${warning}`);
+        }
+        console.warn('Tool registration will proceed, but this may cause compatibility issues.');
+        console.warn('Consider updating the tool name to conform to the MCP tool naming standard.');
+        console.warn(
+            'See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.'
+        );
     }
-    console.warn("Tool registration will proceed, but this may cause compatibility issues.");
-    console.warn("Consider updating the tool name to conform to the MCP tool naming standard.");
-    console.warn("See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.");
-  }
 }
 
 /**
@@ -104,10 +106,10 @@ export function issueToolNameWarning(name: string, warnings: string[]): void {
  * @returns true if the name is valid, false otherwise
  */
 export function validateAndWarnToolName(name: string): boolean {
-  const result = validateToolName(name);
-  
-  // Always issue warnings for any validation issues (both invalid names and warnings)
-  issueToolNameWarning(name, result.warnings);
-  
-  return result.isValid;
+    const result = validateToolName(name);
+
+    // Always issue warnings for any validation issues (both invalid names and warnings)
+    issueToolNameWarning(name, result.warnings);
+
+    return result.isValid;
 }
