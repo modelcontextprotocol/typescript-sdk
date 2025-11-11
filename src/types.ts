@@ -1325,7 +1325,7 @@ export const MultiSelectEnumSchemaSchema = z.union([UntitledMultiSelectEnumSchem
 /**
  * Primitive schema definition for enum fields.
  */
-export const EnumSchemaSchema = z.union([SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema, LegacyTitledEnumSchemaSchema]);
+export const EnumSchemaSchema = z.union([LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema]);
 
 /**
  * Union of all primitive schema definitions.

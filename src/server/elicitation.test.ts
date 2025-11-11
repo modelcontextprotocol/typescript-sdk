@@ -518,6 +518,14 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                     },
                     default: ['green', 'blue']
                 },
+                legacyTitledEnum: {
+                    type: 'string',
+                    title: 'Legacy Titled Enum',
+                    description: 'Choose your favorite color',
+                    enum: ['red', 'green', 'blue'],
+                    enumNames: ['Red', 'Green', 'Blue'],
+                    default: 'green'
+                },
                 optionalWithADefault: { type: 'string', default: 'default value' }
             },
             required: [
@@ -560,6 +568,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                 untitledMultipleSelectEnum: ['green', 'blue'],
                 titledSingleSelectEnum: 'green',
                 titledMultipleSelectEnum: ['green', 'blue'],
+                legacyTitledEnum: 'green',
                 optionalWithADefault: 'default value'
             }
         });
