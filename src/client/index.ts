@@ -45,6 +45,12 @@ import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '.
 import { ZodLiteral, ZodObject, z } from 'zod';
 import type { RequestHandlerExtra } from '../shared/protocol.js';
 
+/**
+ * Elicitation default application helper. Applies defaults to the data based on the schema.
+ *
+ * @param schema - The schema to apply defaults to.
+ * @param data - The data to apply defaults to.
+ */
 function applyElicitationDefaults(schema: JsonSchemaType | undefined, data: unknown): void {
     if (!schema || data === null || typeof data !== 'object') return;
 
@@ -61,20 +67,6 @@ function applyElicitationDefaults(schema: JsonSchemaType | undefined, data: unkn
             // Recurse into existing nested objects/arrays
             if (obj[key] !== undefined) {
                 applyElicitationDefaults(propSchema, obj[key]);
-            }
-        }
-    }
-
-    // Handle arrays
-    if (schema.type === 'array' && Array.isArray(data) && schema.items) {
-        const itemsSchema = schema.items as JsonSchemaType | JsonSchemaType[];
-        if (Array.isArray(itemsSchema)) {
-            for (let i = 0; i < data.length && i < itemsSchema.length; i++) {
-                applyElicitationDefaults(itemsSchema[i], data[i]);
-            }
-        } else {
-            for (const item of data) {
-                applyElicitationDefaults(itemsSchema, item);
             }
         }
     }
