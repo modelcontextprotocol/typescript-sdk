@@ -1,5 +1,6 @@
 import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
 import type { Transport } from '../shared/transport.js';
+import { getSupportedElicitationModes } from '../shared/elicitation-utils.js';
 import {
     type CallToolRequest,
     CallToolResultSchema,
@@ -210,6 +211,17 @@ export class Client<
                     throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation request: ${validatedRequest.error.message}`);
                 }
 
+                const { params } = validatedRequest.data;
+                const { supportsFormMode, supportsUrlMode } = getSupportedElicitationModes(this._capabilities.elicitation);
+
+                if (params.mode === 'form' && !supportsFormMode) {
+                    throw new McpError(ErrorCode.InvalidParams, 'Client does not support form-mode elicitation requests');
+                }
+
+                if (params.mode === 'url' && !supportsUrlMode) {
+                    throw new McpError(ErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
+                }
+
                 const result = await Promise.resolve(handler(request, extra));
 
                 const validationResult = ElicitResultSchema.safeParse(result);
@@ -218,17 +230,16 @@ export class Client<
                 }
 
                 const validatedResult = validationResult.data;
+                const requestedSchema =
+                    params.mode === 'form' ? (params.requestedSchema as unknown as JsonSchemaType | undefined) : undefined;
 
-                if (
-                    this._capabilities.elicitation?.applyDefaults &&
-                    validatedResult.action === 'accept' &&
-                    validatedResult.content &&
-                    validatedRequest.data.params.requestedSchema
-                ) {
-                    try {
-                        applyElicitationDefaults(validatedRequest.data.params.requestedSchema, validatedResult.content);
-                    } catch {
-                        // gracefully ignore errors in default application
+                if (params.mode === 'form' && validatedResult.action === 'accept' && validatedResult.content && requestedSchema) {
+                    if (this._capabilities.elicitation?.applyDefaults) {
+                        try {
+                            applyElicitationDefaults(requestedSchema, validatedResult.content);
+                        } catch {
+                            // gracefully ignore errors in default application
+                        }
                     }
                 }
 

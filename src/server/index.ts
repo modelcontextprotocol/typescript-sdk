@@ -225,6 +225,12 @@ export class Server<
                 }
                 break;
 
+            case 'notifications/elicitation/complete':
+                if (!this._clientCapabilities?.elicitation?.url) {
+                    throw new Error(`Client does not support URL elicitation (required for ${method})`);
+                }
+                break;
+
             case 'notifications/cancelled':
                 // Cancellation notifications are always allowed
                 break;
@@ -321,10 +327,14 @@ export class Server<
     }
 
     async elicitInput(params: ElicitRequest['params'], options?: RequestOptions): Promise<ElicitResult> {
+        const mode = params.mode;
+        if (!this._clientCapabilities?.elicitation?.[mode]) {
+            throw new Error(`Client does not support ${mode} elicitation.`);
+        }
         const result = await this.request({ method: 'elicitation/create', params }, ElicitResultSchema, options);
 
-        // Validate the response content against the requested schema if action is "accept"
-        if (result.action === 'accept' && result.content && params.requestedSchema) {
+        // If this is a form payload, validate the response content against the requested schema if action is "accept"
+        if (mode === 'form' && result.action === 'accept' && result.content && params.requestedSchema) {
             try {
                 const validator = this._jsonSchemaValidator.getValidator(params.requestedSchema as JsonSchemaType);
                 const validationResult = validator(result.content);
