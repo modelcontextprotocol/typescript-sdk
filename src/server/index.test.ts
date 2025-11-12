@@ -20,6 +20,7 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types.js';
 import { Server } from './index.js';
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
 
 test('should accept latest protocol version', async () => {
     let sendPromiseResolve: (value: unknown) => void;
@@ -553,6 +554,113 @@ test('should include url mode when sending elicitation URL requests', async () =
 
     expect(receivedModes).toEqual(['url']);
     expect(receivedIds).toEqual(['elicitation-xyz']);
+});
+
+test('should reject elicitFormInput when client response violates requested schema', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    form: {}
+                }
+            }
+        }
+    );
+
+    client.setRequestHandler(ElicitRequestSchema, () => ({
+        action: 'accept',
+
+        // Bad response: missing required field `username`
+        content: {}
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await expect(
+        server.elicitFormInput({
+            message: 'Please provide your username',
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    username: {
+                        type: 'string'
+                    }
+                },
+                required: ['username']
+            }
+        })
+    ).rejects.toThrow('Elicitation response content does not match requested schema');
+});
+
+test('should wrap unexpected validator errors during elicitFormInput', async () => {
+    class ThrowingValidator implements jsonSchemaValidator {
+        getValidator<T>(_schema: JsonSchemaType): JsonSchemaValidator<T> {
+            throw new Error('boom - validator exploded');
+        }
+    }
+
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {},
+            jsonSchemaValidator: new ThrowingValidator()
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    form: {}
+                }
+            }
+        }
+    );
+
+    client.setRequestHandler(ElicitRequestSchema, () => ({
+        action: 'accept',
+        content: {
+            username: 'ignored'
+        }
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await expect(
+        server.elicitFormInput({
+            message: 'Provide any data',
+            requestedSchema: {
+                type: 'object',
+                properties: {},
+                required: []
+            }
+        })
+    ).rejects.toThrow('MCP error -32603: Error validating elicitation response: boom - validator exploded');
 });
 
 test('should forward notification options when using elicitation completion notifier', async () => {
