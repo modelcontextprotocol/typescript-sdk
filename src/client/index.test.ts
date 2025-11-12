@@ -596,6 +596,81 @@ test('should allow setRequestHandler for declared elicitation capability', () =>
     }).toThrow('Client does not support sampling capability');
 });
 
+test('should accept form-mode elicitation request when client advertises empty elicitation object (back-compat)', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                prompts: {},
+                resources: {},
+                tools: {},
+                logging: {}
+            }
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {}
+            }
+        }
+    );
+
+    // Set up client handler for form-mode elicitation
+    client.setRequestHandler(ElicitRequestSchema, request => {
+        expect(request.params.mode).toBe('form');
+        return {
+            action: 'accept',
+            content: {
+                username: 'test-user',
+                confirmed: true
+            }
+        };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Server should be able to send form-mode elicitation request
+    // This works because getSupportedElicitationModes defaults to form mode
+    // when neither form nor url are explicitly declared
+    const result = await server.elicitFormInput({
+        message: 'Please provide your username',
+        requestedSchema: {
+            type: 'object',
+            properties: {
+                username: {
+                    type: 'string',
+                    title: 'Username',
+                    description: 'Your username'
+                },
+                confirmed: {
+                    type: 'boolean',
+                    title: 'Confirm',
+                    description: 'Please confirm',
+                    default: false
+                }
+            },
+            required: ['username']
+        }
+    });
+
+    expect(result.action).toBe('accept');
+    expect(result.content).toEqual({
+        username: 'test-user',
+        confirmed: true
+    });
+});
+
 /***
  * Test: Type Checking
  * Test that custom request/notification/result schemas can be used with the Client class.

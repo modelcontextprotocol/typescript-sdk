@@ -304,7 +304,8 @@ test('should respect client elicitation capabilities', async () => {
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    expect(server.getClientCapabilities()).toEqual({ elicitation: {} });
+    // After schema parsing, empty elicitation object should have form capability injected
+    expect(server.getClientCapabilities()).toEqual({ elicitation: { form: {} } });
 
     // This should work because elicitation is supported by the client
     await expect(
@@ -343,6 +344,91 @@ test('should respect client elicitation capabilities', async () => {
             maxTokens: 10
         })
     ).rejects.toThrow(/^Client does not support/);
+});
+
+test('should apply back-compat form capability injection when client sends empty elicitation object', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                prompts: {},
+                resources: {},
+                tools: {},
+                logging: {}
+            }
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {}
+            }
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Verify that the schema preprocessing injected form capability
+    const clientCapabilities = server.getClientCapabilities();
+    expect(clientCapabilities).toBeDefined();
+    expect(clientCapabilities?.elicitation).toBeDefined();
+    expect(clientCapabilities?.elicitation?.form).toBeDefined();
+    expect(clientCapabilities?.elicitation?.form).toEqual({});
+    expect(clientCapabilities?.elicitation?.url).toBeUndefined();
+});
+
+test('should apply back-compat form capability injection when client sends elicitation with only applyDefaults', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                prompts: {},
+                resources: {},
+                tools: {},
+                logging: {}
+            }
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    applyDefaults: true
+                }
+            }
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Verify that the schema preprocessing injected form capability while preserving applyDefaults
+    const clientCapabilities = server.getClientCapabilities();
+    expect(clientCapabilities).toBeDefined();
+    expect(clientCapabilities?.elicitation).toBeDefined();
+    expect(clientCapabilities?.elicitation?.form).toBeDefined();
+    expect(clientCapabilities?.elicitation?.form).toEqual({});
+    expect(clientCapabilities?.elicitation?.applyDefaults).toBe(true);
+    expect(clientCapabilities?.elicitation?.url).toBeUndefined();
 });
 
 test('should validate elicitation response against requested schema', async () => {
