@@ -70,6 +70,7 @@ export class SSEClientTransport implements Transport {
     private _requestInit?: RequestInit;
     private _authProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
+    private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
 
     onclose?: () => void;
@@ -84,6 +85,7 @@ export class SSEClientTransport implements Transport {
         this._requestInit = opts?.requestInit;
         this._authProvider = opts?.authProvider;
         this._fetch = opts?.fetch;
+        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
     }
 
     private async _authThenStart(): Promise<void> {
@@ -93,14 +95,11 @@ export class SSEClientTransport implements Transport {
 
         let result: AuthResult;
         try {
-            // Wrap fetch to automatically include base RequestInit options
-            const fetchFn = createFetchWithInit(this._fetch, this._requestInit);
-
             result = await auth(this._authProvider, {
                 serverUrl: this._url,
                 resourceMetadataUrl: this._resourceMetadataUrl,
                 scope: this._scope,
-                fetchFn
+                fetchFn: this._fetchWithInit
             });
         } catch (error) {
             this.onerror?.(error as Error);
@@ -218,15 +217,12 @@ export class SSEClientTransport implements Transport {
             throw new UnauthorizedError('No auth provider');
         }
 
-        // Wrap fetch to automatically include base RequestInit options
-        const fetchFn = createFetchWithInit(this._fetch, this._requestInit);
-
         const result = await auth(this._authProvider, {
             serverUrl: this._url,
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
-            fetchFn
+            fetchFn: this._fetchWithInit
         });
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');
@@ -262,14 +258,11 @@ export class SSEClientTransport implements Transport {
                     this._resourceMetadataUrl = resourceMetadataUrl;
                     this._scope = scope;
 
-                    // Wrap fetch to automatically include base RequestInit options
-                    const fetchFn = createFetchWithInit(this._fetch, this._requestInit);
-
                     const result = await auth(this._authProvider, {
                         serverUrl: this._url,
                         resourceMetadataUrl: this._resourceMetadataUrl,
                         scope: this._scope,
-                        fetchFn
+                        fetchFn: this._fetchWithInit
                     });
                     if (result !== 'AUTHORIZED') {
                         throw new UnauthorizedError();
