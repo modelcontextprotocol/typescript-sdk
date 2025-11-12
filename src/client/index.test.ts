@@ -839,6 +839,70 @@ test('should reject URL-mode elicitation when client only supports form mode', a
     await client.close();
 });
 
+test('should apply defaults for form-mode elicitation when applyDefaults is enabled', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                prompts: {},
+                resources: {},
+                tools: {},
+                logging: {}
+            }
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    form: {},
+                    applyDefaults: true
+                }
+            }
+        }
+    );
+
+    client.setRequestHandler(ElicitRequestSchema, request => {
+        expect(request.params.mode).toBe('form');
+        return {
+            action: 'accept',
+            content: {}
+        };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    const result = await server.elicitFormInput({
+        message: 'Please confirm your preferences',
+        requestedSchema: {
+            type: 'object',
+            properties: {
+                confirmed: {
+                    type: 'boolean',
+                    default: true
+                }
+            }
+        }
+    });
+
+    expect(result.action).toBe('accept');
+    expect(result.content).toEqual({
+        confirmed: true
+    });
+
+    await client.close();
+});
+
 /***
  * Test: Type Checking
  * Test that custom request/notification/result schemas can be used with the Client class.
