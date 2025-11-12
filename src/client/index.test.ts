@@ -671,6 +671,174 @@ test('should accept form-mode elicitation request when client advertises empty e
     });
 });
 
+test('should reject form-mode elicitation when client only supports URL mode', async () => {
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    url: {}
+                }
+            }
+        }
+    );
+
+    const handler = jest.fn().mockResolvedValue({
+        action: 'cancel'
+    });
+    client.setRequestHandler(ElicitRequestSchema, handler);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    let resolveResponse: ((message: unknown) => void) | undefined;
+    const responsePromise = new Promise<unknown>(resolve => {
+        resolveResponse = resolve;
+    });
+
+    serverTransport.onmessage = async message => {
+        if ('method' in message) {
+            if (message.method === 'initialize') {
+                if (!('id' in message) || message.id === undefined) {
+                    throw new Error('Expected initialize request to include an id');
+                }
+                const messageId = message.id;
+                await serverTransport.send({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: {},
+                        serverInfo: {
+                            name: 'test-server',
+                            version: '1.0.0'
+                        }
+                    }
+                });
+            } else if (message.method === 'notifications/initialized') {
+                // ignore
+            }
+        } else {
+            resolveResponse?.(message);
+        }
+    };
+
+    await client.connect(clientTransport);
+
+    // Server shouldn't send this, because the client capabilities
+    // only advertised URL mode. Test that it's rejected by the client:
+    const requestId = 1;
+    await serverTransport.send({
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'elicitation/create',
+        params: {
+            mode: 'form',
+            message: 'Provide your username',
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    username: {
+                        type: 'string'
+                    }
+                }
+            }
+        }
+    });
+
+    const response = (await responsePromise) as { id: number; error: { code: number; message: string } };
+
+    expect(response.id).toBe(requestId);
+    expect(response.error.code).toBe(ErrorCode.InvalidParams);
+    expect(response.error.message).toContain('Client does not support form-mode elicitation requests');
+    expect(handler).not.toHaveBeenCalled();
+
+    await client.close();
+});
+
+test('should reject URL-mode elicitation when client only supports form mode', async () => {
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    form: {}
+                }
+            }
+        }
+    );
+
+    const handler = jest.fn().mockResolvedValue({
+        action: 'cancel'
+    });
+    client.setRequestHandler(ElicitRequestSchema, handler);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    let resolveResponse: ((message: unknown) => void) | undefined;
+    const responsePromise = new Promise<unknown>(resolve => {
+        resolveResponse = resolve;
+    });
+
+    serverTransport.onmessage = async message => {
+        if ('method' in message) {
+            if (message.method === 'initialize') {
+                if (!('id' in message) || message.id === undefined) {
+                    throw new Error('Expected initialize request to include an id');
+                }
+                const messageId = message.id;
+                await serverTransport.send({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: {},
+                        serverInfo: {
+                            name: 'test-server',
+                            version: '1.0.0'
+                        }
+                    }
+                });
+            } else if (message.method === 'notifications/initialized') {
+                // ignore
+            }
+        } else {
+            resolveResponse?.(message);
+        }
+    };
+
+    await client.connect(clientTransport);
+
+    // Server shouldn't send this, because the client capabilities
+    // only advertised form mode. Test that it's rejected by the client:
+    const requestId = 2;
+    await serverTransport.send({
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'elicitation/create',
+        params: {
+            mode: 'url',
+            message: 'Open the authorization page',
+            elicitationId: 'elicitation-123',
+            url: 'https://example.com/authorize'
+        }
+    });
+
+    const response = (await responsePromise) as { id: number; error: { code: number; message: string } };
+
+    expect(response.id).toBe(requestId);
+    expect(response.error.code).toBe(ErrorCode.InvalidParams);
+    expect(response.error.message).toContain('Client does not support URL-mode elicitation requests');
+    expect(handler).not.toHaveBeenCalled();
+
+    await client.close();
+});
+
 /***
  * Test: Type Checking
  * Test that custom request/notification/result schemas can be used with the Client class.

@@ -347,6 +347,261 @@ test('should respect client elicitation capabilities', async () => {
     ).rejects.toThrow(/^Client does not support/);
 });
 
+test('should throw when elicitFormInput is called without client form capability', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    url: {} // No form mode capability
+                }
+            }
+        }
+    );
+
+    client.setRequestHandler(ElicitRequestSchema, () => ({
+        action: 'cancel'
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await expect(
+        server.elicitFormInput({
+            message: 'Please provide your username',
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    username: {
+                        type: 'string'
+                    }
+                }
+            }
+        })
+    ).rejects.toThrow('Client does not support form elicitation.');
+});
+
+test('should throw when elicitUrl is called without client URL capability', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    form: {} // No URL mode capability
+                }
+            }
+        }
+    );
+
+    client.setRequestHandler(ElicitRequestSchema, () => ({
+        action: 'cancel'
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await expect(
+        server.elicitUrl({
+            message: 'Open the authorization URL',
+            elicitationId: 'elicitation-001',
+            url: 'https://example.com/auth'
+        })
+    ).rejects.toThrow('Client does not support url elicitation.');
+});
+
+test('should include form mode when sending elicitation form requests', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    form: {}
+                }
+            }
+        }
+    );
+
+    const receivedModes: string[] = [];
+    client.setRequestHandler(ElicitRequestSchema, request => {
+        receivedModes.push(request.params.mode);
+        return {
+            action: 'accept',
+            content: {
+                confirmation: true
+            }
+        };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await expect(
+        server.elicitFormInput({
+            message: 'Confirm action',
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    confirmation: {
+                        type: 'boolean'
+                    }
+                },
+                required: ['confirmation']
+            }
+        })
+    ).resolves.toEqual({
+        action: 'accept',
+        content: {
+            confirmation: true
+        }
+    });
+
+    expect(receivedModes).toEqual(['form']);
+});
+
+test('should include url mode when sending elicitation URL requests', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    url: {}
+                }
+            }
+        }
+    );
+
+    const receivedModes: string[] = [];
+    const receivedIds: string[] = [];
+    client.setRequestHandler(ElicitRequestSchema, request => {
+        receivedModes.push(request.params.mode);
+        if (request.params.mode === 'url') {
+            receivedIds.push(request.params.elicitationId);
+        }
+        return {
+            action: 'decline'
+        };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await expect(
+        server.elicitUrl({
+            message: 'Complete verification',
+            elicitationId: 'elicitation-xyz',
+            url: 'https://example.com/verify'
+        })
+    ).resolves.toEqual({
+        action: 'decline'
+    });
+
+    expect(receivedModes).toEqual(['url']);
+    expect(receivedIds).toEqual(['elicitation-xyz']);
+});
+
+test('should forward notification options when using elicitation completion notifier', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    url: {}
+                }
+            }
+        }
+    );
+
+    client.setNotificationHandler(ElicitationCompleteNotificationSchema, () => {});
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    const notificationSpy = jest.spyOn(server, 'notification');
+
+    const notifier = server.createElicitationCompletionNotifier('elicitation-789', { relatedRequestId: 42 });
+    await notifier();
+
+    expect(notificationSpy).toHaveBeenCalledWith(
+        {
+            method: 'notifications/elicitation/complete',
+            params: {
+                elicitationId: 'elicitation-789'
+            }
+        },
+        expect.objectContaining({ relatedRequestId: 42 })
+    );
+});
+
 test('should create notifier that emits elicitation completion notification', async () => {
     const server = new Server(
         {
