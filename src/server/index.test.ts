@@ -6,6 +6,7 @@ import type { Transport } from '../shared/transport.js';
 import {
     CreateMessageRequestSchema,
     ElicitRequestSchema,
+    ElicitationCompleteNotificationSchema,
     ErrorCode,
     LATEST_PROTOCOL_VERSION,
     ListPromptsRequestSchema,
@@ -344,6 +345,82 @@ test('should respect client elicitation capabilities', async () => {
             maxTokens: 10
         })
     ).rejects.toThrow(/^Client does not support/);
+});
+
+test('should create notifier that emits elicitation completion notification', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    url: {}
+                }
+            }
+        }
+    );
+
+    const receivedIds: string[] = [];
+    client.setNotificationHandler(ElicitationCompleteNotificationSchema, notification => {
+        receivedIds.push(notification.params.elicitationId);
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    const notifier = server.createElicitationCompletionNotifier('elicitation-123');
+    await notifier();
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(receivedIds).toEqual(['elicitation-123']);
+});
+
+test('should throw when creating notifier if client lacks URL elicitation support', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    form: {}
+                }
+            }
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    expect(() => server.createElicitationCompletionNotifier('elicitation-123')).toThrow(
+        'Client does not support URL elicitation (required for notifications/elicitation/complete)'
+    );
 });
 
 test('should apply back-compat form capability injection when client sends empty elicitation object', async () => {

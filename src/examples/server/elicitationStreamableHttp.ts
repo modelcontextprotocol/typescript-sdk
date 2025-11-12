@@ -5,14 +5,7 @@ import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';
 import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
-import {
-    CallToolResult,
-    UrlElicitationRequiredError,
-    ElicitRequestURLParams,
-    ElicitResult,
-    isInitializeRequest,
-    ElicitationCompleteNotification
-} from '../../types.js';
+import { CallToolResult, UrlElicitationRequiredError, ElicitRequestURLParams, ElicitResult, isInitializeRequest } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from '../../shared/auth.js';
@@ -51,9 +44,9 @@ const getServer = () => {
             }
 
             // Create and track the elicitation
-            const elicitationId = generateTrackedElicitation(sessionId, async (notification: ElicitationCompleteNotification) => {
-                await mcpServer.server.notification(notification);
-            });
+            const elicitationId = generateTrackedElicitation(sessionId, elicitationId =>
+                mcpServer.server.createElicitationCompletionNotifier(elicitationId)
+            );
             throw new UrlElicitationRequiredError([
                 {
                     mode: 'url',
@@ -87,9 +80,9 @@ const getServer = () => {
             }
 
             // Create and track the elicitation
-            const elicitationId = generateTrackedElicitation(sessionId, async (notification: ElicitationCompleteNotification) => {
-                await mcpServer.server.notification(notification);
-            });
+            const elicitationId = generateTrackedElicitation(sessionId, elicitationId =>
+                mcpServer.server.createElicitationCompletionNotifier(elicitationId)
+            );
 
             // Simulate OAuth callback and token exchange after 5 seconds
             // In a real app, this would be called from your OAuth callback handler
@@ -122,7 +115,7 @@ interface ElicitationMetadata {
     completeResolver: () => void;
     createdAt: Date;
     sessionId: string;
-    notificationSender?: (notification: ElicitationCompleteNotification) => Promise<void>;
+    completionNotifier?: () => Promise<void>;
 }
 
 const elicitationsMap = new Map<string, ElicitationMetadata>();
@@ -154,10 +147,7 @@ function generateElicitationId(): string {
 /**
  * Helper function to create and track a new elicitation.
  */
-function generateTrackedElicitation(
-    sessionId: string,
-    notificationSender?: (notification: ElicitationCompleteNotification) => Promise<void>
-): string {
+function generateTrackedElicitation(sessionId: string, createCompletionNotifier?: ElicitationCompletionNotifierFactory): string {
     const elicitationId = generateElicitationId();
 
     // Create a Promise and its resolver for tracking completion
@@ -166,6 +156,8 @@ function generateTrackedElicitation(
         completeResolver = resolve;
     });
 
+    const completionNotifier = createCompletionNotifier ? createCompletionNotifier(elicitationId) : undefined;
+
     // Store the elicitation in our map
     elicitationsMap.set(elicitationId, {
         status: 'pending',
@@ -173,7 +165,7 @@ function generateTrackedElicitation(
         completeResolver: completeResolver!,
         createdAt: new Date(),
         sessionId,
-        notificationSender
+        completionNotifier
     });
 
     return elicitationId;
@@ -198,19 +190,12 @@ function completeURLElicitation(elicitationId: string) {
     elicitation.status = 'complete';
 
     // Send completion notification to the client
-    if (elicitation.notificationSender) {
+    if (elicitation.completionNotifier) {
         console.log(`Sending notifications/elicitation/complete notification for elicitation ${elicitationId}`);
 
-        elicitation
-            .notificationSender({
-                method: 'notifications/elicitation/complete',
-                params: {
-                    elicitationId
-                }
-            })
-            .catch(error => {
-                console.error(`Failed to send completion notification for elicitation ${elicitationId}:`, error);
-            });
+        elicitation.completionNotifier().catch(error => {
+            console.error(`Failed to send completion notification for elicitation ${elicitationId}:`, error);
+        });
     }
 
     // Resolve the promise to unblock any waiting code
@@ -303,14 +288,18 @@ authMiddleware = requireBearerAuth({
  * URL-mode elicitation enables the server to host a simple form and get the secret data securely from the user without involving the LLM or client.
  **/
 
-async function sendApiKeyElicitation(sessionId: string, sender: ElicitationSender, notificationSender: ElicitationNotificationSender) {
+async function sendApiKeyElicitation(
+    sessionId: string,
+    sender: ElicitationSender,
+    createCompletionNotifier: ElicitationCompletionNotifierFactory
+) {
     if (!sessionId) {
         console.error('No session ID provided');
         throw new Error('Expected a Session ID to track elicitation');
     }
 
     console.log('🔑 URL elicitation demo: Requesting API key from client...');
-    const elicitationId = generateTrackedElicitation(sessionId, notificationSender);
+    const elicitationId = generateTrackedElicitation(sessionId, createCompletionNotifier);
     try {
         const result = await sender({
             mode: 'url',
@@ -593,12 +582,12 @@ const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
 // Interface for a function that can send an elicitation request
 type ElicitationSender = (params: ElicitRequestURLParams) => Promise<ElicitResult>;
-type ElicitationNotificationSender = (notification: ElicitationCompleteNotification) => Promise<void>;
+type ElicitationCompletionNotifierFactory = (elicitationId: string) => () => Promise<void>;
 
 // Track sessions that need an elicitation request to be sent
 interface SessionElicitationInfo {
     elicitationSender: ElicitationSender;
-    notificationSender: ElicitationNotificationSender;
+    createCompletionNotifier: ElicitationCompletionNotifierFactory;
 }
 const sessionsNeedingElicitation: { [sessionId: string]: SessionElicitationInfo } = {};
 
@@ -626,9 +615,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
                     transports[sessionId] = transport;
                     sessionsNeedingElicitation[sessionId] = {
                         elicitationSender: server.server.elicitUrl.bind(server.server),
-                        notificationSender: async (notification: ElicitationCompleteNotification) => {
-                            await server.server.notification(notification);
-                        }
+                        createCompletionNotifier: elicitationId => server.server.createElicitationCompletionNotifier(elicitationId)
                     };
                 }
             });
@@ -703,10 +690,10 @@ const mcpGetHandler = async (req: Request, res: Response) => {
     await transport.handleRequest(req, res);
 
     if (sessionsNeedingElicitation[sessionId]) {
-        const { elicitationSender, notificationSender } = sessionsNeedingElicitation[sessionId];
+        const { elicitationSender, createCompletionNotifier } = sessionsNeedingElicitation[sessionId];
 
         // Send an elicitation request to the client in the background
-        sendApiKeyElicitation(sessionId, elicitationSender, notificationSender)
+        sendApiKeyElicitation(sessionId, elicitationSender, createCompletionNotifier)
             .then(() => {
                 // Only delete on successful send for this demo
                 delete sessionsNeedingElicitation[sessionId];
