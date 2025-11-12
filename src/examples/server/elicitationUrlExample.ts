@@ -1,3 +1,12 @@
+// Run with: npx tsx src/examples/server/elicitationUrlExample.ts
+//
+// This example demonstrates how to use URL elicitation to securely collect
+// *sensitive* user input in a remote (HTTP) server.
+// URL elicitation allows servers to prompt the end-user to open a URL in their browser
+// to collect sensitive information.
+// Note: See also elicitationFormExample.ts for an example of using form (not URL) elicitation
+// to collect *non-sensitive* user input with a structured schema.
+
 import express, { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -17,7 +26,7 @@ import cors from 'cors';
 const getServer = () => {
     const mcpServer = new McpServer(
         {
-            name: 'simple-streamable-http-server',
+            name: 'url-elicitation-http-server',
             version: '1.0.0'
         },
         {

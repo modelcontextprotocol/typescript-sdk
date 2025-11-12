@@ -1,3 +1,10 @@
+// Run with: npx tsx src/examples/client/elicitationUrlExample.ts
+//
+// This example demonstrates how to use URL elicitation to securely
+// collect user input in a remote (HTTP) server.
+// URL elicitation allows servers to prompt the end-user to open a URL in their browser
+// to collect sensitive information.
+
 import { Client } from '../../client/index.js';
 import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
 import { createInterface } from 'node:readline';
@@ -489,7 +496,8 @@ async function connect(url?: string): Promise<void> {
         {
             capabilities: {
                 elicitation: {
-                    form: {},
+                    // Only URL elicitation is supported in this demo
+                    // (see server/elicitationExample.ts for a demo of form mode elicitation)
                     url: {}
                 }
             }
@@ -499,12 +507,33 @@ async function connect(url?: string): Promise<void> {
         // Only create a new transport if one doesn't exist
         transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
             sessionId: sessionId,
-            authProvider: oauthProvider
+            authProvider: oauthProvider,
+            requestInit: {
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream'
+                }
+            }
         });
     }
 
     // Set up elicitation request handler with proper validation
     client.setRequestHandler(ElicitRequestSchema, elicitationRequestHandler);
+
+    // Set up notification handler for elicitation completion
+    client.setNotificationHandler(ElicitationCompleteNotificationSchema, notification => {
+        const { elicitationId } = notification.params;
+        const pending = pendingURLElicitations.get(elicitationId);
+        if (pending) {
+            clearTimeout(pending.timeout);
+            pendingURLElicitations.delete(elicitationId);
+            console.log(`\x1b[32m✅ Elicitation ${elicitationId} completed!\x1b[0m`);
+            pending.resolve();
+        } else {
+            // Shouldn't happen - discard it!
+            console.warn(`Received completion notification for unknown elicitation: ${elicitationId}`);
+        }
+    });
 
     try {
         console.log(`Connecting to ${serverUrl}...`);
@@ -523,40 +552,6 @@ async function connect(url?: string): Promise<void> {
             console.log('🔌 Reconnecting with authenticated transport...');
             transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
                 sessionId: sessionId,
-                authProvider: oauthProvider
-            });
-            await client.connect(transport);
-        } else {
-            console.error('Failed to connect:', error);
-            client = null;
-            transport = null;
-            return;
-        }
-
-        if (url) {
-            serverUrl = url;
-        }
-
-        // Create a new client with elicitation capability
-        client = new Client(
-            {
-                name: 'example-client',
-                version: '1.0.0'
-            },
-            {
-                capabilities: {
-                    elicitation: {
-                        // Only URL elicitation is supported in this demo
-                        // (see server/elicitationExample.ts for a demo of form mode elicitation)
-                        url: {}
-                    }
-                }
-            }
-        );
-        if (!transport) {
-            // Only create a new transport if one doesn't exist
-            transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
-                sessionId: sessionId,
                 authProvider: oauthProvider,
                 requestInit: {
                     headers: {
@@ -565,64 +560,18 @@ async function connect(url?: string): Promise<void> {
                     }
                 }
             });
-        }
-
-        // Set up elicitation request handler with proper validation
-        client.setRequestHandler(ElicitRequestSchema, elicitationRequestHandler);
-
-        // Set up notification handler for elicitation completion
-        client.setNotificationHandler(ElicitationCompleteNotificationSchema, notification => {
-            const { elicitationId } = notification.params;
-            const pending = pendingURLElicitations.get(elicitationId);
-            if (pending) {
-                clearTimeout(pending.timeout);
-                pendingURLElicitations.delete(elicitationId);
-                console.log(`\x1b[32m✅ Elicitation ${elicitationId} completed!\x1b[0m`);
-                pending.resolve();
-            } else {
-                // Shouldn't happen - discard it!
-                console.warn(`Received completion notification for unknown elicitation: ${elicitationId}`);
-            }
-        });
-
-        try {
-            console.log(`Connecting to ${serverUrl}...`);
-            // Connect the client
             await client.connect(transport);
-            sessionId = transport.sessionId;
-            console.log('Transport created with session ID:', sessionId);
-            console.log('Connected to MCP server');
-        } catch (error) {
-            if (error instanceof UnauthorizedError) {
-                console.log('OAuth required - waiting for authorization...');
-                const callbackPromise = waitForOAuthCallback();
-                const authCode = await callbackPromise;
-                await transport.finishAuth(authCode);
-                console.log('🔐 Authorization code received:', authCode);
-                console.log('🔌 Reconnecting with authenticated transport...');
-                transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
-                    sessionId: sessionId,
-                    authProvider: oauthProvider,
-                    requestInit: {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            Accept: 'application/json, text/event-stream'
-                        }
-                    }
-                });
-                await client.connect(transport);
-            } else {
-                console.error('Failed to connect:', error);
-                client = null;
-                transport = null;
-                return;
-            }
+        } else {
+            console.error('Failed to connect:', error);
+            client = null;
+            transport = null;
+            return;
         }
-        // Set up error handler after connection is established so we don't double log errors
-        client.onerror = error => {
-            console.error('\x1b[31mClient error:', error, '\x1b[0m');
-        };
     }
+    // Set up error handler after connection is established so we don't double log errors
+    client.onerror = error => {
+        console.error('\x1b[31mClient error:', error, '\x1b[0m');
+    };
 }
 
 async function disconnect(): Promise<void> {
