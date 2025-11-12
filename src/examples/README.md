@@ -105,6 +105,24 @@ A server that demonstrates server notifications using Streamable HTTP.
 npx tsx src/examples/server/standaloneSseWithGetStreamableHttp.ts
 ```
 
+##### Elicitation Example
+
+A comprehensive example demonstrating URL mode elicitation with a server protected by MCP authorization. This example shows:
+
+- SSE-driven URL-mode elicitation of an API Key on session initialization
+- Tools that require direct user interaction via URL-mode elicitation (for payment confirmation and for third-party OAuth tokens)
+- Completion notifications for URL-mode elicitations
+
+To run this example:
+
+```bash
+# Start the server with OAuth enabled
+npx tsx src/examples/server/elicitationStreamableHttp.ts
+
+# In a separate terminal, start the client with OAuth
+npx tsx src/examples/client/elicitationStreamableHttp.ts
+```
+
 #### Deprecated SSE Transport
 
 A server that implements the deprecated HTTP+SSE transport (protocol version 2024-11-05). This example only used for testing backwards compatibility for clients.
