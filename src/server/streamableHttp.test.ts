@@ -1376,7 +1376,7 @@ describe('StreamableHTTPServerTransport with resumability', () => {
         expect(storedEvent?.message).toMatchObject(notification);
     });
 
-    it('should store and replay MCP server tool notifications', { timeout: 10000 }, async () => {
+    it('should store and replay MCP server tool notifications', async () => {
         // Establish a standalone SSE stream
         const sseResponse = await fetch(baseUrl, {
             method: 'GET',
