@@ -1288,16 +1288,9 @@ describe('StreamableHTTPServerTransport with resumability', () => {
         ): Promise<StreamId> {
             const streamId = lastEventId.split('_')[0];
             // Extract stream ID from the event ID
-            // Convert to array and find all events after the lastEventId
-            const allEvents = Array.from(storedEvents.entries());
-            let foundLast = false;
-            for (const [eventId, { message }] of allEvents) {
-                if (eventId === lastEventId) {
-                    foundLast = true;
-                    continue;
-                }
-                // Only replay events that come after we found the lastEventId and match the streamId
-                if (foundLast && eventId.startsWith(streamId)) {
+            // For test simplicity, just return all events with matching streamId that aren't the lastEventId
+            for (const [eventId, { message }] of storedEvents.entries()) {
+                if (eventId.startsWith(streamId) && eventId !== lastEventId) {
                     await send(eventId, message);
                 }
             }

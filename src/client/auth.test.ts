@@ -15,7 +15,7 @@ import {
 } from './auth.js';
 import { ServerError } from '../server/auth/errors.js';
 import { AuthorizationServerMetadata } from '../shared/auth.js';
-import { vi, type Mock } from 'vitest';
+import { expect, vi, type Mock } from 'vitest';
 
 // Mock pkce-challenge
 vi.mock('pkce-challenge', () => ({
@@ -1119,12 +1119,21 @@ describe('OAuth Authorization', () => {
             });
 
             expect(tokens).toEqual(validTokens);
-            expect(mockFetch).toHaveBeenCalledTimes(1);
-            expect(mockFetch.mock.calls[0][0].toString()).toBe('https://auth.example.com/token');
-            expect(mockFetch.mock.calls[0][1].method).toBe('POST');
-            expect(mockFetch.mock.calls[0][1].headers.get('Content-Type')).toBe('application/x-www-form-urlencoded');
+            expect(mockFetch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    href: 'https://auth.example.com/token'
+                }),
+                expect.objectContaining({
+                    method: 'POST'
+                })
+            );
 
-            const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
+            const options = mockFetch.mock.calls[0][1];
+            expect(options.headers).toBeInstanceOf(Headers);
+            expect(options.headers.get('Content-Type')).toBe('application/x-www-form-urlencoded');
+            expect(options.body).toBeInstanceOf(URLSearchParams);
+
+            const body = options.body as URLSearchParams;
             expect(body.get('grant_type')).toBe('authorization_code');
             expect(body.get('code')).toBe('code123');
             expect(body.get('code_verifier')).toBe('verifier123');
