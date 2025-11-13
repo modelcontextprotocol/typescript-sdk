@@ -38,7 +38,10 @@ import {
     type Tool,
     type UnsubscribeRequest,
     ElicitResultSchema,
-    ElicitRequestSchema
+    ElicitRequestSchema,
+    ToolListChangedNotificationSchema,
+    ToolListChangedOptions,
+    ToolListChangedOptionsSchema
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
@@ -121,6 +124,44 @@ export type ClientOptions = ProtocolOptions & {
      * ```
      */
     jsonSchemaValidator?: jsonSchemaValidator;
+
+    /**
+     * Configure automatic refresh behavior for tool list changed notifications
+     *
+     * Here's an example of how to get the updated tool list when the tool list changed notification is received:
+     *
+     * @example
+     * ```typescript
+     * {
+     *   onToolListChanged: (err, tools) => {
+     *     if (err) {
+     *       console.error('Failed to refresh tool list:', err);
+     *       return;
+     *     }
+     *     // Use the updated tool list
+     *     console.log('Tool list changed:', tools);
+     *   }
+     * }
+     * ```
+     *
+     * Here is an example of how to manually refresh the tool list when the tool list changed notification is received:
+     *
+     * @example
+     * ```typescript
+     * {
+     *   autoRefresh: false,
+     *   debounceMs: 0,
+     *   onToolListChanged: (err, tools) => {
+     *     // err is always null when autoRefresh is false
+     *
+     *     // Manually refresh the tool list
+     *     const result = await this.listTools();
+     *     console.log('Tool list changed:', result.tools);
+     *   }
+     * }
+     * ```
+     */
+    toolListChangedOptions?: ToolListChangedOptions;
 };
 
 /**
@@ -159,6 +200,8 @@ export class Client<
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
+    private _toolListChangedOptions?: ToolListChangedOptions;
+    private _toolListChangedDebounceTimer?: ReturnType<typeof setTimeout>;
 
     /**
      * Initializes this client with the given name and version information.
@@ -170,6 +213,9 @@ export class Client<
         super(options);
         this._capabilities = options?.capabilities ?? {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
+
+        // Set up tool list changed options
+        this.setToolListChangedOptions(options?.toolListChangedOptions || null);
     }
 
     /**
@@ -534,6 +580,73 @@ export class Client<
         this.cacheToolOutputSchemas(result.tools);
 
         return result;
+    }
+
+    /**
+     * Updates the tool list changed options
+     *
+     * Set to null to disable tool list changed notifications
+     */
+    public setToolListChangedOptions(options: ToolListChangedOptions | null): void {
+        // Set up tool list changed options and add notification handler
+        if (options) {
+            const parseResult = ToolListChangedOptionsSchema.safeParse(options);
+            if (parseResult.error) {
+                throw new Error(`Tool List Changed options are invalid: ${parseResult.error.message}`);
+            }
+
+            const toolListChangedOptions = parseResult.data;
+            this._toolListChangedOptions = toolListChangedOptions;
+
+            const refreshToolList = async () => {
+                // If autoRefresh is false, call the callback for the notification, but without tools data
+                if (!toolListChangedOptions.autoRefresh) {
+                    toolListChangedOptions.onToolListChanged(null, null);
+                    return;
+                }
+
+                let tools: Tool[] | null = null;
+                let error: Error | null = null;
+                try {
+                    const result = await this.listTools();
+                    tools = result.tools;
+                } catch (e) {
+                    error = e instanceof Error ? e : new Error(String(e));
+                }
+                toolListChangedOptions.onToolListChanged(error, tools);
+            };
+
+            this.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+                if (toolListChangedOptions.debounceMs) {
+                    // Clear any pending debounce timer
+                    if (this._toolListChangedDebounceTimer) {
+                        clearTimeout(this._toolListChangedDebounceTimer);
+                    }
+
+                    // Set up debounced refresh
+                    this._toolListChangedDebounceTimer = setTimeout(refreshToolList, toolListChangedOptions.debounceMs);
+                } else {
+                    // No debounce, refresh immediately
+                    refreshToolList();
+                }
+            });
+        }
+        // Reset tool list changed options and remove notification handler
+        else {
+            this._toolListChangedOptions = undefined;
+            this.removeNotificationHandler(ToolListChangedNotificationSchema.shape.method.value);
+            if (this._toolListChangedDebounceTimer) {
+                clearTimeout(this._toolListChangedDebounceTimer);
+                this._toolListChangedDebounceTimer = undefined;
+            }
+        }
+    }
+
+    /**
+     * Gets the current tool list changed options
+     */
+    public getToolListChangedOptions(): ToolListChangedOptions | undefined {
+        return this._toolListChangedOptions;
     }
 
     async sendRootsListChanged() {
