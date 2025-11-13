@@ -1,5 +1,7 @@
 import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
 import type { Transport } from '../shared/transport.js';
+import { PendingRequest } from '../shared/request.js';
+import { v4 as uuidv4 } from '@lukeed/uuid';
 import {
     type CallToolRequest,
     CallToolResultSchema,
@@ -394,6 +396,12 @@ export class Client<
     }
 
     protected assertRequestHandlerCapability(method: string): void {
+        // Task handlers are registered in Protocol constructor before _capabilities is initialized
+        // Skip capability check for task methods during initialization
+        if (!this._capabilities) {
+            return;
+        }
+
         switch (method) {
             case 'sampling/createMessage':
                 if (!this._capabilities.sampling) {
@@ -413,8 +421,69 @@ export class Client<
                 }
                 break;
 
+            case 'tasks/get':
+            case 'tasks/list':
+            case 'tasks/result':
+            case 'tasks/delete':
+                if (!this._capabilities.tasks) {
+                    throw new Error(`Client does not support tasks capability (required for ${method})`);
+                }
+                break;
+
             case 'ping':
                 // No specific capability required for ping
+                break;
+        }
+    }
+
+    protected assertTaskCapability(method: string): void {
+        if (!this._serverCapabilities?.tasks?.requests) {
+            throw new Error(`Server does not support task creation (required for ${method})`);
+        }
+
+        const requests = this._serverCapabilities.tasks.requests;
+
+        switch (method) {
+            case 'tools/call':
+                if (!requests.tools?.call) {
+                    throw new Error(`Server does not support task creation for tools/call (required for ${method})`);
+                }
+                break;
+
+            default:
+                // Method doesn't support tasks, which is fine - no error
+                break;
+        }
+    }
+
+    protected assertTaskHandlerCapability(method: string): void {
+        // Task handlers are registered in Protocol constructor before _capabilities is initialized
+        // Skip capability check for task methods during initialization
+        if (!this._capabilities) {
+            return;
+        }
+
+        if (!this._capabilities.tasks?.requests) {
+            throw new Error(`Client does not support task creation (required for ${method})`);
+        }
+
+        const requests = this._capabilities.tasks.requests;
+
+        switch (method) {
+            case 'sampling/createMessage':
+                if (!requests.sampling?.createMessage) {
+                    throw new Error(`Client does not support task creation for sampling/createMessage (required for ${method})`);
+                }
+                break;
+
+            case 'elicitation/create':
+                if (!requests.elicitation?.create) {
+                    throw new Error(`Client does not support task creation for elicitation/create (required for ${method})`);
+                }
+                break;
+
+            default:
+                // Method doesn't support tasks, which is fine - no error
                 break;
         }
     }
@@ -459,6 +528,30 @@ export class Client<
         return this.request({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
     }
 
+    /**
+     * Begins a tool call and returns a PendingRequest for granular control over task-based execution.
+     *
+     * This is useful when you want to create a task for a long-running tool call and poll for results later.
+     */
+    beginCallTool(
+        params: CallToolRequest['params'],
+        resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
+        options?: RequestOptions
+    ): PendingRequest<ClientRequest | RequestT, ClientNotification | NotificationT, ClientResult | ResultT> {
+        // Automatically add task metadata if not provided
+        const optionsWithTask = {
+            ...options,
+            // We check the server capabilities in auto-assignment, but assume the caller knows what they're doing if they pass this explicitly
+            task: options?.task ?? (this._serverCapabilities?.tasks?.requests?.tools?.call ? { taskId: uuidv4() } : undefined)
+        };
+        return this.beginRequest({ method: 'tools/call', params }, resultSchema, optionsWithTask);
+    }
+
+    /**
+     * Calls a tool and waits for the result. Automatically validates structured output if the tool has an outputSchema.
+     *
+     * For task-based execution with granular control, use beginCallTool() instead.
+     */
     async callTool(
         params: CallToolRequest['params'],
         resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,

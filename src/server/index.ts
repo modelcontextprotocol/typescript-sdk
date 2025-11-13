@@ -236,6 +236,12 @@ export class Server<
     }
 
     protected assertRequestHandlerCapability(method: string): void {
+        // Task handlers are registered in Protocol constructor before _capabilities is initialized
+        // Skip capability check for task methods during initialization
+        if (!this._capabilities) {
+            return;
+        }
+
         switch (method) {
             case 'completion/complete':
                 if (!this._capabilities.completions) {
@@ -271,9 +277,70 @@ export class Server<
                 }
                 break;
 
+            case 'tasks/get':
+            case 'tasks/list':
+            case 'tasks/result':
+            case 'tasks/delete':
+                if (!this._capabilities.tasks) {
+                    throw new Error(`Server does not support tasks capability (required for ${method})`);
+                }
+                break;
+
             case 'ping':
             case 'initialize':
                 // No specific capability required for these methods
+                break;
+        }
+    }
+
+    protected assertTaskCapability(method: string): void {
+        if (!this._clientCapabilities?.tasks?.requests) {
+            throw new Error(`Client does not support task creation (required for ${method})`);
+        }
+
+        const requests = this._clientCapabilities.tasks.requests;
+
+        switch (method) {
+            case 'sampling/createMessage':
+                if (!requests.sampling?.createMessage) {
+                    throw new Error(`Client does not support task creation for sampling/createMessage (required for ${method})`);
+                }
+                break;
+
+            case 'elicitation/create':
+                if (!requests.elicitation?.create) {
+                    throw new Error(`Client does not support task creation for elicitation/create (required for ${method})`);
+                }
+                break;
+
+            default:
+                // Method doesn't support tasks, which is fine - no error
+                break;
+        }
+    }
+
+    protected assertTaskHandlerCapability(method: string): void {
+        // Task handlers are registered in Protocol constructor before _capabilities is initialized
+        // Skip capability check for task methods during initialization
+        if (!this._capabilities) {
+            return;
+        }
+
+        if (!this._capabilities.tasks?.requests) {
+            throw new Error(`Server does not support task creation (required for ${method})`);
+        }
+
+        const requests = this._capabilities.tasks.requests;
+
+        switch (method) {
+            case 'tools/call':
+                if (!requests.tools?.call) {
+                    throw new Error(`Server does not support task creation for tools/call (required for ${method})`);
+                }
+                break;
+
+            default:
+                // Method doesn't support tasks, which is fine - no error
                 break;
         }
     }

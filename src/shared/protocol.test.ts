@@ -1,7 +1,22 @@
 import { ZodType, z } from 'zod';
-import { ClientCapabilities, ErrorCode, McpError, Notification, Request, Result, ServerCapabilities } from '../types.js';
+import {
+    CallToolRequestSchema,
+    ClientCapabilities,
+    ErrorCode,
+    McpError,
+    Notification,
+    RELATED_TASK_META_KEY,
+    Request,
+    RequestId,
+    Result,
+    ServerCapabilities,
+    Task,
+    TASK_META_KEY,
+    TaskMetadata
+} from '../types.js';
 import { Protocol, mergeCapabilities } from './protocol.js';
 import { Transport } from './transport.js';
+import { TaskStore } from './task.js';
 
 // Mock Transport class
 class MockTransport implements Transport {
@@ -16,6 +31,83 @@ class MockTransport implements Transport {
     async send(_message: unknown): Promise<void> {}
 }
 
+function createMockTaskStore(options?: {
+    onStatus?: (status: Task['status']) => void;
+    onList?: () => void;
+}): TaskStore & { [K in keyof TaskStore]: jest.Mock<ReturnType<TaskStore[K]>, Parameters<TaskStore[K]>> } {
+    const tasks: Record<string, Task & { result?: Result }> = {};
+    return {
+        createTask: jest.fn((taskMetadata: TaskMetadata, _1: RequestId, _2: Request) => {
+            const task = (tasks[taskMetadata.taskId] = {
+                taskId: taskMetadata.taskId,
+                status: (taskMetadata.status as Task['status'] | undefined) ?? 'working',
+                keepAlive: taskMetadata.keepAlive ?? null,
+                pollInterval: (taskMetadata.pollInterval as Task['pollInterval'] | undefined) ?? 1000
+            });
+            options?.onStatus?.('working');
+            return Promise.resolve(task);
+        }),
+        getTask: jest.fn((taskId: string) => {
+            return Promise.resolve(tasks[taskId] ?? null);
+        }),
+        updateTaskStatus: jest.fn((taskId, status, error) => {
+            const task = tasks[taskId];
+            if (task) {
+                task.status = status;
+                task.error = error;
+                options?.onStatus?.(task.status);
+            }
+            return Promise.resolve();
+        }),
+        storeTaskResult: jest.fn((taskId: string, result: Result) => {
+            const task = tasks[taskId];
+            if (task) {
+                task.status = 'completed';
+                task.result = result;
+                options?.onStatus?.('completed');
+            }
+            return Promise.resolve();
+        }),
+        getTaskResult: jest.fn((taskId: string) => {
+            const task = tasks[taskId];
+            if (task?.result) {
+                return Promise.resolve(task.result);
+            }
+            throw new Error('Task result not found');
+        }),
+        listTasks: jest.fn(() => {
+            const result = {
+                tasks: Object.values(tasks)
+            };
+            options?.onList?.();
+            return Promise.resolve(result);
+        }),
+        deleteTask: jest.fn((taskId: string) => {
+            if (tasks[taskId]) {
+                delete tasks[taskId];
+                return Promise.resolve();
+            }
+            return Promise.reject(new Error(`Task with ID ${taskId} not found`));
+        })
+    };
+}
+
+function createLatch() {
+    let latch = false;
+    const waitForLatch = async () => {
+        while (!latch) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    };
+
+    return {
+        releaseLatch: () => {
+            latch = true;
+        },
+        waitForLatch
+    };
+}
+
 describe('protocol tests', () => {
     let protocol: Protocol<Request, Notification, Result>;
     let transport: MockTransport;
@@ -28,6 +120,8 @@ describe('protocol tests', () => {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
+            protected assertTaskCapability(): void {}
+            protected assertTaskHandlerCapability(): void {}
         })();
     });
 
@@ -482,6 +576,8 @@ describe('protocol tests', () => {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced_with_params'] });
             await protocol.connect(transport);
 
@@ -503,6 +599,8 @@ describe('protocol tests', () => {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced_with_options'] });
             await protocol.connect(transport);
 
@@ -522,6 +620,8 @@ describe('protocol tests', () => {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
 
@@ -546,6 +646,8 @@ describe('protocol tests', () => {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
 
@@ -573,6 +675,8 @@ describe('protocol tests', () => {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
 
@@ -598,6 +702,8 @@ describe('protocol tests', () => {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] }); // Configure for a different method
             await protocol.connect(transport);
 
@@ -631,6 +737,8 @@ describe('protocol tests', () => {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
             })({ debouncedNotificationMethods: ['test/debounced'] });
             await protocol.connect(transport);
 
@@ -742,5 +850,827 @@ describe('mergeCapabilities', () => {
         const additional = {};
         const merged = mergeCapabilities(base, additional);
         expect(merged).toEqual({});
+    });
+});
+
+describe('Task-based execution', () => {
+    let protocol: Protocol<Request, Notification, Result>;
+    let transport: MockTransport;
+    let sendSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+        transport = new MockTransport();
+        sendSpy = jest.spyOn(transport, 'send');
+        protocol = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(): void {}
+            protected assertNotificationCapability(): void {}
+            protected assertRequestHandlerCapability(): void {}
+            protected assertTaskCapability(): void {}
+            protected assertTaskHandlerCapability(): void {}
+        })();
+    });
+
+    describe('beginRequest with task metadata', () => {
+        it('should inject task metadata into _meta field', async () => {
+            await protocol.connect(transport);
+
+            const request = {
+                method: 'tools/call',
+                params: { name: 'test-tool' }
+            };
+
+            const resultSchema = z.object({
+                content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
+            });
+
+            protocol.beginRequest(request, resultSchema, {
+                task: {
+                    taskId: 'my-task-123',
+                    keepAlive: 30000
+                }
+            });
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    method: 'tools/call',
+                    params: {
+                        name: 'test-tool',
+                        _meta: {
+                            [TASK_META_KEY]: {
+                                taskId: 'my-task-123',
+                                keepAlive: 30000
+                            }
+                        }
+                    }
+                }),
+                expect.any(Object)
+            );
+        });
+
+        it('should preserve existing _meta when adding task metadata', async () => {
+            await protocol.connect(transport);
+
+            const request = {
+                method: 'tools/call',
+                params: {
+                    name: 'test-tool',
+                    _meta: {
+                        customField: 'customValue'
+                    }
+                }
+            };
+
+            const resultSchema = z.object({
+                content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
+            });
+
+            protocol.beginRequest(request, resultSchema, {
+                task: {
+                    taskId: 'my-task-456'
+                }
+            });
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    params: {
+                        name: 'test-tool',
+                        _meta: {
+                            customField: 'customValue',
+                            [TASK_META_KEY]: {
+                                taskId: 'my-task-456'
+                            }
+                        }
+                    }
+                }),
+                expect.any(Object)
+            );
+        });
+
+        it('should return PendingRequest object', async () => {
+            await protocol.connect(transport);
+
+            const request = {
+                method: 'tools/call',
+                params: { name: 'test-tool' }
+            };
+
+            const resultSchema = z.object({
+                content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
+            });
+
+            const pendingRequest = protocol.beginRequest(request, resultSchema, {
+                task: {
+                    taskId: 'my-task-789'
+                }
+            });
+
+            expect(pendingRequest).toBeDefined();
+            expect(pendingRequest.taskId).toBe('my-task-789');
+        });
+    });
+
+    describe('relatedTask metadata', () => {
+        it('should inject relatedTask metadata into _meta field', async () => {
+            await protocol.connect(transport);
+
+            const request = {
+                method: 'notifications/message',
+                params: { data: 'test' }
+            };
+
+            const resultSchema = z.object({});
+
+            protocol.beginRequest(request, resultSchema, {
+                relatedTask: {
+                    taskId: 'parent-task-123'
+                }
+            });
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    params: {
+                        data: 'test',
+                        _meta: {
+                            [RELATED_TASK_META_KEY]: {
+                                taskId: 'parent-task-123'
+                            }
+                        }
+                    }
+                }),
+                expect.any(Object)
+            );
+        });
+
+        it('should work with notification method', async () => {
+            await protocol.connect(transport);
+
+            await protocol.notification(
+                {
+                    method: 'notifications/message',
+                    params: { level: 'info', data: 'test message' }
+                },
+                {
+                    relatedTask: {
+                        taskId: 'parent-task-456'
+                    }
+                }
+            );
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    method: 'notifications/message',
+                    params: {
+                        level: 'info',
+                        data: 'test message',
+                        _meta: {
+                            [RELATED_TASK_META_KEY]: {
+                                taskId: 'parent-task-456'
+                            }
+                        }
+                    }
+                }),
+                expect.any(Object)
+            );
+        });
+    });
+
+    describe('task metadata combination', () => {
+        it('should combine task, relatedTask, and progress metadata', async () => {
+            await protocol.connect(transport);
+
+            const request = {
+                method: 'tools/call',
+                params: { name: 'test-tool' }
+            };
+
+            const resultSchema = z.object({
+                content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
+            });
+
+            protocol.beginRequest(request, resultSchema, {
+                task: {
+                    taskId: 'my-task-combined'
+                },
+                relatedTask: {
+                    taskId: 'parent-task'
+                },
+                onprogress: jest.fn()
+            });
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    params: {
+                        name: 'test-tool',
+                        _meta: {
+                            [TASK_META_KEY]: {
+                                taskId: 'my-task-combined'
+                            },
+                            [RELATED_TASK_META_KEY]: {
+                                taskId: 'parent-task'
+                            },
+                            progressToken: expect.any(Number)
+                        }
+                    }
+                }),
+                expect.any(Object)
+            );
+        });
+    });
+
+    describe('task status transitions', () => {
+        it('should transition from submitted to working when handler starts', async () => {
+            const workingProcessed = createLatch();
+            const mockTaskStore = createMockTaskStore({
+                onStatus: status => {
+                    if (status === 'working') {
+                        workingProcessed.releaseLatch();
+                    }
+                }
+            });
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(transport);
+
+            protocol.setRequestHandler(CallToolRequestSchema, async request => {
+                await mockTaskStore.createTask(
+                    {
+                        taskId: 'test-task',
+                        keepAlive: 60000
+                    },
+                    1,
+                    request,
+                    undefined
+                );
+                await mockTaskStore.updateTaskStatus('test-task', 'working', undefined, undefined);
+                return {
+                    result: 'success'
+                };
+            });
+
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {},
+                    _meta: {
+                        [TASK_META_KEY]: {
+                            taskId: 'test-task',
+                            keepAlive: 60000
+                        }
+                    }
+                }
+            });
+
+            await workingProcessed.waitForLatch();
+
+            expect(mockTaskStore.createTask).toHaveBeenCalledWith(
+                { taskId: 'test-task', keepAlive: 60000 },
+                1,
+                {
+                    method: 'tools/call',
+                    params: expect.any(Object)
+                },
+                undefined
+            );
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'working', undefined, undefined);
+        });
+
+        it('should transition to input_required during extra.sendRequest', async () => {
+            const mockTaskStore = createMockTaskStore();
+
+            const responsiveTransport = new MockTransport();
+            responsiveTransport.send = jest.fn().mockImplementation(async (message: unknown) => {
+                if (
+                    typeof message === 'object' &&
+                    message !== null &&
+                    'method' in message &&
+                    'id' in message &&
+                    message.method === 'nested/request' &&
+                    responsiveTransport.onmessage
+                ) {
+                    setTimeout(() => {
+                        responsiveTransport.onmessage?.({
+                            jsonrpc: '2.0',
+                            id: (message as { id: number }).id,
+                            result: { nested: 'response' }
+                        });
+                    }, 5);
+                }
+            });
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(responsiveTransport);
+
+            const capturedUpdateCalls: Array<{ taskId: string; status: string }> = [];
+            mockTaskStore.updateTaskStatus.mockImplementation((taskId, status) => {
+                capturedUpdateCalls.push({ taskId, status });
+                return Promise.resolve();
+            });
+
+            protocol.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+                await mockTaskStore.createTask(
+                    {
+                        taskId: 'test-task',
+                        keepAlive: 60000
+                    },
+                    1,
+                    request
+                );
+                await mockTaskStore.updateTaskStatus('test-task', 'working', undefined, undefined);
+                await extra.sendRequest({ method: 'nested/request', params: {} }, z.object({ nested: z.string() }));
+                return { result: 'success' };
+            });
+
+            responsiveTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {},
+                    _meta: {
+                        [TASK_META_KEY]: {
+                            taskId: 'test-task',
+                            keepAlive: 60000
+                        }
+                    }
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            expect(capturedUpdateCalls).toContainEqual({ taskId: 'test-task', status: 'working' });
+            expect(capturedUpdateCalls).toContainEqual({ taskId: 'test-task', status: 'input_required' });
+
+            const inputRequiredIndex = capturedUpdateCalls.findIndex(c => c.status === 'input_required');
+            const workingCalls = capturedUpdateCalls.filter(c => c.status === 'working');
+            expect(workingCalls).toHaveLength(2);
+
+            let workingCount = 0;
+            const secondWorkingIndex = capturedUpdateCalls.findIndex(c => {
+                if (c.status === 'working') {
+                    workingCount++;
+                    return workingCount === 2;
+                }
+                return false;
+            });
+            expect(secondWorkingIndex).toBeGreaterThan(inputRequiredIndex);
+        });
+
+        it('should mark task as completed when storeTaskResult is called', async () => {
+            const completeProcessed = createLatch();
+            const mockTaskStore = createMockTaskStore({
+                onStatus: status => {
+                    if (status === 'completed') {
+                        completeProcessed.releaseLatch();
+                    }
+                }
+            });
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(transport);
+
+            protocol.setRequestHandler(CallToolRequestSchema, async request => {
+                await mockTaskStore.createTask(
+                    {
+                        taskId: 'test-task',
+                        keepAlive: 60000
+                    },
+                    1,
+                    request
+                );
+                await mockTaskStore.updateTaskStatus('test-task', 'working', undefined, undefined);
+                await mockTaskStore.storeTaskResult('test-task', { result: 'success' }, undefined);
+                return {
+                    result: 'success'
+                };
+            });
+
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'test',
+                    arguments: {},
+                    _meta: {
+                        [TASK_META_KEY]: {
+                            taskId: 'test-task',
+                            keepAlive: 60000
+                        }
+                    }
+                }
+            });
+
+            await completeProcessed.waitForLatch();
+
+            expect(mockTaskStore.storeTaskResult).toHaveBeenCalledWith('test-task', { result: 'success' }, undefined);
+        });
+    });
+
+    describe('listTasks', () => {
+        it('should handle tasks/list requests and return tasks from TaskStore', async () => {
+            const listedTasks = createLatch();
+            const mockTaskStore = createMockTaskStore({
+                onList: () => listedTasks.releaseLatch()
+            });
+            await mockTaskStore.createTask(
+                {
+                    taskId: 'task-1',
+                    status: 'completed',
+                    pollInterval: 500
+                },
+                1,
+                {
+                    method: 'test/method',
+                    params: {}
+                }
+            );
+            await mockTaskStore.createTask(
+                {
+                    taskId: 'task-2',
+                    status: 'working',
+                    keepAlive: 60000,
+                    pollInterval: 1000
+                },
+                2,
+                {
+                    method: 'test/method',
+                    params: {}
+                }
+            );
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(transport);
+
+            // Simulate receiving a tasks/list request
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 3,
+                method: 'tasks/list',
+                params: {}
+            });
+
+            await listedTasks.waitForLatch();
+
+            expect(mockTaskStore.listTasks).toHaveBeenCalledWith(undefined, undefined);
+            const sentMessage = sendSpy.mock.calls[0][0];
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(3);
+            expect(sentMessage.result.tasks).toEqual([
+                { taskId: 'task-1', status: 'completed', keepAlive: null, pollInterval: 500 },
+                { taskId: 'task-2', status: 'working', keepAlive: 60000, pollInterval: 1000 }
+            ]);
+            expect(sentMessage.result._meta).toEqual({});
+        });
+
+        it('should handle tasks/list requests with cursor for pagination', async () => {
+            const listedTasks = createLatch();
+            const mockTaskStore = createMockTaskStore({
+                onList: () => listedTasks.releaseLatch()
+            });
+            await mockTaskStore.createTask(
+                {
+                    taskId: 'task-3',
+                    pollInterval: 500
+                },
+                1,
+                {
+                    method: 'test/method',
+                    params: {}
+                }
+            );
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(transport);
+
+            // Simulate receiving a tasks/list request with cursor
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'tasks/list',
+                params: {
+                    cursor: 'task-2'
+                }
+            });
+
+            await listedTasks.waitForLatch();
+
+            expect(mockTaskStore.listTasks).toHaveBeenCalledWith('task-2', undefined);
+            const sentMessage = sendSpy.mock.calls[0][0];
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(2);
+            expect(sentMessage.result.tasks).toEqual([{ taskId: 'task-3', status: 'working', keepAlive: null, pollInterval: 500 }]);
+            expect(sentMessage.result.nextCursor).toBeUndefined();
+            expect(sentMessage.result._meta).toEqual({});
+        });
+
+        it('should handle tasks/list requests with empty results', async () => {
+            const listedTasks = createLatch();
+            const mockTaskStore = createMockTaskStore({
+                onList: () => listedTasks.releaseLatch()
+            });
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(transport);
+
+            // Simulate receiving a tasks/list request
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 3,
+                method: 'tasks/list',
+                params: {}
+            });
+
+            await listedTasks.waitForLatch();
+
+            expect(mockTaskStore.listTasks).toHaveBeenCalledWith(undefined, undefined);
+            const sentMessage = sendSpy.mock.calls[0][0];
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(3);
+            expect(sentMessage.result.tasks).toEqual([]);
+            expect(sentMessage.result.nextCursor).toBeUndefined();
+            expect(sentMessage.result._meta).toEqual({});
+        });
+
+        it('should return error for invalid cursor', async () => {
+            const mockTaskStore = createMockTaskStore();
+            mockTaskStore.listTasks.mockRejectedValue(new Error('Invalid cursor: bad-cursor'));
+
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            await protocol.connect(transport);
+
+            // Simulate receiving a tasks/list request with invalid cursor
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 4,
+                method: 'tasks/list',
+                params: {
+                    cursor: 'bad-cursor'
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            expect(mockTaskStore.listTasks).toHaveBeenCalledWith('bad-cursor', undefined);
+            const sentMessage = sendSpy.mock.calls[0][0];
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(4);
+            expect(sentMessage.error).toBeDefined();
+            expect(sentMessage.error.code).toBe(-32602); // InvalidParams error code
+            expect(sentMessage.error.message).toContain('Failed to list tasks');
+            expect(sentMessage.error.message).toContain('Invalid cursor');
+        });
+
+        it('should call listTasks method from client side', async () => {
+            await protocol.connect(transport);
+
+            const listTasksPromise = protocol.listTasks();
+
+            // Simulate server response
+            setTimeout(() => {
+                transport.onmessage?.({
+                    jsonrpc: '2.0',
+                    id: sendSpy.mock.calls[0][0].id,
+                    result: {
+                        tasks: [{ taskId: 'task-1', status: 'completed', keepAlive: null, pollInterval: 500 }],
+                        nextCursor: undefined,
+                        _meta: {
+                            [TASK_META_KEY]: expect.objectContaining({
+                                taskId: expect.any(String)
+                            })
+                        }
+                    }
+                });
+            }, 10);
+
+            const result = await listTasksPromise;
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    method: 'tasks/list',
+                    params: undefined
+                }),
+                expect.any(Object)
+            );
+            expect(result.tasks).toHaveLength(1);
+            expect(result.tasks[0].taskId).toBe('task-1');
+        });
+
+        it('should call listTasks with cursor from client side', async () => {
+            await protocol.connect(transport);
+
+            const listTasksPromise = protocol.listTasks({ cursor: 'task-10' });
+
+            // Simulate server response
+            setTimeout(() => {
+                transport.onmessage?.({
+                    jsonrpc: '2.0',
+                    id: sendSpy.mock.calls[0][0].id,
+                    result: {
+                        tasks: [{ taskId: 'task-11', status: 'working', keepAlive: 30000, pollInterval: 1000 }],
+                        nextCursor: 'task-11',
+                        _meta: {
+                            [TASK_META_KEY]: expect.objectContaining({
+                                taskId: expect.any(String)
+                            })
+                        }
+                    }
+                });
+            }, 10);
+
+            const result = await listTasksPromise;
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    method: 'tasks/list',
+                    params: {
+                        cursor: 'task-10'
+                    }
+                }),
+                expect.any(Object)
+            );
+            expect(result.tasks).toHaveLength(1);
+            expect(result.tasks[0].taskId).toBe('task-11');
+            expect(result.nextCursor).toBe('task-11');
+        });
+    });
+
+    describe('deleteTask', () => {
+        it('should handle tasks/delete requests and delete task from TaskStore', async () => {
+            const taskDeleted = createLatch();
+            const mockTaskStore = createMockTaskStore();
+            await mockTaskStore.createTask(
+                {
+                    taskId: 'task-to-delete'
+                },
+                1,
+                {
+                    method: 'test/method',
+                    params: {}
+                }
+            );
+
+            mockTaskStore.deleteTask.mockImplementation(async (taskId: string) => {
+                if (taskId === 'task-to-delete') {
+                    taskDeleted.releaseLatch();
+                    return;
+                }
+                throw new Error('Task not found');
+            });
+
+            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+            const serverTransport = new MockTransport();
+            const sendSpy = jest.spyOn(serverTransport, 'send');
+
+            await serverProtocol.connect(serverTransport);
+
+            serverTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 5,
+                method: 'tasks/delete',
+                params: {
+                    taskId: 'task-to-delete'
+                }
+            });
+
+            await taskDeleted.waitForLatch();
+
+            expect(mockTaskStore.deleteTask).toHaveBeenCalledWith('task-to-delete', undefined);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const sentMessage = sendSpy.mock.calls[0][0] as any;
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(5);
+            expect(sentMessage.result._meta).toBeDefined();
+        });
+
+        it('should return error with code -32600 when task does not exist', async () => {
+            const taskDeleted = createLatch();
+            const mockTaskStore = createMockTaskStore();
+
+            mockTaskStore.deleteTask.mockImplementation(async () => {
+                taskDeleted.releaseLatch();
+                throw new Error('Task with ID non-existent not found');
+            });
+
+            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+            const serverTransport = new MockTransport();
+            const sendSpy = jest.spyOn(serverTransport, 'send');
+
+            await serverProtocol.connect(serverTransport);
+
+            serverTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 6,
+                method: 'tasks/delete',
+                params: {
+                    taskId: 'non-existent'
+                }
+            });
+
+            await taskDeleted.waitForLatch();
+
+            expect(mockTaskStore.deleteTask).toHaveBeenCalledWith('non-existent', undefined);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const sentMessage = sendSpy.mock.calls[0][0] as any;
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(6);
+            expect(sentMessage.error).toBeDefined();
+            expect(sentMessage.error.code).toBe(-32600); // InvalidRequest error code
+            expect(sentMessage.error.message).toContain('Failed to delete task');
+        });
+
+        it('should call deleteTask method from client side', async () => {
+            await protocol.connect(transport);
+
+            const deleteTaskPromise = protocol.deleteTask({ taskId: 'task-to-delete' });
+
+            // Simulate server response
+            setTimeout(() => {
+                transport.onmessage?.({
+                    jsonrpc: '2.0',
+                    id: sendSpy.mock.calls[0][0].id,
+                    result: {
+                        _meta: {}
+                    }
+                });
+            }, 0);
+
+            const result = await deleteTaskPromise;
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    method: 'tasks/delete',
+                    params: {
+                        taskId: 'task-to-delete'
+                    }
+                }),
+                expect.any(Object)
+            );
+            expect(result._meta).toBeDefined();
+        });
     });
 });

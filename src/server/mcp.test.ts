@@ -768,7 +768,7 @@ describe('tool()', () => {
             'test',
             'A tool with everything',
             { name: z.string() },
-            { title: 'Complete Test Tool', readOnlyHint: true, openWorldHint: false },
+            { title: 'Complete Test Tool', readOnlyHint: true, openWorldHint: false, taskHint: false },
             async ({ name }) => ({
                 content: [{ type: 'text', text: `Hello, ${name}!` }]
             })
@@ -782,7 +782,8 @@ describe('tool()', () => {
                 annotations: {
                     title: 'Complete Test Tool',
                     readOnlyHint: true,
-                    openWorldHint: false
+                    openWorldHint: false,
+                    taskHint: false
                 }
             },
             async ({ name }) => ({
@@ -806,7 +807,8 @@ describe('tool()', () => {
         expect(result.tools[0].annotations).toEqual({
             title: 'Complete Test Tool',
             readOnlyHint: true,
-            openWorldHint: false
+            openWorldHint: false,
+            taskHint: false
         });
         expect(result.tools[1].name).toBe('test (new api)');
         expect(result.tools[1].description).toBe('A tool with everything');
@@ -834,7 +836,8 @@ describe('tool()', () => {
             {
                 title: 'Complete Test Tool with empty params',
                 readOnlyHint: true,
-                openWorldHint: false
+                openWorldHint: false,
+                taskHint: false
             },
             async () => ({
                 content: [{ type: 'text', text: 'Test response' }]
@@ -849,7 +852,8 @@ describe('tool()', () => {
                 annotations: {
                     title: 'Complete Test Tool with empty params',
                     readOnlyHint: true,
-                    openWorldHint: false
+                    openWorldHint: false,
+                    taskHint: false
                 }
             },
             async () => ({
@@ -873,7 +877,8 @@ describe('tool()', () => {
         expect(result.tools[0].annotations).toEqual({
             title: 'Complete Test Tool with empty params',
             readOnlyHint: true,
-            openWorldHint: false
+            openWorldHint: false,
+            taskHint: false
         });
         expect(result.tools[1].name).toBe('test (new api)');
         expect(result.tools[1].description).toBe('A tool with everything but empty params');
