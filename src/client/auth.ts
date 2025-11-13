@@ -385,6 +385,7 @@ async function authInternal(
 
         const fullInformation = await registerClient(authorizationServerUrl, {
             metadata,
+            resourceMetadata,
             clientMetadata: provider.clientMetadata,
             fetchFn
         });
@@ -447,7 +448,7 @@ async function authInternal(
         clientInformation,
         state,
         redirectUrl: provider.redirectUrl,
-        scope: scope || provider.clientMetadata.scope,
+        scope: (scope || provider.clientMetadata.scope) ?? resourceMetadata?.scopes_supported?.join(' '),
         resource
     });
 
@@ -1065,10 +1066,12 @@ export async function registerClient(
     authorizationServerUrl: string | URL,
     {
         metadata,
+        resourceMetadata,
         clientMetadata,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
+        resourceMetadata?: OAuthProtectedResourceMetadata;
         clientMetadata: OAuthClientMetadata;
         fetchFn?: FetchLike;
     }
@@ -1085,12 +1088,17 @@ export async function registerClient(
         registrationUrl = new URL('/register', authorizationServerUrl);
     }
 
+    const scope = clientMetadata?.scope ?? resourceMetadata?.scopes_supported?.join(' ');
+
     const response = await (fetchFn ?? fetch)(registrationUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify(clientMetadata)
+        body: JSON.stringify({
+            ...clientMetadata,
+            ...(scope !== undefined ? { scope } : undefined)
+        })
     });
 
     if (!response.ok) {
