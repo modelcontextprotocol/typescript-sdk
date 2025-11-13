@@ -45,7 +45,7 @@ describe('Client Registration Handler', () => {
 
     describe('Request handling', () => {
         let app: express.Express;
-        let spyRegisterClient: jest.SpyInstance;
+        let spyRegisterClient: vi.SpyInstance;
 
         beforeEach(() => {
             // Setup express app with registration handler
@@ -58,7 +58,7 @@ describe('Client Registration Handler', () => {
             app.use('/register', clientRegistrationHandler(options));
 
             // Spy on the registerClient method
-            spyRegisterClient = jest.spyOn(mockClientStoreWithRegistration, 'registerClient');
+            spyRegisterClient = vi.spyOn(mockClientStoreWithRegistration, 'registerClient');
         });
 
         afterEach(() => {

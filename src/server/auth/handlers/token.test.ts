@@ -10,8 +10,8 @@ import { AuthInfo } from '../types.js';
 import { ProxyOAuthServerProvider } from '../providers/proxyProvider.js';
 
 // Mock pkce-challenge
-jest.mock('pkce-challenge', () => ({
-    verifyChallenge: jest.fn().mockImplementation(async (verifier, challenge) => {
+vi.mock('pkce-challenge', () => ({
+    verifyChallenge: vi.fn().mockImplementation(async (verifier, challenge) => {
         return verifier === 'valid_verifier' && challenge === 'mock_challenge';
     })
 }));
@@ -111,7 +111,7 @@ describe('Token Handler', () => {
         };
 
         // Mock PKCE verification
-        (pkceChallenge.verifyChallenge as jest.Mock).mockImplementation(async (verifier: string, challenge: string) => {
+        (pkceChallenge.verifyChallenge as vi.Mock).mockImplementation(async (verifier: string, challenge: string) => {
             return verifier === 'valid_verifier' && challenge === 'mock_challenge';
         });
 
@@ -214,7 +214,7 @@ describe('Token Handler', () => {
 
         it('verifies code_verifier against challenge', async () => {
             // Setup invalid verifier
-            (pkceChallenge.verifyChallenge as jest.Mock).mockResolvedValueOnce(false);
+            (pkceChallenge.verifyChallenge as vi.Mock).mockResolvedValueOnce(false);
 
             const response = await supertest(app).post('/token').type('form').send({
                 client_id: 'valid-client',
@@ -243,7 +243,7 @@ describe('Token Handler', () => {
         });
 
         it('returns tokens for valid code exchange', async () => {
-            const mockExchangeCode = jest.spyOn(mockProvider, 'exchangeAuthorizationCode');
+            const mockExchangeCode = vi.spyOn(mockProvider, 'exchangeAuthorizationCode');
             const response = await supertest(app).post('/token').type('form').send({
                 client_id: 'valid-client',
                 client_secret: 'valid-secret',
@@ -294,7 +294,7 @@ describe('Token Handler', () => {
             const originalFetch = global.fetch;
 
             try {
-                global.fetch = jest.fn().mockResolvedValue({
+                global.fetch = vi.fn().mockResolvedValue({
                     ok: true,
                     json: () => Promise.resolve(mockTokens)
                 });
@@ -348,7 +348,7 @@ describe('Token Handler', () => {
             const originalFetch = global.fetch;
 
             try {
-                global.fetch = jest.fn().mockResolvedValue({
+                global.fetch = vi.fn().mockResolvedValue({
                     ok: true,
                     json: () => Promise.resolve(mockTokens)
                 });
@@ -426,7 +426,7 @@ describe('Token Handler', () => {
         });
 
         it('returns new tokens for valid refresh token', async () => {
-            const mockExchangeRefresh = jest.spyOn(mockProvider, 'exchangeRefreshToken');
+            const mockExchangeRefresh = vi.spyOn(mockProvider, 'exchangeRefreshToken');
             const response = await supertest(app).post('/token').type('form').send({
                 client_id: 'valid-client',
                 client_secret: 'valid-secret',

@@ -2,26 +2,26 @@ import { withOAuth, withLogging, applyMiddlewares, createMiddleware } from './mi
 import { OAuthClientProvider } from './auth.js';
 import { FetchLike } from '../shared/transport.js';
 
-jest.mock('../client/auth.js', () => {
-    const actual = jest.requireActual('../client/auth.js');
+vi.mock('../client/auth.js', async () => {
+    const actual = await vi.importActual<typeof import('../client/auth.js')>('../client/auth.js');
     return {
         ...actual,
-        auth: jest.fn(),
-        extractWWWAuthenticateParams: jest.fn()
+        auth: vi.fn(),
+        extractWWWAuthenticateParams: vi.fn()
     };
 });
 
 import { auth, extractWWWAuthenticateParams } from './auth.js';
 
-const mockAuth = auth as jest.MockedFunction<typeof auth>;
-const mockExtractWWWAuthenticateParams = extractWWWAuthenticateParams as jest.MockedFunction<typeof extractWWWAuthenticateParams>;
+const mockAuth = auth as vi.MockedFunction<typeof auth>;
+const mockExtractWWWAuthenticateParams = extractWWWAuthenticateParams as vi.MockedFunction<typeof extractWWWAuthenticateParams>;
 
 describe('withOAuth', () => {
-    let mockProvider: jest.Mocked<OAuthClientProvider>;
-    let mockFetch: jest.MockedFunction<FetchLike>;
+    let mockProvider: vi.Mocked<OAuthClientProvider>;
+    let mockFetch: vi.MockedFunction<FetchLike>;
 
     beforeEach(() => {
-        jest.clearAllMocks();
+        vi.clearAllMocks();
 
         mockProvider = {
             get redirectUrl() {
@@ -30,16 +30,16 @@ describe('withOAuth', () => {
             get clientMetadata() {
                 return { redirect_uris: ['http://localhost/callback'] };
             },
-            tokens: jest.fn(),
-            saveTokens: jest.fn(),
-            clientInformation: jest.fn(),
-            redirectToAuthorization: jest.fn(),
-            saveCodeVerifier: jest.fn(),
-            codeVerifier: jest.fn(),
-            invalidateCredentials: jest.fn()
+            tokens: vi.fn(),
+            saveTokens: vi.fn(),
+            clientInformation: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn(),
+            invalidateCredentials: vi.fn()
         };
 
-        mockFetch = jest.fn();
+        mockFetch = vi.fn();
     });
 
     it('should add Authorization header when tokens are available (with explicit baseUrl)', async () => {
@@ -371,8 +371,8 @@ describe('withOAuth', () => {
 });
 
 describe('withLogging', () => {
-    let mockFetch: jest.MockedFunction<FetchLike>;
-    let mockLogger: jest.MockedFunction<
+    let mockFetch: vi.MockedFunction<FetchLike>;
+    let mockLogger: vi.MockedFunction<
         (input: {
             method: string;
             url: string | URL;
@@ -384,17 +384,17 @@ describe('withLogging', () => {
             error?: Error;
         }) => void
     >;
-    let consoleErrorSpy: jest.SpyInstance;
-    let consoleLogSpy: jest.SpyInstance;
+    let consoleErrorSpy: vi.SpyInstance;
+    let consoleLogSpy: vi.SpyInstance;
 
     beforeEach(() => {
-        jest.clearAllMocks();
+        vi.clearAllMocks();
 
-        consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-        consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+        consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-        mockFetch = jest.fn();
-        mockLogger = jest.fn();
+        mockFetch = vi.fn();
+        mockLogger = vi.fn();
     });
 
     afterEach(() => {
@@ -614,11 +614,11 @@ describe('withLogging', () => {
 });
 
 describe('applyMiddleware', () => {
-    let mockFetch: jest.MockedFunction<FetchLike>;
+    let mockFetch: vi.MockedFunction<FetchLike>;
 
     beforeEach(() => {
-        jest.clearAllMocks();
-        mockFetch = jest.fn();
+        vi.clearAllMocks();
+        mockFetch = vi.fn();
     });
 
     it('should compose no middleware correctly', () => {
@@ -703,7 +703,7 @@ describe('applyMiddleware', () => {
         };
 
         // Use custom logger to avoid console output
-        const mockLogger = jest.fn();
+        const mockLogger = vi.fn();
         const composedFetch = applyMiddlewares(oauthMiddleware, withLogging({ logger: mockLogger, statusLevel: 0 }))(mockFetch);
 
         await composedFetch('https://api.example.com/data');
@@ -743,11 +743,11 @@ describe('applyMiddleware', () => {
 });
 
 describe('Integration Tests', () => {
-    let mockProvider: jest.Mocked<OAuthClientProvider>;
-    let mockFetch: jest.MockedFunction<FetchLike>;
+    let mockProvider: vi.Mocked<OAuthClientProvider>;
+    let mockFetch: vi.MockedFunction<FetchLike>;
 
     beforeEach(() => {
-        jest.clearAllMocks();
+        vi.clearAllMocks();
 
         mockProvider = {
             get redirectUrl() {
@@ -756,16 +756,16 @@ describe('Integration Tests', () => {
             get clientMetadata() {
                 return { redirect_uris: ['http://localhost/callback'] };
             },
-            tokens: jest.fn(),
-            saveTokens: jest.fn(),
-            clientInformation: jest.fn(),
-            redirectToAuthorization: jest.fn(),
-            saveCodeVerifier: jest.fn(),
-            codeVerifier: jest.fn(),
-            invalidateCredentials: jest.fn()
+            tokens: vi.fn(),
+            saveTokens: vi.fn(),
+            clientInformation: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn(),
+            invalidateCredentials: vi.fn()
         };
 
-        mockFetch = jest.fn();
+        mockFetch = vi.fn();
     });
 
     it('should work with SSE transport pattern', async () => {
@@ -783,7 +783,7 @@ describe('Integration Tests', () => {
         mockFetch.mockResolvedValue(response);
 
         // Use custom logger to avoid console output
-        const mockLogger = jest.fn();
+        const mockLogger = vi.fn();
         const enhancedFetch = applyMiddlewares(
             withOAuth(mockProvider as OAuthClientProvider, 'https://mcp-server.example.com'),
             withLogging({ logger: mockLogger, statusLevel: 400 }) // Only log errors
@@ -830,7 +830,7 @@ describe('Integration Tests', () => {
         mockFetch.mockResolvedValue(response);
 
         // Use custom logger to avoid console output
-        const mockLogger = jest.fn();
+        const mockLogger = vi.fn();
         const enhancedFetch = applyMiddlewares(
             withOAuth(mockProvider as OAuthClientProvider, 'https://streamable-server.example.com'),
             withLogging({
@@ -891,7 +891,7 @@ describe('Integration Tests', () => {
         mockAuth.mockResolvedValue('AUTHORIZED');
 
         // Use custom logger to avoid console output
-        const mockLogger = jest.fn();
+        const mockLogger = vi.fn();
         const enhancedFetch = applyMiddlewares(
             withOAuth(mockProvider as OAuthClientProvider, 'https://mcp-server.example.com'),
             withLogging({ logger: mockLogger, statusLevel: 0 })
@@ -914,11 +914,11 @@ describe('Integration Tests', () => {
 });
 
 describe('createMiddleware', () => {
-    let mockFetch: jest.MockedFunction<FetchLike>;
+    let mockFetch: vi.MockedFunction<FetchLike>;
 
     beforeEach(() => {
-        jest.clearAllMocks();
-        mockFetch = jest.fn();
+        vi.clearAllMocks();
+        mockFetch = vi.fn();
     });
 
     it('should create middleware with cleaner syntax', async () => {

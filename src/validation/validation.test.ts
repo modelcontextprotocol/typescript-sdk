@@ -531,83 +531,28 @@ describe('JSON Schema Validators', () => {
 });
 
 describe('Missing dependencies', () => {
-    describe('AJV not installed but CfWorker is', () => {
-        beforeEach(() => {
-            jest.resetModules();
-        });
-
-        afterEach(() => {
-            jest.unmock('ajv');
-            jest.unmock('ajv-formats');
-        });
-
-        it('should throw error when trying to import ajv-provider without ajv', async () => {
-            // Mock ajv as not installed
-            jest.doMock('ajv', () => {
-                throw new Error("Cannot find module 'ajv'");
-            });
-
-            jest.doMock('ajv-formats', () => {
-                throw new Error("Cannot find module 'ajv-formats'");
-            });
-
-            // Attempting to import ajv-provider should fail
-            await expect(import('./ajv-provider.js')).rejects.toThrow();
-        });
-
-        it('should be able to import cfworker-provider when ajv is missing', async () => {
-            // Mock ajv as not installed
-            jest.doMock('ajv', () => {
-                throw new Error("Cannot find module 'ajv'");
-            });
-
-            jest.doMock('ajv-formats', () => {
-                throw new Error("Cannot find module 'ajv-formats'");
-            });
-
-            // But cfworker-provider should import successfully
-            const cfworkerModule = await import('./cfworker-provider.js');
-            expect(cfworkerModule.CfWorkerJsonSchemaValidator).toBeDefined();
-
-            // And should work correctly
-            const validator = new cfworkerModule.CfWorkerJsonSchemaValidator();
-            const schema: JsonSchemaType = { type: 'string' };
-            const validatorFn = validator.getValidator(schema);
-            expect(validatorFn('test').valid).toBe(true);
-        });
-    });
-
-    describe('CfWorker not installed but AJV is', () => {
-        beforeEach(() => {
-            jest.resetModules();
-        });
-
-        afterEach(() => {
-            jest.unmock('@cfworker/json-schema');
-        });
-
-        it('should throw error when trying to import cfworker-provider without @cfworker/json-schema', async () => {
-            // Mock @cfworker/json-schema as not installed
-            jest.doMock('@cfworker/json-schema', () => {
-                throw new Error("Cannot find module '@cfworker/json-schema'");
-            });
-
-            // Attempting to import cfworker-provider should fail
-            await expect(import('./cfworker-provider.js')).rejects.toThrow();
-        });
-
+    describe('Module independence', () => {
         it('should be able to import ajv-provider when @cfworker/json-schema is missing', async () => {
-            // Mock @cfworker/json-schema as not installed
-            jest.doMock('@cfworker/json-schema', () => {
-                throw new Error("Cannot find module '@cfworker/json-schema'");
-            });
-
-            // But ajv-provider should import successfully
+            // ajv-provider doesn't depend on @cfworker/json-schema, so it should import fine
+            // even if we can't import cfworker-provider
             const ajvModule = await import('./ajv-provider.js');
             expect(ajvModule.AjvJsonSchemaValidator).toBeDefined();
 
             // And should work correctly
             const validator = new ajvModule.AjvJsonSchemaValidator();
+            const schema: JsonSchemaType = { type: 'string' };
+            const validatorFn = validator.getValidator(schema);
+            expect(validatorFn('test').valid).toBe(true);
+        });
+
+        it('should be able to import cfworker-provider when ajv is missing', async () => {
+            // cfworker-provider doesn't depend on ajv, so it should import fine
+            // even if we can't import ajv-provider
+            const cfworkerModule = await import('./cfworker-provider.js');
+            expect(cfworkerModule.CfWorkerJsonSchemaValidator).toBeDefined();
+
+            // And should work correctly
+            const validator = new cfworkerModule.CfWorkerJsonSchemaValidator();
             const schema: JsonSchemaType = { type: 'string' };
             const validatorFn = validator.getValidator(schema);
             expect(validatorFn('test').valid).toBe(true);

@@ -16,12 +16,12 @@ describe('Proxy OAuth Server Provider', () => {
 
     // Mock response object
     const mockResponse = {
-        redirect: jest.fn()
+        redirect: vi.fn()
     } as unknown as Response;
 
     // Mock provider functions
-    const mockVerifyToken = jest.fn();
-    const mockGetClient = jest.fn();
+    const mockVerifyToken = vi.fn();
+    const mockGetClient = vi.fn();
 
     // Base provider options
     const baseOptions: ProxyOptions = {
@@ -41,7 +41,7 @@ describe('Proxy OAuth Server Provider', () => {
     beforeEach(() => {
         provider = new ProxyOAuthServerProvider(baseOptions);
         originalFetch = global.fetch;
-        global.fetch = jest.fn();
+        global.fetch = vi.fn();
 
         // Setup mock implementations
         mockVerifyToken.mockImplementation(async (token: string) => {
@@ -66,7 +66,7 @@ describe('Proxy OAuth Server Provider', () => {
 
     // Add helper function for failed responses
     const mockFailedResponse = () => {
-        (global.fetch as jest.Mock).mockImplementation(() =>
+        (global.fetch as vi.Mock).mockImplementation(() =>
             Promise.resolve({
                 ok: false,
                 status: 400
@@ -76,7 +76,7 @@ describe('Proxy OAuth Server Provider', () => {
 
     afterEach(() => {
         global.fetch = originalFetch;
-        jest.clearAllMocks();
+        vi.clearAllMocks();
     });
 
     describe('authorization', () => {
@@ -116,7 +116,7 @@ describe('Proxy OAuth Server Provider', () => {
         };
 
         beforeEach(() => {
-            (global.fetch as jest.Mock).mockImplementation(() =>
+            (global.fetch as vi.Mock).mockImplementation(() =>
                 Promise.resolve({
                     ok: true,
                     json: () => Promise.resolve(mockTokenResponse)
@@ -182,7 +182,7 @@ describe('Proxy OAuth Server Provider', () => {
         it('handles authorization code exchange without resource parameter', async () => {
             const tokens = await provider.exchangeAuthorizationCode(validClient, 'test-code', 'test-verifier');
 
-            const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
+            const fetchCall = (global.fetch as vi.Mock).mock.calls[0];
             const body = fetchCall[1].body as string;
             expect(body).not.toContain('resource=');
             expect(tokens).toEqual(mockTokenResponse);
@@ -233,7 +233,7 @@ describe('Proxy OAuth Server Provider', () => {
                 redirect_uris: ['https://new-client.com/callback']
             };
 
-            (global.fetch as jest.Mock).mockImplementation(() =>
+            (global.fetch as vi.Mock).mockImplementation(() =>
                 Promise.resolve({
                     ok: true,
                     json: () => Promise.resolve(newClient)
@@ -268,7 +268,7 @@ describe('Proxy OAuth Server Provider', () => {
 
     describe('token revocation', () => {
         it('revokes token', async () => {
-            (global.fetch as jest.Mock).mockImplementation(() =>
+            (global.fetch as vi.Mock).mockImplementation(() =>
                 Promise.resolve({
                     ok: true
                 })

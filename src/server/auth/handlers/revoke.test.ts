@@ -130,7 +130,7 @@ describe('Revocation Handler', () => {
 
     describe('Request handling', () => {
         let app: express.Express;
-        let spyRevokeToken: jest.SpyInstance;
+        let spyRevokeToken: vi.SpyInstance;
 
         beforeEach(() => {
             // Setup express app with revocation handler
@@ -139,7 +139,7 @@ describe('Revocation Handler', () => {
             app.use('/revoke', revocationHandler(options));
 
             // Spy on the revokeToken method
-            spyRevokeToken = jest.spyOn(mockProviderWithRevocation, 'revokeToken');
+            spyRevokeToken = vi.spyOn(mockProviderWithRevocation, 'revokeToken');
         });
 
         afterEach(() => {

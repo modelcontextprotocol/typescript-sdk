@@ -15,7 +15,8 @@
         "skipLibCheck": true,
         "paths": {
             "pkce-challenge": ["./node_modules/pkce-challenge/dist/index.node"]
-        }
+        },
+        "types": ["node", "vitest/globals"]
     },
     "include": ["src/**/*"],
     "exclude": ["node_modules", "dist"]

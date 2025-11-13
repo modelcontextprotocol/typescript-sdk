@@ -5,7 +5,7 @@ import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '
 
 describe('StreamableHTTPClientTransport', () => {
     let transport: StreamableHTTPClientTransport;
-    let mockAuthProvider: jest.Mocked<OAuthClientProvider>;
+    let mockAuthProvider: vi.Mocked<OAuthClientProvider>;
 
     beforeEach(() => {
         mockAuthProvider = {
@@ -15,21 +15,21 @@ describe('StreamableHTTPClientTransport', () => {
             get clientMetadata() {
                 return { redirect_uris: ['http://localhost/callback'] };
             },
-            clientInformation: jest.fn(() => ({ client_id: 'test-client-id', client_secret: 'test-client-secret' })),
-            tokens: jest.fn(),
-            saveTokens: jest.fn(),
-            redirectToAuthorization: jest.fn(),
-            saveCodeVerifier: jest.fn(),
-            codeVerifier: jest.fn(),
-            invalidateCredentials: jest.fn()
+            clientInformation: vi.fn(() => ({ client_id: 'test-client-id', client_secret: 'test-client-secret' })),
+            tokens: vi.fn(),
+            saveTokens: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn(),
+            invalidateCredentials: vi.fn()
         };
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider: mockAuthProvider });
-        jest.spyOn(global, 'fetch');
+        vi.spyOn(global, 'fetch');
     });
 
     afterEach(async () => {
         await transport.close().catch(() => {});
-        jest.clearAllMocks();
+        vi.clearAllMocks();
     });
 
     it('should send JSON-RPC messages via POST', async () => {
@@ -40,7 +40,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'test-id'
         };
 
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
+        (global.fetch as vi.Mock).mockResolvedValueOnce({
             ok: true,
             status: 202,
             headers: new Headers()
@@ -64,7 +64,7 @@ describe('StreamableHTTPClientTransport', () => {
             { jsonrpc: '2.0', method: 'test2', params: {}, id: 'id2' }
         ];
 
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
+        (global.fetch as vi.Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'text/event-stream' }),
@@ -94,7 +94,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'init-id'
         };
 
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
+        (global.fetch as vi.Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'test-session-id' })
@@ -103,7 +103,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send(message);
 
         // Send a second message that should include the session ID
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
+        (global.fetch as vi.Mock).mockResolvedValueOnce({
             ok: true,
             status: 202,
             headers: new Headers()
@@ -112,7 +112,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
 
         // Check that second request included session ID header
-        const calls = (global.fetch as jest.Mock).mock.calls;
+        const calls = (global.fetch as vi.Mock).mock.calls;
         const lastCall = calls[calls.length - 1];
         expect(lastCall[1].headers).toBeDefined();
         expect(lastCall[1].headers.get('mcp-session-id')).toBe('test-session-id');
@@ -130,7 +130,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'init-id'
         };
 
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
+        (global.fetch as vi.Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'test-session-id' })
@@ -140,7 +140,7 @@ describe('StreamableHTTPClientTransport', () => {
         expect(transport.sessionId).toBe('test-session-id');
 
         // Now terminate the session
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
+        (global.fetch as vi.Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers()
@@ -149,7 +149,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.terminateSession();
 
         // Verify the DELETE request was sent with the session ID
-        const calls = (global.fetch as jest.Mock).mock.calls;
+        const calls = (global.fetch as vi.Mock).mock.calls;
         const lastCall = calls[calls.length - 1];
         expect(lastCall[1].method).toBe('DELETE');
         expect(lastCall[1].headers.get('mcp-session-id')).toBe('test-session-id');
@@ -170,7 +170,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'init-id'
         };
 
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
+        (global.fetch as vi.Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'test-session-id' })
@@ -179,7 +179,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send(message);
 
         // Now terminate the session, but server responds with 405
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
+        (global.fetch as vi.Mock).mockResolvedValueOnce({
             ok: false,
             status: 405,
             statusText: 'Method Not Allowed',
@@ -197,7 +197,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'test-id'
         };
 
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
+        (global.fetch as vi.Mock).mockResolvedValueOnce({
             ok: false,
             status: 404,
             statusText: 'Not Found',
@@ -205,7 +205,7 @@ describe('StreamableHTTPClientTransport', () => {
             headers: new Headers()
         });
 
-        const errorSpy = jest.fn();
+        const errorSpy = vi.fn();
         transport.onerror = errorSpy;
 
         await expect(transport.send(message)).rejects.toThrow('Error POSTing to endpoint (HTTP 404)');
@@ -226,14 +226,14 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'test-id'
         };
 
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
+        (global.fetch as vi.Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'application/json' }),
             json: () => Promise.resolve(responseMessage)
         });
 
-        const messageSpy = jest.fn();
+        const messageSpy = vi.fn();
         transport.onmessage = messageSpy;
 
         await transport.send(message);
@@ -243,7 +243,7 @@ describe('StreamableHTTPClientTransport', () => {
 
     it('should attempt initial GET connection and handle 405 gracefully', async () => {
         // Mock the server not supporting GET for SSE (returning 405)
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
+        (global.fetch as vi.Mock).mockResolvedValueOnce({
             ok: false,
             status: 405,
             statusText: 'Method Not Allowed'
@@ -263,7 +263,7 @@ describe('StreamableHTTPClientTransport', () => {
         );
 
         // Verify transport still works after 405
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
+        (global.fetch as vi.Mock).mockResolvedValueOnce({
             ok: true,
             status: 202,
             headers: new Headers()
@@ -285,14 +285,14 @@ describe('StreamableHTTPClientTransport', () => {
         });
 
         // Mock successful GET connection
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
+        (global.fetch as vi.Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'text/event-stream' }),
             body: stream
         });
 
-        const messageSpy = jest.fn();
+        const messageSpy = vi.fn();
         transport.onmessage = messageSpy;
 
         await transport.start();
@@ -322,7 +322,7 @@ describe('StreamableHTTPClientTransport', () => {
             });
         };
 
-        (global.fetch as jest.Mock)
+        (global.fetch as vi.Mock)
             .mockResolvedValueOnce({
                 ok: true,
                 status: 200,
@@ -336,7 +336,7 @@ describe('StreamableHTTPClientTransport', () => {
                 body: makeStream('request2')
             });
 
-        const messageSpy = jest.fn();
+        const messageSpy = vi.fn();
         transport.onmessage = messageSpy;
 
         // Send two concurrent requests
@@ -392,7 +392,7 @@ describe('StreamableHTTPClientTransport', () => {
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
 
         // Mock fetch to verify headers sent
-        const fetchSpy = global.fetch as jest.Mock;
+        const fetchSpy = global.fetch as vi.Mock;
         fetchSpy.mockReset();
         fetchSpy.mockResolvedValue({
             ok: true,
@@ -418,7 +418,7 @@ describe('StreamableHTTPClientTransport', () => {
 
     it('should throw error when invalid content-type is received', async () => {
         // Clear any previous state from other tests
-        jest.clearAllMocks();
+        vi.clearAllMocks();
 
         // Create a fresh transport instance
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
@@ -437,10 +437,10 @@ describe('StreamableHTTPClientTransport', () => {
             }
         });
 
-        const errorSpy = jest.fn();
+        const errorSpy = vi.fn();
         transport.onerror = errorSpy;
 
-        (global.fetch as jest.Mock).mockResolvedValueOnce({
+        (global.fetch as vi.Mock).mockResolvedValueOnce({
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'text/plain' }),
@@ -454,7 +454,7 @@ describe('StreamableHTTPClientTransport', () => {
 
     it('uses custom fetch implementation if provided', async () => {
         // Create custom fetch
-        const customFetch = jest
+        const customFetch = vi
             .fn()
             .mockResolvedValueOnce(new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } }))
             .mockResolvedValueOnce(new Response(null, { status: 202 }));
@@ -488,7 +488,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         let actualReqInit: RequestInit = {};
 
-        (global.fetch as jest.Mock).mockImplementation(async (_url, reqInit) => {
+        (global.fetch as vi.Mock).mockImplementation(async (_url, reqInit) => {
             actualReqInit = reqInit;
             return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
         });
@@ -518,7 +518,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         let actualReqInit: RequestInit = {};
 
-        (global.fetch as jest.Mock).mockImplementation(async (_url, reqInit) => {
+        (global.fetch as vi.Mock).mockImplementation(async (_url, reqInit) => {
             actualReqInit = reqInit;
             return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
         });
@@ -576,7 +576,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'test-id'
         };
 
-        (global.fetch as jest.Mock)
+        (global.fetch as vi.Mock)
             .mockResolvedValueOnce({
                 ok: false,
                 status: 401,
@@ -596,8 +596,8 @@ describe('StreamableHTTPClientTransport', () => {
         let transport: StreamableHTTPClientTransport;
 
         // Use fake timers to control setTimeout and make the test instant.
-        beforeEach(() => jest.useFakeTimers());
-        afterEach(() => jest.useRealTimers());
+        beforeEach(() => vi.useFakeTimers());
+        afterEach(() => vi.useRealTimers());
 
         it('should reconnect a GET-initiated notification stream that fails', async () => {
             // ARRANGE
@@ -610,7 +610,7 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-            const errorSpy = jest.fn();
+            const errorSpy = vi.fn();
             transport.onerror = errorSpy;
 
             const failingStream = new ReadableStream({
@@ -619,7 +619,7 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-            const fetchMock = global.fetch as jest.Mock;
+            const fetchMock = global.fetch as vi.Mock;
             // Mock the initial GET request, which will fail.
             fetchMock.mockResolvedValueOnce({
                 ok: true,
@@ -639,7 +639,7 @@ describe('StreamableHTTPClientTransport', () => {
             await transport.start();
             // Trigger the GET stream directly using the internal method for a clean test.
             await transport['_startOrAuthSse']({});
-            await jest.advanceTimersByTimeAsync(20); // Trigger reconnection timeout
+            await vi.advanceTimersByTimeAsync(20); // Trigger reconnection timeout
 
             // ASSERT
             expect(errorSpy).toHaveBeenCalledWith(
@@ -664,7 +664,7 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-            const errorSpy = jest.fn();
+            const errorSpy = vi.fn();
             transport.onerror = errorSpy;
 
             const failingStream = new ReadableStream({
@@ -673,7 +673,7 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-            const fetchMock = global.fetch as jest.Mock;
+            const fetchMock = global.fetch as vi.Mock;
             // Mock the POST request. It returns a streaming content-type but a failing body.
             fetchMock.mockResolvedValueOnce({
                 ok: true,
@@ -694,7 +694,7 @@ describe('StreamableHTTPClientTransport', () => {
             await transport.start();
             // Use the public `send` method to initiate a POST that gets a stream response.
             await transport.send(requestMessage);
-            await jest.advanceTimersByTimeAsync(20); // Advance time to check for reconnections
+            await vi.advanceTimersByTimeAsync(20); // Advance time to check for reconnections
 
             // ASSERT
             expect(errorSpy).toHaveBeenCalledWith(
@@ -728,7 +728,7 @@ describe('StreamableHTTPClientTransport', () => {
             statusText: 'Unauthorized',
             headers: new Headers()
         };
-        (global.fetch as jest.Mock)
+        (global.fetch as vi.Mock)
             // Initial connection
             .mockResolvedValueOnce(unauthedResponse)
             // Resource discovery, path aware
@@ -781,7 +781,7 @@ describe('StreamableHTTPClientTransport', () => {
             statusText: 'Unauthorized',
             headers: new Headers()
         };
-        (global.fetch as jest.Mock)
+        (global.fetch as vi.Mock)
             // Initial connection
             .mockResolvedValueOnce(unauthedResponse)
             // Resource discovery, path aware
@@ -832,7 +832,7 @@ describe('StreamableHTTPClientTransport', () => {
             statusText: 'Unauthorized',
             headers: new Headers()
         };
-        (global.fetch as jest.Mock)
+        (global.fetch as vi.Mock)
             // Initial connection
             .mockResolvedValueOnce(unauthedResponse)
             // Resource discovery, path aware
@@ -873,7 +873,7 @@ describe('StreamableHTTPClientTransport', () => {
             };
 
             // Create custom fetch
-            const customFetch = jest
+            const customFetch = vi
                 .fn()
                 // Initial connection
                 .mockResolvedValueOnce(unauthedResponse)
@@ -935,7 +935,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         it('uses custom fetch in finishAuth method - no global fetch fallback', async () => {
             // Create custom fetch
-            const customFetch = jest
+            const customFetch = vi
                 .fn()
                 // Protected resource metadata discovery
                 .mockResolvedValueOnce({
@@ -1032,7 +1032,7 @@ describe('StreamableHTTPClientTransport', () => {
                 headers: new Headers()
             };
 
-            (global.fetch as jest.Mock)
+            (global.fetch as vi.Mock)
                 // First request - 401, triggers auth flow
                 .mockResolvedValueOnce(unauthedResponse)
                 // Resource discovery, path aware
