@@ -103,8 +103,8 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
         return { supportsFormMode: false, supportsUrlMode: false };
     }
 
-    const hasFormCapability = Object.prototype.hasOwnProperty.call(capabilities, 'form');
-    const hasUrlCapability = Object.prototype.hasOwnProperty.call(capabilities, 'url');
+    const hasFormCapability = capabilities.form !== undefined;
+    const hasUrlCapability = capabilities.url !== undefined;
 
     // If neither form nor url are explicitly declared, form mode is supported (backwards compatibility)
     const supportsFormMode = hasFormCapability || (!hasFormCapability && !hasUrlCapability);

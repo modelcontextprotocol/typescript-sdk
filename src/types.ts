@@ -274,27 +274,27 @@ export const ImplementationSchema = BaseMetadataSchema.extend({
     websiteUrl: z.string().optional()
 }).merge(IconsSchema);
 
-const ElicitationCapabilitySchema = z
-    .preprocess(
-        value => {
-            if (value && typeof value === 'object' && !Array.isArray(value)) {
-                const hasForm = Object.prototype.hasOwnProperty.call(value, 'form');
-                const hasUrl = Object.prototype.hasOwnProperty.call(value, 'url');
-                if (!hasForm && !hasUrl) {
-                    return { ...(value as Record<string, unknown>), form: {} };
-                }
+const ElicitationCapabilitySchema = z.preprocess(
+    value => {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            const recordValue = value as Record<string, unknown>;
+            const hasForm = Object.prototype.hasOwnProperty.call(recordValue, 'form');
+            const hasUrl = Object.prototype.hasOwnProperty.call(recordValue, 'url');
+            if (!hasForm && !hasUrl) {
+                return { ...recordValue, form: {} };
             }
-            return value;
-        },
-        z
-            .object({
-                applyDefaults: z.boolean().optional(),
-                form: z.object({}).passthrough().optional(),
-                url: z.object({}).passthrough().optional()
-            })
-            .passthrough()
+        }
+        return value;
+    },
+    z.intersection(
+        z.object({
+            applyDefaults: z.boolean().optional(),
+            form: AssertObjectSchema.optional(),
+            url: AssertObjectSchema.optional()
+        }),
+        z.record(z.string(), z.unknown())
     )
-    .optional();
+);
 
 /**
  * Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
@@ -311,7 +311,7 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Present if the client supports eliciting user input.
      */
-    elicitation: ElicitationCapabilitySchema,
+    elicitation: ElicitationCapabilitySchema.optional(),
     /**
      * Present if the client supports listing roots.
      */
