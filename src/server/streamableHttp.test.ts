@@ -1388,9 +1388,6 @@ describe('StreamableHTTPServerTransport with resumability', () => {
         });
         expect(sseResponse.status).toBe(200);
 
-        // Wait a bit for SSE stream to be fully established
-        await new Promise(resolve => setTimeout(resolve, 50));
-
         // Send a server notification through the MCP server
         await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'First notification from MCP server' });
 
@@ -1410,9 +1407,6 @@ describe('StreamableHTTPServerTransport with resumability', () => {
 
         // Send a second notification
         await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Second notification from MCP server' });
-
-        // Wait a bit to ensure the notification is processed and stored before disconnecting
-        await new Promise(resolve => setTimeout(resolve, 50));
 
         // Close the first SSE stream to simulate a disconnect
         await reader!.cancel();
