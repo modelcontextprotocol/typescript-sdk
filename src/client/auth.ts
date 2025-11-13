@@ -348,6 +348,7 @@ async function authInternal(
 ): Promise<AuthResult> {
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | URL | undefined;
+
     try {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl }, fetchFn);
         if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
@@ -359,10 +360,10 @@ async function authInternal(
 
     /**
      * If we don't get a valid authorization server metadata from protected resource metadata,
-     * fallback to the legacy MCP spec's implementation (version 2025-03-26): MCP server acts as the Authorization server.
+     * fallback to the legacy MCP spec's implementation (version 2025-03-26): MCP server base URL acts as the Authorization server.
      */
     if (!authorizationServerUrl) {
-        authorizationServerUrl = serverUrl;
+        authorizationServerUrl = new URL("/", serverUrl);
     }
 
     const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
