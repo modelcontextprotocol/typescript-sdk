@@ -9,6 +9,11 @@ export type ClientAuthenticationMiddlewareOptions = {
      * A store used to read information about registered OAuth clients.
      */
     clientsStore: OAuthRegisteredClientsStore;
+
+    /**
+     * Set to true to throw errors to the express error handler
+     */
+    throwErrors?: boolean;
 };
 
 const ClientAuthenticatedRequestSchema = z.object({
@@ -25,7 +30,7 @@ declare module 'express-serve-static-core' {
     }
 }
 
-export function authenticateClient({ clientsStore }: ClientAuthenticationMiddlewareOptions): RequestHandler {
+export function authenticateClient({ clientsStore, throwErrors }: ClientAuthenticationMiddlewareOptions): RequestHandler {
     return async (req, res, next) => {
         try {
             const result = ClientAuthenticatedRequestSchema.safeParse(req.body);
@@ -66,6 +71,10 @@ export function authenticateClient({ clientsStore }: ClientAuthenticationMiddlew
             } else {
                 const serverError = new ServerError('Internal Server Error');
                 res.status(500).json(serverError.toResponseObject());
+            }
+
+            if (throwErrors) {
+                throw error;
             }
         }
     };
