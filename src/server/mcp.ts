@@ -109,7 +109,8 @@ export class McpServer {
                             inputSchema: tool.inputSchema
                                 ? (zodToJsonSchema(tool.inputSchema, {
                                       strictUnions: true,
-                                      pipeStrategy: 'input'
+                                      pipeStrategy: 'input',
+                                      $refStrategy: 'none'
                                   }) as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
@@ -119,7 +120,8 @@ export class McpServer {
                         if (tool.outputSchema) {
                             toolDefinition.outputSchema = zodToJsonSchema(tool.outputSchema, {
                                 strictUnions: true,
-                                pipeStrategy: 'output'
+                                pipeStrategy: 'output',
+                                $refStrategy: 'none'
                             }) as Tool['outputSchema'];
                         }
 
