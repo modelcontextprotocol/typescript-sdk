@@ -116,7 +116,6 @@
         "@typescript/native-preview": "^7.0.0-dev.20251103.1",
         "eslint": "^9.8.0",
         "eslint-config-prettier": "^10.1.8",
-        "msw": "^2.12.1",
         "prettier": "3.6.2",
         "supertest": "^7.0.0",
         "tsx": "^4.16.5",
