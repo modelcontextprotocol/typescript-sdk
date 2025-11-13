@@ -3,6 +3,7 @@ import { OAuthRegisteredClientsStore } from '../clients.js';
 import { OAuthClientInformationFull, OAuthClientMetadata } from '../../../shared/auth.js';
 import express from 'express';
 import supertest from 'supertest';
+import { MockInstance } from 'vitest';
 
 describe('Client Registration Handler', () => {
     // Mock client store with registration support
@@ -45,7 +46,7 @@ describe('Client Registration Handler', () => {
 
     describe('Request handling', () => {
         let app: express.Express;
-        let spyRegisterClient: vi.SpyInstance;
+        let spyRegisterClient: MockInstance;
 
         beforeEach(() => {
             // Setup express app with registration handler

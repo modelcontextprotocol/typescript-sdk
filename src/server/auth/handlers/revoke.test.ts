@@ -6,6 +6,7 @@ import express, { Response } from 'express';
 import supertest from 'supertest';
 import { AuthInfo } from '../types.js';
 import { InvalidTokenError } from '../errors.js';
+import { MockInstance } from 'vitest';
 
 describe('Revocation Handler', () => {
     // Mock client data
@@ -130,7 +131,7 @@ describe('Revocation Handler', () => {
 
     describe('Request handling', () => {
         let app: express.Express;
-        let spyRevokeToken: vi.SpyInstance;
+        let spyRevokeToken: MockInstance;
 
         beforeEach(() => {
             // Setup express app with revocation handler

@@ -1,11 +1,11 @@
 import { validateToolName, validateAndWarnToolName, issueToolNameWarning } from './toolNameValidation.js';
-import { vi } from 'vitest';
+import { vi, MockInstance } from 'vitest';
 
 // Spy on console.warn to capture output
-let warnSpy: vi.SpyInstance;
+let warnSpy: MockInstance;
 
 beforeEach(() => {
-    warnSpy = vi.spyOn(console, 'warn').mockImplementation();
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
 afterEach(() => {

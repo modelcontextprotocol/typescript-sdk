@@ -1,6 +1,7 @@
 import { withOAuth, withLogging, applyMiddlewares, createMiddleware } from './middleware.js';
 import { OAuthClientProvider } from './auth.js';
 import { FetchLike } from '../shared/transport.js';
+import { MockInstance, Mocked, MockedFunction } from 'vitest';
 
 vi.mock('../client/auth.js', async () => {
     const actual = await vi.importActual<typeof import('../client/auth.js')>('../client/auth.js');
@@ -13,12 +14,12 @@ vi.mock('../client/auth.js', async () => {
 
 import { auth, extractWWWAuthenticateParams } from './auth.js';
 
-const mockAuth = auth as vi.MockedFunction<typeof auth>;
-const mockExtractWWWAuthenticateParams = extractWWWAuthenticateParams as vi.MockedFunction<typeof extractWWWAuthenticateParams>;
+const mockAuth = auth as MockedFunction<typeof auth>;
+const mockExtractWWWAuthenticateParams = extractWWWAuthenticateParams as MockedFunction<typeof extractWWWAuthenticateParams>;
 
 describe('withOAuth', () => {
-    let mockProvider: vi.Mocked<OAuthClientProvider>;
-    let mockFetch: vi.MockedFunction<FetchLike>;
+    let mockProvider: Mocked<OAuthClientProvider>;
+    let mockFetch: MockedFunction<FetchLike>;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -371,8 +372,8 @@ describe('withOAuth', () => {
 });
 
 describe('withLogging', () => {
-    let mockFetch: vi.MockedFunction<FetchLike>;
-    let mockLogger: vi.MockedFunction<
+    let mockFetch: MockedFunction<FetchLike>;
+    let mockLogger: MockedFunction<
         (input: {
             method: string;
             url: string | URL;
@@ -384,8 +385,8 @@ describe('withLogging', () => {
             error?: Error;
         }) => void
     >;
-    let consoleErrorSpy: vi.SpyInstance;
-    let consoleLogSpy: vi.SpyInstance;
+    let consoleErrorSpy: MockInstance;
+    let consoleLogSpy: MockInstance;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -614,7 +615,7 @@ describe('withLogging', () => {
 });
 
 describe('applyMiddleware', () => {
-    let mockFetch: vi.MockedFunction<FetchLike>;
+    let mockFetch: MockedFunction<FetchLike>;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -743,8 +744,8 @@ describe('applyMiddleware', () => {
 });
 
 describe('Integration Tests', () => {
-    let mockProvider: vi.Mocked<OAuthClientProvider>;
-    let mockFetch: vi.MockedFunction<FetchLike>;
+    let mockProvider: Mocked<OAuthClientProvider>;
+    let mockFetch: MockedFunction<FetchLike>;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -914,7 +915,7 @@ describe('Integration Tests', () => {
 });
 
 describe('createMiddleware', () => {
-    let mockFetch: vi.MockedFunction<FetchLike>;
+    let mockFetch: MockedFunction<FetchLike>;
 
     beforeEach(() => {
         vi.clearAllMocks();

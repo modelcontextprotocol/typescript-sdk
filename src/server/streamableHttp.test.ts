@@ -882,7 +882,7 @@ describe('StreamableHTTPServerTransport', () => {
             sessionId = await initializeServer();
 
             // Spy on console.warn to verify warning is logged
-            const warnSpy = vi.spyOn(console, 'warn').mockImplementation();
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
             // Send request with different but supported protocol version
             const response = await fetch(baseUrl, {
@@ -1789,7 +1789,7 @@ describe('StreamableHTTPServerTransport async callbacks', () => {
     });
 
     it('should propagate errors from async onsessioninitialized callback', async () => {
-        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation();
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
         // Create server with async onsessioninitialized callback that throws
         const result = await createTestServer({
@@ -1812,7 +1812,7 @@ describe('StreamableHTTPServerTransport async callbacks', () => {
     });
 
     it('should propagate errors from async onsessionclosed callback', async () => {
-        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation();
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
         // Create server with async onsessionclosed callback that throws
         const result = await createTestServer({

@@ -2,19 +2,20 @@ import { StdioClientTransport, getDefaultEnvironment } from './stdio.js';
 import spawn from 'cross-spawn';
 import { JSONRPCMessage } from '../types.js';
 import { ChildProcess } from 'node:child_process';
+import { Mock, MockedFunction } from 'vitest';
 
 // mock cross-spawn
 vi.mock('cross-spawn');
-const mockSpawn = spawn as vi.MockedFunction<typeof spawn>;
+const mockSpawn = spawn as unknown as MockedFunction<typeof spawn>;
 
 describe('StdioClientTransport using cross-spawn', () => {
     beforeEach(() => {
         // mock cross-spawn's return value
         mockSpawn.mockImplementation(() => {
             const mockProcess: {
-                on: vi.Mock;
-                stdin?: { on: vi.Mock; write: vi.Mock };
-                stdout?: { on: vi.Mock };
+                on: Mock;
+                stdin?: { on: Mock; write: Mock };
+                stdout?: { on: Mock };
                 stderr?: null;
             } = {
                 on: vi.fn((event: string, callback: () => void) => {
@@ -105,14 +106,14 @@ describe('StdioClientTransport using cross-spawn', () => {
 
         // get the mock process object
         const mockProcess: {
-            on: vi.Mock;
+            on: Mock;
             stdin: {
-                on: vi.Mock;
-                write: vi.Mock;
-                once: vi.Mock;
+                on: Mock;
+                write: Mock;
+                once: Mock;
             };
             stdout: {
-                on: vi.Mock;
+                on: Mock;
             };
             stderr: null;
         } = {

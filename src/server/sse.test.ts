@@ -1,4 +1,5 @@
 import http from 'http';
+import { type Mocked } from 'vitest';
 
 import { SSEServerTransport } from './sse.js';
 import { McpServer } from './mcp.js';
@@ -15,7 +16,7 @@ const createMockResponse = () => {
         end: vi.fn<http.ServerResponse['end']>().mockReturnThis()
     };
 
-    return res as unknown as vi.Mocked<http.ServerResponse>;
+    return res as unknown as Mocked<http.ServerResponse>;
 };
 
 const createMockRequest = ({ headers = {}, body }: { headers?: Record<string, string>; body?: string } = {}) => {

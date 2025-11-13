@@ -5,6 +5,7 @@ import { SSEClientTransport } from './sse.js';
 import { OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { OAuthTokens } from '../shared/auth.js';
 import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '../server/auth/errors.js';
+import { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
 describe('SSEClientTransport', () => {
     let resourceServer: Server;
@@ -333,7 +334,7 @@ describe('SSEClientTransport', () => {
                     })
                 );
 
-                const calledHeaders = (global.fetch as vi.Mock).mock.calls[0][1].headers;
+                const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
                 expect(calledHeaders.get('Authorization')).toBe(customHeaders.Authorization);
                 expect(calledHeaders.get('X-Custom-Header')).toBe(customHeaders['X-Custom-Header']);
                 expect(calledHeaders.get('content-type')).toBe('application/json');
@@ -347,7 +348,7 @@ describe('SSEClientTransport', () => {
     describe('auth handling', () => {
         const authServerMetadataUrls = ['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration'];
 
-        let mockAuthProvider: vi.Mocked<OAuthClientProvider>;
+        let mockAuthProvider: Mocked<OAuthClientProvider>;
 
         beforeEach(() => {
             mockAuthProvider = {
@@ -1124,19 +1125,10 @@ describe('SSEClientTransport', () => {
     });
 
     describe('custom fetch in auth code paths', () => {
-        let customFetch: vi.MockedFunction<typeof fetch>;
-        let globalFetchSpy: vi.SpyInstance;
-        let mockAuthProvider: vi.Mocked<OAuthClientProvider>;
-        let resourceServerHandler: vi.Mock<
-            void,
-            [
-                IncomingMessage,
-                ServerResponse<IncomingMessage> & {
-                    req: IncomingMessage;
-                }
-            ],
-            void
-        >;
+        let customFetch: MockedFunction<typeof fetch>;
+        let globalFetchSpy: MockInstance;
+        let mockAuthProvider: Mocked<OAuthClientProvider>;
+        let resourceServerHandler: Mock;
 
         /**
          * Helper function to create a mock auth provider with configurable behavior
@@ -1149,7 +1141,7 @@ describe('SSEClientTransport', () => {
                 clientRegistered?: boolean;
                 authorizationCode?: string;
             } = {}
-        ): vi.Mocked<OAuthClientProvider> => {
+        ): Mocked<OAuthClientProvider> => {
             const tokens = config.hasTokens
                 ? {
                       access_token: config.tokensExpired ? 'expired-token' : 'valid-token',
@@ -1317,7 +1309,7 @@ describe('SSEClientTransport', () => {
 
         it('uses custom fetch during auth flow on SSE connection 401 - no global fetch fallback', async () => {
             // Set up resource server that returns 401 on SSE connection and provides OAuth metadata
-            resourceServerHandler.mockImplementation((req, res) => {
+            resourceServerHandler.mockImplementation((req: IncomingMessage, res: ServerResponse) => {
                 if (req.url === '/') {
                     // Return 401 to trigger auth flow
                     res.writeHead(401, {
@@ -1361,7 +1353,7 @@ describe('SSEClientTransport', () => {
 
         it('uses custom fetch during auth flow on POST request 401 - no global fetch fallback', async () => {
             // Set up resource server that accepts SSE connection but returns 401 on POST
-            resourceServerHandler.mockImplementation((req, res) => {
+            resourceServerHandler.mockImplementation((req: IncomingMessage, res: ServerResponse) => {
                 switch (req.method) {
                     case 'GET':
                         if (req.url === '/') {

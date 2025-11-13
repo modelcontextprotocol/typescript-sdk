@@ -2,6 +2,7 @@ import { ZodType, z } from 'zod';
 import { ClientCapabilities, ErrorCode, McpError, Notification, Request, Result, ServerCapabilities } from '../types.js';
 import { Protocol, mergeCapabilities } from './protocol.js';
 import { Transport } from './transport.js';
+import { MockInstance } from 'vitest';
 
 // Mock Transport class
 class MockTransport implements Transport {
@@ -19,7 +20,7 @@ class MockTransport implements Transport {
 describe('protocol tests', () => {
     let protocol: Protocol<Request, Notification, Result>;
     let transport: MockTransport;
-    let sendSpy: vi.SpyInstance;
+    let sendSpy: MockInstance;
 
     beforeEach(() => {
         transport = new MockTransport();

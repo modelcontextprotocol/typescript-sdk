@@ -1705,7 +1705,7 @@ describe('tool()', () => {
         });
 
         // Spy on console.warn to verify warnings are logged
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
         // Test valid tool names
         testServer.registerTool(

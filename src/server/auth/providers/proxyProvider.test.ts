@@ -5,7 +5,7 @@ import { OAuthClientInformationFull, OAuthTokens } from '../../../shared/auth.js
 import { ServerError } from '../errors.js';
 import { InvalidTokenError } from '../errors.js';
 import { InsufficientScopeError } from '../errors.js';
-import { type Mock } from "vitest"
+import { type Mock } from 'vitest';
 
 describe('Proxy OAuth Server Provider', () => {
     // Mock client data

@@ -1122,6 +1122,7 @@ describe('OAuth Authorization', () => {
             expect(mockFetch).toHaveBeenCalledTimes(1);
             expect(mockFetch.mock.calls[0][0].toString()).toBe('https://auth.example.com/token');
             expect(mockFetch.mock.calls[0][1].method).toBe('POST');
+            expect(mockFetch.mock.calls[0][1].headers.get('Content-Type')).toBe('application/x-www-form-urlencoded');
 
             const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
             expect(body.get('grant_type')).toBe('authorization_code');
