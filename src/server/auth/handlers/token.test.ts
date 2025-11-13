@@ -8,6 +8,7 @@ import * as pkceChallenge from 'pkce-challenge';
 import { InvalidGrantError, InvalidTokenError } from '../errors.js';
 import { AuthInfo } from '../types.js';
 import { ProxyOAuthServerProvider } from '../providers/proxyProvider.js';
+import { type Mock } from 'vitest';
 
 // Mock pkce-challenge
 vi.mock('pkce-challenge', () => ({
@@ -111,7 +112,7 @@ describe('Token Handler', () => {
         };
 
         // Mock PKCE verification
-        (pkceChallenge.verifyChallenge as vi.Mock).mockImplementation(async (verifier: string, challenge: string) => {
+        (pkceChallenge.verifyChallenge as Mock).mockImplementation(async (verifier: string, challenge: string) => {
             return verifier === 'valid_verifier' && challenge === 'mock_challenge';
         });
 
@@ -214,7 +215,7 @@ describe('Token Handler', () => {
 
         it('verifies code_verifier against challenge', async () => {
             // Setup invalid verifier
-            (pkceChallenge.verifyChallenge as vi.Mock).mockResolvedValueOnce(false);
+            (pkceChallenge.verifyChallenge as Mock).mockResolvedValueOnce(false);
 
             const response = await supertest(app).post('/token').type('form').send({
                 client_id: 'valid-client',

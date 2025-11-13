@@ -5,6 +5,7 @@ import { OAuthClientInformationFull, OAuthTokens } from '../../../shared/auth.js
 import { ServerError } from '../errors.js';
 import { InvalidTokenError } from '../errors.js';
 import { InsufficientScopeError } from '../errors.js';
+import { type Mock } from "vitest"
 
 describe('Proxy OAuth Server Provider', () => {
     // Mock client data
@@ -66,7 +67,7 @@ describe('Proxy OAuth Server Provider', () => {
 
     // Add helper function for failed responses
     const mockFailedResponse = () => {
-        (global.fetch as vi.Mock).mockImplementation(() =>
+        (global.fetch as Mock).mockImplementation(() =>
             Promise.resolve({
                 ok: false,
                 status: 400
@@ -116,7 +117,7 @@ describe('Proxy OAuth Server Provider', () => {
         };
 
         beforeEach(() => {
-            (global.fetch as vi.Mock).mockImplementation(() =>
+            (global.fetch as Mock).mockImplementation(() =>
                 Promise.resolve({
                     ok: true,
                     json: () => Promise.resolve(mockTokenResponse)
@@ -182,7 +183,7 @@ describe('Proxy OAuth Server Provider', () => {
         it('handles authorization code exchange without resource parameter', async () => {
             const tokens = await provider.exchangeAuthorizationCode(validClient, 'test-code', 'test-verifier');
 
-            const fetchCall = (global.fetch as vi.Mock).mock.calls[0];
+            const fetchCall = (global.fetch as Mock).mock.calls[0];
             const body = fetchCall[1].body as string;
             expect(body).not.toContain('resource=');
             expect(tokens).toEqual(mockTokenResponse);
@@ -233,7 +234,7 @@ describe('Proxy OAuth Server Provider', () => {
                 redirect_uris: ['https://new-client.com/callback']
             };
 
-            (global.fetch as vi.Mock).mockImplementation(() =>
+            (global.fetch as Mock).mockImplementation(() =>
                 Promise.resolve({
                     ok: true,
                     json: () => Promise.resolve(newClient)
@@ -268,7 +269,7 @@ describe('Proxy OAuth Server Provider', () => {
 
     describe('token revocation', () => {
         it('revokes token', async () => {
-            (global.fetch as vi.Mock).mockImplementation(() =>
+            (global.fetch as Mock).mockImplementation(() =>
                 Promise.resolve({
                     ok: true
                 })
