@@ -327,6 +327,20 @@ export class Server<
         return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
+    /**
+     * Creates a form elicitation request for the given parameters.
+     * @deprecated Use `elicitFormInput` instead
+     */
+    async elicitInput(params: Omit<ElicitRequestFormParams, 'mode'>, options?: RequestOptions): Promise<ElicitResult> {
+        return this.elicitFormInput(params, options);
+    }
+
+    /**
+     * Creates a form elicitation request for the given parameters.
+     * @param params The parameters for the form elicitation request.
+     * @param options Optional request options.
+     * @returns The result of the elicitation request.
+     */
     async elicitFormInput(params: Omit<ElicitRequestFormParams, 'mode'>, options?: RequestOptions): Promise<ElicitResult> {
         const mode = 'form';
         if (!this._clientCapabilities?.elicitation?.[mode]) {
@@ -360,6 +374,12 @@ export class Server<
         return result;
     }
 
+    /**
+     * Creates a URL elicitation request for the given parameters.
+     * @param params The parameters for the URL elicitation request.
+     * @param options Optional request options.
+     * @returns The result of the elicitation request.
+     */
     async elicitUrl(params: Omit<ElicitRequestURLParams, 'mode'>, options?: RequestOptions): Promise<ElicitResult> {
         const mode = 'url';
         if (!this._clientCapabilities?.elicitation?.[mode]) {
