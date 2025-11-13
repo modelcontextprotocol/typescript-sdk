@@ -1654,7 +1654,7 @@ describe('OAuth Authorization', () => {
             // Verify that the oauth-authorization-server call uses the base URL
             // This proves the fix: using new URL("/", serverUrl) instead of serverUrl
             const authServerCall = mockFetch.mock.calls.find(call =>
-              call[0].toString().includes('/.well-known/oauth-authorization-server')
+                call[0].toString().includes('/.well-known/oauth-authorization-server')
             );
             expect(authServerCall).toBeDefined();
             expect(authServerCall[0].toString()).toBe('https://resource.example.com/.well-known/oauth-authorization-server');

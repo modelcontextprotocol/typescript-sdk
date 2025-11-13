@@ -363,7 +363,7 @@ async function authInternal(
      * fallback to the legacy MCP spec's implementation (version 2025-03-26): MCP server base URL acts as the Authorization server.
      */
     if (!authorizationServerUrl) {
-        authorizationServerUrl = new URL("/", serverUrl);
+        authorizationServerUrl = new URL('/', serverUrl);
     }
 
     const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
