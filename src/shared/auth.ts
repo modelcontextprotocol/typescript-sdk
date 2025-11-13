@@ -69,7 +69,8 @@ export const OAuthMetadataSchema = z
         introspection_endpoint: z.string().optional(),
         introspection_endpoint_auth_methods_supported: z.array(z.string()).optional(),
         introspection_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
-        code_challenge_methods_supported: z.array(z.string()).optional()
+        code_challenge_methods_supported: z.array(z.string()).optional(),
+        client_id_metadata_document_supported: z.boolean().optional()
     })
     .passthrough();
 
@@ -113,7 +114,8 @@ export const OpenIdProviderMetadataSchema = z
         request_uri_parameter_supported: z.boolean().optional(),
         require_request_uri_registration: z.boolean().optional(),
         op_policy_uri: SafeUrlSchema.optional(),
-        op_tos_uri: SafeUrlSchema.optional()
+        op_tos_uri: SafeUrlSchema.optional(),
+        client_id_metadata_document_supported: z.boolean().optional()
     })
     .passthrough();
 
