@@ -1348,29 +1348,17 @@ export const EnumSchemaSchema = z.union([LegacyTitledEnumSchemaSchema, SingleSel
 export const PrimitiveSchemaDefinitionSchema = z.union([EnumSchemaSchema, BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema]);
 
 /**
- * Parameters for an `elicitation/create` request.
+ * Parameters for an `elicitation/create` request for form-based elicitation.
  */
-export const ElicitRequestParamsSchema = BaseRequestParamsSchema.extend({
-    /**
-     * The mode of elicitation.
-     * - "form": In-band structured data collection with optional schema validation
-     * - "url": Out-of-band interaction via URL navigation
-     */
-    mode: z.enum(['form', 'url']),
-    /**
-     * The progress token as specified in the Progress capability, required in this request.
-     */
-    message: z.string()
-});
-
-/**
- * Parameters for form-based elicitation.
- */
-export const ElicitRequestFormParamsSchema = ElicitRequestParamsSchema.extend({
+export const ElicitRequestFormParamsSchema = BaseRequestParamsSchema.extend({
     /**
      * The elicitation mode.
      */
     mode: z.literal('form'),
+    /**
+     * The message to present to the user describing what information is being requested.
+     */
+    message: z.string(),
     /**
      * A restricted subset of JSON Schema.
      * Only top-level properties are allowed, without nesting.
@@ -1383,13 +1371,17 @@ export const ElicitRequestFormParamsSchema = ElicitRequestParamsSchema.extend({
 });
 
 /**
- * Parameters for URL-based elicitation.
+ * Parameters for an `elicitation/create` request for URL-based elicitation.
  */
-export const ElicitRequestURLParamsSchema = ElicitRequestParamsSchema.extend({
+export const ElicitRequestURLParamsSchema = BaseRequestParamsSchema.extend({
     /**
      * The elicitation mode.
      */
     mode: z.literal('url'),
+    /**
+     * The message to present to the user explaining why the interaction is needed.
+     */
+    message: z.string(),
     /**
      * The ID of the elicitation, which must be unique within the context of the server.
      * The client MUST treat this ID as an opaque value.
@@ -1402,13 +1394,18 @@ export const ElicitRequestURLParamsSchema = ElicitRequestParamsSchema.extend({
 });
 
 /**
+ * The parameters for a request to elicit additional information from the user via the client.
+ */
+export const ElicitRequestParamsSchema = z.union([ElicitRequestFormParamsSchema, ElicitRequestURLParamsSchema]);
+
+/**
  * A request from the server to elicit user input via the client.
  * The client should present the message and form fields to the user (form mode)
  * or navigate to a URL (URL mode).
  */
 export const ElicitRequestSchema = RequestSchema.extend({
     method: z.literal('elicitation/create'),
-    params: z.union([ElicitRequestFormParamsSchema, ElicitRequestURLParamsSchema])
+    params: ElicitRequestParamsSchema
 });
 
 /**
@@ -1861,7 +1858,7 @@ export type SingleSelectEnumSchema = Infer<typeof SingleSelectEnumSchemaSchema>;
 export type MultiSelectEnumSchema = Infer<typeof MultiSelectEnumSchemaSchema>;
 
 export type PrimitiveSchemaDefinition = Infer<typeof PrimitiveSchemaDefinitionSchema>;
-//export type ElicitRequestParams = Infer<typeof ElicitRequestParamsSchema>; // TODO: remove this
+export type ElicitRequestParams = Infer<typeof ElicitRequestParamsSchema>;
 export type ElicitRequestFormParams = Infer<typeof ElicitRequestFormParamsSchema>;
 export type ElicitRequestURLParams = Infer<typeof ElicitRequestURLParamsSchema>;
 export type ElicitRequest = Infer<typeof ElicitRequestSchema>;
