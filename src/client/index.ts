@@ -258,7 +258,7 @@ export class Client<
 
                 const validatedResult = validationResult.data;
                 const requestedSchema =
-                    params.mode === 'form' ? (params.requestedSchema as unknown as JsonSchemaType | undefined) : undefined;
+                    params.mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
 
                 if (params.mode === 'form' && validatedResult.action === 'accept' && validatedResult.content && requestedSchema) {
                     if (this._capabilities.elicitation?.applyDefaults) {
