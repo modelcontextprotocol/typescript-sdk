@@ -1,0 +1,19 @@
+---
+# Empty Jekyll front matter to enable Liquid templating (see {{ ... }} below)
+---
+
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>Redirecting to latest documentation...</title>
+        <meta http-equiv="refresh" content="0; url=../v{{ site.data.versions[0] }}/" />
+        <link rel="canonical" href="../v{{ site.data.versions[0] }}/" />
+    </head>
+    <body>
+        <p>Redirecting to <a href="../v{{ site.data.versions[0] }}/">latest documentation</a>...</p>
+        <script>
+            window.location.href = '../v{{ site.data.versions[0] }}/';
+        </script>
+    </body>
+</html>
