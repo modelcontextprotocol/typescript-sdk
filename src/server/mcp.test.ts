@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';
 import { getDisplayName } from '../shared/metadataUtils.js';

@@ -42,7 +42,7 @@ import {
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
-import { ZodLiteral, ZodObject, z } from 'zod';
+import { ZodLiteral, ZodObject, z } from 'zod/v3';
 import type { RequestHandlerExtra } from '../shared/protocol.js';
 
 /**

@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach } from '@jest/globals';
 import { Protocol } from './protocol.js';
 import { Transport } from './transport.js';
 import { Request, Notification, Result, JSONRPCMessage } from '../types.js';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 // Mock Transport class
 class MockTransport implements Transport {

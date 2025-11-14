@@ -1,7 +1,7 @@
 import { Server } from './index.js';
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { McpServer, ResourceTemplate } from './mcp.js';
 
 describe('Title field backwards compatibility', () => {
