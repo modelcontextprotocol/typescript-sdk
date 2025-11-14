@@ -1,6 +1,6 @@
 import { Transport, FetchLike } from '../shared/transport.js';
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
-import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
+import { auth, AuthResult, extractFieldFromWwwAuth, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
 // Default reconnection options for StreamableHTTP connections
@@ -133,6 +133,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
     private _hasCompletedAuthFlow = false; // Circuit breaker: detect auth success followed by immediate 401
+    private _hasTriedUpscoping = false; // Circuit breaker: detect upscoping attempt followed by immediate 403
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -464,12 +465,49 @@ export class StreamableHTTPClientTransport implements Transport {
                     return this.send(message);
                 }
 
+                if (response.status === 403 && this._authProvider) {
+                    const error = extractFieldFromWwwAuth(response, 'error');
+
+                    if (error === 'insufficient_scope') {
+                        // Prevent infinite recursion when upscoping was already tried.
+                        if (this._hasTriedUpscoping) {
+                            throw new StreamableHTTPError(403, 'Server returned 403 after trying upscoping');
+                        }
+
+                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+
+                        if (scope) {
+                            this._scope = scope;
+                        }
+
+                        if (resourceMetadataUrl) {
+                            this._resourceMetadataUrl = resourceMetadataUrl;
+                        }
+
+                        // Mark that upscoping was tried.
+                        this._hasTriedUpscoping = true;
+                        const result = await auth(this._authProvider, {
+                            serverUrl: this._url,
+                            resourceMetadataUrl: this._resourceMetadataUrl,
+                            scope: this._scope,
+                            fetchFn: this._fetch
+                        });
+
+                        if (result !== 'AUTHORIZED') {
+                            throw new UnauthorizedError();
+                        }
+
+                        return this.send(message);
+                    }
+                }
+
                 const text = await response.text().catch(() => null);
                 throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
             }
 
             // Reset auth loop flag on successful response
             this._hasCompletedAuthFlow = false;
+            this._hasTriedUpscoping = false;
 
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {

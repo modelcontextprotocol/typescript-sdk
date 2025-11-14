@@ -348,7 +348,7 @@ async function authInternal(
 ): Promise<AuthResult> {
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | URL | undefined;
-
+    
     try {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl }, fetchFn);
         if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
@@ -447,13 +447,38 @@ async function authInternal(
         clientInformation,
         state,
         redirectUrl: provider.redirectUrl,
-        scope: scope || provider.clientMetadata.scope,
+        scope: selectScope(provider, resourceMetadata, scope),
         resource
     });
 
     await provider.saveCodeVerifier(codeVerifier);
     await provider.redirectToAuthorization(authorizationUrl);
     return 'REDIRECT';
+}
+
+/**
+ * Selects the appropriate OAuth scope to use.
+ *
+ * The priority order is:
+ * 1.  The provided `scope` argument (if available). The scope is usually provided by WWW-authenticate header.
+ * 2.  Protected Resource Metadata scope (if available)
+ * 3.  The `OAuthClientProvider.clientMetadata.scope` (if available)
+ */
+export function selectScope(
+    provider: OAuthClientProvider,
+    resourceMetadata?: OAuthProtectedResourceMetadata,
+    scope?: string
+): string | undefined {
+    if (scope) {
+        return scope;
+    }
+
+    const scopes = resourceMetadata?.scopes_supported;
+    if (scopes && scopes.length > 0) {
+        return scopes.join(' ');
+    }
+
+    return provider.clientMetadata.scope;
 }
 
 export async function selectResourceURL(
@@ -495,27 +520,47 @@ export function extractWWWAuthenticateParams(res: Response): { resourceMetadataU
         return {};
     }
 
-    const resourceMetadataRegex = /resource_metadata="([^"]*)"/;
-    const resourceMetadataMatch = resourceMetadataRegex.exec(authenticateHeader);
-
-    const scopeRegex = /scope="([^"]*)"/;
-    const scopeMatch = scopeRegex.exec(authenticateHeader);
+    const resourceMetadataMatch = extractFieldFromWwwAuth(res, 'resource_metadata') || undefined;
 
     let resourceMetadataUrl: URL | undefined;
     if (resourceMetadataMatch) {
         try {
-            resourceMetadataUrl = new URL(resourceMetadataMatch[1]);
+            resourceMetadataUrl = new URL(resourceMetadataMatch);
         } catch {
             // Ignore invalid URL
         }
     }
 
-    const scope = scopeMatch?.[1] || undefined;
+    const scope = extractFieldFromWwwAuth(res, 'scope') || undefined;
 
     return {
         resourceMetadataUrl,
         scope
     };
+}
+
+/**
+ * Extracts a specific field's value from the WWW-Authenticate header string.
+ *
+ * @param response The HTTP response object containing the headers.
+ * @param fieldName The name of the field to extract (e.g., "realm", "nonce").
+ * @returns The field value
+ */
+export function extractFieldFromWwwAuth(response: Response, fieldName: string): string | null {
+    const wwwAuthHeader = response.headers.get('WWW-Authenticate');
+    if (!wwwAuthHeader) {
+        return null;
+    }
+
+    const pattern = new RegExp(`${fieldName}=(?:"([^"]+)"|([^\\s,]+))`);
+    const match = wwwAuthHeader.match(pattern);
+
+    if (match) {
+        // Pattern matches: field_name="value" or field_name=value (unquoted)
+        return match[1] || match[2];
+    }
+
+    return null;
 }
 
 /**
