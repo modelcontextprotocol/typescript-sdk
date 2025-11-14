@@ -1596,8 +1596,79 @@ describe('OAuth Authorization', () => {
             // First call should be to protected resource metadata
             expect(mockFetch.mock.calls[0][0].toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
 
-            // Second call should be to oauth metadata
+            // Second call should be to oauth metadata at the root path
             expect(mockFetch.mock.calls[1][0].toString()).toBe('https://resource.example.com/.well-known/oauth-authorization-server');
+        });
+
+        it('uses base URL (with root path) as authorization server when protected-resource-metadata discovery fails', async () => {
+            // Setup: First call to protected resource metadata fails (404)
+            // When no authorization_servers are found in protected resource metadata,
+            // the auth server URL should be set to the base URL with "/" path
+            let callCount = 0;
+            mockFetch.mockImplementation(url => {
+                callCount++;
+
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    // Protected resource metadata discovery attempts (both path-aware and root) fail with 404
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404
+                    });
+                } else if (urlString === 'https://resource.example.com/.well-known/oauth-authorization-server') {
+                    // Should fetch from base URL with root path, not the full serverUrl path
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://resource.example.com/',
+                            authorization_endpoint: 'https://resource.example.com/authorize',
+                            token_endpoint: 'https://resource.example.com/token',
+                            registration_endpoint: 'https://resource.example.com/register',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/register')) {
+                    // Client registration succeeds
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            client_id: 'test-client-id',
+                            client_secret: 'test-client-secret',
+                            client_id_issued_at: 1612137600,
+                            client_secret_expires_at: 1612224000,
+                            redirect_uris: ['http://localhost:3000/callback'],
+                            client_name: 'Test Client'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call #${callCount}: ${urlString}`));
+            });
+
+            // Mock provider methods
+            (mockProvider.clientInformation as jest.Mock).mockResolvedValue(undefined);
+            (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
+            mockProvider.saveClientInformation = jest.fn();
+
+            // Call the auth function with a server URL that has a path
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://resource.example.com/path/to/server'
+            });
+
+            // Verify the result
+            expect(result).toBe('REDIRECT');
+
+            // Verify that the oauth-authorization-server call uses the base URL
+            // This proves the fix: using new URL("/", serverUrl) instead of serverUrl
+            const authServerCall = mockFetch.mock.calls.find(call =>
+                call[0].toString().includes('/.well-known/oauth-authorization-server')
+            );
+            expect(authServerCall).toBeDefined();
+            expect(authServerCall[0].toString()).toBe('https://resource.example.com/.well-known/oauth-authorization-server');
         });
 
         it('passes resource parameter through authorization flow', async () => {
