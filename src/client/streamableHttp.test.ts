@@ -601,7 +601,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'test-id'
         };
 
-        const fetchMock = global.fetch as vi.Mock;
+        const fetchMock = global.fetch as Mock;
         fetchMock
             // First call: returns 403 with insufficient_scope
             .mockResolvedValueOnce({
@@ -652,7 +652,7 @@ describe('StreamableHTTPClientTransport', () => {
         };
 
         // Mock fetch calls to always return 403 with insufficient_scope
-        const fetchMock = global.fetch as vi.Mock;
+        const fetchMock = global.fetch as Mock;
         fetchMock.mockResolvedValue({
             ok: false,
             status: 403,
