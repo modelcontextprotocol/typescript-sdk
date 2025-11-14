@@ -220,7 +220,7 @@ describe('Authorization Handler', () => {
 
     describe('Resource parameter validation', () => {
         it('propagates resource parameter', async () => {
-            const mockProviderWithResource = jest.spyOn(mockProvider, 'authorize');
+            const mockProviderWithResource = vi.spyOn(mockProvider, 'authorize');
 
             const response = await supertest(app).get('/authorize').query({
                 client_id: 'valid-client',

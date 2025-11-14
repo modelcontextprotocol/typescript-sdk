@@ -170,7 +170,7 @@ describe('Transport resumability', () => {
         expect(sessionId).toBeDefined();
 
         // Start a long-running notification stream with tracking of lastEventId
-        const onLastEventIdUpdate = jest.fn((eventId: string) => {
+        const onLastEventIdUpdate = vi.fn((eventId: string) => {
             lastEventId = eventId;
         });
         expect(lastEventId).toBeUndefined();
