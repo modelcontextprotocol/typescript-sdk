@@ -39,6 +39,12 @@ Example client with OAuth:
 npx tsx src/examples/client/simpleOAuthClient.js
 ```
 
+Client credentials (machine-to-machine) example:
+
+```bash
+npx tsx src/examples/client/simpleClientCredentials.ts
+```
+
 ### Backwards Compatible Client
 
 A client that implements backwards compatibility according to the [MCP specification](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#backwards-compatibility), allowing it to work with both new and legacy servers. This client demonstrates:

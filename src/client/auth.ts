@@ -28,6 +28,7 @@ import {
     UnauthorizedClientError
 } from '../server/auth/errors.js';
 import { FetchLike } from '../shared/transport.js';
+import type { JWK } from 'jose';
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
@@ -435,6 +436,31 @@ async function authInternal(
                 // Refresh failed for another reason, re-throw
                 throw error;
             }
+        }
+    }
+
+    // Attempt client_credentials grant for M2M if supported by client configuration
+    {
+        const requestedGrantTypes = provider.clientMetadata.grant_types ?? [];
+        const registeredGrantTypes =
+            'grant_types' in (clientInformation as OAuthClientInformationFull) &&
+            (clientInformation as Partial<OAuthClientInformationFull>).grant_types
+                ? (clientInformation as OAuthClientInformationFull).grant_types!
+                : [];
+        const supportsClientCredentials =
+            requestedGrantTypes.includes('client_credentials') || registeredGrantTypes.includes('client_credentials');
+
+        if (supportsClientCredentials) {
+            const ccTokens = await exchangeClientCredentials(authorizationServerUrl, {
+                metadata,
+                clientInformation,
+                scope: scope || provider.clientMetadata.scope,
+                resource,
+                addClientAuthentication: provider.addClientAuthentication,
+                fetchFn
+            });
+            await provider.saveTokens(ccTokens);
+            return 'AUTHORIZED';
         }
     }
 
@@ -953,7 +979,7 @@ export async function exchangeAuthorization(
     });
 
     if (addClientAuthentication) {
-        addClientAuthentication(headers, params, authorizationServerUrl, metadata);
+        await addClientAuthentication(headers, params, tokenUrl, metadata);
     } else {
         // Determine and apply client authentication method
         const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
@@ -1032,7 +1058,7 @@ export async function refreshAuthorization(
     });
 
     if (addClientAuthentication) {
-        addClientAuthentication(headers, params, authorizationServerUrl, metadata);
+        await addClientAuthentication(headers, params, tokenUrl, metadata);
     } else {
         // Determine and apply client authentication method
         const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
@@ -1055,6 +1081,76 @@ export async function refreshAuthorization(
     }
 
     return OAuthTokensSchema.parse({ refresh_token: refreshToken, ...(await response.json()) });
+}
+
+/**
+ * Exchange client credentials for an access token (client_credentials grant).
+ *
+ * Applies client authentication based on server metadata and client configuration:
+ * - Uses provider.addClientAuthentication when provided (e.g., private_key_jwt)
+ * - Otherwise selects between client_secret_basic and client_secret_post
+ *
+ * Includes RFC 8707 resource parameter only when a protected resource was discovered.
+ */
+export async function exchangeClientCredentials(
+    authorizationServerUrl: string | URL,
+    {
+        metadata,
+        clientInformation,
+        scope,
+        resource,
+        addClientAuthentication,
+        fetchFn
+    }: {
+        metadata?: AuthorizationServerMetadata;
+        clientInformation: OAuthClientInformationMixed;
+        scope?: string;
+        resource?: URL;
+        addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
+        fetchFn?: FetchLike;
+    }
+): Promise<OAuthTokens> {
+    const grantType = 'client_credentials';
+
+    const tokenUrl = metadata?.token_endpoint ? new URL(metadata.token_endpoint) : new URL('/token', authorizationServerUrl);
+
+    if (metadata?.grant_types_supported && !metadata.grant_types_supported.includes(grantType)) {
+        throw new Error(`Incompatible auth server: does not support grant type ${grantType}`);
+    }
+
+    const headers = new Headers({
+        'Content-Type': 'application/x-www-form-urlencoded'
+    });
+    const params = new URLSearchParams({
+        grant_type: grantType
+    });
+
+    if (scope) {
+        params.set('scope', scope);
+    }
+
+    if (resource) {
+        params.set('resource', resource.href);
+    }
+
+    if (addClientAuthentication) {
+        await addClientAuthentication(headers, params, tokenUrl, metadata);
+    } else {
+        const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
+        const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
+        applyClientAuthentication(authMethod, clientInformation as OAuthClientInformation, headers, params);
+    }
+
+    const response = await (fetchFn ?? fetch)(tokenUrl, {
+        method: 'POST',
+        headers,
+        body: params
+    });
+    if (!response.ok) {
+        throw await parseErrorResponse(response);
+    }
+
+    return OAuthTokensSchema.parse(await response.json());
 }
 
 /**
@@ -1097,4 +1193,79 @@ export async function registerClient(
     }
 
     return OAuthClientInformationFullSchema.parse(await response.json());
+}
+
+/**
+ * Helper to produce a private_key_jwt client authentication function.
+ *
+ * Usage:
+ *   const addClientAuth = createPrivateKeyJwtAuth({ issuer, subject, privateKey, alg, audience? });
+ *   // pass addClientAuth as provider.addClientAuthentication implementation
+ */
+export function createPrivateKeyJwtAuth(options: {
+    issuer: string;
+    subject: string;
+    privateKey: string | Uint8Array | Record<string, unknown>;
+    alg: string;
+    audience?: string | URL;
+    lifetimeSeconds?: number;
+    claims?: Record<string, unknown>;
+}): OAuthClientProvider['addClientAuthentication'] {
+    return async (_headers, params, url, metadata) => {
+        // Lazy import to avoid heavy dependency unless used
+        const jose = await import('jose');
+
+        const audience = String(options.audience ?? metadata?.issuer ?? url);
+        const lifetimeSeconds = options.lifetimeSeconds ?? 300;
+
+        const now = Math.floor(Date.now() / 1000);
+        const jti = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+        const baseClaims = {
+            iss: options.issuer,
+            sub: options.subject,
+            aud: audience,
+            exp: now + lifetimeSeconds,
+            iat: now,
+            jti
+        };
+        const claims = options.claims ? { ...baseClaims, ...options.claims } : baseClaims;
+
+        // Import key for the requested algorithm
+        const alg = options.alg;
+        let key: unknown;
+        if (typeof options.privateKey === 'string') {
+            if (alg.startsWith('RS') || alg.startsWith('ES') || alg.startsWith('PS')) {
+                key = await jose.importPKCS8(options.privateKey, alg);
+            } else if (alg.startsWith('HS')) {
+                key = new TextEncoder().encode(options.privateKey);
+            } else {
+                throw new Error(`Unsupported algorithm ${alg}`);
+            }
+        } else if (options.privateKey instanceof Uint8Array) {
+            if (alg.startsWith('HS')) {
+                key = options.privateKey;
+            } else {
+                // Assume PKCS#8 DER in Uint8Array for asymmetric algorithms
+                key = await jose.importPKCS8(new TextDecoder().decode(options.privateKey), alg);
+            }
+        } else {
+            // Treat as JWK
+            key = await jose.importJWK(options.privateKey as JWK, alg);
+        }
+
+        // Sign JWT
+        const assertion = await new jose.SignJWT(claims)
+            .setProtectedHeader({ alg, typ: 'JWT' })
+            .setIssuer(options.issuer)
+            .setSubject(options.subject)
+            .setAudience(audience)
+            .setIssuedAt(now)
+            .setExpirationTime(now + lifetimeSeconds)
+            .setJti(jti)
+            .sign(key as unknown as Uint8Array | CryptoKey);
+
+        params.set('client_assertion', assertion);
+        params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+    };
 }

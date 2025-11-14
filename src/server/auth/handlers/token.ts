@@ -41,6 +41,11 @@ const RefreshTokenGrantSchema = z.object({
     resource: z.string().url().optional()
 });
 
+const ClientCredentialsGrantSchema = z.object({
+    scope: z.string().optional(),
+    resource: z.string().url().optional()
+});
+
 export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHandlerOptions): RequestHandler {
     // Nested router so we can configure middleware and restrict HTTP method
     const router = express.Router();
@@ -136,8 +141,21 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
                     break;
                 }
 
-                // Not supported right now
-                //case "client_credentials":
+                case 'client_credentials': {
+                    const parseResult = ClientCredentialsGrantSchema.safeParse(req.body);
+                    if (!parseResult.success) {
+                        throw new InvalidRequestError(parseResult.error.message);
+                    }
+                    const { scope, resource } = parseResult.data;
+                    const scopes = scope?.split(' ');
+                    const tokens = await provider.issueClientCredentialsToken(
+                        client,
+                        scopes,
+                        resource ? new URL(resource) : undefined
+                    );
+                    res.status(200).json(tokens);
+                    break;
+                }
 
                 default:
                     throw new UnsupportedGrantTypeError('The grant type is not supported by this authorization server.');

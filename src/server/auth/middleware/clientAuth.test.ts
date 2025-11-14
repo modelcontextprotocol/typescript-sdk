@@ -28,6 +28,13 @@ describe('clientAuth middleware', () => {
                     client_secret_expires_at: Math.floor(Date.now() / 1000) - 3600, // Expired 1 hour ago
                     redirect_uris: ['https://example.com/callback']
                 };
+            } else if (clientId === 'hs-client') {
+                // Symmetric key client for HS* private_key_jwt verification
+                return {
+                    client_id: 'hs-client',
+                    client_secret: 'hs-secret',
+                    redirect_uris: ['https://example.com/callback']
+                };
             }
             return undefined;
         }
@@ -51,6 +58,41 @@ describe('clientAuth middleware', () => {
         });
     });
 
+    it('authenticates with client_secret_basic header', async () => {
+        const basic = Buffer.from('valid-client:valid-secret').toString('base64');
+        const response = await supertest(app).post('/protected').set('Authorization', `Basic ${basic}`).send();
+        expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
+        expect(response.body.client.client_id).toBe('valid-client');
+    });
+
+    it('authenticates with private_key_jwt (HS256)', async () => {
+        const jose = await import('jose');
+        const secret = new TextEncoder().encode('hs-secret');
+
+        const now = Math.floor(Date.now() / 1000);
+        const assertion = await new jose.SignJWT({})
+            .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+            .setIssuer('hs-client')
+            .setSubject('hs-client')
+            .setAudience('http://auth.example.com/protected')
+            .setIssuedAt(now)
+            .setExpirationTime(now + 300)
+            .sign(secret);
+
+        const response = await supertest(app)
+            .post('/protected')
+            .set('Host', 'auth.example.com')
+            .send({
+                client_id: 'hs-client',
+                client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+                client_assertion: assertion
+            });
+
+        expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
+        expect(response.body.client.client_id).toBe('hs-client');
+    });
     it('authenticates valid client credentials', async () => {
         const response = await supertest(app).post('/protected').send({
             client_id: 'valid-client',

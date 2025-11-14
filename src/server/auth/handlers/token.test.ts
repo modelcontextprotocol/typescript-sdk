@@ -462,6 +462,38 @@ describe('Token Handler', () => {
         });
     });
 
+    describe('Client credentials grant', () => {
+        it('issues token for client_credentials with basic auth', async () => {
+            // Extend mock provider with client_credentials handler
+            (mockProvider as any).issueClientCredentialsToken = async (
+                client: OAuthClientInformationFull,
+                scopes?: string[]
+            ): Promise<OAuthTokens> => {
+                return {
+                    access_token: 'cc_access',
+                    token_type: 'bearer',
+                    expires_in: 3600,
+                    scope: (scopes || []).join(' ')
+                };
+            };
+
+            const basic = Buffer.from('valid-client:valid-secret').toString('base64');
+            const response = await supertest(app)
+                .post('/token')
+                .set('Authorization', `Basic ${basic}`)
+                .type('form')
+                .send({
+                    grant_type: 'client_credentials',
+                    scope: 'read write'
+                });
+
+            expect(response.status).toBe(200);
+            expect(response.body.access_token).toBe('cc_access');
+            expect(response.body.token_type).toBe('bearer');
+            expect(response.body.scope).toBe('read write');
+        });
+    });
+
     describe('CORS support', () => {
         it('includes CORS headers in response', async () => {
             const response = await supertest(app).post('/token').type('form').set('Origin', 'https://example.com').send({
