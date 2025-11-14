@@ -274,6 +274,13 @@ export const ImplementationSchema = BaseMetadataSchema.extend({
     websiteUrl: z.string().optional()
 }).merge(IconsSchema);
 
+const FormElicitationCapabilitySchema = z.intersection(
+    z.object({
+        applyDefaults: z.boolean().optional()
+    }),
+    z.record(z.string(), z.unknown())
+);
+
 const ElicitationCapabilitySchema = z.preprocess(
     value => {
         if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -288,8 +295,7 @@ const ElicitationCapabilitySchema = z.preprocess(
     },
     z.intersection(
         z.object({
-            applyDefaults: z.boolean().optional(),
-            form: AssertObjectSchema.optional(),
+            form: FormElicitationCapabilitySchema.optional(),
             url: AssertObjectSchema.optional()
         }),
         z.record(z.string(), z.unknown())

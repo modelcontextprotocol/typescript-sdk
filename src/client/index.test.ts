@@ -863,8 +863,9 @@ test('should apply defaults for form-mode elicitation when applyDefaults is enab
         {
             capabilities: {
                 elicitation: {
-                    form: {},
-                    applyDefaults: true
+                    form: {
+                        applyDefaults: true
+                    }
                 }
             }
         }
@@ -1575,27 +1576,9 @@ describe('getSupportedElicitationModes', () => {
         expect(result.supportsUrlMode).toBe(true);
     });
 
-    test('should support form mode when only applyDefaults is present', () => {
-        const result = getSupportedElicitationModes({ applyDefaults: true });
+    test('should support form mode when form declares applyDefaults', () => {
+        const result = getSupportedElicitationModes({ form: { applyDefaults: true } });
         expect(result.supportsFormMode).toBe(true);
         expect(result.supportsUrlMode).toBe(false);
-    });
-
-    test('should support form mode when applyDefaults and form are present', () => {
-        const result = getSupportedElicitationModes({ applyDefaults: true, form: {} });
-        expect(result.supportsFormMode).toBe(true);
-        expect(result.supportsUrlMode).toBe(false);
-    });
-
-    test('should support url mode when applyDefaults and url are present', () => {
-        const result = getSupportedElicitationModes({ applyDefaults: true, url: {} });
-        expect(result.supportsFormMode).toBe(false);
-        expect(result.supportsUrlMode).toBe(true);
-    });
-
-    test('should support both modes when applyDefaults, form, and url are present', () => {
-        const result = getSupportedElicitationModes({ applyDefaults: true, form: {}, url: {} });
-        expect(result.supportsFormMode).toBe(true);
-        expect(result.supportsUrlMode).toBe(true);
     });
 });

@@ -827,7 +827,7 @@ test('should apply back-compat form capability injection when client sends empty
     expect(clientCapabilities?.elicitation?.url).toBeUndefined();
 });
 
-test('should apply back-compat form capability injection when client sends elicitation with only applyDefaults', async () => {
+test('should preserve form capability configuration when client enables applyDefaults', async () => {
     const server = new Server(
         {
             name: 'test server',
@@ -851,7 +851,9 @@ test('should apply back-compat form capability injection when client sends elici
         {
             capabilities: {
                 elicitation: {
-                    applyDefaults: true
+                    form: {
+                        applyDefaults: true
+                    }
                 }
             }
         }
@@ -861,13 +863,12 @@ test('should apply back-compat form capability injection when client sends elici
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    // Verify that the schema preprocessing injected form capability while preserving applyDefaults
+    // Verify that the schema preprocessing preserved the form capability configuration
     const clientCapabilities = server.getClientCapabilities();
     expect(clientCapabilities).toBeDefined();
     expect(clientCapabilities?.elicitation).toBeDefined();
     expect(clientCapabilities?.elicitation?.form).toBeDefined();
-    expect(clientCapabilities?.elicitation?.form).toEqual({});
-    expect(clientCapabilities?.elicitation?.applyDefaults).toBe(true);
+    expect(clientCapabilities?.elicitation?.form).toEqual({ applyDefaults: true });
     expect(clientCapabilities?.elicitation?.url).toBeUndefined();
 });
 

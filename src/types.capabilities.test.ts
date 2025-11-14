@@ -14,18 +14,19 @@ describe('ClientCapabilitiesSchema backwards compatibility', () => {
             expect(result.elicitation?.url).toBeUndefined();
         });
 
-        it('should inject form capability when elicitation has only applyDefaults', () => {
+        it('should preserve form capability configuration including applyDefaults', () => {
             const capabilities = {
                 elicitation: {
-                    applyDefaults: true
+                    form: {
+                        applyDefaults: true
+                    }
                 }
             };
 
             const result = ClientCapabilitiesSchema.parse(capabilities);
             expect(result.elicitation).toBeDefined();
             expect(result.elicitation?.form).toBeDefined();
-            expect(result.elicitation?.form).toEqual({});
-            expect(result.elicitation?.applyDefaults).toBe(true);
+            expect(result.elicitation?.form).toEqual({ applyDefaults: true });
             expect(result.elicitation?.url).toBeUndefined();
         });
 

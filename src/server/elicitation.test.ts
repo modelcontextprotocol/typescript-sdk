@@ -463,7 +463,9 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             {
                 capabilities: {
                     elicitation: {
-                        applyDefaults: true
+                        form: {
+                            applyDefaults: true
+                        }
                     }
                 }
             }

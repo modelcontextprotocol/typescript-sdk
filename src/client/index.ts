@@ -257,11 +257,10 @@ export class Client<
                 }
 
                 const validatedResult = validationResult.data;
-                const requestedSchema =
-                    params.mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
+                const requestedSchema = params.mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
 
                 if (params.mode === 'form' && validatedResult.action === 'accept' && validatedResult.content && requestedSchema) {
-                    if (this._capabilities.elicitation?.applyDefaults) {
+                    if (this._capabilities.elicitation?.form?.applyDefaults) {
                         try {
                             applyElicitationDefaults(requestedSchema, validatedResult.content);
                         } catch {
