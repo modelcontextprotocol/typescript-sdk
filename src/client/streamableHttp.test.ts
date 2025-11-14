@@ -593,6 +593,98 @@ describe('StreamableHTTPClientTransport', () => {
         expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
     });
 
+    it('attempts upscoping on 403 with WWW-Authenticate header', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        const fetchMock = global.fetch as Mock;
+        fetchMock
+            // First call: returns 403 with insufficient_scope
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({
+                    'WWW-Authenticate':
+                        'Bearer error="insufficient_scope", scope="new_scope", resource_metadata="http://example.com/resource"'
+                }),
+                text: () => Promise.resolve('Insufficient scope')
+            })
+            // Second call: successful after upscoping
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers()
+            });
+
+        // Spy on the imported auth function and mock successful authorization
+        const authModule = await import('./auth.js');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        authSpy.mockResolvedValue('AUTHORIZED');
+
+        await transport.send(message);
+
+        // Verify fetch was called twice
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+
+        // Verify auth was called with the new scope
+        expect(authSpy).toHaveBeenCalledWith(
+            mockAuthProvider,
+            expect.objectContaining({
+                scope: 'new_scope',
+                resourceMetadataUrl: new URL('http://example.com/resource')
+            })
+        );
+
+        authSpy.mockRestore();
+    });
+
+    it('prevents infinite upscoping on repeated 403', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        // Mock fetch calls to always return 403 with insufficient_scope
+        const fetchMock = global.fetch as Mock;
+        fetchMock.mockResolvedValue({
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+            headers: new Headers({
+                'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="new_scope"'
+            }),
+            text: () => Promise.resolve('Insufficient scope')
+        });
+
+        // Spy on the imported auth function and mock successful authorization
+        const authModule = await import('./auth.js');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        authSpy.mockResolvedValue('AUTHORIZED');
+
+        // First send: should trigger upscoping
+        await expect(transport.send(message)).rejects.toThrow('Server returned 403 after trying upscoping');
+
+        expect(fetchMock).toHaveBeenCalledTimes(2); // Initial call + one retry after auth
+        expect(authSpy).toHaveBeenCalledTimes(1); // Auth called once
+
+        // Second send: should fail immediately without re-calling auth
+        fetchMock.mockClear();
+        authSpy.mockClear();
+        await expect(transport.send(message)).rejects.toThrow('Server returned 403 after trying upscoping');
+
+        expect(fetchMock).toHaveBeenCalledTimes(1); // Only one fetch call
+        expect(authSpy).not.toHaveBeenCalled(); // Auth not called again
+
+        authSpy.mockRestore();
+    });
+
     describe('Reconnection Logic', () => {
         let transport: StreamableHTTPClientTransport;
 
