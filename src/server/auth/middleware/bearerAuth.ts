@@ -18,6 +18,11 @@ export type BearerAuthMiddlewareOptions = {
      * Optional resource metadata URL to include in WWW-Authenticate header.
      */
     resourceMetadataUrl?: string;
+
+    /**
+     * Set to true to throw errors to the express error handler
+     */
+    throwErrors?: boolean;
 };
 
 declare module 'express-serve-static-core' {
@@ -37,7 +42,12 @@ declare module 'express-serve-static-core' {
  * If resourceMetadataUrl is provided, it will be included in the WWW-Authenticate header
  * for 401 responses as per the OAuth 2.0 Protected Resource Metadata spec.
  */
-export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetadataUrl }: BearerAuthMiddlewareOptions): RequestHandler {
+export function requireBearerAuth({
+    verifier,
+    requiredScopes = [],
+    resourceMetadataUrl,
+    throwErrors
+}: BearerAuthMiddlewareOptions): RequestHandler {
     return async (req, res, next) => {
         try {
             const authHeader = req.headers.authorization;
@@ -90,6 +100,10 @@ export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetad
             } else {
                 const serverError = new ServerError('Internal Server Error');
                 res.status(500).json(serverError.toResponseObject());
+            }
+
+            if (throwErrors) {
+                throw error;
             }
         }
     };

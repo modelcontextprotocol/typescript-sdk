@@ -13,6 +13,11 @@ export type AuthorizationHandlerOptions = {
      * Set to false to disable rate limiting for this endpoint.
      */
     rateLimit?: Partial<RateLimitOptions> | false;
+
+    /**
+     * Set to true to throw errors to the express error handler
+     */
+    throwErrors?: boolean;
 };
 
 // Parameters that must be validated in order to issue redirects.
@@ -34,7 +39,7 @@ const RequestAuthorizationParamsSchema = z.object({
     resource: z.string().url().optional()
 });
 
-export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: AuthorizationHandlerOptions): RequestHandler {
+export function authorizationHandler({ provider, rateLimit: rateLimitConfig, throwErrors }: AuthorizationHandlerOptions): RequestHandler {
     // Create a router to apply middleware
     const router = express.Router();
     router.use(allowedMethods(['GET', 'POST']));
@@ -101,6 +106,10 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
                 res.status(500).json(serverError.toResponseObject());
             }
 
+            if (throwErrors) {
+                throw error;
+            }
+
             return;
         }
 
@@ -141,6 +150,10 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
             } else {
                 const serverError = new ServerError('Internal Server Error');
                 res.redirect(302, createErrorRedirect(redirect_uri, serverError, state));
+            }
+
+            if (throwErrors) {
+                throw error;
             }
         }
     });

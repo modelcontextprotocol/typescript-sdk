@@ -33,6 +33,11 @@ export type ClientRegistrationHandlerOptions = {
      * If not set, defaults to true.
      */
     clientIdGeneration?: boolean;
+
+    /**
+     * Set to true to throw errors to the express error handler
+     */
+    throwErrors?: boolean;
 };
 
 const DEFAULT_CLIENT_SECRET_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
@@ -41,7 +46,8 @@ export function clientRegistrationHandler({
     clientsStore,
     clientSecretExpirySeconds = DEFAULT_CLIENT_SECRET_EXPIRY_SECONDS,
     rateLimit: rateLimitConfig,
-    clientIdGeneration = true
+    clientIdGeneration = true,
+    throwErrors
 }: ClientRegistrationHandlerOptions): RequestHandler {
     if (!clientsStore.registerClient) {
         throw new Error('Client registration store does not support registering clients');
@@ -111,6 +117,10 @@ export function clientRegistrationHandler({
             } else {
                 const serverError = new ServerError('Internal Server Error');
                 res.status(500).json(serverError.toResponseObject());
+            }
+
+            if (throwErrors) {
+                throw error;
             }
         }
     });
