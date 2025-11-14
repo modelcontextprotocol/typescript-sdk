@@ -348,7 +348,7 @@ async function authInternal(
 ): Promise<AuthResult> {
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | URL | undefined;
-    
+
     try {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl }, fetchFn);
         if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
