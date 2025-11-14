@@ -694,7 +694,7 @@ test('should forward notification options when using elicitation completion noti
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    const notificationSpy = jest.spyOn(server, 'notification');
+    const notificationSpy = vi.spyOn(server, 'notification');
 
     const notifier = server.createElicitationCompletionNotifier('elicitation-789', { relatedRequestId: 42 });
     await notifier();

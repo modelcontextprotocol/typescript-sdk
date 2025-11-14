@@ -686,7 +686,7 @@ test('should reject form-mode elicitation when client only supports URL mode', a
         }
     );
 
-    const handler = jest.fn().mockResolvedValue({
+    const handler = vi.fn().mockResolvedValue({
         action: 'cancel'
     });
     client.setRequestHandler(ElicitRequestSchema, handler);
@@ -773,7 +773,7 @@ test('should reject URL-mode elicitation when client only supports form mode', a
         }
     );
 
-    const handler = jest.fn().mockResolvedValue({
+    const handler = vi.fn().mockResolvedValue({
         action: 'cancel'
     });
     client.setRequestHandler(ElicitRequestSchema, handler);
