@@ -111,11 +111,11 @@ const getServer = () => {
             };
         }
     );
-    // Register a tool that demonstrates elicitation (user input collection)
+    // Register a tool that demonstrates form elicitation (user input collection with a schema)
     // This creates a closure that captures the server instance
     server.tool(
         'collect-user-info',
-        'A tool that collects user information through elicitation',
+        'A tool that collects user information through form elicitation',
         {
             infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect')
         },
@@ -215,7 +215,7 @@ const getServer = () => {
 
             try {
                 // Use the underlying server instance to elicit input from the client
-                const result = await server.server.elicitInput({
+                const result = await server.server.elicitFormInput({
                     message,
                     requestedSchema
                 });

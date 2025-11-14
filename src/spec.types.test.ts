@@ -153,6 +153,21 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
+    ElicitRequestFormParams: (sdk: SDKTypes.ElicitRequestFormParams, spec: SpecTypes.ElicitRequestFormParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ElicitRequestURLParams: (sdk: SDKTypes.ElicitRequestURLParams, spec: SpecTypes.ElicitRequestURLParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ElicitationCompleteNotification: (
+        sdk: RemovePassthrough<WithJSONRPC<SDKTypes.ElicitationCompleteNotification>>,
+        spec: SpecTypes.ElicitationCompleteNotification
+    ) => {
+        sdk = spec;
+        spec = sdk;
+    },
     PaginatedRequestParams: (sdk: SDKTypes.PaginatedRequestParams, spec: SpecTypes.PaginatedRequestParams) => {
         sdk = spec;
         spec = sdk;
@@ -598,6 +613,7 @@ const MISSING_SDK_TYPES = [
     // These are inlined in the SDK:
     'Role',
     'Error', // The inner error object of a JSONRPCError
+    'URLElicitationRequiredError', // In the SDK, but with a custom definition
     // These aren't supported by the SDK yet:
     // TODO: Add definitions to the SDK
     'Annotations'
@@ -615,7 +631,7 @@ describe('Spec Types', () => {
     it('should define some expected types', () => {
         expect(specTypes).toContain('JSONRPCNotification');
         expect(specTypes).toContain('ElicitResult');
-        expect(specTypes).toHaveLength(119);
+        expect(specTypes).toHaveLength(123);
     });
 
     it('should have up to date list of missing sdk types', () => {

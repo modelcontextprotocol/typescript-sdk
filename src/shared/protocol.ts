@@ -250,7 +250,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const totalElapsed = Date.now() - info.startTime;
         if (info.maxTotalTimeout && totalElapsed >= info.maxTotalTimeout) {
             this._timeoutInfo.delete(messageId);
-            throw new McpError(ErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
+            throw McpError.fromError(ErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
                 maxTotalTimeout: info.maxTotalTimeout,
                 totalElapsed
             });
@@ -313,7 +313,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._transport = undefined;
         this.onclose?.();
 
-        const error = new McpError(ErrorCode.ConnectionClosed, 'Connection closed');
+        const error = McpError.fromError(ErrorCode.ConnectionClosed, 'Connection closed');
         for (const handler of responseHandlers.values()) {
             handler(error);
         }
@@ -396,7 +396,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         id: request.id,
                         error: {
                             code: Number.isSafeInteger(error['code']) ? error['code'] : ErrorCode.InternalError,
-                            message: error.message ?? 'Internal error'
+                            message: error.message ?? 'Internal error',
+                            ...(error['data'] !== undefined && { data: error['data'] })
                         }
                     });
                 }
@@ -447,7 +448,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         if (isJSONRPCResponse(response)) {
             handler(response);
         } else {
-            const error = new McpError(response.error.code, response.error.message, response.error.data);
+            const error = McpError.fromError(response.error.code, response.error.message, response.error.data);
             handler(error);
         }
     }
@@ -566,7 +567,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
-            const timeoutHandler = () => cancel(new McpError(ErrorCode.RequestTimeout, 'Request timed out', { timeout }));
+            const timeoutHandler = () => cancel(McpError.fromError(ErrorCode.RequestTimeout, 'Request timed out', { timeout }));
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 

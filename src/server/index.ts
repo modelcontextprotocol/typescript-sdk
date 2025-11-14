@@ -1,9 +1,10 @@
-import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
+import { mergeCapabilities, Protocol, type NotificationOptions, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
 import {
     type ClientCapabilities,
     type CreateMessageRequest,
     CreateMessageResultSchema,
-    type ElicitRequest,
+    ElicitRequestFormParams,
+    ElicitRequestURLParams,
     type ElicitResult,
     ElicitResultSchema,
     EmptyResultSchema,
@@ -225,6 +226,12 @@ export class Server<
                 }
                 break;
 
+            case 'notifications/elicitation/complete':
+                if (!this._clientCapabilities?.elicitation?.url) {
+                    throw new Error(`Client does not support URL elicitation (required for ${method})`);
+                }
+                break;
+
             case 'notifications/cancelled':
                 // Cancellation notifications are always allowed
                 break;
@@ -320,8 +327,26 @@ export class Server<
         return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
-    async elicitInput(params: ElicitRequest['params'], options?: RequestOptions): Promise<ElicitResult> {
-        const result = await this.request({ method: 'elicitation/create', params }, ElicitResultSchema, options);
+    /**
+     * Creates a form elicitation request for the given parameters.
+     * @deprecated Use `elicitFormInput` instead
+     */
+    async elicitInput(params: Omit<ElicitRequestFormParams, 'mode'>, options?: RequestOptions): Promise<ElicitResult> {
+        return this.elicitFormInput(params, options);
+    }
+
+    /**
+     * Creates a form elicitation request for the given parameters.
+     * @param params The parameters for the form elicitation request.
+     * @param options Optional request options.
+     * @returns The result of the elicitation request.
+     */
+    async elicitFormInput(params: Omit<ElicitRequestFormParams, 'mode'>, options?: RequestOptions): Promise<ElicitResult> {
+        const mode = 'form';
+        if (!this._clientCapabilities?.elicitation?.[mode]) {
+            throw new Error(`Client does not support ${mode} elicitation.`);
+        }
+        const result = await this.request({ method: 'elicitation/create', params: { ...params, mode } }, ElicitResultSchema, options);
 
         // Validate the response content against the requested schema if action is "accept"
         if (result.action === 'accept' && result.content && params.requestedSchema) {
@@ -347,6 +372,46 @@ export class Server<
         }
 
         return result;
+    }
+
+    /**
+     * Creates a URL elicitation request for the given parameters.
+     * @param params The parameters for the URL elicitation request.
+     * @param options Optional request options.
+     * @returns The result of the elicitation request.
+     */
+    async elicitUrl(params: Omit<ElicitRequestURLParams, 'mode'>, options?: RequestOptions): Promise<ElicitResult> {
+        const mode = 'url';
+        if (!this._clientCapabilities?.elicitation?.[mode]) {
+            throw new Error(`Client does not support ${mode} elicitation.`);
+        }
+        const result = await this.request({ method: 'elicitation/create', params: { ...params, mode } }, ElicitResultSchema, options);
+        return result;
+    }
+
+    /**
+     * Creates a reusable callback that, when invoked, will send a `notifications/elicitation/complete`
+     * notification for the specified elicitation ID.
+     *
+     * @param elicitationId The ID of the elicitation to mark as complete.
+     * @param options Optional notification options. Useful when the completion notification should be related to a prior request.
+     * @returns A function that emits the completion notification when awaited.
+     */
+    createElicitationCompletionNotifier(elicitationId: string, options?: NotificationOptions): () => Promise<void> {
+        if (!this._clientCapabilities?.elicitation?.url) {
+            throw new Error('Client does not support URL elicitation (required for notifications/elicitation/complete)');
+        }
+
+        return () =>
+            this.notification(
+                {
+                    method: 'notifications/elicitation/complete',
+                    params: {
+                        elicitationId
+                    }
+                },
+                options
+            );
     }
 
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {

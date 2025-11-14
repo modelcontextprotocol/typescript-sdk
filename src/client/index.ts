@@ -85,6 +85,34 @@ function applyElicitationDefaults(schema: JsonSchemaType | undefined, data: unkn
     }
 }
 
+/**
+ * Determines which elicitation modes are supported based on declared client capabilities.
+ *
+ * According to the spec:
+ * - An empty elicitation capability object defaults to form mode support (backwards compatibility)
+ * - URL mode is only supported if explicitly declared
+ *
+ * @param capabilities - The client's elicitation capabilities
+ * @returns An object indicating which modes are supported
+ */
+export function getSupportedElicitationModes(capabilities: ClientCapabilities['elicitation']): {
+    supportsFormMode: boolean;
+    supportsUrlMode: boolean;
+} {
+    if (!capabilities) {
+        return { supportsFormMode: false, supportsUrlMode: false };
+    }
+
+    const hasFormCapability = capabilities.form !== undefined;
+    const hasUrlCapability = capabilities.url !== undefined;
+
+    // If neither form nor url are explicitly declared, form mode is supported (backwards compatibility)
+    const supportsFormMode = hasFormCapability || (!hasFormCapability && !hasUrlCapability);
+    const supportsUrlMode = hasUrlCapability;
+
+    return { supportsFormMode, supportsUrlMode };
+}
+
 export type ClientOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this client.
@@ -210,6 +238,17 @@ export class Client<
                     throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation request: ${validatedRequest.error.message}`);
                 }
 
+                const { params } = validatedRequest.data;
+                const { supportsFormMode, supportsUrlMode } = getSupportedElicitationModes(this._capabilities.elicitation);
+
+                if (params.mode === 'form' && !supportsFormMode) {
+                    throw new McpError(ErrorCode.InvalidParams, 'Client does not support form-mode elicitation requests');
+                }
+
+                if (params.mode === 'url' && !supportsUrlMode) {
+                    throw new McpError(ErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
+                }
+
                 const result = await Promise.resolve(handler(request, extra));
 
                 const validationResult = ElicitResultSchema.safeParse(result);
@@ -218,17 +257,15 @@ export class Client<
                 }
 
                 const validatedResult = validationResult.data;
+                const requestedSchema = params.mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
 
-                if (
-                    this._capabilities.elicitation?.applyDefaults &&
-                    validatedResult.action === 'accept' &&
-                    validatedResult.content &&
-                    validatedRequest.data.params.requestedSchema
-                ) {
-                    try {
-                        applyElicitationDefaults(validatedRequest.data.params.requestedSchema, validatedResult.content);
-                    } catch {
-                        // gracefully ignore errors in default application
+                if (params.mode === 'form' && validatedResult.action === 'accept' && validatedResult.content && requestedSchema) {
+                    if (this._capabilities.elicitation?.form?.applyDefaults) {
+                        try {
+                            applyElicitationDefaults(requestedSchema, validatedResult.content);
+                        } catch {
+                            // gracefully ignore errors in default application
+                        }
                     }
                 }
 
