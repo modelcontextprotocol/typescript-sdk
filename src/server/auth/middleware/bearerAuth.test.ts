@@ -1,11 +1,12 @@
 import { Request, Response } from 'express';
+import { Mock } from 'vitest';
 import { requireBearerAuth } from './bearerAuth.js';
 import { AuthInfo } from '../types.js';
 import { InsufficientScopeError, InvalidTokenError, CustomOAuthError, ServerError } from '../errors.js';
 import { OAuthTokenVerifier } from '../provider.js';
 
 // Mock verifier
-const mockVerifyAccessToken = jest.fn();
+const mockVerifyAccessToken = vi.fn();
 const mockVerifier: OAuthTokenVerifier = {
     verifyAccessToken: mockVerifyAccessToken
 };
@@ -13,23 +14,23 @@ const mockVerifier: OAuthTokenVerifier = {
 describe('requireBearerAuth middleware', () => {
     let mockRequest: Partial<Request>;
     let mockResponse: Partial<Response>;
-    let nextFunction: jest.Mock;
+    let nextFunction: Mock;
 
     beforeEach(() => {
         mockRequest = {
             headers: {}
         };
         mockResponse = {
-            status: jest.fn().mockReturnThis(),
-            json: jest.fn(),
-            set: jest.fn().mockReturnThis()
+            status: vi.fn().mockReturnThis(),
+            json: vi.fn(),
+            set: vi.fn().mockReturnThis()
         };
-        nextFunction = jest.fn();
-        jest.spyOn(console, 'error').mockImplementation(() => {});
+        nextFunction = vi.fn();
+        vi.spyOn(console, 'error').mockImplementation(() => {});
     });
 
     afterEach(() => {
-        jest.clearAllMocks();
+        vi.clearAllMocks();
     });
 
     it('should call next when token is valid', async () => {
