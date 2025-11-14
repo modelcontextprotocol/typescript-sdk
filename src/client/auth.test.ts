@@ -1650,9 +1650,9 @@ describe('OAuth Authorization', () => {
             });
 
             // Mock provider methods
-            (mockProvider.clientInformation as jest.Mock).mockResolvedValue(undefined);
-            (mockProvider.tokens as jest.Mock).mockResolvedValue(undefined);
-            mockProvider.saveClientInformation = jest.fn();
+            (mockProvider.clientInformation as Mock).mockResolvedValue(undefined);
+            (mockProvider.tokens as Mock).mockResolvedValue(undefined);
+            mockProvider.saveClientInformation = vi.fn();
 
             // Call the auth function with a server URL that has a path
             const result = await auth(mockProvider, {
@@ -1668,7 +1668,7 @@ describe('OAuth Authorization', () => {
                 call[0].toString().includes('/.well-known/oauth-authorization-server')
             );
             expect(authServerCall).toBeDefined();
-            expect(authServerCall[0].toString()).toBe('https://resource.example.com/.well-known/oauth-authorization-server');
+            expect(authServerCall![0].toString()).toBe('https://resource.example.com/.well-known/oauth-authorization-server');
         });
 
         it('passes resource parameter through authorization flow', async () => {
