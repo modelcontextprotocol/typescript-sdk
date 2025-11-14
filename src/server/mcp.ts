@@ -36,7 +36,7 @@ import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate
 } from '../types.js';
-import { Completable, CompletableDef } from './completable.js';
+import { CompletableDef, isCompletable } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
 import { RequestHandlerExtra } from '../shared/protocol.js';
 import { Transport } from '../shared/transport.js';
@@ -251,7 +251,7 @@ export class McpServer {
         }
 
         const field = prompt.argsSchema.shape[request.params.argument.name];
-        if (!(field instanceof Completable)) {
+        if (!isCompletable<ZodString>(field)) {
             return EMPTY_COMPLETION_RESULT;
         }
 
@@ -362,8 +362,6 @@ export class McpServer {
             throw new McpError(ErrorCode.InvalidParams, `Resource ${uri} not found`);
         });
 
-        this.setCompletionRequestHandler();
-
         this._resourceHandlersInitialized = true;
     }
 
@@ -426,8 +424,6 @@ export class McpServer {
                 return await Promise.resolve(cb(extra));
             }
         });
-
-        this.setCompletionRequestHandler();
 
         this._promptHandlersInitialized = true;
     }
@@ -619,6 +615,14 @@ export class McpServer {
             }
         };
         this._registeredResourceTemplates[name] = registeredResourceTemplate;
+
+        // If the resource template has any completion callbacks, enable completions capability
+        const variableNames = template.uriTemplate.variableNames;
+        const hasCompleter = Array.isArray(variableNames) && variableNames.some(v => !!template.completeCallback(v));
+        if (hasCompleter) {
+            this.setCompletionRequestHandler();
+        }
+
         return registeredResourceTemplate;
     }
 
@@ -652,6 +656,18 @@ export class McpServer {
             }
         };
         this._registeredPrompts[name] = registeredPrompt;
+
+        // If any argument uses a Completable schema, enable completions capability
+        if (argsSchema) {
+            const hasCompletable = Object.values(argsSchema).some(field => {
+                const inner: unknown = field instanceof ZodOptional ? field._def?.innerType : field;
+                return isCompletable(inner);
+            });
+            if (hasCompletable) {
+                this.setCompletionRequestHandler();
+            }
+        }
+
         return registeredPrompt;
     }
 
