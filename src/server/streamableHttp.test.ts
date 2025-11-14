@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { EventStore, StreamableHTTPServerTransport, EventId, StreamId } from './streamableHttp.js';
 import { McpServer } from './mcp.js';
 import { CallToolResult, JSONRPCMessage } from '../types.js';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { AuthInfo } from './auth/types.js';
 
 async function getFreePort() {

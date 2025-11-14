@@ -1,6 +1,6 @@
 import { Server, ServerOptions } from './index.js';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { z, ZodRawShape, ZodObject, ZodString, ZodTypeAny, ZodType, ZodTypeDef, ZodOptional } from 'zod';
+import { z, ZodRawShape, ZodObject, ZodString, ZodTypeAny, ZodType, ZodTypeDef, ZodOptional } from 'zod/v3';
 import {
     Implementation,
     Tool,

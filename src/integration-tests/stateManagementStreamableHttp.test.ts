@@ -12,7 +12,7 @@ import {
     ListPromptsResultSchema,
     LATEST_PROTOCOL_VERSION
 } from '../types.js';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 describe('Streamable HTTP Transport Session Management', () => {
     // Function to set up the server with optional session management

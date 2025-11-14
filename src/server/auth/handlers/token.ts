@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import express, { RequestHandler } from 'express';
 import { OAuthServerProvider } from '../provider.js';
 import cors from 'cors';

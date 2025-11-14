@@ -1,4 +1,4 @@
-import { ZodType, z } from 'zod';
+import { ZodType, z } from 'zod/v3';
 import { ClientCapabilities, ErrorCode, McpError, Notification, Request, Result, ServerCapabilities } from '../types.js';
 import { Protocol, mergeCapabilities } from './protocol.js';
 import { Transport } from './transport.js';

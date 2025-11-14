@@ -2,7 +2,7 @@
 /* eslint-disable no-constant-binary-expression */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 import { Client } from './index.js';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import {
     RequestSchema,
     NotificationSchema,
