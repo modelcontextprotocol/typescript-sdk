@@ -39,7 +39,7 @@ describe('OAuth Authorization', () => {
         function mockResponseWithWWWAuthenticate(headerValue: string): Response {
             return {
                 headers: {
-                    get: jest.fn(name => (name === 'WWW-Authenticate' ? headerValue : null))
+                    get: vi.fn(name => (name === 'WWW-Authenticate' ? headerValue : null))
                 }
             } as unknown as Response;
         }
@@ -2368,7 +2368,7 @@ describe('OAuth Authorization', () => {
                 scope: providedScope
             });
 
-            const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+            const redirectCall = (mockProvider.redirectToAuthorization as vi.Mock).mock.calls[0];
             const authUrl: URL = redirectCall[0];
             expect(authUrl.searchParams.get('scope')).toBe(providedScope);
         });
@@ -2396,7 +2396,7 @@ describe('OAuth Authorization', () => {
                 serverUrl: 'https://api.example.com/mcp-server'
             });
 
-            const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+            const redirectCall = (mockProvider.redirectToAuthorization as vi.Mock).mock.calls[0];
             const authUrl: URL = redirectCall[0];
             expect(authUrl.searchParams.get('scope')).toBe(resourceScope);
         });
@@ -2424,7 +2424,7 @@ describe('OAuth Authorization', () => {
                 serverUrl: 'https://api.example.com/mcp-server'
             });
 
-            const redirectCall = (mockProvider.redirectToAuthorization as jest.Mock).mock.calls[0];
+            const redirectCall = (mockProvider.redirectToAuthorization as vi.Mock).mock.calls[0];
             const authUrl: URL = redirectCall[0];
             expect(authUrl.searchParams.get('scope')).toBe(clientMetadataScope);
         });

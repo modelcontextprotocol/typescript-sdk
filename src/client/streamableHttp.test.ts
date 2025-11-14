@@ -601,7 +601,7 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'test-id'
         };
 
-        const fetchMock = global.fetch as jest.Mock;
+        const fetchMock = global.fetch as vi.Mock;
         fetchMock
             // First call: returns 403 with insufficient_scope
             .mockResolvedValueOnce({
@@ -623,7 +623,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         // Spy on the imported auth function and mock successful authorization
         const authModule = await import('./auth.js');
-        const authSpy = jest.spyOn(authModule, 'auth');
+        const authSpy = vi.spyOn(authModule, 'auth');
         authSpy.mockResolvedValue('AUTHORIZED');
 
         await transport.send(message);
@@ -652,7 +652,7 @@ describe('StreamableHTTPClientTransport', () => {
         };
 
         // Mock fetch calls to always return 403 with insufficient_scope
-        const fetchMock = global.fetch as jest.Mock;
+        const fetchMock = global.fetch as vi.Mock;
         fetchMock.mockResolvedValue({
             ok: false,
             status: 403,
@@ -665,7 +665,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         // Spy on the imported auth function and mock successful authorization
         const authModule = await import('./auth.js');
-        const authSpy = jest.spyOn(authModule, 'auth');
+        const authSpy = vi.spyOn(authModule, 'auth');
         authSpy.mockResolvedValue('AUTHORIZED');
 
         // First send: should trigger upscoping
