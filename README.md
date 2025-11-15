@@ -784,6 +784,39 @@ const transport = new StdioServerTransport();
 await server.connect(transport);
 ```
 
+### Code Mode Wrapper (experimental)
+
+You can also run a lightweight “code-mode” wrapper that proxies multiple MCP servers through a single stdio endpoint and only loads tool definitions on demand. Create a config file (for example `code-config.mcp-servers.json`) inside your local checkout of this SDK:
+
+```json
+{
+    "downstreams": [
+        {
+            "id": "playwright",
+            "description": "Browser automation via Playwright",
+            "command": "node",
+            "args": ["/Users/you/Desktop/playwright-mcp/cli.js", "--headless", "--browser=chromium"]
+        }
+    ]
+}
+```
+
+Then launch the wrapper:
+
+```bash
+pnpm code-mode -- --config ./code-config.mcp-servers.json
+```
+
+Point your MCP client (Cursor, VS Code, etc.) at the wrapper command instead of individual servers. The wrapper publishes four meta-tools:
+
+1. `list_mcp_servers` — enumerate the configured downstream servers (IDs + descriptions).
+2. `list_tool_names` — requires a `serverId` and returns just the tool names/descriptions for that server.
+3. `get_tool_implementation` — loads the full schema and a generated TypeScript stub for a specific tool.
+4. `call_tool` — proxies the downstream tool call unchanged.
+
+This mirrors the progressive disclosure workflow described in Anthropic’s [Code execution with MCP: Building more efficient agents](https://www.anthropic.com/engineering/code-execution-with-mcp): models explore servers first, then drill into tools only when needed. You can keep
+many MCP servers configured without loading all of their schemas into the prompt, and the LLM pays the context cost only for the server/tool it decides to use.
+
 ### Testing and Debugging
 
 To test your server, you can use the [MCP Inspector](https://github.com/modelcontextprotocol/inspector). See its README for more information.
