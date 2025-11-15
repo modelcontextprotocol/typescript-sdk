@@ -213,7 +213,7 @@ describe('MCP Auth Router', () => {
             expect(response.body.response_types_supported).toEqual(['code']);
             expect(response.body.grant_types_supported).toEqual(['authorization_code', 'refresh_token']);
             expect(response.body.code_challenge_methods_supported).toEqual(['S256']);
-            expect(response.body.token_endpoint_auth_methods_supported).toEqual(['client_secret_post']);
+            expect(response.body.token_endpoint_auth_methods_supported).toEqual(['client_secret_post', 'none']);
             expect(response.body.revocation_endpoint_auth_methods_supported).toEqual(['client_secret_post']);
 
             // Verify optional fields
