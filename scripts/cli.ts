@@ -4,14 +4,14 @@ import WebSocket from 'ws';
 (global as any).WebSocket = WebSocket;
 
 import express from 'express';
-import { Client } from './client/index.js';
-import { SSEClientTransport } from './client/sse.js';
-import { StdioClientTransport } from './client/stdio.js';
-import { WebSocketClientTransport } from './client/websocket.js';
-import { Server } from './server/index.js';
-import { SSEServerTransport } from './server/sse.js';
-import { StdioServerTransport } from './server/stdio.js';
-import { ListResourcesResultSchema } from './types.js';
+import { Client } from '../src/client/index.js';
+import { SSEClientTransport } from '../src/client/sse.js';
+import { StdioClientTransport } from '../src/client/stdio.js';
+import { WebSocketClientTransport } from '../src/client/websocket.js';
+import { Server } from '../src/server/index.js';
+import { SSEServerTransport } from '../src/server/sse.js';
+import { StdioServerTransport } from '../src/server/stdio.js';
+import { ListResourcesResultSchema } from '../src/types.js';
 
 async function runClient(url_or_command: string, args: string[]) {
     const client = new Client(

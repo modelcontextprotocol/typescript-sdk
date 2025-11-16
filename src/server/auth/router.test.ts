@@ -279,11 +279,11 @@ describe('MCP Auth Router', () => {
                 issuerUrl: new URL('https://auth.example.com')
             };
             app.use(mcpAuthRouter(options));
-            jest.spyOn(console, 'error').mockImplementation(() => {});
+            vi.spyOn(console, 'error').mockImplementation(() => {});
         });
 
         afterEach(() => {
-            jest.restoreAllMocks();
+            vi.restoreAllMocks();
         });
 
         it('routes to authorization endpoint', async () => {
@@ -301,8 +301,8 @@ describe('MCP Auth Router', () => {
 
         it('routes to token endpoint', async () => {
             // Setup verifyChallenge mock for token handler
-            jest.mock('pkce-challenge', () => ({
-                verifyChallenge: jest.fn().mockResolvedValue(true)
+            vi.mock('pkce-challenge', () => ({
+                verifyChallenge: vi.fn().mockResolvedValue(true)
             }));
 
             const response = await supertest(app).post('/token').type('form').send({

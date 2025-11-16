@@ -27,9 +27,9 @@ import { InMemoryTransport } from '../inMemory.js';
  */
 test('should initialize with matching protocol version', async () => {
     const clientTransport: Transport = {
-        start: jest.fn().mockResolvedValue(undefined),
-        close: jest.fn().mockResolvedValue(undefined),
-        send: jest.fn().mockImplementation(message => {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockImplementation(message => {
             if (message.method === 'initialize') {
                 clientTransport.onmessage?.({
                     jsonrpc: '2.0',
@@ -86,9 +86,9 @@ test('should initialize with matching protocol version', async () => {
 test('should initialize with supported older protocol version', async () => {
     const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
     const clientTransport: Transport = {
-        start: jest.fn().mockResolvedValue(undefined),
-        close: jest.fn().mockResolvedValue(undefined),
-        send: jest.fn().mockImplementation(message => {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockImplementation(message => {
             if (message.method === 'initialize') {
                 clientTransport.onmessage?.({
                     jsonrpc: '2.0',
@@ -136,9 +136,9 @@ test('should initialize with supported older protocol version', async () => {
  */
 test('should reject unsupported protocol version', async () => {
     const clientTransport: Transport = {
-        start: jest.fn().mockResolvedValue(undefined),
-        close: jest.fn().mockResolvedValue(undefined),
-        send: jest.fn().mockImplementation(message => {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockImplementation(message => {
             if (message.method === 'initialize') {
                 clientTransport.onmessage?.({
                     jsonrpc: '2.0',
@@ -217,8 +217,7 @@ test('should connect new client to old, supported server version', async () => {
     const client = new Client(
         {
             name: 'new client',
-            version: '1.0',
-            protocolVersion: LATEST_PROTOCOL_VERSION
+            version: '1.0'
         },
         {
             capabilities: {
@@ -279,8 +278,7 @@ test('should negotiate version when client is old, and newer server supports its
     const client = new Client(
         {
             name: 'old client',
-            version: '1.0',
-            protocolVersion: OLD_VERSION
+            version: '1.0'
         },
         {
             capabilities: {
@@ -342,8 +340,7 @@ test("should throw when client is old, and server doesn't support its version", 
     const client = new Client(
         {
             name: 'old client',
-            version: '1.0',
-            protocolVersion: OLD_VERSION
+            version: '1.0'
         },
         {
             capabilities: {
