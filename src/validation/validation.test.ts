@@ -6,6 +6,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { vi } from 'vitest';
 
 import { AjvJsonSchemaValidator } from './ajv-provider.js';
 import { CfWorkerJsonSchemaValidator } from './cfworker-provider.js';
@@ -533,21 +534,21 @@ describe('JSON Schema Validators', () => {
 describe('Missing dependencies', () => {
     describe('AJV not installed but CfWorker is', () => {
         beforeEach(() => {
-            jest.resetModules();
+            vi.resetModules();
         });
 
         afterEach(() => {
-            jest.unmock('ajv');
-            jest.unmock('ajv-formats');
+            vi.doUnmock('ajv');
+            vi.doUnmock('ajv-formats');
         });
 
         it('should throw error when trying to import ajv-provider without ajv', async () => {
             // Mock ajv as not installed
-            jest.doMock('ajv', () => {
+            vi.doMock('ajv', () => {
                 throw new Error("Cannot find module 'ajv'");
             });
 
-            jest.doMock('ajv-formats', () => {
+            vi.doMock('ajv-formats', () => {
                 throw new Error("Cannot find module 'ajv-formats'");
             });
 
@@ -557,11 +558,11 @@ describe('Missing dependencies', () => {
 
         it('should be able to import cfworker-provider when ajv is missing', async () => {
             // Mock ajv as not installed
-            jest.doMock('ajv', () => {
+            vi.doMock('ajv', () => {
                 throw new Error("Cannot find module 'ajv'");
             });
 
-            jest.doMock('ajv-formats', () => {
+            vi.doMock('ajv-formats', () => {
                 throw new Error("Cannot find module 'ajv-formats'");
             });
 
@@ -579,16 +580,16 @@ describe('Missing dependencies', () => {
 
     describe('CfWorker not installed but AJV is', () => {
         beforeEach(() => {
-            jest.resetModules();
+            vi.resetModules();
         });
 
         afterEach(() => {
-            jest.unmock('@cfworker/json-schema');
+            vi.doUnmock('@cfworker/json-schema');
         });
 
         it('should throw error when trying to import cfworker-provider without @cfworker/json-schema', async () => {
             // Mock @cfworker/json-schema as not installed
-            jest.doMock('@cfworker/json-schema', () => {
+            vi.doMock('@cfworker/json-schema', () => {
                 throw new Error("Cannot find module '@cfworker/json-schema'");
             });
 
@@ -598,7 +599,7 @@ describe('Missing dependencies', () => {
 
         it('should be able to import ajv-provider when @cfworker/json-schema is missing', async () => {
             // Mock @cfworker/json-schema as not installed
-            jest.doMock('@cfworker/json-schema', () => {
+            vi.doMock('@cfworker/json-schema', () => {
                 throw new Error("Cannot find module '@cfworker/json-schema'");
             });
 
