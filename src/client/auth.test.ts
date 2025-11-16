@@ -1165,7 +1165,7 @@ describe('OAuth Authorization', () => {
                 }),
                 expect.objectContaining({
                     method: 'POST'
-                }),
+                })
             );
 
             const options = mockFetch.mock.calls[0][1];
