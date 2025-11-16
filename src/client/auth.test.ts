@@ -1164,14 +1164,15 @@ describe('OAuth Authorization', () => {
                     href: 'https://auth.example.com/token'
                 }),
                 expect.objectContaining({
-                    method: 'POST',
-                    headers: new Headers({
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    })
-                })
+                    method: 'POST'
+                }),
             );
 
-            const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
+            const options = mockFetch.mock.calls[0][1];
+            expect(options.headers).toBeInstanceOf(Headers);
+            expect(options.headers.get('Content-Type')).toBe('application/x-www-form-urlencoded');
+
+            const body = options.body as URLSearchParams;
             expect(body.get('grant_type')).toBe('authorization_code');
             expect(body.get('code')).toBe('code123');
             expect(body.get('code_verifier')).toBe('verifier123');
