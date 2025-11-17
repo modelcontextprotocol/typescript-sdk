@@ -1,48 +1,79 @@
-import { ZodTypeAny, ZodTypeDef, ZodType, ParseInput, ParseReturnType, RawCreateParams, ZodErrorMap, ProcessedCreateParams } from 'zod';
+import { ZodTypeAny } from 'zod';
 
 export enum McpZodTypeKind {
     Completable = 'McpCompletable'
 }
 
 export type CompleteCallback<T extends ZodTypeAny = ZodTypeAny> = (
-    value: T['_input'],
+    value: T extends { _zod: { input: infer I } } ? I : unknown,
     context?: {
         arguments?: Record<string, string>;
     }
-) => T['_input'][] | Promise<T['_input'][]>;
+) => Array<T extends { _zod: { input: infer I } } ? I : unknown> | Promise<Array<T extends { _zod: { input: infer I } } ? I : unknown>>;
 
-export interface CompletableDef<T extends ZodTypeAny = ZodTypeAny> extends ZodTypeDef {
+export interface CompletableDef<T extends ZodTypeAny = ZodTypeAny> {
     type: T;
     complete: CompleteCallback<T>;
     typeName: McpZodTypeKind.Completable;
 }
 
-export class Completable<T extends ZodTypeAny> extends ZodType<T['_output'], CompletableDef<T>, T['_input']> {
-    _parse(input: ParseInput): ParseReturnType<this['_output']> {
-        const { ctx } = this._processInputParams(input);
-        const data = ctx.data;
-        return this._def.type._parse({
-            data,
-            path: ctx.path,
-            parent: ctx
-        });
+export class Completable<T extends ZodTypeAny> {
+    readonly _zod: T['_zod'] & { def: CompletableDef<T> };
+
+    /** @deprecated Use `.def` instead */
+    get _def(): CompletableDef<T> {
+        return this._zod.def;
     }
 
-    unwrap() {
-        return this._def.type;
+    get def(): CompletableDef<T> {
+        return this._zod.def;
+    }
+
+    constructor(def: CompletableDef<T>) {
+        // Delegate most operations to the wrapped type while preserving completion callback
+        const wrapped = def.type;
+        this._zod = {
+            ...wrapped._zod,
+            def,
+            input: wrapped._zod?.input,
+            output: wrapped._zod?.output
+        } as T['_zod'] & { def: CompletableDef<T> };
+    }
+
+    unwrap(): T {
+        return this._zod.def.type;
+    }
+
+    parse(data: unknown, params?: Parameters<T['parse']>[1]): ReturnType<T['parse']> {
+        return this._zod.def.type.parse(data, params) as ReturnType<T['parse']>;
+    }
+
+    safeParse(data: unknown, params?: Parameters<T['safeParse']>[1]): ReturnType<T['safeParse']> {
+        return this._zod.def.type.safeParse(data, params) as ReturnType<T['safeParse']>;
+    }
+
+    parseAsync(data: unknown, params?: Parameters<T['parseAsync']>[1]): ReturnType<T['parseAsync']> {
+        return this._zod.def.type.parseAsync(data, params) as ReturnType<T['parseAsync']>;
+    }
+
+    safeParseAsync(data: unknown, params?: Parameters<T['safeParseAsync']>[1]): ReturnType<T['safeParseAsync']> {
+        return this._zod.def.type.safeParseAsync(data, params) as ReturnType<T['safeParseAsync']>;
+    }
+
+    get description(): string | undefined {
+        return this._zod.def.type.description;
     }
 
     static create = <T extends ZodTypeAny>(
         type: T,
-        params: RawCreateParams & {
+        params: {
             complete: CompleteCallback<T>;
         }
     ): Completable<T> => {
         return new Completable({
             type,
             typeName: McpZodTypeKind.Completable,
-            complete: params.complete,
-            ...processCreateParams(params)
+            complete: params.complete
         });
     };
 }
@@ -51,29 +82,5 @@ export class Completable<T extends ZodTypeAny> extends ZodType<T['_output'], Com
  * Wraps a Zod type to provide autocompletion capabilities. Useful for, e.g., prompt arguments in MCP.
  */
 export function completable<T extends ZodTypeAny>(schema: T, complete: CompleteCallback<T>): Completable<T> {
-    return Completable.create(schema, { ...schema._def, complete });
-}
-
-// Not sure why this isn't exported from Zod:
-// https://github.com/colinhacks/zod/blob/f7ad26147ba291cb3fb257545972a8e00e767470/src/types.ts#L130
-function processCreateParams(params: RawCreateParams): ProcessedCreateParams {
-    if (!params) return {};
-    const { errorMap, invalid_type_error, required_error, description } = params;
-    if (errorMap && (invalid_type_error || required_error)) {
-        throw new Error(`Can't use "invalid_type_error" or "required_error" in conjunction with custom error map.`);
-    }
-    if (errorMap) return { errorMap: errorMap, description };
-    const customMap: ZodErrorMap = (iss, ctx) => {
-        const { message } = params;
-
-        if (iss.code === 'invalid_enum_value') {
-            return { message: message ?? ctx.defaultError };
-        }
-        if (typeof ctx.data === 'undefined') {
-            return { message: message ?? required_error ?? ctx.defaultError };
-        }
-        if (iss.code !== 'invalid_type') return { message: ctx.defaultError };
-        return { message: message ?? invalid_type_error ?? ctx.defaultError };
-    };
-    return { errorMap: customMap, description };
+    return Completable.create(schema, { complete });
 }

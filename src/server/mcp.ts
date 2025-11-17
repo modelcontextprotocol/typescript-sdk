@@ -1,6 +1,5 @@
 import { Server, ServerOptions } from './index.js';
-import { zodToJsonSchema } from 'zod-to-json-schema';
-import { z, ZodRawShape, ZodObject, ZodString, ZodTypeAny, ZodType, ZodTypeDef, ZodOptional } from 'zod';
+import { z, ZodRawShape, ZodObject, ZodType } from 'zod';
 import {
     Implementation,
     Tool,
@@ -36,7 +35,7 @@ import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate
 } from '../types.js';
-import { Completable, CompletableDef } from './completable.js';
+import { Completable } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
 import { RequestHandlerExtra } from '../shared/protocol.js';
 import { Transport } from '../shared/transport.js';
@@ -107,9 +106,8 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (zodToJsonSchema(tool.inputSchema, {
-                                      strictUnions: true,
-                                      pipeStrategy: 'input'
+                                ? (z.toJSONSchema(tool.inputSchema, {
+                                      io: 'input'
                                   }) as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
@@ -117,9 +115,8 @@ export class McpServer {
                         };
 
                         if (tool.outputSchema) {
-                            toolDefinition.outputSchema = zodToJsonSchema(tool.outputSchema, {
-                                strictUnions: true,
-                                pipeStrategy: 'output'
+                            toolDefinition.outputSchema = z.toJSONSchema(tool.outputSchema, {
+                                io: 'output'
                             }) as Tool['outputSchema'];
                         }
 
@@ -152,7 +149,7 @@ export class McpServer {
                         );
                     }
 
-                    const args = parseResult.data;
+                    const args = parseResult.data as Record<string, unknown>;
 
                     result = await Promise.resolve(cb(args, extra));
                 } else {
@@ -255,9 +252,9 @@ export class McpServer {
             return EMPTY_COMPLETION_RESULT;
         }
 
-        const def: CompletableDef<ZodString> = field._def;
+        const def = field._def;
         const suggestions = await def.complete(request.params.argument.value, request.params.context);
-        return createCompletionResult(suggestions);
+        return createCompletionResult(suggestions as string[]);
     }
 
     private async handleResourceCompletion(
@@ -1044,7 +1041,7 @@ export class ResourceTemplate {
  */
 export type ToolCallback<Args extends undefined | ZodRawShape | ZodType<object> = undefined> = Args extends ZodRawShape
     ? (
-          args: z.objectOutputType<Args, ZodTypeAny>,
+          args: z.output<ZodObject<Args>>,
           extra: RequestHandlerExtra<ServerRequest, ServerNotification>
       ) => CallToolResult | Promise<CallToolResult>
     : Args extends ZodType<infer T>
@@ -1186,13 +1183,11 @@ export type RegisteredResourceTemplate = {
     remove(): void;
 };
 
-type PromptArgsRawShape = {
-    [k: string]: ZodType<string, ZodTypeDef, string> | ZodOptional<ZodType<string, ZodTypeDef, string>>;
-};
+type PromptArgsRawShape = ZodRawShape;
 
 export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefined> = Args extends PromptArgsRawShape
     ? (
-          args: z.objectOutputType<Args, ZodTypeAny>,
+          args: z.output<ZodObject<Args>>,
           extra: RequestHandlerExtra<ServerRequest, ServerNotification>
       ) => GetPromptResult | Promise<GetPromptResult>
     : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
@@ -1217,13 +1212,17 @@ export type RegisteredPrompt = {
 };
 
 function promptArgumentsFromSchema(schema: ZodObject<PromptArgsRawShape>): PromptArgument[] {
-    return Object.entries(schema.shape).map(
-        ([name, field]): PromptArgument => ({
+    return Object.entries(schema.shape).map(([name, field]): PromptArgument => {
+        // Unwrap Completable to get the underlying schema
+        const actualField = field instanceof Completable ? field.unwrap() : field;
+        // Check if field is optional by trying to parse undefined
+        const isOptional = actualField.safeParse(undefined).success;
+        return {
             name,
-            description: field.description,
-            required: !field.isOptional()
-        })
-    );
+            description: actualField.description,
+            required: !isOptional
+        };
+    });
 }
 
 function createCompletionResult(suggestions: string[]): CompleteResult {

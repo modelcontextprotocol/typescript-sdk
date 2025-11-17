@@ -386,7 +386,7 @@ describe('tool()', () => {
             {
                 name: z.string()
             },
-            async ({ name }) => ({
+            async ({ name }: { name: string }) => ({
                 content: [
                     {
                         type: 'text',
@@ -725,7 +725,7 @@ describe('tool()', () => {
                 inputSchema: { name: z.string() },
                 annotations: { title: 'Test Tool', readOnlyHint: true }
             },
-            async ({ name }) => ({
+            async ({ name }: { name: string }) => ({
                 content: [{ type: 'text', text: `Hello, ${name}!` }]
             })
         );
@@ -769,7 +769,7 @@ describe('tool()', () => {
             'A tool with everything',
             { name: z.string() },
             { title: 'Complete Test Tool', readOnlyHint: true, openWorldHint: false },
-            async ({ name }) => ({
+            async ({ name }: { name: string }) => ({
                 content: [{ type: 'text', text: `Hello, ${name}!` }]
             })
         );
@@ -785,7 +785,7 @@ describe('tool()', () => {
                     openWorldHint: false
                 }
             },
-            async ({ name }) => ({
+            async ({ name }: { name: string }) => ({
                 content: [{ type: 'text', text: `Hello, ${name}!` }]
             })
         );
@@ -1645,7 +1645,7 @@ describe('tool()', () => {
                 inputSchema: { name: z.string() },
                 _meta: metaData
             },
-            async ({ name }) => ({
+            async ({ name }: { name: string }) => ({
                 content: [{ type: 'text', text: `Hello, ${name}!` }]
             })
         );
@@ -1681,7 +1681,7 @@ describe('tool()', () => {
                 description: 'A tool without _meta field',
                 inputSchema: { name: z.string() }
             },
-            async ({ name }) => ({
+            async ({ name }: { name: string }) => ({
                 content: [{ type: 'text', text: `Hello, ${name}!` }]
             })
         );
@@ -2790,7 +2790,7 @@ describe('prompt()', () => {
             {
                 name: z.string()
             },
-            async ({ name }) => ({
+            async ({ name }: { name: string }) => ({
                 messages: [
                     {
                         role: 'assistant',
@@ -3266,7 +3266,7 @@ describe('prompt()', () => {
         );
 
         // Register a prompt with completion
-        mcpServer.prompt('echo', { message: completable(z.string(), () => ['hello', 'world']) }, ({ message }) => ({
+        mcpServer.prompt('echo', { message: completable(z.string(), () => ['hello', 'world']) }, ({ message }: { message: string }) => ({
             messages: [
                 {
                     role: 'user',
@@ -3340,7 +3340,7 @@ describe('prompt()', () => {
             {
                 name: completable(z.string(), () => ['Alice', 'Bob', 'Charlie'])
             },
-            async ({ name }) => ({
+            async ({ name }: { name: string }) => ({
                 messages: [
                     {
                         role: 'assistant',
@@ -3379,7 +3379,7 @@ describe('prompt()', () => {
             {
                 name: completable(z.string(), () => ['Alice', 'Bob', 'Charlie'])
             },
-            async ({ name }) => ({
+            async ({ name }: { name: string }) => ({
                 messages: [
                     {
                         role: 'assistant',
@@ -3436,7 +3436,7 @@ describe('prompt()', () => {
             {
                 name: completable(z.string(), test => ['Alice', 'Bob', 'Charlie'].filter(value => value.startsWith(test)))
             },
-            async ({ name }) => ({
+            async ({ name }: { name: string }) => ({
                 messages: [
                     {
                         role: 'assistant',
