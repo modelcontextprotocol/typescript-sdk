@@ -2563,7 +2563,7 @@ describe('OAuth Authorization', () => {
         it('custom headers from RequestInit are passed to auth discovery requests', async () => {
             const { createFetchWithInit } = await import('../shared/transport.js');
 
-            const customFetch = jest.fn().mockResolvedValue({
+            const customFetch = vi.fn().mockResolvedValue({
                 ok: true,
                 status: 200,
                 json: async () => ({
@@ -2596,7 +2596,7 @@ describe('OAuth Authorization', () => {
         it('auth-specific headers override base headers from RequestInit', async () => {
             const { createFetchWithInit } = await import('../shared/transport.js');
 
-            const customFetch = jest.fn().mockResolvedValue({
+            const customFetch = vi.fn().mockResolvedValue({
                 ok: true,
                 status: 200,
                 json: async () => ({
@@ -2634,7 +2634,7 @@ describe('OAuth Authorization', () => {
         it('other RequestInit options are passed through', async () => {
             const { createFetchWithInit } = await import('../shared/transport.js');
 
-            const customFetch = jest.fn().mockResolvedValue({
+            const customFetch = vi.fn().mockResolvedValue({
                 ok: true,
                 status: 200,
                 json: async () => ({
