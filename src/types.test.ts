@@ -9,8 +9,6 @@ import {
     ToolUseContentSchema,
     ToolResultContentSchema,
     ToolChoiceSchema,
-    UserMessageSchema,
-    AssistantMessageSchema,
     SamplingMessageSchema,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
@@ -455,18 +453,20 @@ describe('Types', () => {
         });
     });
 
-    describe("UserMessage and AssistantMessage", () => {
+    describe("SamplingMessage content types", () => {
         test("should validate user message with text", () => {
             const userMessage = {
                 role: "user",
                 content: { type: "text", text: "What's the weather?" }
             };
 
-            const result = UserMessageSchema.safeParse(userMessage);
+            const result = SamplingMessageSchema.safeParse(userMessage);
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.role).toBe("user");
-                expect(result.data.content.type).toBe("text");
+                if (!Array.isArray(result.data.content)) {
+                    expect(result.data.content.type).toBe("text");
+                }
             }
         });
 
@@ -476,13 +476,13 @@ describe('Types', () => {
                 content: {
                     type: "tool_result",
                     toolUseId: "call_123",
-                    content: { temperature: 72 }
+                    content: []
                 }
             };
 
-            const result = UserMessageSchema.safeParse(userMessage);
+            const result = SamplingMessageSchema.safeParse(userMessage);
             expect(result.success).toBe(true);
-            if (result.success) {
+            if (result.success && !Array.isArray(result.data.content)) {
                 expect(result.data.content.type).toBe("tool_result");
             }
         });
@@ -493,7 +493,7 @@ describe('Types', () => {
                 content: { type: "text", text: "I'll check the weather for you." }
             };
 
-            const result = AssistantMessageSchema.safeParse(assistantMessage);
+            const result = SamplingMessageSchema.safeParse(assistantMessage);
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.role).toBe("assistant");
@@ -511,29 +511,28 @@ describe('Types', () => {
                 }
             };
 
-            const result = AssistantMessageSchema.safeParse(assistantMessage);
+            const result = SamplingMessageSchema.safeParse(assistantMessage);
             expect(result.success).toBe(true);
-            if (result.success) {
+            if (result.success && !Array.isArray(result.data.content)) {
                 expect(result.data.content.type).toBe("tool_use");
             }
         });
 
-        test("should fail validation for assistant with tool result", () => {
-            const invalidMessage = {
+        test("should validate any content type for any role", () => {
+            // The simplified schema allows any content type for any role
+            const assistantWithToolResult = {
                 role: "assistant",
                 content: {
                     type: "tool_result",
                     toolUseId: "call_123",
-                    content: {}
+                    content: []
                 }
             };
 
-            const result = AssistantMessageSchema.safeParse(invalidMessage);
-            expect(result.success).toBe(false);
-        });
+            const result1 = SamplingMessageSchema.safeParse(assistantWithToolResult);
+            expect(result1.success).toBe(true);
 
-        test("should fail validation for user with tool call", () => {
-            const invalidMessage = {
+            const userWithToolUse = {
                 role: "user",
                 content: {
                     type: "tool_use",
@@ -543,8 +542,8 @@ describe('Types', () => {
                 }
             };
 
-            const result = UserMessageSchema.safeParse(invalidMessage);
-            expect(result.success).toBe(false);
+            const result2 = SamplingMessageSchema.safeParse(userWithToolUse);
+            expect(result2.success).toBe(true);
         });
     });
 

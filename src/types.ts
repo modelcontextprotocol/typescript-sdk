@@ -1209,6 +1209,7 @@ export const ToolChoiceSchema = z
          * Controls when tools are used:
          * - "auto": Model decides whether to use tools (default)
          * - "required": Model MUST use at least one tool before completing
+         * - "none": Model MUST NOT use any tools
          */
         mode: z.optional(z.enum(["auto", "required", "none"])),
         /**
@@ -1240,59 +1241,33 @@ export const ToolResultContentSchema = z
     })
     .passthrough();
 
-export const UserMessageContentSchema = z.discriminatedUnion("type", [
-  TextContentSchema,
-  ImageContentSchema,
-  AudioContentSchema,
-  ToolResultContentSchema,
-]);
-
 /**
- * A message from the user (server) in a sampling conversation.
+ * Content block types allowed in sampling messages.
+ * This includes text, image, audio, tool use requests, and tool results.
  */
-export const UserMessageSchema = z
-  .object({
-    role: z.literal("user"),
-    content: z.union([UserMessageContentSchema, z.array(UserMessageContentSchema)]),
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.optional(z.object({}).passthrough()),
-  })
-  .passthrough();
-
-export const AssistantMessageContentSchema = z.discriminatedUnion("type", [
+export const SamplingMessageContentBlockSchema = z.discriminatedUnion("type", [
   TextContentSchema,
   ImageContentSchema,
   AudioContentSchema,
   ToolUseContentSchema,
+  ToolResultContentSchema,
 ]);
-
-/**
- * A message from the assistant (LLM) in a sampling conversation.
- */
-export const AssistantMessageSchema = z
-  .object({
-    role: z.literal("assistant"),
-    content: z.union([AssistantMessageContentSchema, z.array(AssistantMessageContentSchema)]),
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.optional(z.object({}).passthrough()),
-  })
-  .passthrough();
 
 /**
  * Describes a message issued to or received from an LLM API.
- * This is a discriminated union of UserMessage and AssistantMessage, where
- * each role has its own set of allowed content types.
  */
-export const SamplingMessageSchema = z.discriminatedUnion("role", [
-  UserMessageSchema,
-  AssistantMessageSchema,
-]);
+export const SamplingMessageSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  content: z.union([
+    SamplingMessageContentBlockSchema,
+    z.array(SamplingMessageContentBlockSchema)
+  ]),
+  /**
+   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+   * for notes on _meta usage.
+   */
+  _meta: z.optional(z.object({}).passthrough()),
+}).passthrough();
 
 /**
  * Parameters for a `sampling/createMessage` request.
@@ -1369,7 +1344,10 @@ export const CreateMessageResultSchema = ResultSchema.extend({
     /**
      * Response content. May be ToolUseContent if stopReason is "toolUse".
      */
-    content: z.union([AssistantMessageContentSchema, z.array(AssistantMessageContentSchema)]),
+    content: z.union([
+        SamplingMessageContentBlockSchema,
+        z.array(SamplingMessageContentBlockSchema)
+    ]),
 });
 
 /* Elicitation */
@@ -1994,16 +1972,13 @@ export type LoggingMessageNotification = Infer<typeof LoggingMessageNotification
 
 /* Sampling */
 export type ToolChoice = Infer<typeof ToolChoiceSchema>;
-export type UserMessage = Infer<typeof UserMessageSchema>;
-export type AssistantMessage = Infer<typeof AssistantMessageSchema>;
 export type ModelHint = Infer<typeof ModelHintSchema>;
 export type ModelPreferences = Infer<typeof ModelPreferencesSchema>;
+export type SamplingMessageContentBlock = Infer<typeof SamplingMessageContentBlockSchema>;
 export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
 export type CreateMessageRequestParams = Infer<typeof CreateMessageRequestParamsSchema>;
 export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
 export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
-export type AssistantMessageContent = Infer<typeof AssistantMessageContentSchema>;
-export type UserMessageContent = Infer<typeof UserMessageContentSchema>;
 
 /* Elicitation */
 export type BooleanSchema = Infer<typeof BooleanSchemaSchema>;
