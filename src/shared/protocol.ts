@@ -19,11 +19,13 @@ import {
     ProgressNotificationSchema,
     Request,
     RequestId,
-    Result,
     ServerCapabilities,
     RequestMeta,
     MessageExtraInfo,
-    RequestInfo
+    RequestInfo,
+    type RequestGeneric,
+    type NotificationGeneric,
+    type ResultGeneric
 } from '../types.js';
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
@@ -171,7 +173,11 @@ type TimeoutInfo = {
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
  */
-export abstract class Protocol<SendRequestT extends Request, SendNotificationT extends Notification, SendResultT extends Result> {
+export abstract class Protocol<
+    SendRequestT extends RequestGeneric,
+    SendNotificationT extends NotificationGeneric,
+    SendResultT extends ResultGeneric
+> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<

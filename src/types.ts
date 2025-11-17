@@ -42,7 +42,7 @@ const BaseRequestParamsSchema = z.object({
     /**
      * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
      */
-    _meta: RequestMetaSchema.optional()
+    _meta: z.intersection(RequestMetaSchema.optional(), z.record(z.string(), z.unknown()).optional()).optional()
 });
 
 export const RequestSchema = z.object({
@@ -56,8 +56,10 @@ export const RequestSchema = z.object({
  * Used in {@link JSONRPCRequestSchema} for generic shape matching.
  */
 export const RequestSchemaGeneric = RequestSchema.extend({
-    params: z.intersection(RequestSchema.shape.params, z.record(z.string(), z.unknown()).optional())
+    params: z.intersection(RequestSchema.shape.params.optional(), z.record(z.string(), z.unknown()).optional())
 });
+
+export type RequestGeneric = ExpandRecursively<z.infer<typeof RequestSchemaGeneric>>;
 
 const NotificationsParamsSchema = z.object({
     /**
@@ -81,13 +83,17 @@ export const NotificationSchemaGeneric = NotificationSchema.extend({
     params: z.intersection(NotificationSchema.shape.params, z.record(z.string(), z.unknown()).optional())
 });
 
-export const ResultSchema = z.object({
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.record(z.string(), z.unknown()).optional()
-});
+export type NotificationGeneric = z.infer<typeof NotificationSchemaGeneric>;
+
+export const ResultSchema = z
+    .object({
+        /**
+         * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+         * for notes on _meta usage.
+         */
+        _meta: z.record(z.string(), z.unknown()).optional()
+    })
+    .catchall(z.unknown());
 
 /**
  * Generic result schema that allows any additional fields to be added to the result.
@@ -95,6 +101,8 @@ export const ResultSchema = z.object({
  * Used in {@link JSONRPCResponseSchema} for generic shape matching.
  */
 export const ResultSchemaGeneric = z.intersection(ResultSchema, z.record(z.string(), z.unknown()).optional());
+
+export type ResultGeneric = ExpandRecursively<z.infer<typeof ResultSchemaGeneric>>;
 /**
  * A uniquely identifying ID for a request in JSON-RPC.
  */
@@ -1035,14 +1043,18 @@ export const CallToolResultSchema = ResultSchema.extend({
     isError: z.boolean().optional()
 });
 
-/**
- * CallToolResultSchema extended with backwards compatibility to protocol version 2024-10-07.
- */
-export const CompatibilityCallToolResultSchema = CallToolResultSchema.or(
-    ResultSchema.extend({
-        toolResult: z.unknown()
-    })
-);
+// const LegacyCallToolResultSchema = ResultSchema.extend({
+//     toolResult: z.unknown()
+// });
+
+// export type LegacyCallToolResult = z.infer<typeof LegacyCallToolResultSchema>;
+
+// export const isLegacyCallToolResult = (value: unknown): value is LegacyCallToolResult => LegacyCallToolResultSchema.safeParse(value).success;
+
+// /**
+//  * CallToolResultSchema extended with backwards compatibility to protocol version 2024-10-07.
+//  */
+// export const CompatibilityCallToolResultSchema = CallToolResultSchema.or(LegacyCallToolResultSchema);
 
 /**
  * Parameters for a `tools/call` request.
@@ -1389,7 +1401,7 @@ export const ElicitResultSchema = ResultSchema.extend({
      * The submitted form data, only present when action is "accept".
      * Contains values matching the requested schema.
      */
-    content: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional()
+    content: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.undefined()])).optional()
 });
 
 /* Autocomplete */
@@ -1733,7 +1745,7 @@ export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
 export type CallToolRequestParams = Infer<typeof CallToolRequestParamsSchema>;
 export type CallToolResult = Infer<typeof CallToolResultSchema>;
-export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
+// export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
 export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
 

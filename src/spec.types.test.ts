@@ -62,6 +62,12 @@ type MakeUnknownsNotOptional<T> =
                       }
           : T;
 
+/**
+ * Spec Patches
+ *
+ * Temporary spec type patches, to be used until the spec is updated to fix the issues.
+ */
+
 // Targeted fix: in spec, treat ClientCapabilities.elicitation?: object as Record<string, unknown>
 type FixSpecClientCapabilities<T> = T extends { elicitation?: object }
     ? Omit<T, 'elicitation'> & { elicitation?: Record<string, unknown> }
@@ -74,6 +80,14 @@ type FixSpecInitializeRequestParams<T> = T extends { capabilities: infer C }
 type FixSpecInitializeRequest<T> = T extends { params: infer P } ? Omit<T, 'params'> & { params: FixSpecInitializeRequestParams<P> } : T;
 
 type FixSpecClientRequest<T> = T extends { params: infer P } ? Omit<T, 'params'> & { params: FixSpecInitializeRequestParams<P> } : T;
+
+// ElicitResult - spec does not allow undefined values in the content object
+type SpecElicitResultPatched = Omit<SpecTypes.ElicitResult, 'content'> & {
+    action: SpecTypes.ElicitResult['action'];
+    content?: {
+        [key: string]: string | number | boolean | string[] | undefined;
+    };
+};
 
 const sdkTypeChecks = {
     RequestParams: (sdk: SDKTypes.RequestParams, spec: SpecTypes.RequestParams) => {
@@ -205,7 +219,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ElicitResult: (sdk: SDKTypes.ElicitResult, spec: SpecTypes.ElicitResult) => {
+    ElicitResult: (sdk: SDKTypes.ElicitResult, spec: SpecElicitResultPatched) => {
         sdk = spec;
         spec = sdk;
     },

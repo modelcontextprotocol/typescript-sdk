@@ -7,7 +7,6 @@ import {
     type ClientNotification,
     type ClientRequest,
     type ClientResult,
-    type CompatibilityCallToolResultSchema,
     type CompleteRequest,
     CompleteResultSchema,
     EmptyResultSchema,
@@ -27,18 +26,19 @@ import {
     ListToolsResultSchema,
     type LoggingLevel,
     McpError,
-    type Notification,
     type ReadResourceRequest,
     ReadResourceResultSchema,
-    type Request,
-    type Result,
     type ServerCapabilities,
     SUPPORTED_PROTOCOL_VERSIONS,
     type SubscribeRequest,
     type Tool,
     type UnsubscribeRequest,
     ElicitResultSchema,
-    ElicitRequestSchema
+    ElicitRequestSchema,
+    type RequestGeneric,
+    type NotificationGeneric,
+    type ResultGeneric,
+    Result
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
@@ -149,9 +149,9 @@ export type ClientOptions = ProtocolOptions & {
  * ```
  */
 export class Client<
-    RequestT extends Request = Request,
-    NotificationT extends Notification = Notification,
-    ResultT extends Result = Result
+    RequestT extends RequestGeneric = RequestGeneric,
+    NotificationT extends NotificationGeneric = NotificationGeneric,
+    ResultT extends ResultGeneric = Result
 > extends Protocol<ClientRequest | RequestT, ClientNotification | NotificationT, ClientResult | ResultT> {
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;
@@ -461,7 +461,7 @@ export class Client<
 
     async callTool(
         params: CallToolRequest['params'],
-        resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
+        resultSchema: typeof CallToolResultSchema = CallToolResultSchema,
         options?: RequestOptions
     ) {
         const result = await this.request({ method: 'tools/call', params }, resultSchema, options);

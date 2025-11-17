@@ -4273,6 +4273,7 @@ describe('elicitInput()', () => {
 
         expect(checkAvailability).toHaveBeenCalledWith('ABC Restaurant', '2024-12-25', 2);
         expect(findAlternatives).not.toHaveBeenCalled();
+
         expect(result.content).toEqual([
             {
                 type: 'text',
