@@ -313,12 +313,12 @@ export const ClientCapabilitiesSchema = z.object({
     sampling: z
         .object({
             /**
-             * Present if the client supports non-'none' values for includeContext parameter.
+             * Present if the client supports context inclusion via includeContext parameter.
+             * If not declared, servers SHOULD only use `includeContext: "none"` (or omit it).
              */
             context: AssertObjectSchema.optional(),
             /**
-             * Present if the client supports tools and tool_choice parameters in sampling requests.
-             * Presence indicates full tool calling support.
+             * Present if the client supports tool use via tools and toolChoice parameters.
              */
             tools: AssertObjectSchema.optional(),
         })
@@ -1283,8 +1283,11 @@ export const CreateMessageRequestParamsSchema = BaseRequestParamsSchema.extend({
      */
     systemPrompt: z.string().optional(),
     /**
-     * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt. The client MAY ignore this request.
-     * Values different from 'none' require clientCapabilities.sampling.context
+     * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt.
+     * The client MAY ignore this request.
+     *
+     * Default is "none". Values "thisServer" and "allServers" are soft-deprecated. Servers SHOULD only use these values if the client
+     * declares ClientCapabilities.sampling.context. These values may be removed in future spec releases.
      */
     includeContext: z.enum(['none', 'thisServer', 'allServers']).optional(),
     temperature: z.number().optional(),
@@ -1300,13 +1303,14 @@ export const CreateMessageRequestParamsSchema = BaseRequestParamsSchema.extend({
      */
     metadata: AssertObjectSchema.optional(),
     /**
-     * Tool definitions for the LLM to use.
-     * Requires clientCapabilities.sampling.tools.
+     * Tools that the model may use during generation.
+     * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
      */
     tools: z.optional(z.array(ToolSchema)),
     /**
-     * Controls tool usage behavior.
-     * Requires clientCapabilities.sampling.tools and tools parameter.
+     * Controls how the model uses tools.
+     * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
+     * Default is `{ mode: "auto" }`.
      */
     toolChoice: z.optional(ToolChoiceSchema),
 });
@@ -1327,12 +1331,15 @@ export const CreateMessageResultSchema = ResultSchema.extend({
      */
     model: z.string(),
     /**
-     * The reason why sampling stopped.
+     * The reason why sampling stopped, if known.
+     *
      * Standard values:
      * - "endTurn": Natural end of the assistant's turn
      * - "stopSequence": A stop sequence was encountered
      * - "maxTokens": Maximum token limit was reached
      * - "toolUse": The model wants to use one or more tools
+     *
+     * This field is an open string to allow for provider-specific stop reasons.
      */
     stopReason: z.optional(
         z.enum(["endTurn", "stopSequence", "maxTokens", "toolUse"]).or(z.string()),
