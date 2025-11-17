@@ -1,4 +1,4 @@
-import { Readable, Writable } from 'stream';
+import { Readable, Writable } from 'node:stream';
 import { Client } from '../client/index.js';
 import { StdioClientTransport } from '../client/stdio.js';
 import { Server } from '../server/index.js';
