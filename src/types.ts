@@ -1035,19 +1035,6 @@ export const CallToolResultSchema = ResultSchema.extend({
     isError: z.boolean().optional()
 });
 
-// const LegacyCallToolResultSchema = ResultSchema.extend({
-//     toolResult: z.unknown()
-// });
-
-// export type LegacyCallToolResult = z.infer<typeof LegacyCallToolResultSchema>;
-
-// export const isLegacyCallToolResult = (value: unknown): value is LegacyCallToolResult => LegacyCallToolResultSchema.safeParse(value).success;
-
-// /**
-//  * CallToolResultSchema extended with backwards compatibility to protocol version 2024-10-07.
-//  */
-// export const CompatibilityCallToolResultSchema = CallToolResultSchema.or(LegacyCallToolResultSchema);
-
 /**
  * Parameters for a `tools/call` request.
  */
@@ -1737,7 +1724,6 @@ export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
 export type CallToolRequestParams = Infer<typeof CallToolRequestParamsSchema>;
 export type CallToolResult = Infer<typeof CallToolResultSchema>;
-// export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
 export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
 
