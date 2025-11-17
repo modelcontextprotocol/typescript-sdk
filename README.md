@@ -1327,9 +1327,8 @@ MCP servers can prompt the user to perform a URL-based action through URL elicit
 // Server-side: Prompt the user to navigate to a URL
 const result = await server.server.elicitURLInput({
     message: 'Please enter your API key',
-    requestedSchema: {
-        type: 'string'
-    }
+    elicitationId: '550e8400-e29b-41d4-a716-446655440000',
+    url: 'http://localhost:3000/api-key'
 });
 
 // Alternative, return an error from within a tool:
@@ -1338,7 +1337,7 @@ throw new UrlElicitationRequiredError([
         mode: 'url',
         message: 'This tool requires a payment confirmation. Open the link to confirm payment!',
         url: `http://localhost:${MCP_PORT}/confirm-payment?session=${sessionId}&elicitation=${elicitationId}&cartId=${encodeURIComponent(cartId)}`,
-        elicitationId
+        elicitationId: '550e8400-e29b-41d4-a716-446655440000'
     }
 ]);
 ```
