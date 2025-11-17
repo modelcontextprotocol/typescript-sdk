@@ -284,11 +284,8 @@ const FormElicitationCapabilitySchema = z.intersection(
 const ElicitationCapabilitySchema = z.preprocess(
     value => {
         if (value && typeof value === 'object' && !Array.isArray(value)) {
-            const recordValue = value as Record<string, unknown>;
-            const hasForm = Object.prototype.hasOwnProperty.call(recordValue, 'form');
-            const hasUrl = Object.prototype.hasOwnProperty.call(recordValue, 'url');
-            if (!hasForm && !hasUrl) {
-                return { ...recordValue, form: {} };
+            if (Object.keys(value as Record<string, unknown>).length === 0) {
+                return { form: {} };
             }
         }
         return value;
@@ -298,7 +295,7 @@ const ElicitationCapabilitySchema = z.preprocess(
             form: FormElicitationCapabilitySchema.optional(),
             url: AssertObjectSchema.optional()
         }),
-        z.record(z.string(), z.unknown())
+        z.record(z.string(), z.unknown()).optional()
     )
 );
 
