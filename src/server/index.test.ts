@@ -29,9 +29,9 @@ test('should accept latest protocol version', async () => {
     });
 
     const serverTransport: Transport = {
-        start: jest.fn().mockResolvedValue(undefined),
-        close: jest.fn().mockResolvedValue(undefined),
-        send: jest.fn().mockImplementation(message => {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockImplementation(message => {
             if (message.id === 1 && message.result) {
                 expect(message.result).toEqual({
                     protocolVersion: LATEST_PROTOCOL_VERSION,
@@ -92,9 +92,9 @@ test('should accept supported older protocol version', async () => {
     });
 
     const serverTransport: Transport = {
-        start: jest.fn().mockResolvedValue(undefined),
-        close: jest.fn().mockResolvedValue(undefined),
-        send: jest.fn().mockImplementation(message => {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockImplementation(message => {
             if (message.id === 1 && message.result) {
                 expect(message.result).toEqual({
                     protocolVersion: OLD_VERSION,
@@ -152,9 +152,9 @@ test('should handle unsupported protocol version', async () => {
     });
 
     const serverTransport: Transport = {
-        start: jest.fn().mockResolvedValue(undefined),
-        close: jest.fn().mockResolvedValue(undefined),
-        send: jest.fn().mockImplementation(message => {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockImplementation(message => {
             if (message.id === 1 && message.result) {
                 expect(message.result).toEqual({
                     protocolVersion: LATEST_PROTOCOL_VERSION,
@@ -866,7 +866,7 @@ test('should respect log level for transport without sessionId', async () => {
     };
 
     // Test the one that makes it through
-    clientTransport.onmessage = jest.fn().mockImplementation(message => {
+    clientTransport.onmessage = vi.fn().mockImplementation(message => {
         expect(message).toEqual({
             jsonrpc: '2.0',
             method: 'notifications/message',
@@ -935,7 +935,7 @@ test('should respect log level for transport with sessionId', async () => {
     };
 
     // Test the one that makes it through
-    clientTransport.onmessage = jest.fn().mockImplementation(message => {
+    clientTransport.onmessage = vi.fn().mockImplementation(message => {
         expect(message).toEqual({
             jsonrpc: '2.0',
             method: 'notifications/message',
