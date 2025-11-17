@@ -1,5 +1,5 @@
 import { EventSource, type ErrorEvent, type EventSourceInit } from 'eventsource';
-import { Transport, FetchLike } from '../shared/transport.js';
+import { Transport, FetchLike, createFetchWithInit } from '../shared/transport.js';
 import { JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 
@@ -70,6 +70,7 @@ export class SSEClientTransport implements Transport {
     private _requestInit?: RequestInit;
     private _authProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
+    private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
 
     onclose?: () => void;
@@ -84,6 +85,7 @@ export class SSEClientTransport implements Transport {
         this._requestInit = opts?.requestInit;
         this._authProvider = opts?.authProvider;
         this._fetch = opts?.fetch;
+        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
     }
 
     private async _authThenStart(): Promise<void> {
@@ -97,7 +99,7 @@ export class SSEClientTransport implements Transport {
                 serverUrl: this._url,
                 resourceMetadataUrl: this._resourceMetadataUrl,
                 scope: this._scope,
-                fetchFn: this._fetch
+                fetchFn: this._fetchWithInit
             });
         } catch (error) {
             this.onerror?.(error as Error);
@@ -220,7 +222,7 @@ export class SSEClientTransport implements Transport {
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
-            fetchFn: this._fetch
+            fetchFn: this._fetchWithInit
         });
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');
@@ -260,7 +262,7 @@ export class SSEClientTransport implements Transport {
                         serverUrl: this._url,
                         resourceMetadataUrl: this._resourceMetadataUrl,
                         scope: this._scope,
-                        fetchFn: this._fetch
+                        fetchFn: this._fetchWithInit
                     });
                     if (result !== 'AUTHORIZED') {
                         throw new UnauthorizedError();
