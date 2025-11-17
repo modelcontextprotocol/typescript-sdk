@@ -39,7 +39,8 @@ mcpServer.registerTool(
     async () => {
         try {
             // Request user information through form elicitation
-            const result = await mcpServer.server.elicitFormInput({
+            const result = await mcpServer.server.elicitInput({
+                mode: 'form',
                 message: 'Please provide your registration information:',
                 requestedSchema: {
                     type: 'object',
@@ -137,7 +138,8 @@ mcpServer.registerTool(
     async () => {
         try {
             // Step 1: Collect basic event information
-            const basicInfo = await mcpServer.server.elicitFormInput({
+            const basicInfo = await mcpServer.server.elicitInput({
+                mode: 'form',
                 message: 'Step 1: Enter basic event information',
                 requestedSchema: {
                     type: 'object',
@@ -165,7 +167,8 @@ mcpServer.registerTool(
             }
 
             // Step 2: Collect date and time
-            const dateTime = await mcpServer.server.elicitFormInput({
+            const dateTime = await mcpServer.server.elicitInput({
+                mode: 'form',
                 message: 'Step 2: Enter date and time',
                 requestedSchema: {
                     type: 'object',
@@ -239,7 +242,8 @@ mcpServer.registerTool(
     },
     async () => {
         try {
-            const result = await mcpServer.server.elicitFormInput({
+            const result = await mcpServer.server.elicitInput({
+                mode: 'form',
                 message: 'Please provide your shipping address:',
                 requestedSchema: {
                     type: 'object',

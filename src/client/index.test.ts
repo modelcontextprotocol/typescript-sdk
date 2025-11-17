@@ -643,7 +643,8 @@ test('should accept form-mode elicitation request when client advertises empty e
     // Server should be able to send form-mode elicitation request
     // This works because getSupportedElicitationModes defaults to form mode
     // when neither form nor url are explicitly declared
-    const result = await server.elicitFormInput({
+    const result = await server.elicitInput({
+        mode: 'form',
         message: 'Please provide your username',
         requestedSchema: {
             type: 'object',
@@ -883,7 +884,8 @@ test('should apply defaults for form-mode elicitation when applyDefaults is enab
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    const result = await server.elicitFormInput({
+    const result = await server.elicitInput({
+        mode: 'form',
         message: 'Please confirm your preferences',
         requestedSchema: {
             type: 'object',

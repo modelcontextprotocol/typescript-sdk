@@ -3,8 +3,8 @@ import {
     type ClientCapabilities,
     type CreateMessageRequest,
     CreateMessageResultSchema,
-    ElicitRequestFormParams,
-    ElicitRequestURLParams,
+    type ElicitRequestFormParams,
+    type ElicitRequestURLParams,
     type ElicitResult,
     ElicitResultSchema,
     EmptyResultSchema,
@@ -34,6 +34,8 @@ import {
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
+
+type LegacyElicitRequestFormParams = Omit<ElicitRequestFormParams, 'mode'>;
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -328,65 +330,74 @@ export class Server<
     }
 
     /**
-     * Creates a form elicitation request for the given parameters.
-     * @deprecated Use `elicitFormInput` instead
-     */
-    async elicitInput(params: Omit<ElicitRequestFormParams, 'mode'>, options?: RequestOptions): Promise<ElicitResult> {
-        return this.elicitFormInput(params, options);
-    }
-
-    /**
-     * Creates a form elicitation request for the given parameters.
-     * @param params The parameters for the form elicitation request.
+     * Creates an elicitation request for the given parameters.
+     * @param params The parameters for the form elicitation request (explicit mode: 'form').
      * @param options Optional request options.
      * @returns The result of the elicitation request.
      */
-    async elicitFormInput(params: Omit<ElicitRequestFormParams, 'mode'>, options?: RequestOptions): Promise<ElicitResult> {
-        const mode = 'form';
-        if (!this._clientCapabilities?.elicitation?.[mode]) {
-            throw new Error(`Client does not support ${mode} elicitation.`);
-        }
-        const result = await this.request({ method: 'elicitation/create', params: { ...params, mode } }, ElicitResultSchema, options);
+    async elicitInput(params: ElicitRequestFormParams, options?: RequestOptions): Promise<ElicitResult>;
+    /**
+     * Creates an elicitation request for the given parameters.
+     * @param params The parameters for the URL elicitation request (with url and elicitationId).
+     * @param options Optional request options.
+     * @returns The result of the elicitation request.
+     */
+    async elicitInput(params: ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult>;
+    /**
+     * Creates an elicitation request for the given parameters.
+     * @param params The parameters for the form elicitation request (legacy signature without mode).
+     * @param options Optional request options.
+     * @returns The result of the elicitation request.
+     */
+    async elicitInput(params: LegacyElicitRequestFormParams, options?: RequestOptions): Promise<ElicitResult>;
+    async elicitInput(
+        params: LegacyElicitRequestFormParams | ElicitRequestFormParams | ElicitRequestURLParams,
+        options?: RequestOptions
+    ): Promise<ElicitResult> {
+        const mode = 'mode' in params ? params.mode : 'form';
 
-        // Validate the response content against the requested schema if action is "accept"
-        if (result.action === 'accept' && result.content && params.requestedSchema) {
-            try {
-                const validator = this._jsonSchemaValidator.getValidator(params.requestedSchema as JsonSchemaType);
-                const validationResult = validator(result.content);
+        switch (mode) {
+            case 'url': {
+                if (!this._clientCapabilities?.elicitation?.url) {
+                    throw new Error('Client does not support url elicitation.');
+                }
 
-                if (!validationResult.valid) {
-                    throw new McpError(
-                        ErrorCode.InvalidParams,
-                        `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`
-                    );
+                const urlParams = params as ElicitRequestURLParams;
+                return this.request({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
+            }
+            case 'form': {
+                if (!this._clientCapabilities?.elicitation?.form) {
+                    throw new Error('Client does not support form elicitation.');
                 }
-            } catch (error) {
-                if (error instanceof McpError) {
-                    throw error;
+                const formParams: ElicitRequestFormParams =
+                    'mode' in params ? (params as ElicitRequestFormParams) : { ...(params as LegacyElicitRequestFormParams), mode: 'form' };
+
+                const result = await this.request({ method: 'elicitation/create', params: formParams }, ElicitResultSchema, options);
+
+                if (result.action === 'accept' && result.content && formParams.requestedSchema) {
+                    try {
+                        const validator = this._jsonSchemaValidator.getValidator(formParams.requestedSchema as JsonSchemaType);
+                        const validationResult = validator(result.content);
+
+                        if (!validationResult.valid) {
+                            throw new McpError(
+                                ErrorCode.InvalidParams,
+                                `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`
+                            );
+                        }
+                    } catch (error) {
+                        if (error instanceof McpError) {
+                            throw error;
+                        }
+                        throw new McpError(
+                            ErrorCode.InternalError,
+                            `Error validating elicitation response: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                    }
                 }
-                throw new McpError(
-                    ErrorCode.InternalError,
-                    `Error validating elicitation response: ${error instanceof Error ? error.message : String(error)}`
-                );
+                return result;
             }
         }
-
-        return result;
-    }
-
-    /**
-     * Creates a URL elicitation request for the given parameters.
-     * @param params The parameters for the URL elicitation request.
-     * @param options Optional request options.
-     * @returns The result of the elicitation request.
-     */
-    async elicitUrl(params: Omit<ElicitRequestURLParams, 'mode'>, options?: RequestOptions): Promise<ElicitResult> {
-        const mode = 'url';
-        if (!this._clientCapabilities?.elicitation?.[mode]) {
-            throw new Error(`Client does not support ${mode} elicitation.`);
-        }
-        const result = await this.request({ method: 'elicitation/create', params: { ...params, mode } }, ElicitResultSchema, options);
-        return result;
     }
 
     /**

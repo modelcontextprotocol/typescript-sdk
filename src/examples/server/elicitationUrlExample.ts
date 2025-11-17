@@ -623,7 +623,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
                     console.log(`Session initialized with ID: ${sessionId}`);
                     transports[sessionId] = transport;
                     sessionsNeedingElicitation[sessionId] = {
-                        elicitationSender: server.server.elicitUrl.bind(server.server),
+                        elicitationSender: params => server.server.elicitInput(params),
                         createCompletionNotifier: elicitationId => server.server.createElicitationCompletionNotifier(elicitationId)
                     };
                 }

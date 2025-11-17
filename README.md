@@ -1207,7 +1207,8 @@ server.registerTool(
 
         if (!available) {
             // Ask user if they want to try alternative dates
-            const result = await server.server.elicitFormInput({
+            const result = await server.server.elicitInput({
+                mode: 'form',
                 message: `No tables available at ${restaurant} on ${date}. Would you like to check alternative dates?`,
                 requestedSchema: {
                     type: 'object',
@@ -1299,6 +1300,8 @@ client.setRequestHandler(ElicitRequestSchema, async request => {
 });
 ```
 
+When calling `server.elicitInput`, prefer to explicitly set `mode: 'form'` for new code. Omitting the mode continues to work for backwards compatibility and defaults to form elicitation.
+
 Elicitation is a client capability. Clients must declare the `elicitation` capability during initialization:
 
 ```typescript
@@ -1325,7 +1328,8 @@ MCP servers can prompt the user to perform a URL-based action through URL elicit
 
 ```typescript
 // Server-side: Prompt the user to navigate to a URL
-const result = await server.server.elicitURLInput({
+const result = await server.server.elicitInput({
+    mode: 'url',
     message: 'Please enter your API key',
     elicitationId: '550e8400-e29b-41d4-a716-446655440000',
     url: 'http://localhost:3000/api-key'

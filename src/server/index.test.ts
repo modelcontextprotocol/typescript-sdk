@@ -311,7 +311,8 @@ test('should respect client elicitation capabilities', async () => {
 
     // This should work because elicitation is supported by the client
     await expect(
-        server.elicitFormInput({
+        server.elicitInput({
+            mode: 'form',
             message: 'Please provide your username',
             requestedSchema: {
                 type: 'object',
@@ -348,7 +349,90 @@ test('should respect client elicitation capabilities', async () => {
     ).rejects.toThrow(/^Client does not support/);
 });
 
-test('should throw when elicitFormInput is called without client form capability', async () => {
+test('should use elicitInput with mode: "form" by default for backwards compatibility', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                prompts: {},
+                resources: {},
+                tools: {},
+                logging: {}
+            },
+            enforceStrictCapabilities: true
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {}
+            }
+        }
+    );
+
+    client.setRequestHandler(ElicitRequestSchema, params => ({
+        action: 'accept',
+        content: {
+            username: params.params.message.includes('username') ? 'test-user' : undefined,
+            confirmed: true
+        }
+    }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // After schema parsing, empty elicitation object should have form capability injected
+    expect(server.getClientCapabilities()).toEqual({ elicitation: { form: {} } });
+
+    // This should work because elicitation is supported by the client
+    await expect(
+        server.elicitInput({
+            message: 'Please provide your username',
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    username: {
+                        type: 'string',
+                        title: 'Username',
+                        description: 'Your username'
+                    },
+                    confirmed: {
+                        type: 'boolean',
+                        title: 'Confirm',
+                        description: 'Please confirm',
+                        default: false
+                    }
+                },
+                required: ['username']
+            }
+        })
+    ).resolves.toEqual({
+        action: 'accept',
+        content: {
+            username: 'test-user',
+            confirmed: true
+        }
+    });
+
+    // This should still throw because sampling is not supported by the client
+    await expect(
+        server.createMessage({
+            messages: [],
+            maxTokens: 10
+        })
+    ).rejects.toThrow(/^Client does not support/);
+});
+
+test('should throw when elicitInput is called without client form capability', async () => {
     const server = new Server(
         {
             name: 'test server',
@@ -382,7 +466,8 @@ test('should throw when elicitFormInput is called without client form capability
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.elicitFormInput({
+        server.elicitInput({
+            mode: 'form',
             message: 'Please provide your username',
             requestedSchema: {
                 type: 'object',
@@ -396,7 +481,7 @@ test('should throw when elicitFormInput is called without client form capability
     ).rejects.toThrow('Client does not support form elicitation.');
 });
 
-test('should throw when elicitUrl is called without client URL capability', async () => {
+test('should throw when elicitInput is called without client URL capability', async () => {
     const server = new Server(
         {
             name: 'test server',
@@ -430,7 +515,8 @@ test('should throw when elicitUrl is called without client URL capability', asyn
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.elicitUrl({
+        server.elicitInput({
+            mode: 'url',
             message: 'Open the authorization URL',
             elicitationId: 'elicitation-001',
             url: 'https://example.com/auth'
@@ -479,7 +565,7 @@ test('should include form mode when sending elicitation form requests', async ()
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.elicitFormInput({
+        server.elicitInput({
             message: 'Confirm action',
             requestedSchema: {
                 type: 'object',
@@ -543,7 +629,8 @@ test('should include url mode when sending elicitation URL requests', async () =
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.elicitUrl({
+        server.elicitInput({
+            mode: 'url',
             message: 'Complete verification',
             elicitationId: 'elicitation-xyz',
             url: 'https://example.com/verify'
@@ -556,7 +643,7 @@ test('should include url mode when sending elicitation URL requests', async () =
     expect(receivedIds).toEqual(['elicitation-xyz']);
 });
 
-test('should reject elicitFormInput when client response violates requested schema', async () => {
+test('should reject elicitInput when client response violates requested schema', async () => {
     const server = new Server(
         {
             name: 'test server',
@@ -593,7 +680,7 @@ test('should reject elicitFormInput when client response violates requested sche
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.elicitFormInput({
+        server.elicitInput({
             message: 'Please provide your username',
             requestedSchema: {
                 type: 'object',
@@ -608,7 +695,7 @@ test('should reject elicitFormInput when client response violates requested sche
     ).rejects.toThrow('Elicitation response content does not match requested schema');
 });
 
-test('should wrap unexpected validator errors during elicitFormInput', async () => {
+test('should wrap unexpected validator errors during elicitInput', async () => {
     class ThrowingValidator implements jsonSchemaValidator {
         getValidator<T>(_schema: JsonSchemaType): JsonSchemaValidator<T> {
             throw new Error('boom - validator exploded');
@@ -652,7 +739,8 @@ test('should wrap unexpected validator errors during elicitFormInput', async () 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.elicitFormInput({
+        server.elicitInput({
+            mode: 'form',
             message: 'Provide any data',
             requestedSchema: {
                 type: 'object',
@@ -917,7 +1005,8 @@ test('should validate elicitation response against requested schema', async () =
 
     // Test with valid response
     await expect(
-        server.elicitFormInput({
+        server.elicitInput({
+            mode: 'form',
             message: 'Please provide your information',
             requestedSchema: {
                 type: 'object',
@@ -993,7 +1082,8 @@ test('should reject elicitation response with invalid data', async () => {
 
     // Test with invalid response
     await expect(
-        server.elicitFormInput({
+        server.elicitInput({
+            mode: 'form',
             message: 'Please provide your information',
             requestedSchema: {
                 type: 'object',
@@ -1071,7 +1161,8 @@ test('should allow elicitation reject and cancel without validation', async () =
 
     // Test reject - should not validate
     await expect(
-        server.elicitFormInput({
+        server.elicitInput({
+            mode: 'form',
             message: 'Please provide your name',
             requestedSchema: schema
         })
@@ -1081,7 +1172,8 @@ test('should allow elicitation reject and cancel without validation', async () =
 
     // Test cancel - should not validate
     await expect(
-        server.elicitFormInput({
+        server.elicitInput({
+            mode: 'form',
             message: 'Please provide your name',
             requestedSchema: schema
         })
