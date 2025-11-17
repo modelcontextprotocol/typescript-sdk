@@ -371,7 +371,7 @@ describe('Types', () => {
             const toolResult = {
                 type: "tool_result",
                 toolUseId: "call_123",
-                content: { temperature: 72, condition: "sunny" }
+                structuredContent: { temperature: 72, condition: "sunny" }
             };
 
             const result = ToolResultContentSchema.safeParse(toolResult);
@@ -379,7 +379,7 @@ describe('Types', () => {
             if (result.success) {
                 expect(result.data.type).toBe("tool_result");
                 expect(result.data.toolUseId).toBe("call_123");
-                expect(result.data.content).toEqual({ temperature: 72, condition: "sunny" });
+                expect(result.data.structuredContent).toEqual({ temperature: 72, condition: "sunny" });
             }
         });
 
@@ -387,13 +387,15 @@ describe('Types', () => {
             const toolResult = {
                 type: "tool_result",
                 toolUseId: "call_456",
-                content: { error: "API_ERROR", message: "Service unavailable" }
+                structuredContent: { error: "API_ERROR", message: "Service unavailable" },
+                isError: true
             };
 
             const result = ToolResultContentSchema.safeParse(toolResult);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.content).toEqual({ error: "API_ERROR", message: "Service unavailable" });
+                expect(result.data.structuredContent).toEqual({ error: "API_ERROR", message: "Service unavailable" });
+                expect(result.data.isError).toBe(true);
             }
         });
 
@@ -615,7 +617,7 @@ describe('Types', () => {
                             }
                         }
                     ],
-                    tool_choice: {
+                    toolChoice: {
                         mode: "auto"
                     }
                 }
@@ -625,7 +627,7 @@ describe('Types', () => {
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.params.tools).toHaveLength(1);
-                expect(result.data.params.tool_choice?.mode).toBe("auto");
+                expect(result.data.params.toolChoice?.mode).toBe("auto");
             }
         });
 
