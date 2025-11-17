@@ -602,6 +602,22 @@ const sdkTypeChecks = {
     ModelPreferences: (sdk: SDKTypes.ModelPreferences, spec: SpecTypes.ModelPreferences) => {
         sdk = spec;
         spec = sdk;
+    },
+    ToolChoice: (sdk: SDKTypes.ToolChoice, spec: SpecTypes.ToolChoice) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ToolUseContent: (sdk: SDKTypes.ToolUseContent, spec: SpecTypes.ToolUseContent) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ToolResultContent: (sdk: SDKTypes.ToolResultContent, spec: SpecTypes.ToolResultContent) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    SamplingMessageContentBlock: (sdk: SDKTypes.SamplingMessageContentBlock, spec: SpecTypes.SamplingMessageContentBlock) => {
+        sdk = spec;
+        spec = sdk;
     }
 };
 
