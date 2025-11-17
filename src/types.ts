@@ -28,17 +28,12 @@ export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
  */
 export const CursorSchema = z.string();
 
-const RequestMetaSchema = z
-    .object({
-        /**
-         * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
-         */
-        progressToken: ProgressTokenSchema.optional()
-    })
+const RequestMetaSchema = z.object({
     /**
-     * Passthrough required here because we want to allow any additional fields to be added to the request meta.
+     * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
      */
-    .passthrough();
+    progressToken: ProgressTokenSchema.optional()
+});
 
 /**
  * Common params for any request.
@@ -52,7 +47,16 @@ const BaseRequestParamsSchema = z.object({
 
 export const RequestSchema = z.object({
     method: z.string(),
-    params: BaseRequestParamsSchema.passthrough().optional()
+    params: BaseRequestParamsSchema.optional()
+});
+
+/**
+ * Generic request schema that allows any additional fields to be added to the params.
+ *
+ * Used in {@link JSONRPCRequestSchema} for generic shape matching.
+ */
+export const RequestSchemaGeneric = RequestSchema.extend({
+    params: z.intersection(RequestSchema.shape.params, z.record(z.string(), z.unknown()).optional())
 });
 
 const NotificationsParamsSchema = z.object({
@@ -65,22 +69,32 @@ const NotificationsParamsSchema = z.object({
 
 export const NotificationSchema = z.object({
     method: z.string(),
-    params: NotificationsParamsSchema.passthrough().optional()
+    params: NotificationsParamsSchema.optional()
 });
 
-export const ResultSchema = z
-    .object({
-        /**
-         * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-         * for notes on _meta usage.
-         */
-        _meta: z.record(z.string(), z.unknown()).optional()
-    })
-    /**
-     * Passthrough required here because we want to allow any additional fields to be added to the result.
-     */
-    .passthrough();
+/**
+ * Generic notification schema that allows any additional fields to be added to the params.
+ *
+ * Used in {@link JSONRPCNotificationSchema} for generic shape matching.
+ */
+export const NotificationSchemaGeneric = NotificationSchema.extend({
+    params: z.intersection(NotificationSchema.shape.params, z.record(z.string(), z.unknown()).optional())
+});
 
+export const ResultSchema = z.object({
+    /**
+     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * for notes on _meta usage.
+     */
+    _meta: z.record(z.string(), z.unknown()).optional()
+});
+
+/**
+ * Generic result schema that allows any additional fields to be added to the result.
+ *
+ * Used in {@link JSONRPCResponseSchema} for generic shape matching.
+ */
+export const ResultSchemaGeneric = z.intersection(ResultSchema, z.record(z.string(), z.unknown()).optional());
 /**
  * A uniquely identifying ID for a request in JSON-RPC.
  */
@@ -94,7 +108,7 @@ export const JSONRPCRequestSchema = z
         jsonrpc: z.literal(JSONRPC_VERSION),
         id: RequestIdSchema
     })
-    .merge(RequestSchema)
+    .merge(RequestSchemaGeneric)
     .strict();
 
 export const isJSONRPCRequest = (value: unknown): value is JSONRPCRequest => JSONRPCRequestSchema.safeParse(value).success;
@@ -106,7 +120,7 @@ export const JSONRPCNotificationSchema = z
     .object({
         jsonrpc: z.literal(JSONRPC_VERSION)
     })
-    .merge(NotificationSchema)
+    .merge(NotificationSchemaGeneric)
     .strict();
 
 export const isJSONRPCNotification = (value: unknown): value is JSONRPCNotification => JSONRPCNotificationSchema.safeParse(value).success;
@@ -118,7 +132,7 @@ export const JSONRPCResponseSchema = z
     .object({
         jsonrpc: z.literal(JSONRPC_VERSION),
         id: RequestIdSchema,
-        result: ResultSchema
+        result: ResultSchemaGeneric
     })
     .strict();
 
@@ -159,7 +173,7 @@ export const JSONRPCErrorSchema = z
             /**
              * Additional information about the error. The value of this member is defined by the sender (e.g. detailed error information, nested errors etc.).
              */
-            data: z.optional(z.unknown())
+            data: z.unknown().optional()
         })
     })
     .strict();
@@ -347,14 +361,14 @@ export const ServerCapabilitiesSchema = z.object({
     /**
      * Present if the server offers any prompt templates.
      */
-    prompts: z.optional(
-        z.object({
+    prompts: z
+        .object({
             /**
              * Whether this server supports issuing notifications for changes to the prompt list.
              */
-            listChanged: z.optional(z.boolean())
+            listChanged: z.boolean().optional()
         })
-    ),
+        .optional(),
     /**
      * Present if the server offers any resources to read.
      */
@@ -429,11 +443,11 @@ export const ProgressSchema = z.object({
     /**
      * Total number of items to process (or total progress required), if known.
      */
-    total: z.optional(z.number()),
+    total: z.number().optional(),
     /**
      * An optional message describing the current progress.
      */
-    message: z.optional(z.string())
+    message: z.string().optional()
 });
 
 export const ProgressNotificationParamsSchema = NotificationsParamsSchema.merge(ProgressSchema).extend({
@@ -470,7 +484,7 @@ export const PaginatedResultSchema = ResultSchema.extend({
      * An opaque token representing the pagination position after the last returned result.
      * If present, there may be more results available.
      */
-    nextCursor: z.optional(CursorSchema)
+    nextCursor: CursorSchema.optional()
 });
 
 /* Resources */
@@ -485,7 +499,7 @@ export const ResourceContentsSchema = z.object({
     /**
      * The MIME type of this resource, if known.
      */
-    mimeType: z.optional(z.string()),
+    mimeType: z.string().optional(),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
@@ -540,18 +554,18 @@ export const ResourceSchema = BaseMetadataSchema.extend({
      *
      * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
      */
-    description: z.optional(z.string()),
+    description: z.string().optional(),
 
     /**
      * The MIME type of this resource, if known.
      */
-    mimeType: z.optional(z.string()),
+    mimeType: z.string().optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.optional(z.object({}).passthrough())
+    _meta: z.record(z.string(), z.unknown()).optional()
 }).merge(IconsSchema);
 
 /**
@@ -568,18 +582,18 @@ export const ResourceTemplateSchema = BaseMetadataSchema.extend({
      *
      * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
      */
-    description: z.optional(z.string()),
+    description: z.string().optional(),
 
     /**
      * The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
      */
-    mimeType: z.optional(z.string()),
+    mimeType: z.string().optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.optional(z.object({}).passthrough())
+    _meta: z.record(z.string(), z.unknown()).optional()
 }).merge(IconsSchema);
 
 /**
@@ -694,11 +708,11 @@ export const PromptArgumentSchema = z.object({
     /**
      * A human-readable description of the argument.
      */
-    description: z.optional(z.string()),
+    description: z.string().optional(),
     /**
      * Whether this argument must be provided.
      */
-    required: z.optional(z.boolean())
+    required: z.boolean().optional()
 });
 
 /**
@@ -708,16 +722,16 @@ export const PromptSchema = BaseMetadataSchema.extend({
     /**
      * An optional description of what this prompt provides
      */
-    description: z.optional(z.string()),
+    description: z.string().optional(),
     /**
      * A list of arguments to use for templating the prompt.
      */
-    arguments: z.optional(z.array(PromptArgumentSchema)),
+    arguments: z.array(PromptArgumentSchema).optional(),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.optional(z.object({}).passthrough())
+    _meta: z.record(z.string(), z.unknown()).optional()
 }).merge(IconsSchema);
 
 /**
@@ -862,7 +876,7 @@ export const GetPromptResultSchema = ResultSchema.extend({
     /**
      * An optional description for the prompt.
      */
-    description: z.optional(z.string()),
+    description: z.string().optional(),
     messages: z.array(PromptMessageSchema)
 });
 
@@ -942,7 +956,7 @@ export const ToolSchema = BaseMetadataSchema.extend({
     inputSchema: z.object({
         type: z.literal('object'),
         properties: z.record(z.string(), AssertObjectSchema).optional(),
-        required: z.optional(z.array(z.string()))
+        required: z.array(z.string()).optional()
     }),
     /**
      * An optional JSON Schema object defining the structure of the tool's output returned in
@@ -952,17 +966,17 @@ export const ToolSchema = BaseMetadataSchema.extend({
         .object({
             type: z.literal('object'),
             properties: z.record(z.string(), AssertObjectSchema).optional(),
-            required: z.optional(z.array(z.string())),
+            required: z.array(z.string()).optional(),
             /**
              * Not in the MCP specification, but added to support the Ajv validator while removing .passthrough() which previously allowed additionalProperties to be passed through.
              */
-            additionalProperties: z.optional(z.boolean())
+            additionalProperties: z.boolean().optional()
         })
         .optional(),
     /**
      * Optional additional tool information.
      */
-    annotations: z.optional(ToolAnnotationsSchema),
+    annotations: ToolAnnotationsSchema.optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1018,7 +1032,7 @@ export const CallToolResultSchema = ResultSchema.extend({
      * server does not support tool calls, or any other exceptional conditions,
      * should be reported as an MCP error response.
      */
-    isError: z.optional(z.boolean())
+    isError: z.boolean().optional()
 });
 
 /**
@@ -1041,7 +1055,7 @@ export const CallToolRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
      * Arguments to pass to the tool.
      */
-    arguments: z.optional(z.record(z.string(), z.unknown()))
+    arguments: z.record(z.string(), z.unknown()).optional()
 });
 
 /**
@@ -1125,19 +1139,19 @@ export const ModelPreferencesSchema = z.object({
     /**
      * Optional hints to use for model selection.
      */
-    hints: z.optional(z.array(ModelHintSchema)),
+    hints: z.array(ModelHintSchema).optional(),
     /**
      * How much to prioritize cost when selecting a model.
      */
-    costPriority: z.optional(z.number().min(0).max(1)),
+    costPriority: z.number().min(0).max(1).optional(),
     /**
      * How much to prioritize sampling speed (latency) when selecting a model.
      */
-    speedPriority: z.optional(z.number().min(0).max(1)),
+    speedPriority: z.number().min(0).max(1).optional(),
     /**
      * How much to prioritize intelligence and capabilities when selecting a model.
      */
-    intelligencePriority: z.optional(z.number().min(0).max(1))
+    intelligencePriority: z.number().min(0).max(1).optional()
 });
 
 /**
@@ -1197,7 +1211,7 @@ export const CreateMessageResultSchema = ResultSchema.extend({
     /**
      * The reason why sampling stopped.
      */
-    stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens']).or(z.string())),
+    stopReason: z.enum(['endTurn', 'stopSequence', 'maxTokens']).or(z.string()).optional(),
     role: z.enum(['user', 'assistant']),
     content: z.discriminatedUnion('type', [TextContentSchema, ImageContentSchema, AudioContentSchema])
 });
@@ -1457,22 +1471,20 @@ export function assertCompleteRequestResourceTemplate(request: CompleteRequest):
  * The server's response to a completion/complete request
  */
 export const CompleteResultSchema = ResultSchema.extend({
-    completion: z
-        .object({
-            /**
-             * An array of completion values. Must not exceed 100 items.
-             */
-            values: z.array(z.string()).max(100),
-            /**
-             * The total number of completion options available. This can exceed the number of values actually sent in the response.
-             */
-            total: z.optional(z.number().int()),
-            /**
-             * Indicates whether there are additional completion options beyond those provided in the current response, even if the exact total is unknown.
-             */
-            hasMore: z.optional(z.boolean())
-        })
-        .passthrough()
+    completion: z.object({
+        /**
+         * An array of completion values. Must not exceed 100 items.
+         */
+        values: z.array(z.string()).max(100),
+        /**
+         * The total number of completion options available. This can exceed the number of values actually sent in the response.
+         */
+        total: z.number().int().optional(),
+        /**
+         * Indicates whether there are additional completion options beyond those provided in the current response, even if the exact total is unknown.
+         */
+        hasMore: z.boolean().optional()
+    })
 });
 
 /* Roots */

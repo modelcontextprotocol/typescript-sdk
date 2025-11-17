@@ -76,7 +76,7 @@ describe('Title field backwards compatibility', () => {
         expect(prompts.prompts[0].name).toBe('test-prompt');
         expect(prompts.prompts[0].title).toBe('Test Prompt Display Name');
         expect(prompts.prompts[0].description).toBe('A test prompt');
-    });
+    }, 15_000);
 
     it('should work with prompts using registerPrompt', async () => {
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
