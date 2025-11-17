@@ -29,8 +29,7 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS,
     type RequestGeneric,
     type NotificationGeneric,
-    type ResultGeneric,
-    Result
+    type Result
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
@@ -107,7 +106,7 @@ export type ServerOptions = ProtocolOptions & {
 export class Server<
     RequestT extends RequestGeneric = RequestGeneric,
     NotificationT extends NotificationGeneric = NotificationGeneric,
-    ResultT extends ResultGeneric = Result
+    ResultT extends Result = Result
 > extends Protocol<ServerRequest | RequestT, ServerNotification | NotificationT, ServerResult | ResultT> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;

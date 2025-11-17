@@ -822,7 +822,6 @@ describe('outputSchema validation', () => {
         server.setRequestHandler(CallToolRequestSchema, async request => {
             if (request.params.name === 'test-tool') {
                 return {
-                    content: [],
                     structuredContent: { result: 'success', count: 42 }
                 };
             }

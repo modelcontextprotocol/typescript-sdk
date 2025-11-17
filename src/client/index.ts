@@ -37,8 +37,7 @@ import {
     ElicitRequestSchema,
     type RequestGeneric,
     type NotificationGeneric,
-    type ResultGeneric,
-    Result
+    type Result
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
@@ -151,7 +150,7 @@ export type ClientOptions = ProtocolOptions & {
 export class Client<
     RequestT extends RequestGeneric = RequestGeneric,
     NotificationT extends NotificationGeneric = NotificationGeneric,
-    ResultT extends ResultGeneric = Result
+    ResultT extends Result = Result
 > extends Protocol<ClientRequest | RequestT, ClientNotification | NotificationT, ClientResult | ResultT> {
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;

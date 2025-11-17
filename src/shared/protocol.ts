@@ -25,7 +25,7 @@ import {
     RequestInfo,
     type RequestGeneric,
     type NotificationGeneric,
-    type ResultGeneric
+    type Result
 } from '../types.js';
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
@@ -176,7 +176,7 @@ type TimeoutInfo = {
 export abstract class Protocol<
     SendRequestT extends RequestGeneric,
     SendNotificationT extends NotificationGeneric,
-    SendResultT extends ResultGeneric
+    SendResultT extends Result
 > {
     private _transport?: Transport;
     private _requestMessageId = 0;

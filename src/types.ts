@@ -96,14 +96,6 @@ export const ResultSchema = z
     .catchall(z.unknown());
 
 /**
- * Generic result schema that allows any additional fields to be added to the result.
- *
- * Used in {@link JSONRPCResponseSchema} for generic shape matching.
- */
-export const ResultSchemaGeneric = z.intersection(ResultSchema, z.record(z.string(), z.unknown()).optional());
-
-export type ResultGeneric = ExpandRecursively<z.infer<typeof ResultSchemaGeneric>>;
-/**
  * A uniquely identifying ID for a request in JSON-RPC.
  */
 export const RequestIdSchema = z.union([z.string(), z.number().int()]);
@@ -140,7 +132,7 @@ export const JSONRPCResponseSchema = z
     .object({
         jsonrpc: z.literal(JSONRPC_VERSION),
         id: RequestIdSchema,
-        result: ResultSchemaGeneric
+        result: ResultSchema
     })
     .strict();
 
