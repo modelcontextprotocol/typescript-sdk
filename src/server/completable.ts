@@ -1,4 +1,5 @@
 import { ZodTypeAny } from 'zod';
+import { $ZodStandardSchema } from 'zod/v4/core';
 
 export enum McpZodTypeKind {
     Completable = 'McpCompletable'
@@ -19,6 +20,7 @@ export interface CompletableDef<T extends ZodTypeAny = ZodTypeAny> {
 
 export class Completable<T extends ZodTypeAny> {
     readonly _zod: T['_zod'] & { def: CompletableDef<T> };
+    readonly '~standard': $ZodStandardSchema<T>;
 
     /** @deprecated Use `.def` instead */
     get _def(): CompletableDef<T> {
@@ -38,6 +40,7 @@ export class Completable<T extends ZodTypeAny> {
             input: wrapped._zod?.input,
             output: wrapped._zod?.output
         } as T['_zod'] & { def: CompletableDef<T> };
+        this['~standard'] = wrapped['~standard'];
     }
 
     unwrap(): T {
