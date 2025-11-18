@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable no-constant-binary-expression */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
-import { Client } from './index.js';
+import { Client, getSupportedElicitationModes } from './index.js';
 import { z } from 'zod';
 import {
     RequestSchema,
@@ -594,6 +594,316 @@ test('should allow setRequestHandler for declared elicitation capability', () =>
             }
         }));
     }).toThrow('Client does not support sampling capability');
+});
+
+test('should accept form-mode elicitation request when client advertises empty elicitation object (back-compat)', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                prompts: {},
+                resources: {},
+                tools: {},
+                logging: {}
+            }
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {}
+            }
+        }
+    );
+
+    // Set up client handler for form-mode elicitation
+    client.setRequestHandler(ElicitRequestSchema, request => {
+        expect(request.params.mode).toBe('form');
+        return {
+            action: 'accept',
+            content: {
+                username: 'test-user',
+                confirmed: true
+            }
+        };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Server should be able to send form-mode elicitation request
+    // This works because getSupportedElicitationModes defaults to form mode
+    // when neither form nor url are explicitly declared
+    const result = await server.elicitInput({
+        mode: 'form',
+        message: 'Please provide your username',
+        requestedSchema: {
+            type: 'object',
+            properties: {
+                username: {
+                    type: 'string',
+                    title: 'Username',
+                    description: 'Your username'
+                },
+                confirmed: {
+                    type: 'boolean',
+                    title: 'Confirm',
+                    description: 'Please confirm',
+                    default: false
+                }
+            },
+            required: ['username']
+        }
+    });
+
+    expect(result.action).toBe('accept');
+    expect(result.content).toEqual({
+        username: 'test-user',
+        confirmed: true
+    });
+});
+
+test('should reject form-mode elicitation when client only supports URL mode', async () => {
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    url: {}
+                }
+            }
+        }
+    );
+
+    const handler = vi.fn().mockResolvedValue({
+        action: 'cancel'
+    });
+    client.setRequestHandler(ElicitRequestSchema, handler);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    let resolveResponse: ((message: unknown) => void) | undefined;
+    const responsePromise = new Promise<unknown>(resolve => {
+        resolveResponse = resolve;
+    });
+
+    serverTransport.onmessage = async message => {
+        if ('method' in message) {
+            if (message.method === 'initialize') {
+                if (!('id' in message) || message.id === undefined) {
+                    throw new Error('Expected initialize request to include an id');
+                }
+                const messageId = message.id;
+                await serverTransport.send({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: {},
+                        serverInfo: {
+                            name: 'test-server',
+                            version: '1.0.0'
+                        }
+                    }
+                });
+            } else if (message.method === 'notifications/initialized') {
+                // ignore
+            }
+        } else {
+            resolveResponse?.(message);
+        }
+    };
+
+    await client.connect(clientTransport);
+
+    // Server shouldn't send this, because the client capabilities
+    // only advertised URL mode. Test that it's rejected by the client:
+    const requestId = 1;
+    await serverTransport.send({
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'elicitation/create',
+        params: {
+            mode: 'form',
+            message: 'Provide your username',
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    username: {
+                        type: 'string'
+                    }
+                }
+            }
+        }
+    });
+
+    const response = (await responsePromise) as { id: number; error: { code: number; message: string } };
+
+    expect(response.id).toBe(requestId);
+    expect(response.error.code).toBe(ErrorCode.InvalidParams);
+    expect(response.error.message).toContain('Client does not support form-mode elicitation requests');
+    expect(handler).not.toHaveBeenCalled();
+
+    await client.close();
+});
+
+test('should reject URL-mode elicitation when client only supports form mode', async () => {
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    form: {}
+                }
+            }
+        }
+    );
+
+    const handler = vi.fn().mockResolvedValue({
+        action: 'cancel'
+    });
+    client.setRequestHandler(ElicitRequestSchema, handler);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    let resolveResponse: ((message: unknown) => void) | undefined;
+    const responsePromise = new Promise<unknown>(resolve => {
+        resolveResponse = resolve;
+    });
+
+    serverTransport.onmessage = async message => {
+        if ('method' in message) {
+            if (message.method === 'initialize') {
+                if (!('id' in message) || message.id === undefined) {
+                    throw new Error('Expected initialize request to include an id');
+                }
+                const messageId = message.id;
+                await serverTransport.send({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: {},
+                        serverInfo: {
+                            name: 'test-server',
+                            version: '1.0.0'
+                        }
+                    }
+                });
+            } else if (message.method === 'notifications/initialized') {
+                // ignore
+            }
+        } else {
+            resolveResponse?.(message);
+        }
+    };
+
+    await client.connect(clientTransport);
+
+    // Server shouldn't send this, because the client capabilities
+    // only advertised form mode. Test that it's rejected by the client:
+    const requestId = 2;
+    await serverTransport.send({
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'elicitation/create',
+        params: {
+            mode: 'url',
+            message: 'Open the authorization page',
+            elicitationId: 'elicitation-123',
+            url: 'https://example.com/authorize'
+        }
+    });
+
+    const response = (await responsePromise) as { id: number; error: { code: number; message: string } };
+
+    expect(response.id).toBe(requestId);
+    expect(response.error.code).toBe(ErrorCode.InvalidParams);
+    expect(response.error.message).toContain('Client does not support URL-mode elicitation requests');
+    expect(handler).not.toHaveBeenCalled();
+
+    await client.close();
+});
+
+test('should apply defaults for form-mode elicitation when applyDefaults is enabled', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                prompts: {},
+                resources: {},
+                tools: {},
+                logging: {}
+            }
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    form: {
+                        applyDefaults: true
+                    }
+                }
+            }
+        }
+    );
+
+    client.setRequestHandler(ElicitRequestSchema, request => {
+        expect(request.params.mode).toBe('form');
+        return {
+            action: 'accept',
+            content: {}
+        };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    const result = await server.elicitInput({
+        mode: 'form',
+        message: 'Please confirm your preferences',
+        requestedSchema: {
+            type: 'object',
+            properties: {
+                confirmed: {
+                    type: 'boolean',
+                    default: true
+                }
+            }
+        }
+    });
+
+    expect(result.action).toBe('accept');
+    expect(result.content).toEqual({
+        confirmed: true
+    });
+
+    await client.close();
 });
 
 /***
@@ -1234,5 +1544,43 @@ describe('outputSchema validation', () => {
         await expect(client.callTool({ name: 'strict-tool' })).rejects.toThrow(
             /Structured content does not match the tool's output schema/
         );
+    });
+});
+
+describe('getSupportedElicitationModes', () => {
+    test('should support nothing when capabilities are undefined', () => {
+        const result = getSupportedElicitationModes(undefined);
+        expect(result.supportsFormMode).toBe(false);
+        expect(result.supportsUrlMode).toBe(false);
+    });
+
+    test('should default to form mode when capabilities are an empty object', () => {
+        const result = getSupportedElicitationModes({});
+        expect(result.supportsFormMode).toBe(true);
+        expect(result.supportsUrlMode).toBe(false);
+    });
+
+    test('should support form mode when form is explicitly declared', () => {
+        const result = getSupportedElicitationModes({ form: {} });
+        expect(result.supportsFormMode).toBe(true);
+        expect(result.supportsUrlMode).toBe(false);
+    });
+
+    test('should support url mode when url is explicitly declared', () => {
+        const result = getSupportedElicitationModes({ url: {} });
+        expect(result.supportsFormMode).toBe(false);
+        expect(result.supportsUrlMode).toBe(true);
+    });
+
+    test('should support both modes when both are explicitly declared', () => {
+        const result = getSupportedElicitationModes({ form: {}, url: {} });
+        expect(result.supportsFormMode).toBe(true);
+        expect(result.supportsUrlMode).toBe(true);
+    });
+
+    test('should support form mode when form declares applyDefaults', () => {
+        const result = getSupportedElicitationModes({ form: { applyDefaults: true } });
+        expect(result.supportsFormMode).toBe(true);
+        expect(result.supportsUrlMode).toBe(false);
     });
 });
