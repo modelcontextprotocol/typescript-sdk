@@ -316,6 +316,71 @@ describe('requireBearerAuth middleware', () => {
         expect(nextFunction).not.toHaveBeenCalled();
     });
 
+    describe('with requiredScopes in WWW-Authenticate header', () => {
+        it('should include scope in WWW-Authenticate header for 401 responses when requiredScopes is provided', async () => {
+            mockRequest.headers = {};
+
+            const middleware = requireBearerAuth({
+                verifier: mockVerifier,
+                requiredScopes: ['read', 'write']
+            });
+            await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
+
+            expect(mockResponse.status).toHaveBeenCalledWith(401);
+            expect(mockResponse.set).toHaveBeenCalledWith(
+                'WWW-Authenticate',
+                'Bearer error="invalid_token", error_description="Missing Authorization header", scope="read write"'
+            );
+            expect(nextFunction).not.toHaveBeenCalled();
+        });
+
+        it('should include scope in WWW-Authenticate header for 403 insufficient scope responses', async () => {
+            const authInfo: AuthInfo = {
+                token: 'valid-token',
+                clientId: 'client-123',
+                scopes: ['read']
+            };
+            mockVerifyAccessToken.mockResolvedValue(authInfo);
+
+            mockRequest.headers = {
+                authorization: 'Bearer valid-token'
+            };
+
+            const middleware = requireBearerAuth({
+                verifier: mockVerifier,
+                requiredScopes: ['read', 'write']
+            });
+
+            await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
+
+            expect(mockResponse.status).toHaveBeenCalledWith(403);
+            expect(mockResponse.set).toHaveBeenCalledWith(
+                'WWW-Authenticate',
+                'Bearer error="insufficient_scope", error_description="Insufficient scope", scope="read write"'
+            );
+            expect(nextFunction).not.toHaveBeenCalled();
+        });
+
+        it('should include both scope and resource_metadata in WWW-Authenticate header when both are provided', async () => {
+            mockRequest.headers = {};
+
+            const resourceMetadataUrl = 'https://api.example.com/.well-known/oauth-protected-resource';
+            const middleware = requireBearerAuth({
+                verifier: mockVerifier,
+                requiredScopes: ['admin'],
+                resourceMetadataUrl
+            });
+            await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
+
+            expect(mockResponse.status).toHaveBeenCalledWith(401);
+            expect(mockResponse.set).toHaveBeenCalledWith(
+                'WWW-Authenticate',
+                `Bearer error="invalid_token", error_description="Missing Authorization header", scope="admin", resource_metadata="${resourceMetadataUrl}"`
+            );
+            expect(nextFunction).not.toHaveBeenCalled();
+        });
+    });
+
     describe('with resourceMetadataUrl', () => {
         const resourceMetadataUrl = 'https://api.example.com/.well-known/oauth-protected-resource';
 
@@ -416,7 +481,7 @@ describe('requireBearerAuth middleware', () => {
             expect(mockResponse.status).toHaveBeenCalledWith(403);
             expect(mockResponse.set).toHaveBeenCalledWith(
                 'WWW-Authenticate',
-                `Bearer error="insufficient_scope", error_description="Insufficient scope", resource_metadata="${resourceMetadataUrl}"`
+                `Bearer error="insufficient_scope", error_description="Insufficient scope", scope="read write", resource_metadata="${resourceMetadataUrl}"`
             );
             expect(nextFunction).not.toHaveBeenCalled();
         });
