@@ -137,7 +137,10 @@ export enum ErrorCode {
     InvalidRequest = -32600,
     MethodNotFound = -32601,
     InvalidParams = -32602,
-    InternalError = -32603
+    InternalError = -32603,
+
+    // MCP-specific error codes
+    UrlElicitationRequired = -32042
 }
 
 /**
@@ -271,6 +274,31 @@ export const ImplementationSchema = BaseMetadataSchema.extend({
     websiteUrl: z.string().optional()
 }).merge(IconsSchema);
 
+const FormElicitationCapabilitySchema = z.intersection(
+    z.object({
+        applyDefaults: z.boolean().optional()
+    }),
+    z.record(z.string(), z.unknown())
+);
+
+const ElicitationCapabilitySchema = z.preprocess(
+    value => {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            if (Object.keys(value as Record<string, unknown>).length === 0) {
+                return { form: {} };
+            }
+        }
+        return value;
+    },
+    z.intersection(
+        z.object({
+            form: FormElicitationCapabilitySchema.optional(),
+            url: AssertObjectSchema.optional()
+        }),
+        z.record(z.string(), z.unknown()).optional()
+    )
+);
+
 /**
  * Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
  */
@@ -286,17 +314,7 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Present if the client supports eliciting user input.
      */
-    elicitation: z.intersection(
-        z
-            .object({
-                /**
-                 * Whether the client should apply defaults to the user input.
-                 */
-                applyDefaults: z.boolean().optional()
-            })
-            .optional(),
-        z.record(z.string(), z.unknown()).optional()
-    ),
+    elicitation: ElicitationCapabilitySchema.optional(),
     /**
      * Present if the client supports listing roots.
      */
@@ -1333,11 +1351,15 @@ export const EnumSchemaSchema = z.union([LegacyTitledEnumSchemaSchema, SingleSel
 export const PrimitiveSchemaDefinitionSchema = z.union([EnumSchemaSchema, BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema]);
 
 /**
- * Parameters for an `elicitation/create` request.
+ * Parameters for an `elicitation/create` request for form-based elicitation.
  */
-export const ElicitRequestParamsSchema = BaseRequestParamsSchema.extend({
+export const ElicitRequestFormParamsSchema = BaseRequestParamsSchema.extend({
     /**
-     * The message to present to the user.
+     * The elicitation mode.
+     */
+    mode: z.literal('form'),
+    /**
+     * The message to present to the user describing what information is being requested.
      */
     message: z.string(),
     /**
@@ -1352,12 +1374,63 @@ export const ElicitRequestParamsSchema = BaseRequestParamsSchema.extend({
 });
 
 /**
+ * Parameters for an `elicitation/create` request for URL-based elicitation.
+ */
+export const ElicitRequestURLParamsSchema = BaseRequestParamsSchema.extend({
+    /**
+     * The elicitation mode.
+     */
+    mode: z.literal('url'),
+    /**
+     * The message to present to the user explaining why the interaction is needed.
+     */
+    message: z.string(),
+    /**
+     * The ID of the elicitation, which must be unique within the context of the server.
+     * The client MUST treat this ID as an opaque value.
+     */
+    elicitationId: z.string(),
+    /**
+     * The URL that the user should navigate to.
+     */
+    url: z.string().url()
+});
+
+/**
+ * The parameters for a request to elicit additional information from the user via the client.
+ */
+export const ElicitRequestParamsSchema = z.union([ElicitRequestFormParamsSchema, ElicitRequestURLParamsSchema]);
+
+/**
  * A request from the server to elicit user input via the client.
- * The client should present the message and form fields to the user.
+ * The client should present the message and form fields to the user (form mode)
+ * or navigate to a URL (URL mode).
  */
 export const ElicitRequestSchema = RequestSchema.extend({
     method: z.literal('elicitation/create'),
     params: ElicitRequestParamsSchema
+});
+
+/**
+ * Parameters for a `notifications/elicitation/complete` notification.
+ *
+ * @category notifications/elicitation/complete
+ */
+export const ElicitationCompleteNotificationParamsSchema = NotificationsParamsSchema.extend({
+    /**
+     * The ID of the elicitation that completed.
+     */
+    elicitationId: z.string()
+});
+
+/**
+ * A notification from the server to the client, informing it of a completion of an out-of-band elicitation request.
+ *
+ * @category notifications/elicitation/complete
+ */
+export const ElicitationCompleteNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/elicitation/complete'),
+    params: ElicitationCompleteNotificationParamsSchema
 });
 
 /**
@@ -1553,7 +1626,8 @@ export const ServerNotificationSchema = z.union([
     ResourceUpdatedNotificationSchema,
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
-    PromptListChangedNotificationSchema
+    PromptListChangedNotificationSchema,
+    ElicitationCompleteNotificationSchema
 ]);
 
 export const ServerResultSchema = z.union([
@@ -1577,6 +1651,38 @@ export class McpError extends Error {
     ) {
         super(`MCP error ${code}: ${message}`);
         this.name = 'McpError';
+    }
+
+    /**
+     * Factory method to create the appropriate error type based on the error code and data
+     */
+    static fromError(code: number, message: string, data?: unknown): McpError {
+        // Check for specific error types
+        if (code === ErrorCode.UrlElicitationRequired && data) {
+            const errorData = data as { elicitations?: unknown[] };
+            if (errorData.elicitations) {
+                return new UrlElicitationRequiredError(errorData.elicitations as ElicitRequestURLParams[], message);
+            }
+        }
+
+        // Default to generic McpError
+        return new McpError(code, message, data);
+    }
+}
+
+/**
+ * Specialized error type when a tool requires a URL mode elicitation.
+ * This makes it nicer for the client to handle since there is specific data to work with instead of just a code to check against.
+ */
+export class UrlElicitationRequiredError extends McpError {
+    constructor(elicitations: ElicitRequestURLParams[], message: string = `URL elicitation${elicitations.length > 1 ? 's' : ''} required`) {
+        super(ErrorCode.UrlElicitationRequired, message, {
+            elicitations: elicitations
+        });
+    }
+
+    get elicitations(): ElicitRequestURLParams[] {
+        return (this.data as { elicitations: ElicitRequestURLParams[] })?.elicitations ?? [];
     }
 }
 
@@ -1756,7 +1862,11 @@ export type MultiSelectEnumSchema = Infer<typeof MultiSelectEnumSchemaSchema>;
 
 export type PrimitiveSchemaDefinition = Infer<typeof PrimitiveSchemaDefinitionSchema>;
 export type ElicitRequestParams = Infer<typeof ElicitRequestParamsSchema>;
+export type ElicitRequestFormParams = Infer<typeof ElicitRequestFormParamsSchema>;
+export type ElicitRequestURLParams = Infer<typeof ElicitRequestURLParamsSchema>;
 export type ElicitRequest = Infer<typeof ElicitRequestSchema>;
+export type ElicitationCompleteNotificationParams = Infer<typeof ElicitationCompleteNotificationParamsSchema>;
+export type ElicitationCompleteNotification = Infer<typeof ElicitationCompleteNotificationSchema>;
 export type ElicitResult = Infer<typeof ElicitResultSchema>;
 
 /* Autocomplete */
