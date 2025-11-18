@@ -12,7 +12,7 @@ interface StoredTask {
  * A simple in-memory implementation of TaskStore for demonstration purposes.
  *
  * This implementation stores all tasks in memory and provides automatic cleanup
- * based on the keepAlive duration specified in the task metadata.
+ * based on the ttl duration specified in the task metadata.
  *
  * Note: This is not suitable for production use as all data is lost on restart.
  * For production, consider implementing TaskStore with a database or distributed cache.
@@ -31,7 +31,8 @@ export class InMemoryTaskStore implements TaskStore {
         const task: Task = {
             taskId,
             status: 'working',
-            keepAlive: metadata.keepAlive ?? null,
+            ttl: metadata.ttl ?? null,
+            createdAt: new Date().toISOString(),
             pollInterval: metadata.pollInterval ?? 500
         };
 
@@ -41,12 +42,12 @@ export class InMemoryTaskStore implements TaskStore {
             requestId
         });
 
-        // Schedule cleanup if keepAlive is specified
-        if (metadata.keepAlive) {
+        // Schedule cleanup if ttl is specified
+        if (metadata.ttl) {
             const timer = setTimeout(() => {
                 this.tasks.delete(taskId);
                 this.cleanupTimers.delete(taskId);
-            }, metadata.keepAlive);
+            }, metadata.ttl);
 
             this.cleanupTimers.set(taskId, timer);
         }
@@ -68,8 +69,8 @@ export class InMemoryTaskStore implements TaskStore {
         stored.result = result;
         stored.task.status = 'completed';
 
-        // Reset cleanup timer to start from now (if keepAlive is set)
-        if (stored.task.keepAlive) {
+        // Reset cleanup timer to start from now (if ttl is set)
+        if (stored.task.ttl) {
             const existingTimer = this.cleanupTimers.get(taskId);
             if (existingTimer) {
                 clearTimeout(existingTimer);
@@ -78,7 +79,7 @@ export class InMemoryTaskStore implements TaskStore {
             const timer = setTimeout(() => {
                 this.tasks.delete(taskId);
                 this.cleanupTimers.delete(taskId);
-            }, stored.task.keepAlive);
+            }, stored.task.ttl);
 
             this.cleanupTimers.set(taskId, timer);
         }
@@ -97,19 +98,19 @@ export class InMemoryTaskStore implements TaskStore {
         return stored.result;
     }
 
-    async updateTaskStatus(taskId: string, status: Task['status'], error?: string, _sessionId?: string): Promise<void> {
+    async updateTaskStatus(taskId: string, status: Task['status'], statusMessage?: string, _sessionId?: string): Promise<void> {
         const stored = this.tasks.get(taskId);
         if (!stored) {
             throw new Error(`Task with ID ${taskId} not found`);
         }
 
         stored.task.status = status;
-        if (error) {
-            stored.task.error = error;
+        if (statusMessage) {
+            stored.task.statusMessage = statusMessage;
         }
 
-        // If task is in a terminal state and has keepAlive, start cleanup timer
-        if (isTerminal(status) && stored.task.keepAlive) {
+        // If task is in a terminal state and has ttl, start cleanup timer
+        if (isTerminal(status) && stored.task.ttl) {
             const existingTimer = this.cleanupTimers.get(taskId);
             if (existingTimer) {
                 clearTimeout(existingTimer);
@@ -118,7 +119,7 @@ export class InMemoryTaskStore implements TaskStore {
             const timer = setTimeout(() => {
                 this.tasks.delete(taskId);
                 this.cleanupTimers.delete(taskId);
-            }, stored.task.keepAlive);
+            }, stored.task.ttl);
 
             this.cleanupTimers.set(taskId, timer);
         }

@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { InMemoryTaskStore } from './inMemoryTaskStore.js';
 import { TaskMetadata, Request } from '../../types.js';
 
@@ -16,7 +17,7 @@ describe('InMemoryTaskStore', () => {
         it('should create a new task with working status', async () => {
             const metadata: TaskMetadata = {
                 taskId: 'task-1',
-                keepAlive: 60000
+                ttl: 60000
             };
             const request: Request = {
                 method: 'tools/call',
@@ -29,11 +30,11 @@ describe('InMemoryTaskStore', () => {
             expect(task).toBeDefined();
             expect(task?.taskId).toBe('task-1');
             expect(task?.status).toBe('working');
-            expect(task?.keepAlive).toBe(60000);
+            expect(task?.ttl).toBe(60000);
             expect(task?.pollInterval).toBe(500);
         });
 
-        it('should create task without keepAlive', async () => {
+        it('should create task without ttl', async () => {
             const metadata: TaskMetadata = {
                 taskId: 'task-no-keepalive'
             };
@@ -46,7 +47,7 @@ describe('InMemoryTaskStore', () => {
 
             const task = await store.getTask('task-no-keepalive');
             expect(task).toBeDefined();
-            expect(task?.keepAlive).toBeNull();
+            expect(task?.ttl).toBeNull();
         });
 
         it('should reject duplicate taskId', async () => {
@@ -123,7 +124,7 @@ describe('InMemoryTaskStore', () => {
 
             const task = await store.getTask('status-test');
             expect(task?.status).toBe('failed');
-            expect(task?.error).toBe('Something went wrong');
+            expect(task?.statusMessage).toBe('Something went wrong');
         });
 
         it('should update task status to cancelled', async () => {
@@ -142,7 +143,7 @@ describe('InMemoryTaskStore', () => {
         beforeEach(async () => {
             const metadata: TaskMetadata = {
                 taskId: 'result-test',
-                keepAlive: 60000
+                ttl: 60000
             };
             await store.createTask(metadata, 333, {
                 method: 'tools/call',
@@ -205,19 +206,19 @@ describe('InMemoryTaskStore', () => {
         });
     });
 
-    describe('keepAlive cleanup', () => {
+    describe('ttl cleanup', () => {
         beforeEach(() => {
-            jest.useFakeTimers();
+            vi.useFakeTimers();
         });
 
         afterEach(() => {
-            jest.useRealTimers();
+            vi.useRealTimers();
         });
 
-        it('should cleanup task after keepAlive duration', async () => {
+        it('should cleanup task after ttl duration', async () => {
             const metadata: TaskMetadata = {
                 taskId: 'cleanup-test',
-                keepAlive: 1000
+                ttl: 1000
             };
             await store.createTask(metadata, 666, {
                 method: 'tools/call',
@@ -228,8 +229,8 @@ describe('InMemoryTaskStore', () => {
             let task = await store.getTask('cleanup-test');
             expect(task).toBeDefined();
 
-            // Fast-forward past keepAlive
-            jest.advanceTimersByTime(1001);
+            // Fast-forward past ttl
+            vi.advanceTimersByTime(1001);
 
             // Task should be cleaned up
             task = await store.getTask('cleanup-test');
@@ -239,7 +240,7 @@ describe('InMemoryTaskStore', () => {
         it('should reset cleanup timer when result is stored', async () => {
             const metadata: TaskMetadata = {
                 taskId: 'reset-cleanup',
-                keepAlive: 1000
+                ttl: 1000
             };
             await store.createTask(metadata, 777, {
                 method: 'tools/call',
@@ -247,7 +248,7 @@ describe('InMemoryTaskStore', () => {
             });
 
             // Fast-forward 500ms
-            jest.advanceTimersByTime(500);
+            vi.advanceTimersByTime(500);
 
             // Store result (should reset timer)
             await store.storeTaskResult('reset-cleanup', {
@@ -255,21 +256,21 @@ describe('InMemoryTaskStore', () => {
             });
 
             // Fast-forward another 500ms (total 1000ms since creation, but timer was reset)
-            jest.advanceTimersByTime(500);
+            vi.advanceTimersByTime(500);
 
             // Task should still exist
             const task = await store.getTask('reset-cleanup');
             expect(task).toBeDefined();
 
             // Fast-forward remaining time
-            jest.advanceTimersByTime(501);
+            vi.advanceTimersByTime(501);
 
             // Now task should be cleaned up
             const cleanedTask = await store.getTask('reset-cleanup');
             expect(cleanedTask).toBeNull();
         });
 
-        it('should not cleanup tasks without keepAlive', async () => {
+        it('should not cleanup tasks without ttl', async () => {
             const metadata: TaskMetadata = {
                 taskId: 'no-cleanup'
             };
@@ -279,7 +280,7 @@ describe('InMemoryTaskStore', () => {
             });
 
             // Fast-forward a long time
-            jest.advanceTimersByTime(100000);
+            vi.advanceTimersByTime(100000);
 
             // Task should still exist
             const task = await store.getTask('no-cleanup');
@@ -289,7 +290,7 @@ describe('InMemoryTaskStore', () => {
         it('should start cleanup timer when task reaches terminal state', async () => {
             const metadata: TaskMetadata = {
                 taskId: 'terminal-cleanup',
-                keepAlive: 1000
+                ttl: 1000
             };
             await store.createTask(metadata, 999, {
                 method: 'tools/call',
@@ -297,7 +298,7 @@ describe('InMemoryTaskStore', () => {
             });
 
             // Task in non-terminal state, fast-forward
-            jest.advanceTimersByTime(1001);
+            vi.advanceTimersByTime(1001);
 
             // Task should be cleaned up
             let task = await store.getTask('terminal-cleanup');
@@ -306,7 +307,7 @@ describe('InMemoryTaskStore', () => {
             // Create another task
             const metadata2: TaskMetadata = {
                 taskId: 'terminal-cleanup-2',
-                keepAlive: 2000
+                ttl: 2000
             };
             await store.createTask(metadata2, 1000, {
                 method: 'tools/call',
@@ -316,8 +317,8 @@ describe('InMemoryTaskStore', () => {
             // Update to terminal state
             await store.updateTaskStatus('terminal-cleanup-2', 'completed');
 
-            // Fast-forward past original keepAlive
-            jest.advanceTimersByTime(2001);
+            // Fast-forward past original ttl
+            vi.advanceTimersByTime(2001);
 
             // Task should be cleaned up
             task = await store.getTask('terminal-cleanup-2');
@@ -426,11 +427,11 @@ describe('InMemoryTaskStore', () => {
 
     describe('cleanup', () => {
         it('should clear all timers and tasks', async () => {
-            await store.createTask({ taskId: 'task-1', keepAlive: 1000 }, 1, {
+            await store.createTask({ taskId: 'task-1', ttl: 1000 }, 1, {
                 method: 'tools/call',
                 params: {}
             });
-            await store.createTask({ taskId: 'task-2', keepAlive: 2000 }, 2, {
+            await store.createTask({ taskId: 'task-2', ttl: 2000 }, 2, {
                 method: 'tools/call',
                 params: {}
             });
@@ -461,10 +462,10 @@ describe('InMemoryTaskStore', () => {
             await expect(store.deleteTask('non-existent')).rejects.toThrow('Task with ID non-existent not found');
         });
 
-        it('should clear cleanup timer when deleting task with keepAlive', async () => {
-            jest.useFakeTimers();
+        it('should clear cleanup timer when deleting task with ttl', async () => {
+            vi.useFakeTimers();
 
-            await store.createTask({ taskId: 'task-with-timer', keepAlive: 1000 }, 1, {
+            await store.createTask({ taskId: 'task-with-timer', ttl: 1000 }, 1, {
                 method: 'tools/call',
                 params: {}
             });
@@ -473,13 +474,13 @@ describe('InMemoryTaskStore', () => {
 
             await store.deleteTask('task-with-timer');
 
-            // Fast-forward past keepAlive time
-            jest.advanceTimersByTime(1001);
+            // Fast-forward past ttl time
+            vi.advanceTimersByTime(1001);
 
             // Task should not exist (it was deleted immediately, not cleaned up by timer)
             expect(await store.getTask('task-with-timer')).toBeNull();
 
-            jest.useRealTimers();
+            vi.useRealTimers();
         });
 
         it('should delete task with result', async () => {

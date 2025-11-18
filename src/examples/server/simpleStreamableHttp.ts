@@ -39,7 +39,7 @@ const getServer = () => {
             websiteUrl: 'https://github.com/modelcontextprotocol/typescript-sdk'
         },
         {
-            capabilities: { logging: {}, tasks: { requests: { tools: { call: true } } } },
+            capabilities: { logging: {}, tasks: { requests: { tools: { call: {} } } } },
             taskStore // Enable task support
         }
     );
@@ -464,7 +464,21 @@ const getServer = () => {
             }
         },
         {
-            async createTask({ duration }, { taskId, taskStore, taskRequestedKeepAlive }) {
+            async createTask({ duration }, { taskStore, taskRequestedTtl }) {
+                // Generate a simple task ID (in production, use a more secure method)
+                const taskId = `task-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+                // Create the task
+                const task = await taskStore.createTask(
+                    {
+                        taskId,
+                        ttl: taskRequestedTtl,
+                        pollInterval: 100
+                    },
+                    0,
+                    { method: 'tools/call', params: { name: 'createTask', arguments: { duration } } }
+                );
+
                 // Simulate out-of-band work
                 (async () => {
                     await new Promise(resolve => setTimeout(resolve, duration));
@@ -477,11 +491,11 @@ const getServer = () => {
                         ]
                     });
                 })();
-                return await taskStore.createTask({
-                    taskId,
-                    keepAlive: taskRequestedKeepAlive,
-                    pollInterval: 100
-                });
+
+                // Return CreateTaskResult with the created task
+                return {
+                    task
+                };
             },
             async getTask(_args, { taskId, taskStore }) {
                 const task = await taskStore.getTask(taskId);

@@ -1,7 +1,7 @@
 import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
 import type { Transport } from '../shared/transport.js';
 import { PendingRequest } from '../shared/request.js';
-import { v4 as uuidv4 } from '@lukeed/uuid';
+
 import {
     type CallToolRequest,
     CallToolResultSchema,
@@ -538,11 +538,11 @@ export class Client<
         resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
         options?: RequestOptions
     ): PendingRequest<ClientRequest | RequestT, ClientNotification | NotificationT, ClientResult | ResultT> {
-        // Automatically add task metadata if not provided
+        // Add task creation parameters if server supports it and not explicitly provided
         const optionsWithTask = {
             ...options,
             // We check the server capabilities in auto-assignment, but assume the caller knows what they're doing if they pass this explicitly
-            task: options?.task ?? (this._serverCapabilities?.tasks?.requests?.tools?.call ? { taskId: uuidv4() } : undefined)
+            task: options?.task ?? (this._serverCapabilities?.tasks?.requests?.tools?.call ? {} : undefined)
         };
         return this.beginRequest({ method: 'tools/call', params }, resultSchema, optionsWithTask);
     }

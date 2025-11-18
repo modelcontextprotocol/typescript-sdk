@@ -15,7 +15,6 @@ export interface TaskHandlerOptions {
 export class PendingRequest<SendRequestT extends Request, SendNotificationT extends Notification, SendResultT extends Result> {
     constructor(
         readonly protocol: Protocol<SendRequestT, SendNotificationT, SendResultT>,
-        readonly taskCreatedHandle: Promise<void>,
         readonly resultHandle: Promise<SendResultT>,
         readonly resultSchema: ZodType,
         readonly taskId?: string,
@@ -33,24 +32,17 @@ export class PendingRequest<SendRequestT extends Request, SendNotificationT exte
             return await this.resultHandle;
         }
 
-        // Whichever is successful first (or a failure if all fail) is returned.
+        // For task-based requests, start task polling and race with direct result
         return Promise.allSettled([
             (async () => {
-                // Start task handler immediately without waiting for creation notification
-                const taskPromise = this.taskHandler(this.taskId!, {
+                // Call onTaskCreated immediately since task is created synchronously by tool implementor
+                await onTaskCreated();
+
+                // Start task polling
+                return await this.taskHandler(this.taskId!, {
                     onTaskCreated,
                     onTaskStatus
                 });
-
-                // Call onTaskCreated callback when notification arrives, but don't block taskHandler
-                // The promise is tied to the lifecycle of taskPromise, so it won't leak
-                this.taskCreatedHandle
-                    .then(() => onTaskCreated())
-                    .catch(() => {
-                        // Silently ignore if notification never arrives or fails
-                    });
-
-                return await taskPromise;
             })(),
             this.resultHandle
         ]).then(([task, result]) => {
@@ -61,7 +53,7 @@ export class PendingRequest<SendRequestT extends Request, SendNotificationT exte
             }
 
             // Both failed - prefer to throw the result error since it's usually more meaningful
-            // (e.g., timeout, connection error, etc.) than the task creation failure
+            // (e.g., timeout, connection error, etc.) than the task polling failure
             throw result.reason;
         });
     }

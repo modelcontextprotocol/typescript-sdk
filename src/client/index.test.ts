@@ -840,11 +840,11 @@ describe('outputSchema validation', () => {
                     tasks: {
                         requests: {
                             tools: {
-                                call: true
+                                call: {}
                             },
                             tasks: {
                                 get: true,
-                                list: true,
+                                list: {},
                                 result: true
                             }
                         }
@@ -933,11 +933,11 @@ describe('outputSchema validation', () => {
                     tasks: {
                         requests: {
                             tools: {
-                                call: true
+                                call: {}
                             },
                             tasks: {
                                 get: true,
-                                list: true,
+                                list: {},
                                 result: true
                             }
                         }
@@ -1023,11 +1023,11 @@ describe('outputSchema validation', () => {
                     tasks: {
                         requests: {
                             tools: {
-                                call: true
+                                call: {}
                             },
                             tasks: {
                                 get: true,
-                                list: true,
+                                list: {},
                                 result: true
                             }
                         }
@@ -1109,11 +1109,11 @@ describe('outputSchema validation', () => {
                     tasks: {
                         requests: {
                             tools: {
-                                call: true
+                                call: {}
                             },
                             tasks: {
                                 get: true,
-                                list: true,
+                                list: {},
                                 result: true
                             }
                         }
@@ -1222,11 +1222,11 @@ describe('outputSchema validation', () => {
                     tasks: {
                         requests: {
                             tools: {
-                                call: true
+                                call: {}
                             },
                             tasks: {
                                 get: true,
-                                list: true,
+                                list: {},
                                 result: true
                             }
                         }
@@ -1353,7 +1353,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 tools: {
-                                    call: true
+                                    call: {}
                                 }
                             }
                         }
@@ -1363,18 +1363,27 @@ describe('Task-based execution', () => {
             );
 
             server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-                if (extra.taskId) {
-                    await extra.taskStore?.createTask({
-                        taskId: extra.taskId,
-                        keepAlive: extra.taskRequestedKeepAlive
-                    });
+                let taskId: string | undefined;
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    await extra.taskStore.createTask(
+                        {
+                            taskId,
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
                 }
+
                 if (request.params.name === 'test-tool') {
                     const result = {
                         content: [{ type: 'text', text: 'Tool executed successfully!' }]
                     };
-                    if (extra.taskId) {
-                        await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                    if (taskId && extra.taskStore) {
+                        await extra.taskStore.storeTaskResult(taskId, result);
                     }
                     return result;
                 }
@@ -1404,18 +1413,18 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Client creates task on server via tool call
-            const taskId = 'test-task-create';
             const pendingRequest = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
                 task: {
-                    taskId,
-                    keepAlive: 60000
+                    ttl: 60000
                 }
             });
 
             await pendingRequest.result();
 
-            // Verify task was created successfully
-            const task = await client.getTask({ taskId });
+            // Verify task was created successfully by listing tasks
+            const taskList = await client.listTasks();
+            expect(taskList.tasks.length).toBeGreaterThan(0);
+            const task = taskList.tasks[0];
             expect(task.status).toBe('completed');
         });
 
@@ -1431,7 +1440,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 tools: {
-                                    call: true
+                                    call: {}
                                 }
                             }
                         }
@@ -1441,18 +1450,27 @@ describe('Task-based execution', () => {
             );
 
             server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-                if (extra.taskId) {
-                    await extra.taskStore?.createTask({
-                        taskId: extra.taskId,
-                        keepAlive: extra.taskRequestedKeepAlive
-                    });
+                let taskId: string | undefined;
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    await extra.taskStore.createTask(
+                        {
+                            taskId,
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
                 }
+
                 if (request.params.name === 'test-tool') {
                     const result = {
                         content: [{ type: 'text', text: 'Success!' }]
                     };
-                    if (extra.taskId) {
-                        await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                    if (taskId && extra.taskStore) {
+                        await extra.taskStore.storeTaskResult(taskId, result);
                     }
                     return result;
                 }
@@ -1482,16 +1500,17 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Create a task
-            const taskId = 'test-task-get';
             const pending = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-                task: { taskId, keepAlive: 60000 }
+                task: { ttl: 60000 }
             });
             await pending.result();
 
-            // Query task status
-            const task = await client.getTask({ taskId });
+            // Query task status by listing tasks and getting the first one
+            const taskList = await client.listTasks();
+            expect(taskList.tasks.length).toBeGreaterThan(0);
+            const task = taskList.tasks[0];
             expect(task).toBeDefined();
-            expect(task.taskId).toBe(taskId);
+            expect(task.taskId).toBeDefined();
             expect(task.status).toBe('completed');
         });
 
@@ -1507,8 +1526,8 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 tools: {
-                                    call: true,
-                                    list: true
+                                    call: {},
+                                    list: {}
                                 }
                             }
                         }
@@ -1518,18 +1537,27 @@ describe('Task-based execution', () => {
             );
 
             server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-                if (extra.taskId) {
-                    await extra.taskStore?.createTask({
-                        taskId: extra.taskId,
-                        keepAlive: extra.taskRequestedKeepAlive
-                    });
+                let taskId: string | undefined;
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    await extra.taskStore.createTask(
+                        {
+                            taskId,
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
                 }
+
                 if (request.params.name === 'test-tool') {
                     const result = {
                         content: [{ type: 'text', text: 'Result data!' }]
                     };
-                    if (extra.taskId) {
-                        await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                    if (taskId && extra.taskStore) {
+                        await extra.taskStore.storeTaskResult(taskId, result);
                     }
                     return result;
                 }
@@ -1559,13 +1587,15 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Create a task
-            const taskId = 'test-task-result';
             const pending = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-                task: { taskId, keepAlive: 60000 }
+                task: { ttl: 60000 }
             });
             await pending.result();
 
-            // Query task result
+            // Get the task ID from the task list and query task result
+            const taskList = await client.listTasks();
+            expect(taskList.tasks.length).toBeGreaterThan(0);
+            const taskId = taskList.tasks[0].taskId;
             const result = await client.getTaskResult({ taskId }, CallToolResultSchema);
             expect(result.content).toEqual([{ type: 'text', text: 'Result data!' }]);
         });
@@ -1582,7 +1612,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 tools: {
-                                    call: true
+                                    call: {}
                                 }
                             }
                         }
@@ -1592,18 +1622,26 @@ describe('Task-based execution', () => {
             );
 
             server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-                if (extra.taskId) {
-                    await extra.taskStore?.createTask({
-                        taskId: extra.taskId,
-                        keepAlive: extra.taskRequestedKeepAlive
-                    });
+                let taskId: string | undefined;
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    await extra.taskStore.createTask(
+                        {
+                            taskId,
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
                 }
                 if (request.params.name === 'test-tool') {
                     const result = {
                         content: [{ type: 'text', text: 'Success!' }]
                     };
-                    if (extra.taskId) {
-                        await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                    if (taskId && extra.taskStore) {
+                        await extra.taskStore.storeTaskResult(taskId, result);
                     }
                     return result;
                 }
@@ -1633,19 +1671,26 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Create multiple tasks
-            const taskIds = ['task-list-1', 'task-list-2'];
+            const createdTaskIds: string[] = [];
 
-            for (const taskId of taskIds) {
+            for (let i = 0; i < 2; i++) {
                 const pending = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-                    task: { taskId, keepAlive: 60000 }
+                    task: { ttl: 60000 }
                 });
                 await pending.result();
+
+                // Get the task ID from the task list
+                const taskList = await client.listTasks();
+                const newTask = taskList.tasks.find(t => !createdTaskIds.includes(t.taskId));
+                if (newTask) {
+                    createdTaskIds.push(newTask.taskId);
+                }
             }
 
             // Query task list
             const taskList = await client.listTasks();
             expect(taskList.tasks.length).toBeGreaterThanOrEqual(2);
-            for (const taskId of taskIds) {
+            for (const taskId of createdTaskIds) {
                 expect(taskList.tasks).toContainEqual(
                     expect.objectContaining({
                         taskId,
@@ -1679,7 +1724,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 elicitation: {
-                                    create: true
+                                    create: {}
                                 }
                             }
                         }
@@ -1688,19 +1733,27 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (_request, extra) => {
-                if (extra.taskId) {
-                    await extra.taskStore?.createTask({
-                        taskId: extra.taskId,
-                        keepAlive: extra.taskRequestedKeepAlive
-                    });
+            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+                let taskId: string | undefined;
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    await extra.taskStore.createTask(
+                        {
+                            taskId,
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
                 }
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
-                if (extra.taskId) {
-                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                if (taskId && extra.taskStore) {
+                    await extra.taskStore.storeTaskResult(taskId, result);
                 }
                 return result;
             });
@@ -1715,7 +1768,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 elicitation: {
-                                    create: true
+                                    create: {}
                                 }
                             }
                         }
@@ -1728,7 +1781,6 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Server creates task on client via elicitation
-            const taskId = 'elicit-task-create';
             const ElicitResultSchema = z.object({
                 action: z.enum(['accept', 'decline', 'cancel']),
                 content: z.record(z.unknown()).optional()
@@ -1749,10 +1801,15 @@ describe('Task-based execution', () => {
                     }
                 },
                 ElicitResultSchema,
-                { task: { taskId, keepAlive: 60000 } }
+                { task: { ttl: 60000 } }
             );
 
             await pendingRequest.result();
+
+            // Get the task ID from the task list since it's generated automatically
+            const taskList = await server.listTasks();
+            expect(taskList.tasks.length).toBeGreaterThan(0);
+            const taskId = taskList.tasks[0].taskId;
 
             // Verify task was created
             const task = await server.getTask({ taskId });
@@ -1771,7 +1828,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 elicitation: {
-                                    create: true
+                                    create: {}
                                 }
                             }
                         }
@@ -1780,19 +1837,27 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (_request, extra) => {
-                if (extra.taskId) {
-                    await extra.taskStore?.createTask({
-                        taskId: extra.taskId,
-                        keepAlive: extra.taskRequestedKeepAlive
-                    });
+            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+                let taskId: string | undefined;
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    await extra.taskStore.createTask(
+                        {
+                            taskId,
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
                 }
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
-                if (extra.taskId) {
-                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                if (taskId && extra.taskStore) {
+                    await extra.taskStore.storeTaskResult(taskId, result);
                 }
                 return result;
             });
@@ -1807,7 +1872,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 elicitation: {
-                                    create: true
+                                    create: {}
                                 }
                             }
                         }
@@ -1820,7 +1885,6 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Create a task on client
-            const taskId = 'elicit-task-get';
             const ElicitResultSchema = z.object({
                 action: z.enum(['accept', 'decline', 'cancel']),
                 content: z.record(z.unknown()).optional()
@@ -1838,9 +1902,14 @@ describe('Task-based execution', () => {
                     }
                 },
                 ElicitResultSchema,
-                { task: { taskId, keepAlive: 60000 } }
+                { task: { ttl: 60000 } }
             );
             await pending.result();
+
+            // Get the task ID from the task list since it's generated automatically
+            const taskList = await server.listTasks();
+            expect(taskList.tasks.length).toBeGreaterThan(0);
+            const taskId = taskList.tasks[0].taskId;
 
             // Query task status
             const task = await server.getTask({ taskId });
@@ -1861,7 +1930,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 elicitation: {
-                                    create: true
+                                    create: {}
                                 }
                             }
                         }
@@ -1870,19 +1939,27 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (_request, extra) => {
-                if (extra.taskId) {
-                    await extra.taskStore?.createTask({
-                        taskId: extra.taskId,
-                        keepAlive: extra.taskRequestedKeepAlive
-                    });
+            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+                let taskId: string | undefined;
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    await extra.taskStore.createTask(
+                        {
+                            taskId,
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
                 }
                 const result = {
                     action: 'accept',
                     content: { username: 'result-user' }
                 };
-                if (extra.taskId) {
-                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                if (taskId && extra.taskStore) {
+                    await extra.taskStore.storeTaskResult(taskId, result);
                 }
                 return result;
             });
@@ -1897,7 +1974,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 elicitation: {
-                                    create: true
+                                    create: {}
                                 }
                             }
                         }
@@ -1910,7 +1987,6 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Create a task on client
-            const taskId = 'elicit-task-result';
             const ElicitResultSchema = z.object({
                 action: z.enum(['accept', 'decline', 'cancel']),
                 content: z.record(z.unknown()).optional()
@@ -1928,9 +2004,14 @@ describe('Task-based execution', () => {
                     }
                 },
                 ElicitResultSchema,
-                { task: { taskId, keepAlive: 60000 } }
+                { task: { ttl: 60000 } }
             );
             await pending.result();
+
+            // Get the task ID from the task list since it's generated automatically
+            const taskList = await server.listTasks();
+            expect(taskList.tasks.length).toBeGreaterThan(0);
+            const taskId = taskList.tasks[0].taskId;
 
             // Query task result
             const result = await server.getTaskResult({ taskId }, ElicitResultSchema);
@@ -1950,7 +2031,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 elicitation: {
-                                    create: true
+                                    create: {}
                                 }
                             }
                         }
@@ -1959,19 +2040,27 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (_request, extra) => {
-                if (extra.taskId) {
-                    await extra.taskStore?.createTask({
-                        taskId: extra.taskId,
-                        keepAlive: extra.taskRequestedKeepAlive
-                    });
+            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+                let taskId: string | undefined;
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    await extra.taskStore.createTask(
+                        {
+                            taskId,
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
                 }
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
-                if (extra.taskId) {
-                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                if (taskId && extra.taskStore) {
+                    await extra.taskStore.storeTaskResult(taskId, result);
                 }
                 return result;
             });
@@ -1986,7 +2075,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 elicitation: {
-                                    create: true
+                                    create: {}
                                 }
                             }
                         }
@@ -2004,8 +2093,8 @@ describe('Task-based execution', () => {
                 content: z.record(z.unknown()).optional()
             });
 
-            const taskIds = ['elicit-list-1', 'elicit-list-2'];
-            for (const taskId of taskIds) {
+            const createdTaskIds: string[] = [];
+            for (let i = 0; i < 2; i++) {
                 const pending = server.beginRequest(
                     {
                         method: 'elicitation/create',
@@ -2018,15 +2107,22 @@ describe('Task-based execution', () => {
                         }
                     },
                     ElicitResultSchema,
-                    { task: { taskId, keepAlive: 60000 } }
+                    { task: { ttl: 60000 } }
                 );
                 await pending.result();
+
+                // Get the task ID from the task list
+                const taskList = await server.listTasks();
+                const newTask = taskList.tasks.find(t => !createdTaskIds.includes(t.taskId));
+                if (newTask) {
+                    createdTaskIds.push(newTask.taskId);
+                }
             }
 
             // Query task list
             const taskList = await server.listTasks();
             expect(taskList.tasks.length).toBeGreaterThanOrEqual(2);
-            for (const taskId of taskIds) {
+            for (const taskId of createdTaskIds) {
                 expect(taskList.tasks).toContainEqual(
                     expect.objectContaining({
                         taskId,
@@ -2051,7 +2147,7 @@ describe('Task-based execution', () => {
                     tasks: {
                         requests: {
                             tools: {
-                                call: true
+                                call: {}
                             }
                         }
                     }
@@ -2061,18 +2157,26 @@ describe('Task-based execution', () => {
         );
 
         server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-            if (extra.taskId) {
-                await extra.taskStore?.createTask({
-                    taskId: extra.taskId,
-                    keepAlive: extra.taskRequestedKeepAlive
-                });
+            let taskId: string | undefined;
+
+            // Check if task creation is requested
+            if (request.params.task && extra.taskStore) {
+                taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                await extra.taskStore.createTask(
+                    {
+                        taskId,
+                        ttl: extra.taskRequestedTtl
+                    },
+                    extra.requestId,
+                    request
+                );
             }
             if (request.params.name === 'test-tool') {
                 const result = {
                     content: [{ type: 'text', text: `Result for ${request.params.arguments?.id || 'unknown'}` }]
                 };
-                if (extra.taskId) {
-                    await extra.taskStore?.storeTaskResult(extra.taskId, result);
+                if (taskId && extra.taskStore) {
+                    await extra.taskStore.storeTaskResult(taskId, result);
                 }
                 return result;
             }
@@ -2102,7 +2206,7 @@ describe('Task-based execution', () => {
                     tasks: {
                         requests: {
                             tools: {
-                                call: true
+                                call: {}
                             }
                         }
                     }
@@ -2115,19 +2219,26 @@ describe('Task-based execution', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         // Create multiple tasks
-        const taskIds = ['task-1', 'task-2', 'task-3'];
+        const createdTaskIds: string[] = [];
 
-        for (const taskId of taskIds) {
-            const pending = client.beginCallTool({ name: 'test-tool', arguments: { id: taskId } }, CallToolResultSchema, {
-                task: { taskId, keepAlive: 60000 }
+        for (let i = 0; i < 3; i++) {
+            const pending = client.beginCallTool({ name: 'test-tool', arguments: { id: `task-${i + 1}` } }, CallToolResultSchema, {
+                task: { ttl: 60000 }
             });
             await pending.result();
+
+            // Get the task ID from the task list
+            const taskList = await client.listTasks();
+            const newTask = taskList.tasks.find(t => !createdTaskIds.includes(t.taskId));
+            if (newTask) {
+                createdTaskIds.push(newTask.taskId);
+            }
         }
 
         // List all tasks without cursor
         const firstPage = await client.listTasks();
         expect(firstPage.tasks.length).toBeGreaterThan(0);
-        expect(firstPage.tasks.map(t => t.taskId)).toEqual(expect.arrayContaining(taskIds));
+        expect(firstPage.tasks.map(t => t.taskId)).toEqual(expect.arrayContaining(createdTaskIds));
 
         // If there's a cursor, test pagination
         if (firstPage.nextCursor) {
@@ -2164,7 +2275,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 tools: {
-                                    call: true
+                                    call: {}
                                 }
                             }
                         }
@@ -2183,7 +2294,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 tools: {
-                                    call: true
+                                    call: {}
                                 }
                             }
                         }
@@ -2211,7 +2322,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 tools: {
-                                    call: true
+                                    call: {}
                                 }
                             }
                         }
@@ -2230,7 +2341,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 tools: {
-                                    call: true
+                                    call: {}
                                 }
                             }
                         }
@@ -2258,7 +2369,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 elicitation: {
-                                    create: true
+                                    create: {}
                                 }
                             }
                         }
@@ -2282,7 +2393,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 elicitation: {
-                                    create: true
+                                    create: {}
                                 }
                             }
                         }
@@ -2313,7 +2424,7 @@ test('should respect server task capabilities', async () => {
                 tasks: {
                     requests: {
                         tools: {
-                            call: true
+                            call: {}
                         }
                     }
                 }
@@ -2358,7 +2469,7 @@ test('should respect server task capabilities', async () => {
         tasks: {
             requests: {
                 tools: {
-                    call: true
+                    call: {}
                 }
             }
         }
@@ -2366,7 +2477,7 @@ test('should respect server task capabilities', async () => {
 
     // These should work because server supports tasks
     const pendingRequest = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-        task: { taskId: 'test-task', keepAlive: 60000 }
+        task: { ttl: 60000 }
     });
     await expect(pendingRequest.result()).resolves.not.toThrow();
     await expect(client.listTasks()).resolves.not.toThrow();

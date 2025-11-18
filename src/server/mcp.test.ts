@@ -768,7 +768,7 @@ describe('tool()', () => {
             'test',
             'A tool with everything',
             { name: z.string() },
-            { title: 'Complete Test Tool', readOnlyHint: true, openWorldHint: false, taskHint: false },
+            { title: 'Complete Test Tool', readOnlyHint: true, openWorldHint: false, taskHint: 'never' },
             async ({ name }) => ({
                 content: [{ type: 'text', text: `Hello, ${name}!` }]
             })
@@ -783,7 +783,7 @@ describe('tool()', () => {
                     title: 'Complete Test Tool',
                     readOnlyHint: true,
                     openWorldHint: false,
-                    taskHint: false
+                    taskHint: 'never'
                 }
             },
             async ({ name }) => ({
@@ -808,7 +808,7 @@ describe('tool()', () => {
             title: 'Complete Test Tool',
             readOnlyHint: true,
             openWorldHint: false,
-            taskHint: false
+            taskHint: 'never'
         });
         expect(result.tools[1].name).toBe('test (new api)');
         expect(result.tools[1].description).toBe('A tool with everything');
@@ -837,7 +837,7 @@ describe('tool()', () => {
                 title: 'Complete Test Tool with empty params',
                 readOnlyHint: true,
                 openWorldHint: false,
-                taskHint: false
+                taskHint: 'never'
             },
             async () => ({
                 content: [{ type: 'text', text: 'Test response' }]
@@ -853,7 +853,7 @@ describe('tool()', () => {
                     title: 'Complete Test Tool with empty params',
                     readOnlyHint: true,
                     openWorldHint: false,
-                    taskHint: false
+                    taskHint: 'never'
                 }
             },
             async () => ({
@@ -878,7 +878,7 @@ describe('tool()', () => {
             title: 'Complete Test Tool with empty params',
             readOnlyHint: true,
             openWorldHint: false,
-            taskHint: false
+            taskHint: 'never'
         });
         expect(result.tools[1].name).toBe('test (new api)');
         expect(result.tools[1].description).toBe('A tool with everything but empty params');

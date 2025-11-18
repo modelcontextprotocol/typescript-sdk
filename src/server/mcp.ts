@@ -34,7 +34,6 @@ import {
     CreateTaskResult,
     GetTaskResult,
     Result,
-    TASK_META_KEY,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     assertCompleteRequestPrompt,
@@ -44,7 +43,7 @@ import { Completable, CompletableDef } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
 import { RequestHandlerExtra, RequestTaskStore } from '../shared/protocol.js';
 import { Transport } from '../shared/transport.js';
-import { isTerminal } from '../shared/task.js';
+
 import { validateAndWarnToolName } from '../shared/toolNameValidation.js';
 
 /**
@@ -133,10 +132,10 @@ export class McpServer {
             })
         );
 
-        this.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
+        this.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult | CreateTaskResult> => {
             const tool = this._registeredTools[request.params.name];
 
-            let result: CallToolResult;
+            let result: CallToolResult | CreateTaskResult;
 
             try {
                 if (!tool) {
@@ -147,8 +146,8 @@ export class McpServer {
                     throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
                 }
 
+                const isTaskRequest = !!request.params.task;
                 if (tool.inputSchema) {
-                    const cb = tool.callback as ToolCallback<ZodRawShape>;
                     const parseResult = await tool.inputSchema.safeParseAsync(request.params.arguments);
                     if (!parseResult.success) {
                         throw new McpError(
@@ -159,10 +158,40 @@ export class McpServer {
 
                     const args = parseResult.data;
 
-                    result = await Promise.resolve(cb(args, extra));
+                    const handler = tool.handler as AnyToolHandler<ZodRawShape>;
+                    if ('createTask' in handler) {
+                        const cb = handler.createTask;
+                        if (!extra.taskStore) {
+                            throw new Error('No task store provided.');
+                        }
+
+                        // Needed to show the compiler this field exists
+                        const taskExtra = { ...extra, taskStore: extra.taskStore };
+                        result = await Promise.resolve(cb(args, taskExtra));
+                    } else {
+                        const cb = handler;
+                        result = await Promise.resolve(cb(args, extra));
+                    }
                 } else {
-                    const cb = tool.callback as ToolCallback<undefined>;
-                    result = await Promise.resolve(cb(extra));
+                    const handler = tool.handler as AnyToolHandler<undefined>;
+                    if ('createTask' in handler) {
+                        const cb = handler.createTask;
+                        if (!extra.taskStore) {
+                            throw new Error('No task store provided.');
+                        }
+
+                        // Needed to show the compiler this field exists
+                        const taskExtra = { ...extra, taskStore: extra.taskStore };
+                        result = await Promise.resolve(cb(taskExtra));
+                    } else {
+                        const cb = handler;
+                        result = await Promise.resolve(cb(extra));
+                    }
+                }
+
+                if (isTaskRequest) {
+                    // Return the CreateTaskResult immediately
+                    return result;
                 }
 
                 if (tool.outputSchema && !result.isError) {
@@ -668,7 +697,7 @@ export class McpServer {
         outputSchema: ZodRawShape | ZodType<object> | undefined,
         annotations: ToolAnnotations | undefined,
         _meta: Record<string, unknown> | undefined,
-        callback: ToolCallback<ZodRawShape | undefined>
+        handler: AnyToolHandler<ZodRawShape | undefined>
     ): RegisteredTool {
         // Validate tool name according to SEP specification
         validateAndWarnToolName(name);
@@ -680,7 +709,7 @@ export class McpServer {
             outputSchema: getZodSchemaObject(outputSchema),
             annotations,
             _meta,
-            callback,
+            handler: handler,
             enabled: true,
             disable: () => registeredTool.update({ enabled: false }),
             enable: () => registeredTool.update({ enabled: true }),
@@ -696,7 +725,7 @@ export class McpServer {
                 if (typeof updates.title !== 'undefined') registeredTool.title = updates.title;
                 if (typeof updates.description !== 'undefined') registeredTool.description = updates.description;
                 if (typeof updates.paramsSchema !== 'undefined') registeredTool.inputSchema = z.object(updates.paramsSchema);
-                if (typeof updates.callback !== 'undefined') registeredTool.callback = updates.callback;
+                if (typeof updates.callback !== 'undefined') registeredTool.handler = updates.callback;
                 if (typeof updates.annotations !== 'undefined') registeredTool.annotations = updates.annotations;
                 if (typeof updates._meta !== 'undefined') registeredTool._meta = updates._meta;
                 if (typeof updates.enabled !== 'undefined') registeredTool.enabled = updates.enabled;
@@ -863,34 +892,16 @@ export class McpServer {
         },
         handler: ToolTaskHandler<InputArgs>
     ): RegisteredTool {
-        // TODO: Attach to individual request handlers and remove this wrapper
-        const cb: ToolCallback<InputArgs> = (async (...args) => {
-            const [inputArgs, extra] = args;
-
-            const taskStore = extra.taskStore;
-            if (!taskStore) {
-                throw new Error('Task store is not available');
-            }
-
-            const taskMetadata = extra._meta?.[TASK_META_KEY];
-            const taskId = taskMetadata?.taskId;
-            if (!taskId) {
-                throw new Error('No task ID provided');
-            }
-
-            // Internal polling to allow using this interface before internals are hooked up
-            const taskExtra = { ...extra, taskId, taskStore };
-            let task = await handler.createTask(inputArgs, taskExtra);
-            do {
-                await new Promise(resolve => setTimeout(resolve, task.pollInterval ?? 5000));
-                task = await handler.getTask(inputArgs, taskExtra);
-            } while (!isTerminal(task.status));
-
-            const result: CallToolResult = await handler.getTaskResult(inputArgs, taskExtra);
-            return result;
-        }) as ToolCallback<InputArgs>;
-
-        return this.registerTool(name, { ...config, annotations: { ...config.annotations, taskHint: true } }, cb);
+        return this._createRegisteredTool(
+            name,
+            config.title,
+            config.description,
+            config.inputSchema,
+            config.outputSchema,
+            { ...config.annotations, taskHint: 'always' },
+            config._meta,
+            handler
+        );
     }
 
     /**
@@ -1082,6 +1093,16 @@ export class ResourceTemplate {
     }
 }
 
+export type BaseToolCallback<
+    SendResultT extends Result,
+    Extra extends RequestHandlerExtra<ServerRequest, ServerNotification, SendResultT>,
+    Args extends undefined | ZodRawShape | ZodType<object>
+> = Args extends ZodRawShape
+    ? (args: z.objectOutputType<Args, ZodTypeAny>, extra: Extra) => SendResultT | Promise<SendResultT>
+    : Args extends ZodType<infer T>
+      ? (args: T, extra: Extra) => SendResultT | Promise<SendResultT>
+      : (extra: Extra) => SendResultT | Promise<SendResultT>;
+
 /**
  * Callback for a tool handler registered with Server.tool().
  *
@@ -1092,29 +1113,50 @@ export class ResourceTemplate {
  * - `content` if the tool does not have an outputSchema
  * - Both fields are optional but typically one should be provided
  */
-export type ToolCallback<Args extends undefined | ZodRawShape | ZodType<object> = undefined> = Args extends ZodRawShape
-    ? (
-          args: z.objectOutputType<Args, ZodTypeAny>,
-          extra: RequestHandlerExtra<ServerRequest, ServerNotification>
-      ) => CallToolResult | Promise<CallToolResult>
-    : Args extends ZodType<infer T>
-      ? (args: T, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>
-      : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
+export type ToolCallback<Args extends undefined | ZodRawShape | ZodType<object> = undefined> = BaseToolCallback<
+    CallToolResult,
+    RequestHandlerExtra<ServerRequest, ServerNotification>,
+    Args
+>;
 
-export interface TaskRequestHandlerExtra extends RequestHandlerExtra<ServerRequest, ServerNotification> {
+export interface CreateTaskRequestHandlerExtra<SendResultT extends Result>
+    extends RequestHandlerExtra<ServerRequest, ServerNotification, SendResultT> {
+    taskStore: RequestTaskStore;
+}
+
+export interface TaskRequestHandlerExtra<SendResultT extends Result>
+    extends RequestHandlerExtra<ServerRequest, ServerNotification, SendResultT> {
     taskId: string;
     taskStore: RequestTaskStore;
 }
 
-export type TaskRequestHandler<SendResultT extends Result, Args extends undefined | ZodRawShape = undefined> = Args extends ZodRawShape
-    ? (args: z.objectOutputType<Args, ZodTypeAny>, extra: TaskRequestHandlerExtra) => SendResultT | Promise<SendResultT>
-    : (extra: TaskRequestHandlerExtra) => SendResultT | Promise<SendResultT>;
+export type CreateTaskRequestHandler<
+    SendResultT extends Result,
+    Args extends undefined | ZodRawShape | ZodType<object> = undefined
+> = BaseToolCallback<SendResultT, CreateTaskRequestHandlerExtra<SendResultT>, Args>;
 
-export interface ToolTaskHandler<Args extends undefined | ZodRawShape = undefined> {
-    createTask: TaskRequestHandler<CreateTaskResult, Args>;
+export type TaskRequestHandler<
+    SendResultT extends Result,
+    Args extends undefined | ZodRawShape | ZodType<object> = undefined
+> = BaseToolCallback<SendResultT, TaskRequestHandlerExtra<SendResultT>, Args>;
+
+export interface ToolTaskHandler<Args extends undefined | ZodRawShape | ZodType<object> = undefined> {
+    createTask: CreateTaskRequestHandler<CreateTaskResult, Args>;
     getTask: TaskRequestHandler<GetTaskResult, Args>;
     getTaskResult: TaskRequestHandler<CallToolResult, Args>;
 }
+
+/**
+ * Supertype for tool handler callbacks registered with Server.registerTool() and Server.registerToolTask().
+ */
+export type AnyToolCallback<Args extends undefined | ZodRawShape | ZodType<object> = undefined> =
+    | ToolCallback<Args>
+    | TaskRequestHandler<CreateTaskResult, Args>;
+
+/**
+ * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
+ */
+export type AnyToolHandler<Args extends undefined | ZodRawShape | ZodType<object> = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
 
 export type RegisteredTool = {
     title?: string;
@@ -1123,7 +1165,7 @@ export type RegisteredTool = {
     outputSchema?: ZodType<object>;
     annotations?: ToolAnnotations;
     _meta?: Record<string, unknown>;
-    callback: ToolCallback<undefined | ZodRawShape>;
+    handler: AnyToolHandler<undefined | ZodRawShape>;
     enabled: boolean;
     enable(): void;
     disable(): void;

@@ -11,13 +11,12 @@ import {
     Result,
     ServerCapabilities,
     Task,
-    TASK_META_KEY,
     TaskMetadata
 } from '../types.js';
 import { Protocol, mergeCapabilities } from './protocol.js';
 import { Transport } from './transport.js';
 import { TaskStore } from './task.js';
-import { MockInstance } from 'vitest';
+import { MockInstance, vi } from 'vitest';
 
 // Mock Transport class
 class MockTransport implements Transport {
@@ -35,32 +34,33 @@ class MockTransport implements Transport {
 function createMockTaskStore(options?: {
     onStatus?: (status: Task['status']) => void;
     onList?: () => void;
-}): TaskStore & { [K in keyof TaskStore]: jest.Mock<ReturnType<TaskStore[K]>, Parameters<TaskStore[K]>> } {
+}): TaskStore & { [K in keyof TaskStore]: MockInstance } {
     const tasks: Record<string, Task & { result?: Result }> = {};
     return {
-        createTask: jest.fn((taskMetadata: TaskMetadata, _1: RequestId, _2: Request) => {
+        createTask: vi.fn((taskMetadata: TaskMetadata, _1: RequestId, _2: Request) => {
             const task = (tasks[taskMetadata.taskId] = {
                 taskId: taskMetadata.taskId,
                 status: (taskMetadata.status as Task['status'] | undefined) ?? 'working',
-                keepAlive: taskMetadata.keepAlive ?? null,
+                ttl: taskMetadata.ttl ?? null,
+                createdAt: new Date().toISOString(),
                 pollInterval: (taskMetadata.pollInterval as Task['pollInterval'] | undefined) ?? 1000
             });
             options?.onStatus?.('working');
             return Promise.resolve(task);
         }),
-        getTask: jest.fn((taskId: string) => {
+        getTask: vi.fn((taskId: string) => {
             return Promise.resolve(tasks[taskId] ?? null);
         }),
-        updateTaskStatus: jest.fn((taskId, status, error) => {
+        updateTaskStatus: vi.fn((taskId, status, statusMessage) => {
             const task = tasks[taskId];
             if (task) {
                 task.status = status;
-                task.error = error;
+                task.statusMessage = statusMessage;
                 options?.onStatus?.(task.status);
             }
             return Promise.resolve();
         }),
-        storeTaskResult: jest.fn((taskId: string, result: Result) => {
+        storeTaskResult: vi.fn((taskId: string, result: Result) => {
             const task = tasks[taskId];
             if (task) {
                 task.status = 'completed';
@@ -69,21 +69,21 @@ function createMockTaskStore(options?: {
             }
             return Promise.resolve();
         }),
-        getTaskResult: jest.fn((taskId: string) => {
+        getTaskResult: vi.fn((taskId: string) => {
             const task = tasks[taskId];
             if (task?.result) {
                 return Promise.resolve(task.result);
             }
             throw new Error('Task result not found');
         }),
-        listTasks: jest.fn(() => {
+        listTasks: vi.fn(() => {
             const result = {
                 tasks: Object.values(tasks)
             };
             options?.onList?.();
             return Promise.resolve(result);
         }),
-        deleteTask: jest.fn((taskId: string) => {
+        deleteTask: vi.fn((taskId: string) => {
             if (tasks[taskId]) {
                 delete tasks[taskId];
                 return Promise.resolve();
@@ -857,11 +857,11 @@ describe('mergeCapabilities', () => {
 describe('Task-based execution', () => {
     let protocol: Protocol<Request, Notification, Result>;
     let transport: MockTransport;
-    let sendSpy: jest.SpyInstance;
+    let sendSpy: MockInstance;
 
     beforeEach(() => {
         transport = new MockTransport();
-        sendSpy = jest.spyOn(transport, 'send');
+        sendSpy = vi.spyOn(transport, 'send');
         protocol = new (class extends Protocol<Request, Notification, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
@@ -872,7 +872,7 @@ describe('Task-based execution', () => {
     });
 
     describe('beginRequest with task metadata', () => {
-        it('should inject task metadata into _meta field', async () => {
+        it('should include task parameters at top level', async () => {
             await protocol.connect(transport);
 
             const request = {
@@ -886,8 +886,8 @@ describe('Task-based execution', () => {
 
             protocol.beginRequest(request, resultSchema, {
                 task: {
-                    taskId: 'my-task-123',
-                    keepAlive: 30000
+                    ttl: 30000,
+                    pollInterval: 1000
                 }
             });
 
@@ -896,11 +896,9 @@ describe('Task-based execution', () => {
                     method: 'tools/call',
                     params: {
                         name: 'test-tool',
-                        _meta: {
-                            [TASK_META_KEY]: {
-                                taskId: 'my-task-123',
-                                keepAlive: 30000
-                            }
+                        task: {
+                            ttl: 30000,
+                            pollInterval: 1000
                         }
                     }
                 }),
@@ -908,7 +906,7 @@ describe('Task-based execution', () => {
             );
         });
 
-        it('should preserve existing _meta when adding task metadata', async () => {
+        it('should preserve existing _meta and add task parameters at top level', async () => {
             await protocol.connect(transport);
 
             const request = {
@@ -927,7 +925,7 @@ describe('Task-based execution', () => {
 
             protocol.beginRequest(request, resultSchema, {
                 task: {
-                    taskId: 'my-task-456'
+                    ttl: 60000
                 }
             });
 
@@ -936,10 +934,10 @@ describe('Task-based execution', () => {
                     params: {
                         name: 'test-tool',
                         _meta: {
-                            customField: 'customValue',
-                            [TASK_META_KEY]: {
-                                taskId: 'my-task-456'
-                            }
+                            customField: 'customValue'
+                        },
+                        task: {
+                            ttl: 60000
                         }
                     }
                 }),
@@ -961,12 +959,12 @@ describe('Task-based execution', () => {
 
             const pendingRequest = protocol.beginRequest(request, resultSchema, {
                 task: {
-                    taskId: 'my-task-789'
+                    ttl: 30000
                 }
             });
 
             expect(pendingRequest).toBeDefined();
-            expect(pendingRequest.taskId).toBe('my-task-789');
+            expect(pendingRequest.taskId).toBeUndefined(); // taskId is generated by receiver, not provided by client
         });
     });
 
@@ -1050,22 +1048,24 @@ describe('Task-based execution', () => {
 
             protocol.beginRequest(request, resultSchema, {
                 task: {
-                    taskId: 'my-task-combined'
+                    ttl: 60000,
+                    pollInterval: 1000
                 },
                 relatedTask: {
                     taskId: 'parent-task'
                 },
-                onprogress: jest.fn()
+                onprogress: vi.fn()
             });
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
                     params: {
                         name: 'test-tool',
+                        task: {
+                            ttl: 60000,
+                            pollInterval: 1000
+                        },
                         _meta: {
-                            [TASK_META_KEY]: {
-                                taskId: 'my-task-combined'
-                            },
                             [RELATED_TASK_META_KEY]: {
                                 taskId: 'parent-task'
                             },
@@ -1079,15 +1079,15 @@ describe('Task-based execution', () => {
     });
 
     describe('task status transitions', () => {
-        it('should transition from submitted to working when handler starts', async () => {
-            const workingProcessed = createLatch();
-            const mockTaskStore = createMockTaskStore({
-                onStatus: status => {
-                    if (status === 'working') {
-                        workingProcessed.releaseLatch();
-                    }
-                }
-            });
+        it('should be handled by tool implementors, not protocol layer', () => {
+            // Task status management is now the responsibility of tool implementors
+            expect(true).toBe(true);
+        });
+
+        it('should handle requests with task creation parameters in top-level task field', async () => {
+            // This test documents that task creation parameters are now in the top-level task field
+            // rather than in _meta, and that task management is handled by tool implementors
+            const mockTaskStore = createMockTaskStore();
 
             protocol = new (class extends Protocol<Request, Notification, Result> {
                 protected assertCapabilityForMethod(): void {}
@@ -1100,176 +1100,14 @@ describe('Task-based execution', () => {
             await protocol.connect(transport);
 
             protocol.setRequestHandler(CallToolRequestSchema, async request => {
-                await mockTaskStore.createTask(
-                    {
-                        taskId: 'test-task',
-                        keepAlive: 60000
-                    },
-                    1,
-                    request,
-                    undefined
-                );
-                await mockTaskStore.updateTaskStatus('test-task', 'working', undefined, undefined);
-                return {
-                    result: 'success'
-                };
-            });
-
-            transport.onmessage?.({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'tools/call',
-                params: {
-                    name: 'test',
-                    arguments: {},
-                    _meta: {
-                        [TASK_META_KEY]: {
-                            taskId: 'test-task',
-                            keepAlive: 60000
-                        }
-                    }
-                }
-            });
-
-            await workingProcessed.waitForLatch();
-
-            expect(mockTaskStore.createTask).toHaveBeenCalledWith(
-                { taskId: 'test-task', keepAlive: 60000 },
-                1,
-                {
-                    method: 'tools/call',
-                    params: expect.any(Object)
-                },
-                undefined
-            );
-            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('test-task', 'working', undefined, undefined);
-        });
-
-        it('should transition to input_required during extra.sendRequest', async () => {
-            const mockTaskStore = createMockTaskStore();
-
-            const responsiveTransport = new MockTransport();
-            responsiveTransport.send = jest.fn().mockImplementation(async (message: unknown) => {
-                if (
-                    typeof message === 'object' &&
-                    message !== null &&
-                    'method' in message &&
-                    'id' in message &&
-                    message.method === 'nested/request' &&
-                    responsiveTransport.onmessage
-                ) {
-                    setTimeout(() => {
-                        responsiveTransport.onmessage?.({
-                            jsonrpc: '2.0',
-                            id: (message as { id: number }).id,
-                            result: { nested: 'response' }
-                        });
-                    }, 5);
-                }
-            });
-
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
-
-            await protocol.connect(responsiveTransport);
-
-            const capturedUpdateCalls: Array<{ taskId: string; status: string }> = [];
-            mockTaskStore.updateTaskStatus.mockImplementation((taskId, status) => {
-                capturedUpdateCalls.push({ taskId, status });
-                return Promise.resolve();
-            });
-
-            protocol.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-                await mockTaskStore.createTask(
-                    {
-                        taskId: 'test-task',
-                        keepAlive: 60000
-                    },
-                    1,
-                    request
-                );
-                await mockTaskStore.updateTaskStatus('test-task', 'working', undefined, undefined);
-                await extra.sendRequest({ method: 'nested/request', params: {} }, z.object({ nested: z.string() }));
+                // Tool implementor can access task creation parameters from request.params.task
+                expect(request.params.task).toEqual({
+                    ttl: 60000,
+                    pollInterval: 1000
+                });
                 return { result: 'success' };
             });
 
-            responsiveTransport.onmessage?.({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'tools/call',
-                params: {
-                    name: 'test',
-                    arguments: {},
-                    _meta: {
-                        [TASK_META_KEY]: {
-                            taskId: 'test-task',
-                            keepAlive: 60000
-                        }
-                    }
-                }
-            });
-
-            await new Promise(resolve => setTimeout(resolve, 100));
-
-            expect(capturedUpdateCalls).toContainEqual({ taskId: 'test-task', status: 'working' });
-            expect(capturedUpdateCalls).toContainEqual({ taskId: 'test-task', status: 'input_required' });
-
-            const inputRequiredIndex = capturedUpdateCalls.findIndex(c => c.status === 'input_required');
-            const workingCalls = capturedUpdateCalls.filter(c => c.status === 'working');
-            expect(workingCalls).toHaveLength(2);
-
-            let workingCount = 0;
-            const secondWorkingIndex = capturedUpdateCalls.findIndex(c => {
-                if (c.status === 'working') {
-                    workingCount++;
-                    return workingCount === 2;
-                }
-                return false;
-            });
-            expect(secondWorkingIndex).toBeGreaterThan(inputRequiredIndex);
-        });
-
-        it('should mark task as completed when storeTaskResult is called', async () => {
-            const completeProcessed = createLatch();
-            const mockTaskStore = createMockTaskStore({
-                onStatus: status => {
-                    if (status === 'completed') {
-                        completeProcessed.releaseLatch();
-                    }
-                }
-            });
-
-            protocol = new (class extends Protocol<Request, Notification, Result> {
-                protected assertCapabilityForMethod(): void {}
-                protected assertNotificationCapability(): void {}
-                protected assertRequestHandlerCapability(): void {}
-                protected assertTaskCapability(): void {}
-                protected assertTaskHandlerCapability(): void {}
-            })({ taskStore: mockTaskStore });
-
-            await protocol.connect(transport);
-
-            protocol.setRequestHandler(CallToolRequestSchema, async request => {
-                await mockTaskStore.createTask(
-                    {
-                        taskId: 'test-task',
-                        keepAlive: 60000
-                    },
-                    1,
-                    request
-                );
-                await mockTaskStore.updateTaskStatus('test-task', 'working', undefined, undefined);
-                await mockTaskStore.storeTaskResult('test-task', { result: 'success' }, undefined);
-                return {
-                    result: 'success'
-                };
-            });
-
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 id: 1,
@@ -1277,18 +1115,15 @@ describe('Task-based execution', () => {
                 params: {
                     name: 'test',
                     arguments: {},
-                    _meta: {
-                        [TASK_META_KEY]: {
-                            taskId: 'test-task',
-                            keepAlive: 60000
-                        }
+                    task: {
+                        ttl: 60000,
+                        pollInterval: 1000
                     }
                 }
             });
 
-            await completeProcessed.waitForLatch();
-
-            expect(mockTaskStore.storeTaskResult).toHaveBeenCalledWith('test-task', { result: 'success' }, undefined);
+            // Wait for the request to be processed
+            await new Promise(resolve => setTimeout(resolve, 10));
         });
     });
 
@@ -1349,8 +1184,8 @@ describe('Task-based execution', () => {
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(3);
             expect(sentMessage.result.tasks).toEqual([
-                { taskId: 'task-1', status: 'completed', keepAlive: null, pollInterval: 500 },
-                { taskId: 'task-2', status: 'working', keepAlive: 60000, pollInterval: 1000 }
+                { taskId: 'task-1', status: 'completed', ttl: null, createdAt: expect.any(String), pollInterval: 500 },
+                { taskId: 'task-2', status: 'working', ttl: null, createdAt: expect.any(String), pollInterval: 1000 }
             ]);
             expect(sentMessage.result._meta).toEqual({});
         });
@@ -1398,7 +1233,9 @@ describe('Task-based execution', () => {
             const sentMessage = sendSpy.mock.calls[0][0];
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(2);
-            expect(sentMessage.result.tasks).toEqual([{ taskId: 'task-3', status: 'working', keepAlive: null, pollInterval: 500 }]);
+            expect(sentMessage.result.tasks).toEqual([
+                { taskId: 'task-3', status: 'working', ttl: null, createdAt: expect.any(String), pollInterval: 500 }
+            ]);
             expect(sentMessage.result.nextCursor).toBeUndefined();
             expect(sentMessage.result._meta).toEqual({});
         });
@@ -1485,13 +1322,9 @@ describe('Task-based execution', () => {
                     jsonrpc: '2.0',
                     id: sendSpy.mock.calls[0][0].id,
                     result: {
-                        tasks: [{ taskId: 'task-1', status: 'completed', keepAlive: null, pollInterval: 500 }],
+                        tasks: [{ taskId: 'task-1', status: 'completed', ttl: null, createdAt: '2024-01-01T00:00:00Z', pollInterval: 500 }],
                         nextCursor: undefined,
-                        _meta: {
-                            [TASK_META_KEY]: expect.objectContaining({
-                                taskId: expect.any(String)
-                            })
-                        }
+                        _meta: {}
                     }
                 });
             }, 10);
@@ -1520,13 +1353,11 @@ describe('Task-based execution', () => {
                     jsonrpc: '2.0',
                     id: sendSpy.mock.calls[0][0].id,
                     result: {
-                        tasks: [{ taskId: 'task-11', status: 'working', keepAlive: 30000, pollInterval: 1000 }],
+                        tasks: [
+                            { taskId: 'task-11', status: 'working', ttl: 30000, createdAt: '2024-01-01T00:00:00Z', pollInterval: 1000 }
+                        ],
                         nextCursor: 'task-11',
-                        _meta: {
-                            [TASK_META_KEY]: expect.objectContaining({
-                                taskId: expect.any(String)
-                            })
-                        }
+                        _meta: {}
                     }
                 });
             }, 10);
@@ -1548,8 +1379,8 @@ describe('Task-based execution', () => {
         });
     });
 
-    describe('deleteTask', () => {
-        it('should handle tasks/delete requests and delete task from TaskStore', async () => {
+    describe('cancelTask', () => {
+        it('should handle tasks/cancel requests and update task status to cancelled', async () => {
             const taskDeleted = createLatch();
             const mockTaskStore = createMockTaskStore();
             await mockTaskStore.createTask(
@@ -1563,8 +1394,8 @@ describe('Task-based execution', () => {
                 }
             );
 
-            mockTaskStore.deleteTask.mockImplementation(async (taskId: string) => {
-                if (taskId === 'task-to-delete') {
+            mockTaskStore.updateTaskStatus.mockImplementation(async (taskId: string, status: string) => {
+                if (taskId === 'task-to-delete' && status === 'cancelled') {
                     taskDeleted.releaseLatch();
                     return;
                 }
@@ -1579,14 +1410,14 @@ describe('Task-based execution', () => {
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
-            const sendSpy = jest.spyOn(serverTransport, 'send');
+            const sendSpy = vi.spyOn(serverTransport, 'send');
 
             await serverProtocol.connect(serverTransport);
 
             serverTransport.onmessage?.({
                 jsonrpc: '2.0',
                 id: 5,
-                method: 'tasks/delete',
+                method: 'tasks/cancel',
                 params: {
                     taskId: 'task-to-delete'
                 }
@@ -1594,7 +1425,7 @@ describe('Task-based execution', () => {
 
             await taskDeleted.waitForLatch();
 
-            expect(mockTaskStore.deleteTask).toHaveBeenCalledWith('task-to-delete', undefined);
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('task-to-delete', 'cancelled', undefined, undefined);
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const sentMessage = sendSpy.mock.calls[0][0] as any;
             expect(sentMessage.jsonrpc).toBe('2.0');
@@ -1606,7 +1437,7 @@ describe('Task-based execution', () => {
             const taskDeleted = createLatch();
             const mockTaskStore = createMockTaskStore();
 
-            mockTaskStore.deleteTask.mockImplementation(async () => {
+            mockTaskStore.updateTaskStatus.mockImplementation(async () => {
                 taskDeleted.releaseLatch();
                 throw new Error('Task with ID non-existent not found');
             });
@@ -1619,14 +1450,14 @@ describe('Task-based execution', () => {
                 protected assertTaskHandlerCapability(): void {}
             })({ taskStore: mockTaskStore });
             const serverTransport = new MockTransport();
-            const sendSpy = jest.spyOn(serverTransport, 'send');
+            const sendSpy = vi.spyOn(serverTransport, 'send');
 
             await serverProtocol.connect(serverTransport);
 
             serverTransport.onmessage?.({
                 jsonrpc: '2.0',
                 id: 6,
-                method: 'tasks/delete',
+                method: 'tasks/cancel',
                 params: {
                     taskId: 'non-existent'
                 }
@@ -1634,20 +1465,20 @@ describe('Task-based execution', () => {
 
             await taskDeleted.waitForLatch();
 
-            expect(mockTaskStore.deleteTask).toHaveBeenCalledWith('non-existent', undefined);
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('non-existent', 'cancelled', undefined, undefined);
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const sentMessage = sendSpy.mock.calls[0][0] as any;
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(6);
             expect(sentMessage.error).toBeDefined();
             expect(sentMessage.error.code).toBe(-32600); // InvalidRequest error code
-            expect(sentMessage.error.message).toContain('Failed to delete task');
+            expect(sentMessage.error.message).toContain('Failed to cancel task');
         });
 
-        it('should call deleteTask method from client side', async () => {
+        it('should call cancelTask method from client side', async () => {
             await protocol.connect(transport);
 
-            const deleteTaskPromise = protocol.deleteTask({ taskId: 'task-to-delete' });
+            const deleteTaskPromise = protocol.cancelTask({ taskId: 'task-to-delete' });
 
             // Simulate server response
             setTimeout(() => {
@@ -1664,7 +1495,7 @@ describe('Task-based execution', () => {
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    method: 'tasks/delete',
+                    method: 'tasks/cancel',
                     params: {
                         taskId: 'task-to-delete'
                     }

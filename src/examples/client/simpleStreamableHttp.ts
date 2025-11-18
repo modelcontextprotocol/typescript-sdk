@@ -822,7 +822,7 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
             {
                 task: {
                     taskId,
-                    keepAlive: 60000 // Keep results for 60 seconds
+                    ttl: 60000 // Keep results for 60 seconds
                 }
             }
         );
@@ -836,7 +836,7 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
             },
             onTaskStatus: task => {
                 if (lastStatus !== task.status) {
-                    console.log(`  ${task.status}${task.error ? ` - ${task.error}` : ''}`);
+                    console.log(`  ${task.status}${task.statusMessage ? ` - ${task.statusMessage}` : ''}`);
                 }
                 lastStatus = task.status;
             }
