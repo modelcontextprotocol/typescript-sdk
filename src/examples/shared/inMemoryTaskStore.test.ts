@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { InMemoryTaskStore } from './inMemoryTaskStore.js';
-import { TaskMetadata, Request } from '../../types.js';
+import { TaskCreationParams, Request } from '../../types.js';
 
 describe('InMemoryTaskStore', () => {
     let store: InMemoryTaskStore;
@@ -15,8 +15,7 @@ describe('InMemoryTaskStore', () => {
 
     describe('createTask', () => {
         it('should create a new task with working status', async () => {
-            const metadata: TaskMetadata = {
-                taskId: 'task-1',
+            const taskParams: TaskCreationParams = {
                 ttl: 60000
             };
             const request: Request = {
@@ -24,44 +23,43 @@ describe('InMemoryTaskStore', () => {
                 params: { name: 'test-tool' }
             };
 
-            await store.createTask(metadata, 123, request);
+            const task = await store.createTask(taskParams, 123, request);
 
-            const task = await store.getTask('task-1');
             expect(task).toBeDefined();
-            expect(task?.taskId).toBe('task-1');
-            expect(task?.status).toBe('working');
-            expect(task?.ttl).toBe(60000);
-            expect(task?.pollInterval).toBe(500);
+            expect(task.taskId).toBeDefined();
+            expect(typeof task.taskId).toBe('string');
+            expect(task.taskId.length).toBeGreaterThan(0);
+            expect(task.status).toBe('working');
+            expect(task.ttl).toBe(60000);
+            expect(task.pollInterval).toBe(500);
+            expect(task.createdAt).toBeDefined();
+            expect(new Date(task.createdAt).getTime()).toBeGreaterThan(0);
         });
 
         it('should create task without ttl', async () => {
-            const metadata: TaskMetadata = {
-                taskId: 'task-no-keepalive'
-            };
+            const taskParams: TaskCreationParams = {};
             const request: Request = {
                 method: 'tools/call',
                 params: {}
             };
 
-            await store.createTask(metadata, 456, request);
+            const task = await store.createTask(taskParams, 456, request);
 
-            const task = await store.getTask('task-no-keepalive');
             expect(task).toBeDefined();
-            expect(task?.ttl).toBeNull();
+            expect(task.ttl).toBeNull();
         });
 
-        it('should reject duplicate taskId', async () => {
-            const metadata: TaskMetadata = {
-                taskId: 'duplicate-task'
-            };
+        it('should generate unique taskIds', async () => {
+            const taskParams: TaskCreationParams = {};
             const request: Request = {
                 method: 'tools/call',
                 params: {}
             };
 
-            await store.createTask(metadata, 789, request);
+            const task1 = await store.createTask(taskParams, 789, request);
+            const task2 = await store.createTask(taskParams, 790, request);
 
-            await expect(store.createTask(metadata, 790, request)).rejects.toThrow('Task with ID duplicate-task already exists');
+            expect(task1.taskId).not.toBe(task2.taskId);
         });
     });
 
@@ -72,65 +70,64 @@ describe('InMemoryTaskStore', () => {
         });
 
         it('should return task state', async () => {
-            const metadata: TaskMetadata = {
-                taskId: 'get-test'
-            };
+            const taskParams: TaskCreationParams = {};
             const request: Request = {
                 method: 'tools/call',
                 params: {}
             };
 
-            await store.createTask(metadata, 111, request);
-            await store.updateTaskStatus('get-test', 'working');
+            const createdTask = await store.createTask(taskParams, 111, request);
+            await store.updateTaskStatus(createdTask.taskId, 'working');
 
-            const task = await store.getTask('get-test');
+            const task = await store.getTask(createdTask.taskId);
             expect(task).toBeDefined();
             expect(task?.status).toBe('working');
         });
     });
 
     describe('updateTaskStatus', () => {
+        let taskId: string;
+
         beforeEach(async () => {
-            const metadata: TaskMetadata = {
-                taskId: 'status-test'
-            };
-            await store.createTask(metadata, 222, {
+            const taskParams: TaskCreationParams = {};
+            const createdTask = await store.createTask(taskParams, 222, {
                 method: 'tools/call',
                 params: {}
             });
+            taskId = createdTask.taskId;
         });
 
         it('should keep task status as working', async () => {
-            const task = await store.getTask('status-test');
+            const task = await store.getTask(taskId);
             expect(task?.status).toBe('working');
         });
 
         it('should update task status to input_required', async () => {
-            await store.updateTaskStatus('status-test', 'input_required');
+            await store.updateTaskStatus(taskId, 'input_required');
 
-            const task = await store.getTask('status-test');
+            const task = await store.getTask(taskId);
             expect(task?.status).toBe('input_required');
         });
 
         it('should update task status to completed', async () => {
-            await store.updateTaskStatus('status-test', 'completed');
+            await store.updateTaskStatus(taskId, 'completed');
 
-            const task = await store.getTask('status-test');
+            const task = await store.getTask(taskId);
             expect(task?.status).toBe('completed');
         });
 
         it('should update task status to failed with error', async () => {
-            await store.updateTaskStatus('status-test', 'failed', 'Something went wrong');
+            await store.updateTaskStatus(taskId, 'failed', 'Something went wrong');
 
-            const task = await store.getTask('status-test');
+            const task = await store.getTask(taskId);
             expect(task?.status).toBe('failed');
             expect(task?.statusMessage).toBe('Something went wrong');
         });
 
         it('should update task status to cancelled', async () => {
-            await store.updateTaskStatus('status-test', 'cancelled');
+            await store.updateTaskStatus(taskId, 'cancelled');
 
-            const task = await store.getTask('status-test');
+            const task = await store.getTask(taskId);
             expect(task?.status).toBe('cancelled');
         });
 
@@ -140,15 +137,17 @@ describe('InMemoryTaskStore', () => {
     });
 
     describe('storeTaskResult', () => {
+        let taskId: string;
+
         beforeEach(async () => {
-            const metadata: TaskMetadata = {
-                taskId: 'result-test',
+            const taskParams: TaskCreationParams = {
                 ttl: 60000
             };
-            await store.createTask(metadata, 333, {
+            const createdTask = await store.createTask(taskParams, 333, {
                 method: 'tools/call',
                 params: {}
             });
+            taskId = createdTask.taskId;
         });
 
         it('should store task result and set status to completed', async () => {
@@ -156,12 +155,12 @@ describe('InMemoryTaskStore', () => {
                 content: [{ type: 'text' as const, text: 'Success!' }]
             };
 
-            await store.storeTaskResult('result-test', result);
+            await store.storeTaskResult(taskId, result);
 
-            const task = await store.getTask('result-test');
+            const task = await store.getTask(taskId);
             expect(task?.status).toBe('completed');
 
-            const storedResult = await store.getTaskResult('result-test');
+            const storedResult = await store.getTaskResult(taskId);
             expect(storedResult).toEqual(result);
         });
 
@@ -176,22 +175,18 @@ describe('InMemoryTaskStore', () => {
         });
 
         it('should throw if task has no result stored', async () => {
-            const metadata: TaskMetadata = {
-                taskId: 'no-result'
-            };
-            await store.createTask(metadata, 444, {
+            const taskParams: TaskCreationParams = {};
+            const createdTask = await store.createTask(taskParams, 444, {
                 method: 'tools/call',
                 params: {}
             });
 
-            await expect(store.getTaskResult('no-result')).rejects.toThrow('Task no-result has no result stored');
+            await expect(store.getTaskResult(createdTask.taskId)).rejects.toThrow(`Task ${createdTask.taskId} has no result stored`);
         });
 
         it('should return stored result', async () => {
-            const metadata: TaskMetadata = {
-                taskId: 'with-result'
-            };
-            await store.createTask(metadata, 555, {
+            const taskParams: TaskCreationParams = {};
+            const createdTask = await store.createTask(taskParams, 555, {
                 method: 'tools/call',
                 params: {}
             });
@@ -199,9 +194,9 @@ describe('InMemoryTaskStore', () => {
             const result = {
                 content: [{ type: 'text' as const, text: 'Result data' }]
             };
-            await store.storeTaskResult('with-result', result);
+            await store.storeTaskResult(createdTask.taskId, result);
 
-            const retrieved = await store.getTaskResult('with-result');
+            const retrieved = await store.getTaskResult(createdTask.taskId);
             expect(retrieved).toEqual(result);
         });
     });
@@ -216,33 +211,31 @@ describe('InMemoryTaskStore', () => {
         });
 
         it('should cleanup task after ttl duration', async () => {
-            const metadata: TaskMetadata = {
-                taskId: 'cleanup-test',
+            const taskParams: TaskCreationParams = {
                 ttl: 1000
             };
-            await store.createTask(metadata, 666, {
+            const createdTask = await store.createTask(taskParams, 666, {
                 method: 'tools/call',
                 params: {}
             });
 
             // Task should exist initially
-            let task = await store.getTask('cleanup-test');
+            let task = await store.getTask(createdTask.taskId);
             expect(task).toBeDefined();
 
             // Fast-forward past ttl
             vi.advanceTimersByTime(1001);
 
             // Task should be cleaned up
-            task = await store.getTask('cleanup-test');
+            task = await store.getTask(createdTask.taskId);
             expect(task).toBeNull();
         });
 
         it('should reset cleanup timer when result is stored', async () => {
-            const metadata: TaskMetadata = {
-                taskId: 'reset-cleanup',
+            const taskParams: TaskCreationParams = {
                 ttl: 1000
             };
-            await store.createTask(metadata, 777, {
+            const createdTask = await store.createTask(taskParams, 777, {
                 method: 'tools/call',
                 params: {}
             });
@@ -251,7 +244,7 @@ describe('InMemoryTaskStore', () => {
             vi.advanceTimersByTime(500);
 
             // Store result (should reset timer)
-            await store.storeTaskResult('reset-cleanup', {
+            await store.storeTaskResult(createdTask.taskId, {
                 content: [{ type: 'text' as const, text: 'Done' }]
             });
 
@@ -259,22 +252,20 @@ describe('InMemoryTaskStore', () => {
             vi.advanceTimersByTime(500);
 
             // Task should still exist
-            const task = await store.getTask('reset-cleanup');
+            const task = await store.getTask(createdTask.taskId);
             expect(task).toBeDefined();
 
             // Fast-forward remaining time
             vi.advanceTimersByTime(501);
 
             // Now task should be cleaned up
-            const cleanedTask = await store.getTask('reset-cleanup');
+            const cleanedTask = await store.getTask(createdTask.taskId);
             expect(cleanedTask).toBeNull();
         });
 
         it('should not cleanup tasks without ttl', async () => {
-            const metadata: TaskMetadata = {
-                taskId: 'no-cleanup'
-            };
-            await store.createTask(metadata, 888, {
+            const taskParams: TaskCreationParams = {};
+            const createdTask = await store.createTask(taskParams, 888, {
                 method: 'tools/call',
                 params: {}
             });
@@ -283,16 +274,15 @@ describe('InMemoryTaskStore', () => {
             vi.advanceTimersByTime(100000);
 
             // Task should still exist
-            const task = await store.getTask('no-cleanup');
+            const task = await store.getTask(createdTask.taskId);
             expect(task).toBeDefined();
         });
 
         it('should start cleanup timer when task reaches terminal state', async () => {
-            const metadata: TaskMetadata = {
-                taskId: 'terminal-cleanup',
+            const taskParams: TaskCreationParams = {
                 ttl: 1000
             };
-            await store.createTask(metadata, 999, {
+            const createdTask = await store.createTask(taskParams, 999, {
                 method: 'tools/call',
                 params: {}
             });
@@ -301,49 +291,50 @@ describe('InMemoryTaskStore', () => {
             vi.advanceTimersByTime(1001);
 
             // Task should be cleaned up
-            let task = await store.getTask('terminal-cleanup');
+            let task = await store.getTask(createdTask.taskId);
             expect(task).toBeNull();
 
             // Create another task
-            const metadata2: TaskMetadata = {
-                taskId: 'terminal-cleanup-2',
+            const taskParams2: TaskCreationParams = {
                 ttl: 2000
             };
-            await store.createTask(metadata2, 1000, {
+            const createdTask2 = await store.createTask(taskParams2, 1000, {
                 method: 'tools/call',
                 params: {}
             });
 
             // Update to terminal state
-            await store.updateTaskStatus('terminal-cleanup-2', 'completed');
+            await store.updateTaskStatus(createdTask2.taskId, 'completed');
 
             // Fast-forward past original ttl
             vi.advanceTimersByTime(2001);
 
             // Task should be cleaned up
-            task = await store.getTask('terminal-cleanup-2');
+            task = await store.getTask(createdTask2.taskId);
             expect(task).toBeNull();
         });
     });
 
     describe('getAllTasks', () => {
         it('should return all tasks', async () => {
-            await store.createTask({ taskId: 'task-1' }, 1, {
+            await store.createTask({}, 1, {
                 method: 'tools/call',
                 params: {}
             });
-            await store.createTask({ taskId: 'task-2' }, 2, {
+            await store.createTask({}, 2, {
                 method: 'tools/call',
                 params: {}
             });
-            await store.createTask({ taskId: 'task-3' }, 3, {
+            await store.createTask({}, 3, {
                 method: 'tools/call',
                 params: {}
             });
 
             const tasks = store.getAllTasks();
             expect(tasks).toHaveLength(3);
-            expect(tasks.map(t => t.taskId).sort()).toEqual(['task-1', 'task-2', 'task-3']);
+            // Verify all tasks have unique IDs
+            const taskIds = tasks.map(t => t.taskId);
+            expect(new Set(taskIds).size).toBe(3);
         });
 
         it('should return empty array when no tasks', () => {
@@ -360,15 +351,15 @@ describe('InMemoryTaskStore', () => {
         });
 
         it('should return all tasks when less than page size', async () => {
-            await store.createTask({ taskId: 'task-1' }, 1, {
+            await store.createTask({}, 1, {
                 method: 'tools/call',
                 params: {}
             });
-            await store.createTask({ taskId: 'task-2' }, 2, {
+            await store.createTask({}, 2, {
                 method: 'tools/call',
                 params: {}
             });
-            await store.createTask({ taskId: 'task-3' }, 3, {
+            await store.createTask({}, 3, {
                 method: 'tools/call',
                 params: {}
             });
@@ -381,7 +372,7 @@ describe('InMemoryTaskStore', () => {
         it('should paginate when more than page size', async () => {
             // Create 15 tasks (page size is 10)
             for (let i = 1; i <= 15; i++) {
-                await store.createTask({ taskId: `task-${i}` }, i, {
+                await store.createTask({}, i, {
                     method: 'tools/call',
                     params: {}
                 });
@@ -399,7 +390,7 @@ describe('InMemoryTaskStore', () => {
         });
 
         it('should throw error for invalid cursor', async () => {
-            await store.createTask({ taskId: 'task-1' }, 1, {
+            await store.createTask({}, 1, {
                 method: 'tools/call',
                 params: {}
             });
@@ -408,9 +399,9 @@ describe('InMemoryTaskStore', () => {
         });
 
         it('should continue from cursor correctly', async () => {
-            // Create tasks with predictable IDs
+            // Create 5 tasks
             for (let i = 1; i <= 5; i++) {
-                await store.createTask({ taskId: `task-${i}` }, i, {
+                await store.createTask({}, i, {
                     method: 'tools/call',
                     params: {}
                 });
@@ -420,18 +411,18 @@ describe('InMemoryTaskStore', () => {
             const allTaskIds = Array.from(store.getAllTasks().map(t => t.taskId));
             const result = await store.listTasks(allTaskIds[2]);
 
-            // Should get tasks after task-3
+            // Should get tasks after the third task
             expect(result.tasks).toHaveLength(2);
         });
     });
 
     describe('cleanup', () => {
         it('should clear all timers and tasks', async () => {
-            await store.createTask({ taskId: 'task-1', ttl: 1000 }, 1, {
+            await store.createTask({ ttl: 1000 }, 1, {
                 method: 'tools/call',
                 params: {}
             });
-            await store.createTask({ taskId: 'task-2', ttl: 2000 }, 2, {
+            await store.createTask({ ttl: 2000 }, 2, {
                 method: 'tools/call',
                 params: {}
             });

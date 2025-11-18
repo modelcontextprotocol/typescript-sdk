@@ -11,7 +11,7 @@ import {
     Result,
     ServerCapabilities,
     Task,
-    TaskMetadata
+    TaskCreationParams
 } from '../types.js';
 import { Protocol, mergeCapabilities } from './protocol.js';
 import { Transport } from './transport.js';
@@ -37,13 +37,15 @@ function createMockTaskStore(options?: {
 }): TaskStore & { [K in keyof TaskStore]: MockInstance } {
     const tasks: Record<string, Task & { result?: Result }> = {};
     return {
-        createTask: vi.fn((taskMetadata: TaskMetadata, _1: RequestId, _2: Request) => {
-            const task = (tasks[taskMetadata.taskId] = {
-                taskId: taskMetadata.taskId,
-                status: (taskMetadata.status as Task['status'] | undefined) ?? 'working',
-                ttl: taskMetadata.ttl ?? null,
+        createTask: vi.fn((taskParams: TaskCreationParams, _1: RequestId, _2: Request) => {
+            // Generate a unique task ID
+            const taskId = `test-task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const task = (tasks[taskId] = {
+                taskId,
+                status: 'working',
+                ttl: taskParams.ttl ?? null,
                 createdAt: new Date().toISOString(),
-                pollInterval: (taskMetadata.pollInterval as Task['pollInterval'] | undefined) ?? 1000
+                pollInterval: taskParams.pollInterval ?? 1000
             });
             options?.onStatus?.('working');
             return Promise.resolve(task);
@@ -1126,10 +1128,8 @@ describe('Task-based execution', () => {
             const mockTaskStore = createMockTaskStore({
                 onList: () => listedTasks.releaseLatch()
             });
-            await mockTaskStore.createTask(
+            const task1 = await mockTaskStore.createTask(
                 {
-                    taskId: 'task-1',
-                    status: 'completed',
                     pollInterval: 500
                 },
                 1,
@@ -1138,11 +1138,12 @@ describe('Task-based execution', () => {
                     params: {}
                 }
             );
-            await mockTaskStore.createTask(
+            // Manually set status to completed for this test
+            await mockTaskStore.updateTaskStatus(task1.taskId, 'completed');
+
+            const task2 = await mockTaskStore.createTask(
                 {
-                    taskId: 'task-2',
-                    status: 'working',
-                    keepAlive: 60000,
+                    ttl: 60000,
                     pollInterval: 1000
                 },
                 2,
@@ -1177,8 +1178,8 @@ describe('Task-based execution', () => {
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(3);
             expect(sentMessage.result.tasks).toEqual([
-                { taskId: 'task-1', status: 'completed', ttl: null, createdAt: expect.any(String), pollInterval: 500 },
-                { taskId: 'task-2', status: 'working', ttl: null, createdAt: expect.any(String), pollInterval: 1000 }
+                { taskId: task1.taskId, status: 'completed', ttl: null, createdAt: expect.any(String), pollInterval: 500 },
+                { taskId: task2.taskId, status: 'working', ttl: 60000, createdAt: expect.any(String), pollInterval: 1000 }
             ]);
             expect(sentMessage.result._meta).toEqual({});
         });
@@ -1188,9 +1189,8 @@ describe('Task-based execution', () => {
             const mockTaskStore = createMockTaskStore({
                 onList: () => listedTasks.releaseLatch()
             });
-            await mockTaskStore.createTask(
+            const task3 = await mockTaskStore.createTask(
                 {
-                    taskId: 'task-3',
                     pollInterval: 500
                 },
                 1,
@@ -1227,7 +1227,7 @@ describe('Task-based execution', () => {
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(2);
             expect(sentMessage.result.tasks).toEqual([
-                { taskId: 'task-3', status: 'working', ttl: null, createdAt: expect.any(String), pollInterval: 500 }
+                { taskId: task3.taskId, status: 'working', ttl: null, createdAt: expect.any(String), pollInterval: 500 }
             ]);
             expect(sentMessage.result.nextCursor).toBeUndefined();
             expect(sentMessage.result._meta).toEqual({});
@@ -1376,20 +1376,14 @@ describe('Task-based execution', () => {
         it('should handle tasks/cancel requests and update task status to cancelled', async () => {
             const taskDeleted = createLatch();
             const mockTaskStore = createMockTaskStore();
-            const task = await mockTaskStore.createTask(
-                {
-                    taskId: 'task-to-delete'
-                },
-                1,
-                {
-                    method: 'test/method',
-                    params: {}
-                }
-            );
+            const task = await mockTaskStore.createTask({}, 1, {
+                method: 'test/method',
+                params: {}
+            });
 
             mockTaskStore.getTask.mockResolvedValue(task);
             mockTaskStore.updateTaskStatus.mockImplementation(async (taskId: string, status: string) => {
-                if (taskId === 'task-to-delete' && status === 'cancelled') {
+                if (taskId === task.taskId && status === 'cancelled') {
                     taskDeleted.releaseLatch();
                     return;
                 }
@@ -1413,15 +1407,15 @@ describe('Task-based execution', () => {
                 id: 5,
                 method: 'tasks/cancel',
                 params: {
-                    taskId: 'task-to-delete'
+                    taskId: task.taskId
                 }
             });
 
             await taskDeleted.waitForLatch();
 
-            expect(mockTaskStore.getTask).toHaveBeenCalledWith('task-to-delete', undefined);
+            expect(mockTaskStore.getTask).toHaveBeenCalledWith(task.taskId, undefined);
             expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith(
-                'task-to-delete',
+                task.taskId,
                 'cancelled',
                 'Client cancelled task execution.',
                 undefined
@@ -1476,19 +1470,16 @@ describe('Task-based execution', () => {
 
         it('should return error with code -32602 when trying to cancel a task in terminal status', async () => {
             const mockTaskStore = createMockTaskStore();
-            const completedTask = await mockTaskStore.createTask(
-                {
-                    taskId: 'completed-task'
-                },
-                1,
-                {
-                    method: 'test/method',
-                    params: {}
-                }
-            );
+            const completedTask = await mockTaskStore.createTask({}, 1, {
+                method: 'test/method',
+                params: {}
+            });
             // Set task to completed status
+            await mockTaskStore.updateTaskStatus(completedTask.taskId, 'completed');
             completedTask.status = 'completed';
 
+            // Reset the mock so we can check it's not called during cancellation
+            mockTaskStore.updateTaskStatus.mockClear();
             mockTaskStore.getTask.mockResolvedValue(completedTask);
 
             const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
@@ -1508,14 +1499,14 @@ describe('Task-based execution', () => {
                 id: 7,
                 method: 'tasks/cancel',
                 params: {
-                    taskId: 'completed-task'
+                    taskId: completedTask.taskId
                 }
             });
 
             // Wait a bit for the async handler to complete
             await new Promise(resolve => setTimeout(resolve, 10));
 
-            expect(mockTaskStore.getTask).toHaveBeenCalledWith('completed-task', undefined);
+            expect(mockTaskStore.getTask).toHaveBeenCalledWith(completedTask.taskId, undefined);
             expect(mockTaskStore.updateTaskStatus).not.toHaveBeenCalled();
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const sentMessage = sendSpy.mock.calls[0][0] as any;

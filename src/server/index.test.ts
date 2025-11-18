@@ -982,15 +982,14 @@ describe('Task-based execution', () => {
 
             // Check if task creation is requested
             if (request.params.task && extra.taskStore) {
-                taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                await extra.taskStore.createTask(
-                    {
-                        taskId,
-                        ttl: extra.taskRequestedTtl
-                    },
-                    extra.requestId,
-                    request
-                );
+                const createdTask = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
+                    taskId = createdTask.taskId;
             }
 
             if (request.params.name === 'test-tool') {
@@ -1184,15 +1183,14 @@ describe('Task-based execution', () => {
 
             // Check if task creation is requested
             if (request.params.task && extra.taskStore) {
-                taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                await extra.taskStore.createTask(
-                    {
-                        taskId,
-                        ttl: extra.taskRequestedTtl
-                    },
-                    extra.requestId,
-                    request
-                );
+                const createdTask = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
+                    taskId = createdTask.taskId;
             }
 
             // Capture the request to verify metadata later
@@ -1212,15 +1210,14 @@ describe('Task-based execution', () => {
 
             // Check if task creation is requested
             if (request.params.task && extra.taskStore) {
-                taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                await extra.taskStore.createTask(
-                    {
-                        taskId,
-                        ttl: extra.taskRequestedTtl
-                    },
-                    extra.requestId,
-                    request
-                );
+                const createdTask = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
+                    taskId = createdTask.taskId;
             }
 
             if (request.params.name === 'collect-info') {
@@ -1346,15 +1343,14 @@ describe('Task-based execution', () => {
 
                 // Check if task creation is requested
                 if (request.params.task && extra.taskStore) {
-                    taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                    await extra.taskStore.createTask(
+                    const createdTask = await extra.taskStore.createTask(
                         {
-                            taskId,
                             ttl: extra.taskRequestedTtl
                         },
                         extra.requestId,
                         request
                     );
+                    taskId = createdTask.taskId;
                 }
                 const result = {
                     action: 'accept',
@@ -1438,15 +1434,14 @@ describe('Task-based execution', () => {
 
                 // Check if task creation is requested
                 if (request.params.task && extra.taskStore) {
-                    taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                    await extra.taskStore.createTask(
+                    const createdTask = await extra.taskStore.createTask(
                         {
-                            taskId,
                             ttl: extra.taskRequestedTtl
                         },
                         extra.requestId,
                         request
                     );
+                    taskId = createdTask.taskId;
                 }
                 const result = {
                     action: 'accept',
@@ -1527,15 +1522,14 @@ describe('Task-based execution', () => {
 
                 // Check if task creation is requested
                 if (request.params.task && extra.taskStore) {
-                    taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                    await extra.taskStore.createTask(
+                    const createdTask = await extra.taskStore.createTask(
                         {
-                            taskId,
                             ttl: extra.taskRequestedTtl
                         },
                         extra.requestId,
                         request
                     );
+                    taskId = createdTask.taskId;
                 }
                 const result = {
                     action: 'accept',
@@ -1618,15 +1612,14 @@ describe('Task-based execution', () => {
 
                 // Check if task creation is requested
                 if (request.params.task && extra.taskStore) {
-                    taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                    await extra.taskStore.createTask(
+                    const createdTask = await extra.taskStore.createTask(
                         {
-                            taskId,
                             ttl: extra.taskRequestedTtl
                         },
                         extra.requestId,
                         request
                     );
+                    taskId = createdTask.taskId;
                 }
                 const result = {
                     action: 'accept',
@@ -1735,15 +1728,14 @@ describe('Task-based execution', () => {
 
             // Check if task creation is requested
             if (request.params.task && extra.taskStore) {
-                taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                await extra.taskStore.createTask(
-                    {
-                        taskId,
-                        ttl: extra.taskRequestedTtl
-                    },
-                    extra.requestId,
-                    request
-                );
+                const createdTask = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
+                    taskId = createdTask.taskId;
             }
             if (request.params.name === 'async-tool') {
                 const delay = (request.params.arguments?.delay as number) || 10;
@@ -1976,15 +1968,14 @@ test('should respect client task capabilities', async () => {
 
         // Check if task creation is requested
         if (request.params.task && extra.taskStore) {
-            taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            await extra.taskStore.createTask(
-                {
-                    taskId,
-                    ttl: extra.taskRequestedTtl
-                },
-                extra.requestId,
-                request
-            );
+            const createdTask = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
+                    taskId = createdTask.taskId;
         }
         const result = {
             action: 'accept',

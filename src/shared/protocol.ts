@@ -36,7 +36,6 @@ import {
     RequestInfo,
     GetTaskResult,
     TaskCreationParams,
-    TaskMetadata,
     RelatedTaskMetadata,
     CancelledNotification,
     Task
@@ -159,14 +158,15 @@ export type TaskRequestOptions = Omit<RequestOptions, 'relatedTask'>;
  */
 export interface RequestTaskStore {
     /**
-     * Creates a new task with the given metadata and original request.
+     * Creates a new task with the given creation parameters.
+     * The implementation generates a unique taskId and createdAt timestamp.
      *
-     * @param task - The task creation metadata from the request
+     * @param taskParams - The task creation parameters from the request (ttl, pollInterval)
      * @param requestId - The JSON-RPC request ID
      * @param request - The original request that triggered task creation
-     * @returns The task state including status, ttl, pollInterval, and optional statusMessage
+     * @returns The task state including generated taskId, createdAt timestamp, status, ttl, pollInterval, and optional statusMessage
      */
-    createTask(task: TaskMetadata, requestId: RequestId, request: Request): Promise<Task>;
+    createTask(taskParams: TaskCreationParams, requestId: RequestId, request: Request): Promise<Task>;
 
     /**
      * Gets the current status of a task.
@@ -1081,13 +1081,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         }
 
         return {
-            createTask: async task => {
+            createTask: async taskParams => {
                 if (!request) {
                     throw new Error('No request provided');
                 }
 
-                const result = await taskStore.createTask(
-                    task,
+                const createdTask = await taskStore.createTask(
+                    taskParams,
                     request.id,
                     {
                         method: request.method,
@@ -1096,14 +1096,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     sessionId
                 );
 
-                // Send task created notification
+                // Send task created notification with the generated taskId
                 await this.notification(
                     {
                         method: 'notifications/tasks/created',
                         params: {
                             _meta: {
                                 [RELATED_TASK_META_KEY]: {
-                                    taskId: task.taskId
+                                    taskId: createdTask.taskId
                                 }
                             }
                         }
@@ -1111,7 +1111,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     { relatedRequestId: request.id }
                 );
 
-                return result;
+                return createdTask;
             },
             getTask: async taskId => {
                 const task = await taskStore.getTask(taskId, sessionId);

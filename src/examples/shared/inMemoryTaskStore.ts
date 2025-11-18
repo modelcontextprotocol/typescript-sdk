@@ -1,5 +1,6 @@
-import { Task, TaskMetadata, Request, RequestId, Result } from '../../types.js';
+import { Task, TaskCreationParams, Request, RequestId, Result } from '../../types.js';
 import { TaskStore, isTerminal } from '../../shared/task.js';
+import { randomBytes } from 'crypto';
 
 interface StoredTask {
     task: Task;
@@ -12,7 +13,7 @@ interface StoredTask {
  * A simple in-memory implementation of TaskStore for demonstration purposes.
  *
  * This implementation stores all tasks in memory and provides automatic cleanup
- * based on the ttl duration specified in the task metadata.
+ * based on the ttl duration specified in the task creation parameters.
  *
  * Note: This is not suitable for production use as all data is lost on restart.
  * For production, consider implementing TaskStore with a database or distributed cache.
@@ -21,19 +22,30 @@ export class InMemoryTaskStore implements TaskStore {
     private tasks = new Map<string, StoredTask>();
     private cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-    async createTask(metadata: TaskMetadata, requestId: RequestId, request: Request, _sessionId?: string): Promise<Task> {
-        const taskId = metadata.taskId;
+    /**
+     * Generates a unique task ID.
+     * Uses 16 bytes of random data encoded as hex (32 characters).
+     */
+    private generateTaskId(): string {
+        return randomBytes(16).toString('hex');
+    }
 
+    async createTask(taskParams: TaskCreationParams, requestId: RequestId, request: Request, _sessionId?: string): Promise<Task> {
+        // Generate a unique task ID
+        const taskId = this.generateTaskId();
+
+        // Ensure uniqueness
         if (this.tasks.has(taskId)) {
             throw new Error(`Task with ID ${taskId} already exists`);
         }
 
+        // Create task with generated ID and timestamp
         const task: Task = {
             taskId,
             status: 'working',
-            ttl: metadata.ttl ?? null,
+            ttl: taskParams.ttl ?? null,
             createdAt: new Date().toISOString(),
-            pollInterval: metadata.pollInterval ?? 500
+            pollInterval: taskParams.pollInterval ?? 500
         };
 
         this.tasks.set(taskId, {
@@ -43,11 +55,11 @@ export class InMemoryTaskStore implements TaskStore {
         });
 
         // Schedule cleanup if ttl is specified
-        if (metadata.ttl) {
+        if (taskParams.ttl) {
             const timer = setTimeout(() => {
                 this.tasks.delete(taskId);
                 this.cleanupTimers.delete(taskId);
-            }, metadata.ttl);
+            }, taskParams.ttl);
 
             this.cleanupTimers.set(taskId, timer);
         }

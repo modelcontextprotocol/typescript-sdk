@@ -1324,15 +1324,17 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 
 // Implement TaskStore backed by your database (e.g., PostgreSQL, Redis, etc.)
 class MyTaskStore implements TaskStore {
-    async createTask(metadata, requestId, request) {
+    async createTask(taskParams, requestId, request) {
+        // Generate unique taskId and createdAt timestamp
         // Store task in your database
+        // Return Task object with generated taskId
     }
 
     async getTask(taskId) {
         // Retrieve task from your database
     }
 
-    async updateTaskStatus(taskId, status, errorMessage?) {
+    async updateTaskStatus(taskId, status, statusMessage?) {
         // Update task status in your database
     }
 
@@ -1342,6 +1344,10 @@ class MyTaskStore implements TaskStore {
 
     async getTaskResult(taskId) {
         // Retrieve task result from your database
+    }
+
+    async listTasks(cursor?, sessionId?) {
+        // List tasks with pagination support
     }
 }
 

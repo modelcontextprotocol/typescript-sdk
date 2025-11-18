@@ -53,13 +53,6 @@ export const TaskCreationParamsSchema = z
     .passthrough();
 
 /**
- * @deprecated Use TaskCreationParamsSchema instead. This is kept for backward compatibility.
- */
-export const TaskMetadataSchema = TaskCreationParamsSchema.extend({
-    taskId: z.string()
-});
-
-/**
  * Task association metadata, used to signal which task a message originated from.
  */
 export const RelatedTaskMetadataSchema = z
@@ -1968,7 +1961,6 @@ export type ProgressNotification = Infer<typeof ProgressNotificationSchema>;
 /* Tasks */
 export type Task = Infer<typeof TaskSchema>;
 export type TaskCreationParams = Infer<typeof TaskCreationParamsSchema>;
-export type TaskMetadata = Infer<typeof TaskMetadataSchema>;
 export type RelatedTaskMetadata = Infer<typeof RelatedTaskMetadataSchema>;
 export type CreateTaskResult = Infer<typeof CreateTaskResultSchema>;
 export type TaskCreatedNotification = Infer<typeof TaskCreatedNotificationSchema>;
