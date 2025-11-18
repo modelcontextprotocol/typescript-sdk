@@ -424,7 +424,7 @@ export class Client<
             case 'tasks/get':
             case 'tasks/list':
             case 'tasks/result':
-            case 'tasks/delete':
+            case 'tasks/cancel':
                 if (!this._capabilities.tasks) {
                     throw new Error(`Client does not support tasks capability (required for ${method})`);
                 }

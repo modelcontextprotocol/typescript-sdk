@@ -208,14 +208,6 @@ export interface RequestTaskStore {
      * @returns An object containing the tasks array and an optional nextCursor
      */
     listTasks(cursor?: string): Promise<{ tasks: Task[]; nextCursor?: string }>;
-
-    /**
-     * Deletes a specific task and its associated data.
-     *
-     * @param taskId - The task identifier
-     * @throws Error if the task doesn't exist or cannot be deleted
-     */
-    deleteTask(taskId: string): Promise<void>;
 }
 
 /**
@@ -417,11 +409,32 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
             this.setRequestHandler(CancelTaskRequestSchema, async (request, extra) => {
                 try {
-                    await this._taskStore!.updateTaskStatus(request.params.taskId, 'cancelled', undefined, extra.sessionId);
+                    // Get the current task to check if it's in a terminal state, in case the implementation is not atomic
+                    const task = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
+
+                    if (!task) {
+                        throw new McpError(ErrorCode.InvalidParams, `Task not found: ${request.params.taskId}`);
+                    }
+
+                    // Reject cancellation of terminal tasks
+                    if (isTerminal(task.status)) {
+                        throw new McpError(ErrorCode.InvalidParams, `Cannot cancel task in terminal status: ${task.status}`);
+                    }
+
+                    await this._taskStore!.updateTaskStatus(
+                        request.params.taskId,
+                        'cancelled',
+                        'Client cancelled task execution.',
+                        extra.sessionId
+                    );
                     return {
                         _meta: {}
                     } as SendResultT;
                 } catch (error) {
+                    // Re-throw McpError as-is
+                    if (error instanceof McpError) {
+                        throw error;
+                    }
                     throw new McpError(
                         ErrorCode.InvalidRequest,
                         `Failed to cancel task: ${error instanceof Error ? error.message : String(error)}`
@@ -1138,9 +1151,6 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             },
             listTasks: cursor => {
                 return taskStore.listTasks(cursor, sessionId);
-            },
-            deleteTask: taskId => {
-                return taskStore.deleteTask(taskId, sessionId);
             }
         };
     }

@@ -280,7 +280,7 @@ export class Server<
             case 'tasks/get':
             case 'tasks/list':
             case 'tasks/result':
-            case 'tasks/delete':
+            case 'tasks/cancel':
                 if (!this._capabilities.tasks) {
                     throw new Error(`Server does not support tasks capability (required for ${method})`);
                 }

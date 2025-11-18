@@ -151,23 +151,6 @@ export class InMemoryTaskStore implements TaskStore {
         return { tasks, nextCursor };
     }
 
-    async deleteTask(taskId: string, _sessionId?: string): Promise<void> {
-        const stored = this.tasks.get(taskId);
-        if (!stored) {
-            throw new Error(`Task with ID ${taskId} not found`);
-        }
-
-        // Clear any associated cleanup timer
-        const existingTimer = this.cleanupTimers.get(taskId);
-        if (existingTimer) {
-            clearTimeout(existingTimer);
-            this.cleanupTimers.delete(taskId);
-        }
-
-        // Delete the task
-        this.tasks.delete(taskId);
-    }
-
     /**
      * Cleanup all timers (useful for testing or graceful shutdown)
      */

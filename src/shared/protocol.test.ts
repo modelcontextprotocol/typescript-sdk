@@ -82,13 +82,6 @@ function createMockTaskStore(options?: {
             };
             options?.onList?.();
             return Promise.resolve(result);
-        }),
-        deleteTask: vi.fn((taskId: string) => {
-            if (tasks[taskId]) {
-                delete tasks[taskId];
-                return Promise.resolve();
-            }
-            return Promise.reject(new Error(`Task with ID ${taskId} not found`));
         })
     };
 }
@@ -1383,7 +1376,7 @@ describe('Task-based execution', () => {
         it('should handle tasks/cancel requests and update task status to cancelled', async () => {
             const taskDeleted = createLatch();
             const mockTaskStore = createMockTaskStore();
-            await mockTaskStore.createTask(
+            const task = await mockTaskStore.createTask(
                 {
                     taskId: 'task-to-delete'
                 },
@@ -1394,6 +1387,7 @@ describe('Task-based execution', () => {
                 }
             );
 
+            mockTaskStore.getTask.mockResolvedValue(task);
             mockTaskStore.updateTaskStatus.mockImplementation(async (taskId: string, status: string) => {
                 if (taskId === 'task-to-delete' && status === 'cancelled') {
                     taskDeleted.releaseLatch();
@@ -1425,7 +1419,13 @@ describe('Task-based execution', () => {
 
             await taskDeleted.waitForLatch();
 
-            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('task-to-delete', 'cancelled', undefined, undefined);
+            expect(mockTaskStore.getTask).toHaveBeenCalledWith('task-to-delete', undefined);
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith(
+                'task-to-delete',
+                'cancelled',
+                'Client cancelled task execution.',
+                undefined
+            );
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const sentMessage = sendSpy.mock.calls[0][0] as any;
             expect(sentMessage.jsonrpc).toBe('2.0');
@@ -1433,14 +1433,11 @@ describe('Task-based execution', () => {
             expect(sentMessage.result._meta).toBeDefined();
         });
 
-        it('should return error with code -32600 when task does not exist', async () => {
+        it('should return error with code -32602 when task does not exist', async () => {
             const taskDeleted = createLatch();
             const mockTaskStore = createMockTaskStore();
 
-            mockTaskStore.updateTaskStatus.mockImplementation(async () => {
-                taskDeleted.releaseLatch();
-                throw new Error('Task with ID non-existent not found');
-            });
+            mockTaskStore.getTask.mockResolvedValue(null);
 
             const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
                 protected assertCapabilityForMethod(): void {}
@@ -1463,16 +1460,70 @@ describe('Task-based execution', () => {
                 }
             });
 
-            await taskDeleted.waitForLatch();
+            // Wait a bit for the async handler to complete
+            await new Promise(resolve => setTimeout(resolve, 10));
+            taskDeleted.releaseLatch();
 
-            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith('non-existent', 'cancelled', undefined, undefined);
+            expect(mockTaskStore.getTask).toHaveBeenCalledWith('non-existent', undefined);
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const sentMessage = sendSpy.mock.calls[0][0] as any;
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(6);
             expect(sentMessage.error).toBeDefined();
-            expect(sentMessage.error.code).toBe(-32600); // InvalidRequest error code
-            expect(sentMessage.error.message).toContain('Failed to cancel task');
+            expect(sentMessage.error.code).toBe(-32602); // InvalidParams error code
+            expect(sentMessage.error.message).toContain('Task not found');
+        });
+
+        it('should return error with code -32602 when trying to cancel a task in terminal status', async () => {
+            const mockTaskStore = createMockTaskStore();
+            const completedTask = await mockTaskStore.createTask(
+                {
+                    taskId: 'completed-task'
+                },
+                1,
+                {
+                    method: 'test/method',
+                    params: {}
+                }
+            );
+            // Set task to completed status
+            completedTask.status = 'completed';
+
+            mockTaskStore.getTask.mockResolvedValue(completedTask);
+
+            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+            const serverTransport = new MockTransport();
+            const sendSpy = vi.spyOn(serverTransport, 'send');
+
+            await serverProtocol.connect(serverTransport);
+
+            serverTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 7,
+                method: 'tasks/cancel',
+                params: {
+                    taskId: 'completed-task'
+                }
+            });
+
+            // Wait a bit for the async handler to complete
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            expect(mockTaskStore.getTask).toHaveBeenCalledWith('completed-task', undefined);
+            expect(mockTaskStore.updateTaskStatus).not.toHaveBeenCalled();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const sentMessage = sendSpy.mock.calls[0][0] as any;
+            expect(sentMessage.jsonrpc).toBe('2.0');
+            expect(sentMessage.id).toBe(7);
+            expect(sentMessage.error).toBeDefined();
+            expect(sentMessage.error.code).toBe(-32602); // InvalidParams error code
+            expect(sentMessage.error.message).toContain('Cannot cancel task in terminal status');
         });
 
         it('should call cancelTask method from client side', async () => {
