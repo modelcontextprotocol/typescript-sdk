@@ -320,7 +320,7 @@ export const ClientCapabilitiesSchema = z.object({
             /**
              * Present if the client supports tool use via tools and toolChoice parameters.
              */
-            tools: AssertObjectSchema.optional(),
+            tools: AssertObjectSchema.optional()
         })
         .optional(),
     /**
@@ -849,30 +849,30 @@ export const AudioContentSchema = z.object({
  * Represents the assistant's request to use a tool.
  */
 export const ToolUseContentSchema = z
-  .object({
-    type: z.literal("tool_use"),
-    /**
-     * The name of the tool to invoke.
-     * Must match a tool name from the request's tools array.
-     */
-    name: z.string(),
-    /**
-     * Unique identifier for this tool call.
-     * Used to correlate with ToolResultContent in subsequent messages.
-     */
-    id: z.string(),
-    /**
-     * Arguments to pass to the tool.
-     * Must conform to the tool's inputSchema.
-     */
-    input: z.object({}).passthrough(),
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.optional(z.object({}).passthrough()),
-  })
-  .passthrough();
+    .object({
+        type: z.literal('tool_use'),
+        /**
+         * The name of the tool to invoke.
+         * Must match a tool name from the request's tools array.
+         */
+        name: z.string(),
+        /**
+         * Unique identifier for this tool call.
+         * Used to correlate with ToolResultContent in subsequent messages.
+         */
+        id: z.string(),
+        /**
+         * Arguments to pass to the tool.
+         * Must conform to the tool's inputSchema.
+         */
+        input: z.object({}).passthrough(),
+        /**
+         * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+         * for notes on _meta usage.
+         */
+        _meta: z.optional(z.object({}).passthrough())
+    })
+    .passthrough();
 
 /**
  * The contents of a resource, embedded into a prompt or tool call result.
@@ -1203,23 +1203,15 @@ export const ModelPreferencesSchema = z.object({
 /**
  * Controls tool usage behavior in sampling requests.
  */
-export const ToolChoiceSchema = z
-    .object({
-        /**
-         * Controls when tools are used:
-         * - "auto": Model decides whether to use tools (default)
-         * - "required": Model MUST use at least one tool before completing
-         * - "none": Model MUST NOT use any tools
-         */
-        mode: z.optional(z.enum(["auto", "required", "none"])),
-        /**
-         * If true, model should not use multiple tools in parallel.
-         * Some models may ignore this hint.
-         * Default: false
-         */
-        disable_parallel_tool_use: z.optional(z.boolean()),
-    })
-    .passthrough();
+export const ToolChoiceSchema = z.object({
+    /**
+     * Controls when tools are used:
+     * - "auto": Model decides whether to use tools (default)
+     * - "required": Model MUST use at least one tool before completing
+     * - "none": Model MUST NOT use any tools
+     */
+    mode: z.optional(z.enum(['auto', 'required', 'none']))
+});
 
 /**
  * The result of a tool execution, provided by the user (server).
@@ -1227,8 +1219,8 @@ export const ToolChoiceSchema = z
  */
 export const ToolResultContentSchema = z
     .object({
-        type: z.literal("tool_result"),
-        toolUseId: z.string().describe("The unique identifier for the corresponding tool call."),
+        type: z.literal('tool_result'),
+        toolUseId: z.string().describe('The unique identifier for the corresponding tool call.'),
         content: z.array(ContentBlockSchema).default([]),
         structuredContent: z.object({}).passthrough().optional(),
         isError: z.optional(z.boolean()),
@@ -1237,7 +1229,7 @@ export const ToolResultContentSchema = z
          * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
          * for notes on _meta usage.
          */
-        _meta: z.optional(z.object({}).passthrough()),
+        _meta: z.optional(z.object({}).passthrough())
     })
     .passthrough();
 
@@ -1245,29 +1237,28 @@ export const ToolResultContentSchema = z
  * Content block types allowed in sampling messages.
  * This includes text, image, audio, tool use requests, and tool results.
  */
-export const SamplingMessageContentBlockSchema = z.discriminatedUnion("type", [
-  TextContentSchema,
-  ImageContentSchema,
-  AudioContentSchema,
-  ToolUseContentSchema,
-  ToolResultContentSchema,
+export const SamplingMessageContentBlockSchema = z.discriminatedUnion('type', [
+    TextContentSchema,
+    ImageContentSchema,
+    AudioContentSchema,
+    ToolUseContentSchema,
+    ToolResultContentSchema
 ]);
 
 /**
  * Describes a message issued to or received from an LLM API.
  */
-export const SamplingMessageSchema = z.object({
-  role: z.enum(['user', 'assistant']),
-  content: z.union([
-    SamplingMessageContentBlockSchema,
-    z.array(SamplingMessageContentBlockSchema)
-  ]),
-  /**
-   * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-   * for notes on _meta usage.
-   */
-  _meta: z.optional(z.object({}).passthrough()),
-}).passthrough();
+export const SamplingMessageSchema = z
+    .object({
+        role: z.enum(['user', 'assistant']),
+        content: z.union([SamplingMessageContentBlockSchema, z.array(SamplingMessageContentBlockSchema)]),
+        /**
+         * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+         * for notes on _meta usage.
+         */
+        _meta: z.optional(z.object({}).passthrough())
+    })
+    .passthrough();
 
 /**
  * Parameters for a `sampling/createMessage` request.
@@ -1312,7 +1303,7 @@ export const CreateMessageRequestParamsSchema = BaseRequestParamsSchema.extend({
      * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
      * Default is `{ mode: "auto" }`.
      */
-    toolChoice: z.optional(ToolChoiceSchema),
+    toolChoice: z.optional(ToolChoiceSchema)
 });
 /**
  * A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
@@ -1341,20 +1332,12 @@ export const CreateMessageResultSchema = ResultSchema.extend({
      *
      * This field is an open string to allow for provider-specific stop reasons.
      */
-    stopReason: z.optional(
-        z.enum(["endTurn", "stopSequence", "maxTokens", "toolUse"]).or(z.string()),
-    ),
-    /**
-     * The role is always "assistant" in responses from the LLM.
-     */
-    role: z.literal("assistant"),
+    stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens', 'toolUse']).or(z.string())),
+    role: z.enum(['user', 'assistant']),
     /**
      * Response content. May be ToolUseContent if stopReason is "toolUse".
      */
-    content: z.union([
-        SamplingMessageContentBlockSchema,
-        z.array(SamplingMessageContentBlockSchema)
-    ]),
+    content: z.union([SamplingMessageContentBlockSchema, z.array(SamplingMessageContentBlockSchema)])
 });
 
 /* Elicitation */

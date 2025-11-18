@@ -12,7 +12,7 @@ import {
     SamplingMessageSchema,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
-    ClientCapabilitiesSchema,
+    ClientCapabilitiesSchema
 } from './types.js';
 
 describe('Types', () => {
@@ -319,45 +319,45 @@ describe('Types', () => {
         });
     });
 
-    describe("ToolUseContent", () => {
-        test("should validate a tool call content", () => {
+    describe('ToolUseContent', () => {
+        test('should validate a tool call content', () => {
             const toolCall = {
-                type: "tool_use",
-                id: "call_123",
-                name: "get_weather",
-                input: { city: "San Francisco", units: "celsius" }
+                type: 'tool_use',
+                id: 'call_123',
+                name: 'get_weather',
+                input: { city: 'San Francisco', units: 'celsius' }
             };
 
             const result = ToolUseContentSchema.safeParse(toolCall);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.type).toBe("tool_use");
-                expect(result.data.id).toBe("call_123");
-                expect(result.data.name).toBe("get_weather");
-                expect(result.data.input).toEqual({ city: "San Francisco", units: "celsius" });
+                expect(result.data.type).toBe('tool_use');
+                expect(result.data.id).toBe('call_123');
+                expect(result.data.name).toBe('get_weather');
+                expect(result.data.input).toEqual({ city: 'San Francisco', units: 'celsius' });
             }
         });
 
-        test("should validate tool call with _meta", () => {
+        test('should validate tool call with _meta', () => {
             const toolCall = {
-                type: "tool_use",
-                id: "call_456",
-                name: "search",
-                input: { query: "test" },
-                _meta: { custom: "data" }
+                type: 'tool_use',
+                id: 'call_456',
+                name: 'search',
+                input: { query: 'test' },
+                _meta: { custom: 'data' }
             };
 
             const result = ToolUseContentSchema.safeParse(toolCall);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data._meta).toEqual({ custom: "data" });
+                expect(result.data._meta).toEqual({ custom: 'data' });
             }
         });
 
-        test("should fail validation for missing required fields", () => {
+        test('should fail validation for missing required fields', () => {
             const invalidToolCall = {
-                type: "tool_use",
-                name: "test"
+                type: 'tool_use',
+                name: 'test'
                 // missing id and input
             };
 
@@ -366,43 +366,43 @@ describe('Types', () => {
         });
     });
 
-    describe("ToolResultContent", () => {
-        test("should validate a tool result content", () => {
+    describe('ToolResultContent', () => {
+        test('should validate a tool result content', () => {
             const toolResult = {
-                type: "tool_result",
-                toolUseId: "call_123",
-                structuredContent: { temperature: 72, condition: "sunny" }
+                type: 'tool_result',
+                toolUseId: 'call_123',
+                structuredContent: { temperature: 72, condition: 'sunny' }
             };
 
             const result = ToolResultContentSchema.safeParse(toolResult);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.type).toBe("tool_result");
-                expect(result.data.toolUseId).toBe("call_123");
-                expect(result.data.structuredContent).toEqual({ temperature: 72, condition: "sunny" });
+                expect(result.data.type).toBe('tool_result');
+                expect(result.data.toolUseId).toBe('call_123');
+                expect(result.data.structuredContent).toEqual({ temperature: 72, condition: 'sunny' });
             }
         });
 
-        test("should validate tool result with error in content", () => {
+        test('should validate tool result with error in content', () => {
             const toolResult = {
-                type: "tool_result",
-                toolUseId: "call_456",
-                structuredContent: { error: "API_ERROR", message: "Service unavailable" },
+                type: 'tool_result',
+                toolUseId: 'call_456',
+                structuredContent: { error: 'API_ERROR', message: 'Service unavailable' },
                 isError: true
             };
 
             const result = ToolResultContentSchema.safeParse(toolResult);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.structuredContent).toEqual({ error: "API_ERROR", message: "Service unavailable" });
+                expect(result.data.structuredContent).toEqual({ error: 'API_ERROR', message: 'Service unavailable' });
                 expect(result.data.isError).toBe(true);
             }
         });
 
-        test("should fail validation for missing required fields", () => {
+        test('should fail validation for missing required fields', () => {
             const invalidToolResult = {
-                type: "tool_result",
-                content: { data: "test" }
+                type: 'tool_result',
+                content: { data: 'test' }
                 // missing toolUseId
             };
 
@@ -411,43 +411,41 @@ describe('Types', () => {
         });
     });
 
-    describe("ToolChoice", () => {
-        test("should validate tool choice with mode auto", () => {
+    describe('ToolChoice', () => {
+        test('should validate tool choice with mode auto', () => {
             const toolChoice = {
-                mode: "auto"
+                mode: 'auto'
             };
 
             const result = ToolChoiceSchema.safeParse(toolChoice);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.mode).toBe("auto");
+                expect(result.data.mode).toBe('auto');
             }
         });
 
-        test("should validate tool choice with mode required", () => {
+        test('should validate tool choice with mode required', () => {
             const toolChoice = {
-                mode: "required",
-                disable_parallel_tool_use: true
+                mode: 'required'
             };
 
             const result = ToolChoiceSchema.safeParse(toolChoice);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.mode).toBe("required");
-                expect(result.data.disable_parallel_tool_use).toBe(true);
+                expect(result.data.mode).toBe('required');
             }
         });
 
-        test("should validate empty tool choice", () => {
+        test('should validate empty tool choice', () => {
             const toolChoice = {};
 
             const result = ToolChoiceSchema.safeParse(toolChoice);
             expect(result.success).toBe(true);
         });
 
-        test("should fail validation for invalid mode", () => {
+        test('should fail validation for invalid mode', () => {
             const invalidToolChoice = {
-                mode: "invalid"
+                mode: 'invalid'
             };
 
             const result = ToolChoiceSchema.safeParse(invalidToolChoice);
@@ -455,29 +453,29 @@ describe('Types', () => {
         });
     });
 
-    describe("SamplingMessage content types", () => {
-        test("should validate user message with text", () => {
+    describe('SamplingMessage content types', () => {
+        test('should validate user message with text', () => {
             const userMessage = {
-                role: "user",
-                content: { type: "text", text: "What's the weather?" }
+                role: 'user',
+                content: { type: 'text', text: "What's the weather?" }
             };
 
             const result = SamplingMessageSchema.safeParse(userMessage);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.role).toBe("user");
+                expect(result.data.role).toBe('user');
                 if (!Array.isArray(result.data.content)) {
-                    expect(result.data.content.type).toBe("text");
+                    expect(result.data.content.type).toBe('text');
                 }
             }
         });
 
-        test("should validate user message with tool result", () => {
+        test('should validate user message with tool result', () => {
             const userMessage = {
-                role: "user",
+                role: 'user',
                 content: {
-                    type: "tool_result",
-                    toolUseId: "call_123",
+                    type: 'tool_result',
+                    toolUseId: 'call_123',
                     content: []
                 }
             };
@@ -485,48 +483,48 @@ describe('Types', () => {
             const result = SamplingMessageSchema.safeParse(userMessage);
             expect(result.success).toBe(true);
             if (result.success && !Array.isArray(result.data.content)) {
-                expect(result.data.content.type).toBe("tool_result");
+                expect(result.data.content.type).toBe('tool_result');
             }
         });
 
-        test("should validate assistant message with text", () => {
+        test('should validate assistant message with text', () => {
             const assistantMessage = {
-                role: "assistant",
-                content: { type: "text", text: "I'll check the weather for you." }
+                role: 'assistant',
+                content: { type: 'text', text: "I'll check the weather for you." }
             };
 
             const result = SamplingMessageSchema.safeParse(assistantMessage);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.role).toBe("assistant");
+                expect(result.data.role).toBe('assistant');
             }
         });
 
-        test("should validate assistant message with tool call", () => {
+        test('should validate assistant message with tool call', () => {
             const assistantMessage = {
-                role: "assistant",
+                role: 'assistant',
                 content: {
-                    type: "tool_use",
-                    id: "call_123",
-                    name: "get_weather",
-                    input: { city: "SF" }
+                    type: 'tool_use',
+                    id: 'call_123',
+                    name: 'get_weather',
+                    input: { city: 'SF' }
                 }
             };
 
             const result = SamplingMessageSchema.safeParse(assistantMessage);
             expect(result.success).toBe(true);
             if (result.success && !Array.isArray(result.data.content)) {
-                expect(result.data.content.type).toBe("tool_use");
+                expect(result.data.content.type).toBe('tool_use');
             }
         });
 
-        test("should validate any content type for any role", () => {
+        test('should validate any content type for any role', () => {
             // The simplified schema allows any content type for any role
             const assistantWithToolResult = {
-                role: "assistant",
+                role: 'assistant',
                 content: {
-                    type: "tool_result",
-                    toolUseId: "call_123",
+                    type: 'tool_result',
+                    toolUseId: 'call_123',
                     content: []
                 }
             };
@@ -535,11 +533,11 @@ describe('Types', () => {
             expect(result1.success).toBe(true);
 
             const userWithToolUse = {
-                role: "user",
+                role: 'user',
                 content: {
-                    type: "tool_use",
-                    id: "call_123",
-                    name: "test",
+                    type: 'tool_use',
+                    id: 'call_123',
+                    name: 'test',
                     input: {}
                 }
             };
@@ -549,42 +547,40 @@ describe('Types', () => {
         });
     });
 
-    describe("SamplingMessage", () => {
-        test("should validate user message via discriminated union", () => {
+    describe('SamplingMessage', () => {
+        test('should validate user message via discriminated union', () => {
             const message = {
-                role: "user",
-                content: { type: "text", text: "Hello" }
+                role: 'user',
+                content: { type: 'text', text: 'Hello' }
             };
 
             const result = SamplingMessageSchema.safeParse(message);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.role).toBe("user");
+                expect(result.data.role).toBe('user');
             }
         });
 
-        test("should validate assistant message via discriminated union", () => {
+        test('should validate assistant message via discriminated union', () => {
             const message = {
-                role: "assistant",
-                content: { type: "text", text: "Hi there!" }
+                role: 'assistant',
+                content: { type: 'text', text: 'Hi there!' }
             };
 
             const result = SamplingMessageSchema.safeParse(message);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.role).toBe("assistant");
+                expect(result.data.role).toBe('assistant');
             }
         });
     });
 
-    describe("CreateMessageRequest", () => {
-        test("should validate request without tools", () => {
+    describe('CreateMessageRequest', () => {
+        test('should validate request without tools', () => {
             const request = {
-                method: "sampling/createMessage",
+                method: 'sampling/createMessage',
                 params: {
-                    messages: [
-                        { role: "user", content: { type: "text", text: "Hello" } }
-                    ],
+                    messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
                     maxTokens: 1000
                 }
             };
@@ -596,29 +592,27 @@ describe('Types', () => {
             }
         });
 
-        test("should validate request with tools", () => {
+        test('should validate request with tools', () => {
             const request = {
-                method: "sampling/createMessage",
+                method: 'sampling/createMessage',
                 params: {
-                    messages: [
-                        { role: "user", content: { type: "text", text: "What's the weather?" } }
-                    ],
+                    messages: [{ role: 'user', content: { type: 'text', text: "What's the weather?" } }],
                     maxTokens: 1000,
                     tools: [
                         {
-                            name: "get_weather",
-                            description: "Get weather for a location",
+                            name: 'get_weather',
+                            description: 'Get weather for a location',
                             inputSchema: {
-                                type: "object",
+                                type: 'object',
                                 properties: {
-                                    location: { type: "string" }
+                                    location: { type: 'string' }
                                 },
-                                required: ["location"]
+                                required: ['location']
                             }
                         }
                     ],
                     toolChoice: {
-                        mode: "auto"
+                        mode: 'auto'
                     }
                 }
             };
@@ -627,76 +621,108 @@ describe('Types', () => {
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.params.tools).toHaveLength(1);
-                expect(result.data.params.toolChoice?.mode).toBe("auto");
+                expect(result.data.params.toolChoice?.mode).toBe('auto');
             }
         });
 
-        test("should validate request with includeContext (soft-deprecated)", () => {
+        test('should validate request with includeContext (soft-deprecated)', () => {
             const request = {
-                method: "sampling/createMessage",
+                method: 'sampling/createMessage',
                 params: {
-                    messages: [
-                        { role: "user", content: { type: "text", text: "Help" } }
-                    ],
+                    messages: [{ role: 'user', content: { type: 'text', text: 'Help' } }],
                     maxTokens: 1000,
-                    includeContext: "thisServer"
+                    includeContext: 'thisServer'
                 }
             };
 
             const result = CreateMessageRequestSchema.safeParse(request);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.params.includeContext).toBe("thisServer");
+                expect(result.data.params.includeContext).toBe('thisServer');
             }
         });
     });
 
-    describe("CreateMessageResult", () => {
-        test("should validate result with text content", () => {
+    describe('CreateMessageResult', () => {
+        test('should validate result with text content', () => {
             const result = {
-                model: "claude-3-5-sonnet-20241022",
-                role: "assistant",
-                content: { type: "text", text: "Here's the answer." },
-                stopReason: "endTurn"
+                model: 'claude-3-5-sonnet-20241022',
+                role: 'assistant',
+                content: { type: 'text', text: "Here's the answer." },
+                stopReason: 'endTurn'
             };
 
             const parseResult = CreateMessageResultSchema.safeParse(result);
             expect(parseResult.success).toBe(true);
             if (parseResult.success) {
-                expect(parseResult.data.role).toBe("assistant");
-                expect(parseResult.data.stopReason).toBe("endTurn");
+                expect(parseResult.data.role).toBe('assistant');
+                expect(parseResult.data.stopReason).toBe('endTurn');
             }
         });
 
-        test("should validate result with tool call", () => {
+        test('should validate result with tool call', () => {
             const result = {
-                model: "claude-3-5-sonnet-20241022",
-                role: "assistant",
+                model: 'claude-3-5-sonnet-20241022',
+                role: 'assistant',
                 content: {
-                    type: "tool_use",
-                    id: "call_123",
-                    name: "get_weather",
-                    input: { city: "SF" }
+                    type: 'tool_use',
+                    id: 'call_123',
+                    name: 'get_weather',
+                    input: { city: 'SF' }
                 },
-                stopReason: "toolUse"
+                stopReason: 'toolUse'
             };
 
             const parseResult = CreateMessageResultSchema.safeParse(result);
             expect(parseResult.success).toBe(true);
             if (parseResult.success) {
-                expect(parseResult.data.stopReason).toBe("toolUse");
-                expect(parseResult.data.content.type).toBe("tool_use");
+                expect(parseResult.data.stopReason).toBe('toolUse');
+                const content = parseResult.data.content;
+                expect(Array.isArray(content)).toBe(false);
+                if (!Array.isArray(content)) {
+                    expect(content.type).toBe('tool_use');
+                }
             }
         });
 
-        test("should validate all new stop reasons", () => {
-            const stopReasons = ["endTurn", "stopSequence", "maxTokens", "toolUse", "refusal", "other"];
+        test('should validate result with array content', () => {
+            const result = {
+                model: 'claude-3-5-sonnet-20241022',
+                role: 'assistant',
+                content: [
+                    { type: 'text', text: 'Let me check the weather.' },
+                    {
+                        type: 'tool_use',
+                        id: 'call_123',
+                        name: 'get_weather',
+                        input: { city: 'SF' }
+                    }
+                ],
+                stopReason: 'toolUse'
+            };
+
+            const parseResult = CreateMessageResultSchema.safeParse(result);
+            expect(parseResult.success).toBe(true);
+            if (parseResult.success) {
+                expect(parseResult.data.stopReason).toBe('toolUse');
+                const content = parseResult.data.content;
+                expect(Array.isArray(content)).toBe(true);
+                if (Array.isArray(content)) {
+                    expect(content).toHaveLength(2);
+                    expect(content[0].type).toBe('text');
+                    expect(content[1].type).toBe('tool_use');
+                }
+            }
+        });
+
+        test('should validate all new stop reasons', () => {
+            const stopReasons = ['endTurn', 'stopSequence', 'maxTokens', 'toolUse', 'refusal', 'other'];
 
             stopReasons.forEach(stopReason => {
                 const result = {
-                    model: "test",
-                    role: "assistant",
-                    content: { type: "text", text: "test" },
+                    model: 'test',
+                    role: 'assistant',
+                    content: { type: 'text', text: 'test' },
                     stopReason
                 };
 
@@ -705,32 +731,22 @@ describe('Types', () => {
             });
         });
 
-        test("should allow custom stop reason string", () => {
+        test('should allow custom stop reason string', () => {
             const result = {
-                model: "test",
-                role: "assistant",
-                content: { type: "text", text: "test" },
-                stopReason: "custom_provider_reason"
+                model: 'test',
+                role: 'assistant',
+                content: { type: 'text', text: 'test' },
+                stopReason: 'custom_provider_reason'
             };
 
             const parseResult = CreateMessageResultSchema.safeParse(result);
             expect(parseResult.success).toBe(true);
         });
 
-        test("should fail for user role in result", () => {
-            const result = {
-                model: "test",
-                role: "user",
-                content: { type: "text", text: "test" }
-            };
+            });
 
-            const parseResult = CreateMessageResultSchema.safeParse(result);
-            expect(parseResult.success).toBe(false);
-        });
-    });
-
-    describe("ClientCapabilities with sampling", () => {
-        test("should validate capabilities with sampling.tools", () => {
+    describe('ClientCapabilities with sampling', () => {
+        test('should validate capabilities with sampling.tools', () => {
             const capabilities = {
                 sampling: {
                     tools: {}
@@ -744,7 +760,7 @@ describe('Types', () => {
             }
         });
 
-        test("should validate capabilities with sampling.context", () => {
+        test('should validate capabilities with sampling.context', () => {
             const capabilities = {
                 sampling: {
                     context: {}
@@ -758,7 +774,7 @@ describe('Types', () => {
             }
         });
 
-        test("should validate capabilities with both", () => {
+        test('should validate capabilities with both', () => {
             const capabilities = {
                 sampling: {
                     context: {},

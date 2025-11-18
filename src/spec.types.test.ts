@@ -647,7 +647,7 @@ describe('Spec Types', () => {
     it('should define some expected types', () => {
         expect(specTypes).toContain('JSONRPCNotification');
         expect(specTypes).toContain('ElicitResult');
-        expect(specTypes).toHaveLength(123);
+        expect(specTypes).toHaveLength(127);
     });
 
     it('should have up to date list of missing sdk types', () => {
