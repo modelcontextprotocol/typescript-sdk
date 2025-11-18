@@ -955,27 +955,28 @@ export const ToolSchema = BaseMetadataSchema.extend({
      */
     description: z.string().optional(),
     /**
-     * A JSON Schema object defining the expected parameters for the tool.
+     * A JSON Schema 2020-12 object defining the expected parameters for the tool.
+     * Must have type: 'object' at the root level per MCP spec.
      */
-    inputSchema: z.object({
-        type: z.literal('object'),
-        properties: z.record(z.string(), AssertObjectSchema).optional(),
-        required: z.optional(z.array(z.string()))
-    }),
+    inputSchema: z
+        .object({
+            type: z.literal('object'),
+            properties: z.record(z.string(), AssertObjectSchema).optional(),
+            required: z.array(z.string()).optional()
+        })
+        .passthrough(),
     /**
-     * An optional JSON Schema object defining the structure of the tool's output returned in
-     * the structuredContent field of a CallToolResult.
+     * An optional JSON Schema 2020-12 object defining the structure of the tool's output
+     * returned in the structuredContent field of a CallToolResult.
+     * Must have type: 'object' at the root level per MCP spec.
      */
     outputSchema: z
         .object({
             type: z.literal('object'),
             properties: z.record(z.string(), AssertObjectSchema).optional(),
-            required: z.optional(z.array(z.string())),
-            /**
-             * Not in the MCP specification, but added to support the Ajv validator while removing .passthrough() which previously allowed additionalProperties to be passed through.
-             */
-            additionalProperties: z.optional(z.boolean())
+            required: z.array(z.string()).optional()
         })
+        .passthrough()
         .optional(),
     /**
      * Optional additional tool information.
