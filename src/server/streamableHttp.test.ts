@@ -31,6 +31,7 @@ interface TestServerConfig {
     eventStore?: EventStore;
     onsessioninitialized?: (sessionId: string) => void | Promise<void>;
     onsessionclosed?: (sessionId: string) => void | Promise<void>;
+    retryInterval?: number;
 }
 
 /**
@@ -58,7 +59,8 @@ async function createTestServer(config: TestServerConfig = { sessionIdGenerator:
         enableJsonResponse: config.enableJsonResponse ?? false,
         eventStore: config.eventStore,
         onsessioninitialized: config.onsessioninitialized,
-        onsessionclosed: config.onsessionclosed
+        onsessionclosed: config.onsessionclosed,
+        retryInterval: config.retryInterval
     });
 
     await mcpServer.connect(transport);
@@ -1513,6 +1515,323 @@ describe('StreamableHTTPServerTransport in stateless mode', () => {
             }
         });
         expect(stream2.status).toBe(409); // Conflict - only one stream allowed
+    });
+});
+
+// Test SSE priming events for POST streams (SEP-1699)
+describe('StreamableHTTPServerTransport POST SSE priming events', () => {
+    let server: Server;
+    let transport: StreamableHTTPServerTransport;
+    let baseUrl: URL;
+    let sessionId: string;
+    let mcpServer: McpServer;
+
+    // Simple eventStore for priming event tests
+    const createEventStore = (): EventStore => {
+        const storedEvents = new Map<string, { eventId: string; message: JSONRPCMessage; streamId: string }>();
+        return {
+            async storeEvent(streamId: string, message: JSONRPCMessage): Promise<string> {
+                const eventId = `${streamId}::${Date.now()}_${randomUUID()}`;
+                storedEvents.set(eventId, { eventId, message, streamId });
+                return eventId;
+            },
+            async replayEventsAfter(
+                lastEventId: EventId,
+                { send }: { send: (eventId: EventId, message: JSONRPCMessage) => Promise<void> }
+            ): Promise<StreamId> {
+                const streamId = lastEventId.split('::')[0];
+                const eventsToReplay: Array<[string, { message: JSONRPCMessage }]> = [];
+                for (const [eventId, data] of storedEvents.entries()) {
+                    if (data.streamId === streamId && eventId > lastEventId) {
+                        eventsToReplay.push([eventId, data]);
+                    }
+                }
+                eventsToReplay.sort(([a], [b]) => a.localeCompare(b));
+                for (const [eventId, { message }] of eventsToReplay) {
+                    if (Object.keys(message).length > 0) {
+                        await send(eventId, message);
+                    }
+                }
+                return streamId;
+            }
+        };
+    };
+
+    afterEach(async () => {
+        if (server && transport) {
+            await stopTestServer({ server, transport });
+        }
+    });
+
+    it('should send priming event with retry field on POST SSE stream', async () => {
+        const result = await createTestServer({
+            sessionIdGenerator: () => randomUUID(),
+            eventStore: createEventStore(),
+            retryInterval: 5000
+        });
+        server = result.server;
+        transport = result.transport;
+        baseUrl = result.baseUrl;
+        mcpServer = result.mcpServer;
+
+        // Register a tool that we can call
+        mcpServer.tool('test-tool', 'A test tool', {}, async () => {
+            return { content: [{ type: 'text', text: 'Tool result' }] };
+        });
+
+        // Initialize to get session ID
+        const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+        sessionId = initResponse.headers.get('mcp-session-id') as string;
+        expect(sessionId).toBeDefined();
+
+        // Send a POST request that will return SSE stream
+        const toolCallRequest: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name: 'test-tool', arguments: {} }
+        };
+
+        const postResponse = await fetch(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream, application/json',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-03-26'
+            },
+            body: JSON.stringify(toolCallRequest)
+        });
+
+        expect(postResponse.status).toBe(200);
+        expect(postResponse.headers.get('content-type')).toBe('text/event-stream');
+
+        // Read the priming event
+        const reader = postResponse.body?.getReader();
+        const { value } = await reader!.read();
+        const text = new TextDecoder().decode(value);
+
+        // Verify priming event has id and retry field
+        expect(text).toContain('id: ');
+        expect(text).toContain('retry: 5000');
+        expect(text).toContain('data: ');
+    });
+
+    it('should send priming event without retry field when retryInterval is not configured', async () => {
+        const result = await createTestServer({
+            sessionIdGenerator: () => randomUUID(),
+            eventStore: createEventStore()
+            // No retryInterval
+        });
+        server = result.server;
+        transport = result.transport;
+        baseUrl = result.baseUrl;
+        mcpServer = result.mcpServer;
+
+        mcpServer.tool('test-tool', 'A test tool', {}, async () => {
+            return { content: [{ type: 'text', text: 'Tool result' }] };
+        });
+
+        // Initialize to get session ID
+        const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+        sessionId = initResponse.headers.get('mcp-session-id') as string;
+        expect(sessionId).toBeDefined();
+
+        // Send a POST request
+        const toolCallRequest: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name: 'test-tool', arguments: {} }
+        };
+
+        const postResponse = await fetch(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream, application/json',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-03-26'
+            },
+            body: JSON.stringify(toolCallRequest)
+        });
+
+        expect(postResponse.status).toBe(200);
+
+        // Read the priming event
+        const reader = postResponse.body?.getReader();
+        const { value } = await reader!.read();
+        const text = new TextDecoder().decode(value);
+
+        // Priming event should have id field but NOT retry field
+        expect(text).toContain('id: ');
+        expect(text).toContain('data: ');
+        expect(text).not.toContain('retry:');
+    });
+
+    it('should close POST SSE stream when closeSseStream is called', async () => {
+        const result = await createTestServer({
+            sessionIdGenerator: () => randomUUID(),
+            eventStore: createEventStore(),
+            retryInterval: 1000
+        });
+        server = result.server;
+        transport = result.transport;
+        baseUrl = result.baseUrl;
+        mcpServer = result.mcpServer;
+
+        // Register a tool that will hang until we close the stream
+        let toolResolve: () => void;
+        const toolPromise = new Promise<void>(resolve => {
+            toolResolve = resolve;
+        });
+
+        mcpServer.tool('slow-tool', 'A slow tool', {}, async () => {
+            await toolPromise;
+            return { content: [{ type: 'text', text: 'Done' }] };
+        });
+
+        // Initialize to get session ID
+        const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+        sessionId = initResponse.headers.get('mcp-session-id') as string;
+        expect(sessionId).toBeDefined();
+
+        // Send a POST request for the slow tool
+        const toolCallRequest: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            id: 42,
+            method: 'tools/call',
+            params: { name: 'slow-tool', arguments: {} }
+        };
+
+        const postResponse = await fetch(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream, application/json',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-03-26'
+            },
+            body: JSON.stringify(toolCallRequest)
+        });
+
+        expect(postResponse.status).toBe(200);
+
+        const reader = postResponse.body?.getReader();
+
+        // Read the priming event
+        await reader!.read();
+
+        // Close the SSE stream for this request
+        transport.closeSSEStream(42);
+
+        // Stream should now be closed
+        const { done } = await reader!.read();
+        expect(done).toBe(true);
+
+        // Clean up - resolve the tool promise
+        toolResolve!();
+    });
+
+    it('should support POST SSE polling with client reconnection', async () => {
+        const result = await createTestServer({
+            sessionIdGenerator: () => randomUUID(),
+            eventStore: createEventStore(),
+            retryInterval: 1000
+        });
+        server = result.server;
+        transport = result.transport;
+        baseUrl = result.baseUrl;
+        mcpServer = result.mcpServer;
+
+        // Track tool execution state
+        let toolResolve: () => void;
+        const toolPromise = new Promise<void>(resolve => {
+            toolResolve = resolve;
+        });
+
+        // Register a tool that sends progress and then completes
+        mcpServer.tool('polling-tool', 'A tool for polling test', {}, async () => {
+            // Wait for test to signal completion
+            await toolPromise;
+            return { content: [{ type: 'text', text: 'Final result' }] };
+        });
+
+        // Initialize to get session ID
+        const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+        sessionId = initResponse.headers.get('mcp-session-id') as string;
+        expect(sessionId).toBeDefined();
+
+        // Send a POST request for the tool
+        const toolCallRequest: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            id: 100,
+            method: 'tools/call',
+            params: { name: 'polling-tool', arguments: {} }
+        };
+
+        const postResponse = await fetch(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream, application/json',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-03-26'
+            },
+            body: JSON.stringify(toolCallRequest)
+        });
+
+        expect(postResponse.status).toBe(200);
+        expect(postResponse.headers.get('content-type')).toBe('text/event-stream');
+
+        const reader = postResponse.body?.getReader();
+
+        // Read the priming event and extract event ID
+        const { value: primingValue } = await reader!.read();
+        const primingText = new TextDecoder().decode(primingValue);
+        expect(primingText).toContain('id: ');
+        expect(primingText).toContain('retry: 1000');
+
+        // Extract the priming event ID
+        const primingIdMatch = primingText.match(/id: ([^\n]+)/);
+        expect(primingIdMatch).toBeTruthy();
+        const primingEventId = primingIdMatch![1];
+
+        // Server closes the stream to trigger polling
+        transport.closeSSEStream(100);
+
+        // Verify stream is closed
+        const { done } = await reader!.read();
+        expect(done).toBe(true);
+
+        // Now complete the tool - this will store the result event
+        toolResolve!();
+
+        // Give the tool time to complete and store the result
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        // Client reconnects with Last-Event-ID to get missed events
+        const reconnectResponse = await fetch(baseUrl, {
+            method: 'GET',
+            headers: {
+                Accept: 'text/event-stream',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-03-26',
+                'last-event-id': primingEventId
+            }
+        });
+
+        expect(reconnectResponse.status).toBe(200);
+        expect(reconnectResponse.headers.get('content-type')).toBe('text/event-stream');
+
+        // Read the replayed events
+        const reconnectReader = reconnectResponse.body?.getReader();
+        const { value: replayValue } = await reconnectReader!.read();
+        const replayText = new TextDecoder().decode(replayValue);
+
+        // Should receive the tool result that was stored after stream was closed
+        expect(replayText).toContain('Final result');
+        expect(replayText).toContain('"id":100');
     });
 });
 

@@ -1010,6 +1010,148 @@ describe('StreamableHTTPClientTransport', () => {
         });
     });
 
+    describe('SSE retry field handling', () => {
+        beforeEach(() => {
+            vi.useFakeTimers();
+            (global.fetch as Mock).mockReset();
+        });
+        afterEach(() => vi.useRealTimers());
+
+        it('should use server-provided retry value for reconnection delay', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 100,
+                    maxReconnectionDelay: 5000,
+                    reconnectionDelayGrowFactor: 2,
+                    maxRetries: 3
+                }
+            });
+
+            // Create a stream that sends a retry field
+            const encoder = new TextEncoder();
+            const stream = new ReadableStream({
+                start(controller) {
+                    // Send SSE event with retry field
+                    const event =
+                        'retry: 3000\nevent: message\nid: evt-1\ndata: {"jsonrpc": "2.0", "method": "notification", "params": {}}\n\n';
+                    controller.enqueue(encoder.encode(event));
+                    // Close stream to trigger reconnection
+                    controller.close();
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: stream
+            });
+
+            // Second request for reconnection
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream()
+            });
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+
+            // Wait for stream to close and reconnection to be scheduled
+            await vi.advanceTimersByTimeAsync(100);
+
+            // Verify the server retry value was captured
+            const transportInternal = transport as unknown as { _serverRetryMs?: number };
+            expect(transportInternal._serverRetryMs).toBe(3000);
+
+            // Verify the delay calculation uses server retry value
+            const getDelay = transport['_getNextReconnectionDelay'].bind(transport);
+            expect(getDelay(0)).toBe(3000); // Should use server value, not 100ms initial
+            expect(getDelay(5)).toBe(3000); // Should still use server value for any attempt
+        });
+
+        it('should fall back to exponential backoff when no server retry value', () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 100,
+                    maxReconnectionDelay: 5000,
+                    reconnectionDelayGrowFactor: 2,
+                    maxRetries: 3
+                }
+            });
+
+            // Without any SSE stream, _serverRetryMs should be undefined
+            const transportInternal = transport as unknown as { _serverRetryMs?: number };
+            expect(transportInternal._serverRetryMs).toBeUndefined();
+
+            // Should use exponential backoff
+            const getDelay = transport['_getNextReconnectionDelay'].bind(transport);
+            expect(getDelay(0)).toBe(100); // 100 * 2^0
+            expect(getDelay(1)).toBe(200); // 100 * 2^1
+            expect(getDelay(2)).toBe(400); // 100 * 2^2
+            expect(getDelay(10)).toBe(5000); // capped at max
+        });
+
+        it('should reconnect on graceful stream close', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                }
+            });
+
+            // Create a stream that closes gracefully after sending an event with ID
+            const encoder = new TextEncoder();
+            const stream = new ReadableStream({
+                start(controller) {
+                    // Send priming event with ID and retry field
+                    const event = 'id: evt-1\nretry: 100\ndata: \n\n';
+                    controller.enqueue(encoder.encode(event));
+                    // Graceful close
+                    controller.close();
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: stream
+            });
+
+            // Second request for reconnection
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream()
+            });
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+
+            // Wait for stream to process and close
+            await vi.advanceTimersByTimeAsync(50);
+
+            // Wait for reconnection delay (100ms from retry field)
+            await vi.advanceTimersByTimeAsync(150);
+
+            // Should have attempted reconnection
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            expect(fetchMock.mock.calls[0][1]?.method).toBe('GET');
+            expect(fetchMock.mock.calls[1][1]?.method).toBe('GET');
+
+            // Second call should include Last-Event-ID
+            const secondCallHeaders = fetchMock.mock.calls[1][1]?.headers;
+            expect(secondCallHeaders?.get('last-event-id')).toBe('evt-1');
+        });
+    });
+
     describe('prevent infinite recursion when server returns 401 after successful auth', () => {
         it('should throw error when server returns 401 after successful auth', async () => {
             const message: JSONRPCMessage = {

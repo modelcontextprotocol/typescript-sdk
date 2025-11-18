@@ -108,6 +108,13 @@ export interface StreamableHTTPServerTransportOptions {
      * Default is false for backwards compatibility.
      */
     enableDnsRebindingProtection?: boolean;
+
+    /**
+     * Retry interval in milliseconds to suggest to clients in SSE retry field.
+     * When set, the server will send a retry field in SSE priming events to control
+     * client reconnection timing for polling behavior.
+     */
+    retryInterval?: number;
 }
 
 /**
@@ -160,6 +167,7 @@ export class StreamableHTTPServerTransport implements Transport {
     private _allowedHosts?: string[];
     private _allowedOrigins?: string[];
     private _enableDnsRebindingProtection: boolean;
+    private _retryInterval?: number;
 
     sessionId?: string;
     onclose?: () => void;
@@ -175,6 +183,7 @@ export class StreamableHTTPServerTransport implements Transport {
         this._allowedHosts = options.allowedHosts;
         this._allowedOrigins = options.allowedOrigins;
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
+        this._retryInterval = options.retryInterval;
     }
 
     /**
@@ -247,6 +256,24 @@ export class StreamableHTTPServerTransport implements Transport {
         } else {
             await this.handleUnsupportedRequest(res);
         }
+    }
+
+    /**
+     * Writes a priming event to establish resumption capability.
+     * Only sends if eventStore is configured (opt-in for resumability).
+     */
+    private async _maybeWritePrimingEvent(res: ServerResponse, streamId: string): Promise<void> {
+        if (!this._eventStore) {
+            return;
+        }
+
+        const primingEventId = await this._eventStore.storeEvent(streamId, {} as JSONRPCMessage);
+
+        let primingEvent = `id: ${primingEventId}\ndata: \n\n`;
+        if (this._retryInterval !== undefined) {
+            primingEvent = `id: ${primingEventId}\nretry: ${this._retryInterval}\ndata: \n\n`;
+        }
+        res.write(primingEvent);
     }
 
     /**
@@ -547,6 +574,8 @@ export class StreamableHTTPServerTransport implements Transport {
                     }
 
                     res.writeHead(200, headers);
+
+                    await this._maybeWritePrimingEvent(res, streamId);
                 }
                 // Store the response for this request to send messages back through this connection
                 // We need to track by request ID to maintain the connection
@@ -707,6 +736,22 @@ export class StreamableHTTPServerTransport implements Transport {
         // Clear any pending responses
         this._requestResponseMap.clear();
         this.onclose?.();
+    }
+
+    /**
+     * Close an SSE stream for a specific request, triggering client reconnection.
+     * Use this to implement polling behavior during long-running operations -
+     * client will reconnect after the retry interval specified in the priming event.
+     */
+    closeSSEStream(requestId: RequestId): void {
+        const streamId = this._requestToStreamMapping.get(requestId);
+        if (!streamId) return;
+
+        const stream = this._streamMapping.get(streamId);
+        if (stream) {
+            stream.end();
+            this._streamMapping.delete(streamId);
+        }
     }
 
     async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void> {
