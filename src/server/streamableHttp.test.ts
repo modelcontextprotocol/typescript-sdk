@@ -1833,6 +1833,138 @@ describe('StreamableHTTPServerTransport POST SSE priming events', () => {
         expect(replayText).toContain('Final result');
         expect(replayText).toContain('"id":100');
     });
+
+    it('should replay multiple messages sent after closeSSEStream', async () => {
+        const result = await createTestServer({
+            sessionIdGenerator: () => randomUUID(),
+            eventStore: createEventStore(),
+            retryInterval: 1000
+        });
+        server = result.server;
+        transport = result.transport;
+        baseUrl = result.baseUrl;
+        mcpServer = result.mcpServer;
+
+        // Track tool execution state - we'll use multiple tools
+        let tool1Resolve: () => void;
+        let tool2Resolve: () => void;
+        let tool3Resolve: () => void;
+        const tool1Promise = new Promise<void>(resolve => {
+            tool1Resolve = resolve;
+        });
+        const tool2Promise = new Promise<void>(resolve => {
+            tool2Resolve = resolve;
+        });
+        const tool3Promise = new Promise<void>(resolve => {
+            tool3Resolve = resolve;
+        });
+
+        // Register multiple tools that wait for test signals
+        mcpServer.tool('tool-1', 'First tool', {}, async () => {
+            await tool1Promise;
+            return { content: [{ type: 'text', text: 'Result from tool 1' }] };
+        });
+        mcpServer.tool('tool-2', 'Second tool', {}, async () => {
+            await tool2Promise;
+            return { content: [{ type: 'text', text: 'Result from tool 2' }] };
+        });
+        mcpServer.tool('tool-3', 'Third tool', {}, async () => {
+            await tool3Promise;
+            return { content: [{ type: 'text', text: 'Result from tool 3' }] };
+        });
+
+        // Initialize to get session ID
+        const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+        sessionId = initResponse.headers.get('mcp-session-id') as string;
+        expect(sessionId).toBeDefined();
+
+        // Send a BATCH of tool calls in one POST request
+        // All responses will go to the same SSE stream
+        const batchRequest: JSONRPCMessage[] = [
+            { jsonrpc: '2.0', id: 201, method: 'tools/call', params: { name: 'tool-1', arguments: {} } },
+            { jsonrpc: '2.0', id: 202, method: 'tools/call', params: { name: 'tool-2', arguments: {} } },
+            { jsonrpc: '2.0', id: 203, method: 'tools/call', params: { name: 'tool-3', arguments: {} } }
+        ];
+
+        const postResponse = await fetch(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream, application/json',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-03-26'
+            },
+            body: JSON.stringify(batchRequest)
+        });
+
+        expect(postResponse.status).toBe(200);
+        expect(postResponse.headers.get('content-type')).toBe('text/event-stream');
+
+        const reader = postResponse.body?.getReader();
+
+        // Read the priming event and extract event ID
+        const { value: primingValue } = await reader!.read();
+        const primingText = new TextDecoder().decode(primingValue);
+        expect(primingText).toContain('id: ');
+        expect(primingText).toContain('retry: 1000');
+
+        // Extract the priming event ID
+        const primingIdMatch = primingText.match(/id: ([^\n]+)/);
+        expect(primingIdMatch).toBeTruthy();
+        const primingEventId = primingIdMatch![1];
+
+        // Server closes the stream to trigger polling - use first request ID
+        transport.closeSSEStream(201);
+
+        // Verify stream is closed
+        const { done } = await reader!.read();
+        expect(done).toBe(true);
+
+        // Complete all tools while the client is disconnected
+        // Each completion will store a response in the event store
+        tool1Resolve!();
+        await new Promise(resolve => setTimeout(resolve, 10));
+        tool2Resolve!();
+        await new Promise(resolve => setTimeout(resolve, 10));
+        tool3Resolve!();
+
+        // Give all tools time to complete and store results
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        // Client reconnects with Last-Event-ID to get all missed events
+        const reconnectResponse = await fetch(baseUrl, {
+            method: 'GET',
+            headers: {
+                Accept: 'text/event-stream',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-03-26',
+                'last-event-id': primingEventId
+            }
+        });
+
+        expect(reconnectResponse.status).toBe(200);
+        expect(reconnectResponse.headers.get('content-type')).toBe('text/event-stream');
+
+        // Read the replayed events
+        const reconnectReader = reconnectResponse.body?.getReader();
+        const { value: replayValue } = await reconnectReader!.read();
+        const replayText = new TextDecoder().decode(replayValue);
+
+        // Should receive all three tool results that were stored after stream was closed
+        expect(replayText).toContain('Result from tool 1');
+        expect(replayText).toContain('Result from tool 2');
+        expect(replayText).toContain('Result from tool 3');
+
+        // Verify all request IDs are present
+        expect(replayText).toContain('"id":201');
+        expect(replayText).toContain('"id":202');
+        expect(replayText).toContain('"id":203');
+
+        // Verify multiple event IDs are present (at least 3 messages)
+        const eventIds = replayText.match(/id: [^\n]+/g);
+        expect(eventIds).toBeTruthy();
+        expect(eventIds!.length).toBeGreaterThanOrEqual(3);
+    });
 });
 
 // Test onsessionclosed callback
