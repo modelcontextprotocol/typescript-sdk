@@ -447,7 +447,7 @@ async function authInternal(
         clientInformation,
         state,
         redirectUrl: provider.redirectUrl,
-        scope: scope || provider.clientMetadata.scope,
+        scope: scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope,
         resource
     });
 
