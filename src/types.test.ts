@@ -742,8 +742,7 @@ describe('Types', () => {
             const parseResult = CreateMessageResultSchema.safeParse(result);
             expect(parseResult.success).toBe(true);
         });
-
-            });
+    });
 
     describe('ClientCapabilities with sampling', () => {
         test('should validate capabilities with sampling.tools', () => {

@@ -627,7 +627,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    SamplingMessageContentBlock: (sdk: RemovePassthrough<SDKTypes.SamplingMessageContentBlock>, spec: SpecTypes.SamplingMessageContentBlock) => {
+    SamplingMessageContentBlock: (
+        sdk: RemovePassthrough<SDKTypes.SamplingMessageContentBlock>,
+        spec: SpecTypes.SamplingMessageContentBlock
+    ) => {
         sdk = spec;
         spec = sdk;
     }
