@@ -1123,7 +1123,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     throw new Error('No request provided');
                 }
 
-                const createdTask = await taskStore.createTask(
+                return await taskStore.createTask(
                     taskParams,
                     request.id,
                     {
@@ -1132,23 +1132,6 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     },
                     sessionId
                 );
-
-                // Send task created notification with the generated taskId
-                await this.notification(
-                    {
-                        method: 'notifications/tasks/created',
-                        params: {
-                            _meta: {
-                                [RELATED_TASK_META_KEY]: {
-                                    taskId: createdTask.taskId
-                                }
-                            }
-                        }
-                    } as SendNotificationT,
-                    { relatedRequestId: request.id }
-                );
-
-                return createdTask;
             },
             getTask: async taskId => {
                 const task = await taskStore.getTask(taskId, sessionId);
