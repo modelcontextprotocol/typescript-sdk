@@ -67,9 +67,18 @@ export class PendingRequest<SendRequestT extends Request, SendNotificationT exte
         do {
             task = await this.protocol.getTask({ taskId: taskId });
             await onTaskStatus(task);
-            await new Promise(resolve =>
-                setTimeout(resolve, task.pollInterval ?? this.defaultTaskPollInterval ?? DEFAULT_TASK_POLLING_INTERVAL)
-            );
+
+            // Handle input_required status: preemptively call tasks/result instead of continuing to poll
+            // This allows the receiver to block and wait for user input before returning the result
+            if (task.status === 'input_required') {
+                return await this.protocol.getTaskResult({ taskId: taskId }, this.resultSchema);
+            }
+
+            if (!isTerminal(task.status)) {
+                await new Promise(resolve =>
+                    setTimeout(resolve, task.pollInterval ?? this.defaultTaskPollInterval ?? DEFAULT_TASK_POLLING_INTERVAL)
+                );
+            }
         } while (!isTerminal(task.status));
 
         // Process result
