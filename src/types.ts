@@ -652,13 +652,6 @@ export const CreateTaskResultSchema = ResultSchema.extend({
 });
 
 /**
- * An out-of-band notification used to inform the receiver of a task being created.
- */
-export const TaskCreatedNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/tasks/created')
-});
-
-/**
  * Parameters for task status notification.
  */
 export const TaskStatusNotificationParamsSchema = z.object({
@@ -1805,8 +1798,7 @@ export const ClientNotificationSchema = z.union([
     CancelledNotificationSchema,
     ProgressNotificationSchema,
     InitializedNotificationSchema,
-    RootsListChangedNotificationSchema,
-    TaskCreatedNotificationSchema
+    RootsListChangedNotificationSchema
 ]);
 
 export const ClientResultSchema = z.union([
@@ -1837,8 +1829,7 @@ export const ServerNotificationSchema = z.union([
     ResourceUpdatedNotificationSchema,
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
-    PromptListChangedNotificationSchema,
-    TaskCreatedNotificationSchema
+    PromptListChangedNotificationSchema
 ]);
 
 export const ServerResultSchema = z.union([
@@ -1963,7 +1954,6 @@ export type Task = Infer<typeof TaskSchema>;
 export type TaskCreationParams = Infer<typeof TaskCreationParamsSchema>;
 export type RelatedTaskMetadata = Infer<typeof RelatedTaskMetadataSchema>;
 export type CreateTaskResult = Infer<typeof CreateTaskResultSchema>;
-export type TaskCreatedNotification = Infer<typeof TaskCreatedNotificationSchema>;
 export type TaskStatusNotificationParams = Infer<typeof TaskStatusNotificationParamsSchema>;
 export type TaskStatusNotification = Infer<typeof TaskStatusNotificationSchema>;
 export type GetTaskRequest = Infer<typeof GetTaskRequestSchema>;
