@@ -345,11 +345,14 @@ export class Server<
     async elicitInput(params: ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult>;
     /**
      * Creates an elicitation request for the given parameters.
+     * @deprecated Use the overloads with explicit `mode: 'form' | 'url'` instead.
      * @param params The parameters for the form elicitation request (legacy signature without mode).
      * @param options Optional request options.
      * @returns The result of the elicitation request.
      */
     async elicitInput(params: LegacyElicitRequestFormParams, options?: RequestOptions): Promise<ElicitResult>;
+
+    // Implementation (not visible to callers)
     async elicitInput(
         params: LegacyElicitRequestFormParams | ElicitRequestFormParams | ElicitRequestURLParams,
         options?: RequestOptions
