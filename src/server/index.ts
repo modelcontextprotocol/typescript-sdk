@@ -21,16 +21,16 @@ import {
     LoggingLevelSchema,
     type LoggingMessageNotification,
     McpError,
-    type Notification,
-    type Request,
     type ResourceUpdatedNotification,
-    type Result,
     type ServerCapabilities,
     type ServerNotification,
     type ServerRequest,
     type ServerResult,
     SetLevelRequestSchema,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_PROTOCOL_VERSIONS,
+    type RequestGeneric,
+    type NotificationGeneric,
+    type Result
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
@@ -107,8 +107,8 @@ export type ServerOptions = ProtocolOptions & {
  * @deprecated Use `McpServer` instead for the high-level API. Only use `Server` for advanced use cases.
  */
 export class Server<
-    RequestT extends Request = Request,
-    NotificationT extends Notification = Notification,
+    RequestT extends RequestGeneric = RequestGeneric,
+    NotificationT extends NotificationGeneric = NotificationGeneric,
     ResultT extends Result = Result
 > extends Protocol<ServerRequest | RequestT, ServerNotification | NotificationT, ServerResult | ResultT> {
     private _clientCapabilities?: ClientCapabilities;
