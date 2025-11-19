@@ -359,14 +359,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
                 }
 
+                // Per spec: tasks/get responses SHALL NOT include related-task metadata
+                // as the taskId parameter is the source of truth (Requirement 6.3)
                 // @ts-expect-error SendResultT cannot contain GetTaskResult, but we include it in our derived types everywhere else
                 return {
-                    ...task,
-                    _meta: {
-                        [RELATED_TASK_META_KEY]: {
-                            taskId: request.params.taskId
-                        }
-                    }
+                    ...task
                 } as SendResultT;
             });
 
@@ -628,20 +625,33 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const taskCreationParams = request.params?.task;
         const taskStore = this._taskStore ? this.requestTaskStore(request, capturedTransport?.sessionId) : undefined;
 
+        // Extract taskId from request metadata if present (Requirement 6.1)
+        const relatedTaskId = request.params?._meta?.[RELATED_TASK_META_KEY]?.taskId;
+
         const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT, SendResultT> = {
             signal: abortController.signal,
             sessionId: capturedTransport?.sessionId,
             _meta: request.params?._meta,
             sendNotification: async notification => {
-                await this.notification(notification, { relatedRequestId: request.id });
+                // Include related-task metadata if this request is part of a task (Requirement 6.1)
+                const notificationOptions: NotificationOptions = { relatedRequestId: request.id };
+                if (relatedTaskId) {
+                    notificationOptions.relatedTask = { taskId: relatedTaskId };
+                }
+                await this.notification(notification, notificationOptions);
             },
             sendRequest: async (r, resultSchema, options?) => {
-                return await this.request(r, resultSchema, { ...options, relatedRequestId: request.id });
+                // Include related-task metadata if this request is part of a task (Requirement 6.1)
+                const requestOptions: RequestOptions = { ...options, relatedRequestId: request.id };
+                if (relatedTaskId && !requestOptions.relatedTask) {
+                    requestOptions.relatedTask = { taskId: relatedTaskId };
+                }
+                return await this.request(r, resultSchema, requestOptions);
             },
             authInfo: extra?.authInfo,
             requestId: request.id,
             requestInfo: extra?.requestInfo,
-            taskId: undefined,
+            taskId: relatedTaskId,
             taskStore: taskStore,
             taskRequestedTtl: taskCreationParams?.ttl
         };

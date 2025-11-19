@@ -1597,4 +1597,249 @@ describe('Task-based execution', () => {
             expect(lastGetTaskCall[0]).toBe(task.taskId);
         });
     });
+
+    describe('task metadata handling', () => {
+        it('should NOT include related-task metadata in tasks/get response', async () => {
+            const mockTaskStore = createMockTaskStore();
+
+            // Create a task first
+            const task = await mockTaskStore.createTask({}, 1, {
+                method: 'test/method',
+                params: {}
+            });
+
+            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+            const serverTransport = new MockTransport();
+            const sendSpy = vi.spyOn(serverTransport, 'send');
+
+            await serverProtocol.connect(serverTransport);
+
+            // Request task status
+            serverTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'tasks/get',
+                params: {
+                    taskId: task.taskId
+                }
+            });
+
+            // Wait for async processing
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Verify response does NOT include related-task metadata
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    result: expect.objectContaining({
+                        taskId: task.taskId,
+                        status: 'working'
+                    })
+                })
+            );
+
+            // Verify _meta is not present or doesn't contain RELATED_TASK_META_KEY
+            const response = sendSpy.mock.calls[0][0] as { result?: { _meta?: Record<string, unknown> } };
+            expect(response.result?._meta?.[RELATED_TASK_META_KEY]).toBeUndefined();
+        });
+
+        it('should NOT include related-task metadata in tasks/list response', async () => {
+            const mockTaskStore = createMockTaskStore();
+
+            // Create a task first
+            await mockTaskStore.createTask({}, 1, {
+                method: 'test/method',
+                params: {}
+            });
+
+            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+            const serverTransport = new MockTransport();
+            const sendSpy = vi.spyOn(serverTransport, 'send');
+
+            await serverProtocol.connect(serverTransport);
+
+            // Request task list
+            serverTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'tasks/list',
+                params: {}
+            });
+
+            // Wait for async processing
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Verify response does NOT include related-task metadata
+            const response = sendSpy.mock.calls[0][0] as { result?: { _meta?: Record<string, unknown> } };
+            expect(response.result?._meta).toEqual({});
+        });
+
+        it('should NOT include related-task metadata in tasks/cancel response', async () => {
+            const mockTaskStore = createMockTaskStore();
+
+            // Create a task first
+            const task = await mockTaskStore.createTask({}, 1, {
+                method: 'test/method',
+                params: {}
+            });
+
+            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+            const serverTransport = new MockTransport();
+            const sendSpy = vi.spyOn(serverTransport, 'send');
+
+            await serverProtocol.connect(serverTransport);
+
+            // Cancel the task
+            serverTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'tasks/cancel',
+                params: {
+                    taskId: task.taskId
+                }
+            });
+
+            // Wait for async processing
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Verify response does NOT include related-task metadata
+            const response = sendSpy.mock.calls[0][0] as { result?: { _meta?: Record<string, unknown> } };
+            expect(response.result?._meta).toEqual({});
+        });
+
+        it('should include related-task metadata in tasks/result response', async () => {
+            const mockTaskStore = createMockTaskStore();
+
+            // Create a task and complete it
+            const task = await mockTaskStore.createTask({}, 1, {
+                method: 'test/method',
+                params: {}
+            });
+
+            const testResult = {
+                content: [{ type: 'text', text: 'test result' }]
+            };
+
+            await mockTaskStore.storeTaskResult(task.taskId, testResult);
+
+            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+            const serverTransport = new MockTransport();
+            const sendSpy = vi.spyOn(serverTransport, 'send');
+
+            await serverProtocol.connect(serverTransport);
+
+            // Request task result
+            serverTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'tasks/result',
+                params: {
+                    taskId: task.taskId
+                }
+            });
+
+            // Wait for async processing
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Verify response DOES include related-task metadata
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    result: expect.objectContaining({
+                        content: testResult.content,
+                        _meta: expect.objectContaining({
+                            [RELATED_TASK_META_KEY]: {
+                                taskId: task.taskId
+                            }
+                        })
+                    })
+                })
+            );
+        });
+
+        it('should propagate related-task metadata to handler sendRequest and sendNotification', async () => {
+            const mockTaskStore = createMockTaskStore();
+
+            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+
+            const serverTransport = new MockTransport();
+            const sendSpy = vi.spyOn(serverTransport, 'send');
+
+            await serverProtocol.connect(serverTransport);
+
+            // Set up a handler that uses sendRequest and sendNotification
+            serverProtocol.setRequestHandler(CallToolRequestSchema, async (_request, extra) => {
+                // Send a notification using the extra.sendNotification
+                await extra.sendNotification({
+                    method: 'notifications/message',
+                    params: { level: 'info', data: 'test' }
+                });
+
+                return {
+                    content: [{ type: 'text', text: 'done' }]
+                };
+            });
+
+            // Send a request with related-task metadata
+            serverTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'test-tool',
+                    _meta: {
+                        [RELATED_TASK_META_KEY]: {
+                            taskId: 'parent-task-123'
+                        }
+                    }
+                }
+            });
+
+            // Wait for async processing
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Verify the notification includes related-task metadata
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    method: 'notifications/message',
+                    params: expect.objectContaining({
+                        _meta: expect.objectContaining({
+                            [RELATED_TASK_META_KEY]: {
+                                taskId: 'parent-task-123'
+                            }
+                        })
+                    })
+                }),
+                expect.any(Object)
+            );
+        });
+    });
 });
