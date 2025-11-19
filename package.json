@@ -102,11 +102,10 @@
     },
     "devDependencies": {
         "@cfworker/json-schema": "^4.1.1",
-        "@eslint/js": "^9.8.0",
+        "@eslint/js": "^9.39.1",
         "@types/content-type": "^1.1.8",
         "@types/cors": "^2.8.17",
         "@types/cross-spawn": "^6.0.6",
-        "@types/eslint__js": "^8.42.3",
         "@types/eventsource": "^1.1.15",
         "@types/express": "^5.0.0",
         "@types/node": "^22.12.0",
