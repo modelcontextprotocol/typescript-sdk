@@ -2212,6 +2212,135 @@ describe('OAuth Authorization', () => {
             expect(body.get('refresh_token')).toBe('refresh123');
         });
 
+        it('uses scopes_supported from PRM when scope is not provided', async () => {
+            // Mock PRM with scopes_supported
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/',
+                            authorization_servers: ['https://auth.example.com'],
+                            scopes_supported: ['mcp:read', 'mcp:write', 'mcp:admin']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            registration_endpoint: 'https://auth.example.com/register',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/register')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            client_id: 'test-client-id',
+                            client_secret: 'test-client-secret',
+                            redirect_uris: ['http://localhost:3000/callback'],
+                            client_name: 'Test Client'
+                        })
+                    });
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            // Mock provider methods - no scope in clientMetadata
+            (mockProvider.clientInformation as Mock).mockResolvedValue(undefined);
+            (mockProvider.tokens as Mock).mockResolvedValue(undefined);
+            mockProvider.saveClientInformation = vi.fn();
+            (mockProvider.saveCodeVerifier as Mock).mockResolvedValue(undefined);
+            (mockProvider.redirectToAuthorization as Mock).mockResolvedValue(undefined);
+
+            // Call auth without scope parameter
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/'
+            });
+
+            expect(result).toBe('REDIRECT');
+
+            // Verify the authorization URL includes the scopes from PRM
+            const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0];
+            const authUrl: URL = redirectCall[0];
+            expect(authUrl.searchParams.get('scope')).toBe('mcp:read mcp:write mcp:admin');
+        });
+
+        it('prefers explicit scope parameter over scopes_supported from PRM', async () => {
+            // Mock PRM with scopes_supported
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/',
+                            authorization_servers: ['https://auth.example.com'],
+                            scopes_supported: ['mcp:read', 'mcp:write', 'mcp:admin']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            registration_endpoint: 'https://auth.example.com/register',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/register')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            client_id: 'test-client-id',
+                            client_secret: 'test-client-secret',
+                            redirect_uris: ['http://localhost:3000/callback'],
+                            client_name: 'Test Client'
+                        })
+                    });
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            // Mock provider methods
+            (mockProvider.clientInformation as Mock).mockResolvedValue(undefined);
+            (mockProvider.tokens as Mock).mockResolvedValue(undefined);
+            mockProvider.saveClientInformation = vi.fn();
+            (mockProvider.saveCodeVerifier as Mock).mockResolvedValue(undefined);
+            (mockProvider.redirectToAuthorization as Mock).mockResolvedValue(undefined);
+
+            // Call auth with explicit scope parameter
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/',
+                scope: 'mcp:read'
+            });
+
+            expect(result).toBe('REDIRECT');
+
+            // Verify the authorization URL uses the explicit scope, not scopes_supported
+            const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0];
+            const authUrl: URL = redirectCall[0];
+            expect(authUrl.searchParams.get('scope')).toBe('mcp:read');
+        });
+
         it('fetches AS metadata with path from serverUrl when PRM returns external AS', async () => {
             // Mock PRM discovery that returns an external AS
             mockFetch.mockImplementation(url => {
