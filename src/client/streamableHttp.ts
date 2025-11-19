@@ -1,4 +1,4 @@
-import { Transport, FetchLike } from '../shared/transport.js';
+import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../shared/transport.js';
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
@@ -129,6 +129,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _requestInit?: RequestInit;
     private _authProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
+    private _fetchWithInit: FetchLike;
     private _sessionId?: string;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
@@ -145,6 +146,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._requestInit = opts?.requestInit;
         this._authProvider = opts?.authProvider;
         this._fetch = opts?.fetch;
+        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
     }
@@ -160,7 +162,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 serverUrl: this._url,
                 resourceMetadataUrl: this._resourceMetadataUrl,
                 scope: this._scope,
-                fetchFn: this._fetch
+                fetchFn: this._fetchWithInit
             });
         } catch (error) {
             this.onerror?.(error as Error);
@@ -190,7 +192,7 @@ export class StreamableHTTPClientTransport implements Transport {
             headers['mcp-protocol-version'] = this._protocolVersion;
         }
 
-        const extraHeaders = this._normalizeHeaders(this._requestInit?.headers);
+        const extraHeaders = normalizeHeaders(this._requestInit?.headers);
 
         return new Headers({
             ...headers,
@@ -253,20 +255,6 @@ export class StreamableHTTPClientTransport implements Transport {
 
         // Cap at maximum delay
         return Math.min(initialDelay * Math.pow(growFactor, attempt), maxDelay);
-    }
-
-    private _normalizeHeaders(headers: HeadersInit | undefined): Record<string, string> {
-        if (!headers) return {};
-
-        if (headers instanceof Headers) {
-            return Object.fromEntries(headers.entries());
-        }
-
-        if (Array.isArray(headers)) {
-            return Object.fromEntries(headers);
-        }
-
-        return { ...(headers as Record<string, string>) };
     }
 
     /**
@@ -388,7 +376,7 @@ export class StreamableHTTPClientTransport implements Transport {
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
-            fetchFn: this._fetch
+            fetchFn: this._fetchWithInit
         });
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');
@@ -452,7 +440,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         serverUrl: this._url,
                         resourceMetadataUrl: this._resourceMetadataUrl,
                         scope: this._scope,
-                        fetchFn: this._fetch
+                        fetchFn: this._fetchWithInit
                     });
                     if (result !== 'AUTHORIZED') {
                         throw new UnauthorizedError();

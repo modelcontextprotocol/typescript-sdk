@@ -1175,7 +1175,7 @@ await server.connect(transport);
 
 ### Eliciting User Input
 
-MCP servers can request additional information from users through the elicitation feature. This is useful for interactive workflows where the server needs user input or confirmation:
+MCP servers can request non-sensitive information from users through the form elicitation capability. This is useful for interactive workflows where the server needs user input or confirmation:
 
 ```typescript
 // Server-side: Restaurant booking tool that asks for alternatives
@@ -1208,6 +1208,7 @@ server.registerTool(
         if (!available) {
             // Ask user if they want to try alternative dates
             const result = await server.server.elicitInput({
+                mode: 'form',
                 message: `No tables available at ${restaurant} on ${date}. Would you like to check alternative dates?`,
                 requestedSchema: {
                     type: 'object',
@@ -1274,7 +1275,7 @@ server.registerTool(
 );
 ```
 
-Client-side: Handle elicitation requests
+On the client side, handle form elicitation requests:
 
 ```typescript
 // This is a placeholder - implement based on your UI framework
@@ -1299,7 +1300,85 @@ client.setRequestHandler(ElicitRequestSchema, async request => {
 });
 ```
 
-**Note**: Elicitation requires client support. Clients must declare the `elicitation` capability during initialization.
+When calling `server.elicitInput`, prefer to explicitly set `mode: 'form'` for new code. Omitting the mode continues to work for backwards compatibility and defaults to form elicitation.
+
+Elicitation is a client capability. Clients must declare the `elicitation` capability during initialization:
+
+```typescript
+const client = new Client(
+    {
+        name: 'example-client',
+        version: '1.0.0'
+    },
+    {
+        capabilities: {
+            elicitation: {
+                form: {}
+            }
+        }
+    }
+);
+```
+
+**Note**: Form elicitation **must** only be used to gather non-sensitive information. For sensitive information such as API keys or secrets, use URL elicitation instead.
+
+### Eliciting URL Actions
+
+MCP servers can prompt the user to perform a URL-based action through URL elicitation. This is useful for securely gathering sensitive information such as API keys or secrets, or for redirecting users to secure web-based flows.
+
+```typescript
+// Server-side: Prompt the user to navigate to a URL
+const result = await server.server.elicitInput({
+    mode: 'url',
+    message: 'Please enter your API key',
+    elicitationId: '550e8400-e29b-41d4-a716-446655440000',
+    url: 'http://localhost:3000/api-key'
+});
+
+// Alternative, return an error from within a tool:
+throw new UrlElicitationRequiredError([
+    {
+        mode: 'url',
+        message: 'This tool requires a payment confirmation. Open the link to confirm payment!',
+        url: `http://localhost:${MCP_PORT}/confirm-payment?session=${sessionId}&elicitation=${elicitationId}&cartId=${encodeURIComponent(cartId)}`,
+        elicitationId: '550e8400-e29b-41d4-a716-446655440000'
+    }
+]);
+```
+
+On the client side, handle URL elicitation requests:
+
+```typescript
+client.setRequestHandler(ElicitRequestSchema, async request => {
+    if (request.params.mode !== 'url') {
+        throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
+    }
+
+    // At a minimum, implement a UI that:
+    // - Display the full URL and server reason to prevent phishing
+    // - Explicitly ask the user for consent, with clear decline/cancel options
+    // - Open the URL in the system (not embedded) browser
+    // Optionally, listen for a `nofifications/elicitation/complete` message from the server
+});
+```
+
+Elicitation is a client capability. Clients must declare the `elicitation` capability during initialization:
+
+```typescript
+const client = new Client(
+    {
+        name: 'example-client',
+        version: '1.0.0'
+    },
+    {
+        capabilities: {
+            elicitation: {
+                url: {}
+            }
+        }
+    }
+);
+```
 
 ### Writing MCP Clients
 
