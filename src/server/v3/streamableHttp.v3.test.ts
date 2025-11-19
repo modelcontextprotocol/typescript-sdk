@@ -1,11 +1,11 @@
 import { createServer, type Server, IncomingMessage, ServerResponse } from 'node:http';
 import { createServer as netCreateServer, AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { EventStore, StreamableHTTPServerTransport, EventId, StreamId } from './streamableHttp.js';
-import { McpServer } from './mcp.js';
-import { CallToolResult, JSONRPCMessage } from '../types.js';
-import * as z from 'zod/v4';
-import { AuthInfo } from './auth/types.js';
+import { EventStore, StreamableHTTPServerTransport, EventId, StreamId } from '../streamableHttp.js';
+import { McpServer } from '../mcp.js';
+import { CallToolResult, JSONRPCMessage } from '../../types.js';
+import * as z from 'zod/v3';
+import { AuthInfo } from '../auth/types.js';
 
 async function getFreePort() {
     return new Promise(res => {

@@ -1,18 +1,18 @@
 import { createServer, type Server } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { Client } from '../client/index.js';
-import { StreamableHTTPClientTransport } from '../client/streamableHttp.js';
-import { McpServer } from '../server/mcp.js';
-import { StreamableHTTPServerTransport } from '../server/streamableHttp.js';
+import { Client } from '../../client/index.js';
+import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
+import { McpServer } from '../../server/mcp.js';
+import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import {
     CallToolResultSchema,
     ListToolsResultSchema,
     ListResourcesResultSchema,
     ListPromptsResultSchema,
     LATEST_PROTOCOL_VERSION
-} from '../types.js';
-import * as z from 'zod/v4';
+} from '../../types.js';
+import * as z from 'zod/v3';
 
 describe('Streamable HTTP Transport Session Management', () => {
     // Function to set up the server with optional session management

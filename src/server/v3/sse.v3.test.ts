@@ -1,12 +1,12 @@
 import http from 'http';
 import { type Mocked } from 'vitest';
 
-import { SSEServerTransport } from './sse.js';
-import { McpServer } from './mcp.js';
+import { SSEServerTransport } from '../sse.js';
+import { McpServer } from '../mcp.js';
 import { createServer, type Server } from 'node:http';
 import { AddressInfo } from 'node:net';
-import * as z from 'zod/v4';
-import { CallToolResult, JSONRPCMessage } from '../types.js';
+import * as z from 'zod/v3';
+import { CallToolResult, JSONRPCMessage } from '../../types.js';
 
 const createMockResponse = () => {
     const res = {

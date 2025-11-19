@@ -1,10 +1,9 @@
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 /**
  * Reusable URL validation that disallows javascript: scheme
  */
 export const SafeUrlSchema = z
-    .string()
     .url()
     .superRefine((val, ctx) => {
         if (!URL.canParse(val)) {
@@ -28,107 +27,102 @@ export const SafeUrlSchema = z
 /**
  * RFC 9728 OAuth Protected Resource Metadata
  */
-export const OAuthProtectedResourceMetadataSchema = z
-    .object({
-        resource: z.string().url(),
-        authorization_servers: z.array(SafeUrlSchema).optional(),
-        jwks_uri: z.string().url().optional(),
-        scopes_supported: z.array(z.string()).optional(),
-        bearer_methods_supported: z.array(z.string()).optional(),
-        resource_signing_alg_values_supported: z.array(z.string()).optional(),
-        resource_name: z.string().optional(),
-        resource_documentation: z.string().optional(),
-        resource_policy_uri: z.string().url().optional(),
-        resource_tos_uri: z.string().url().optional(),
-        tls_client_certificate_bound_access_tokens: z.boolean().optional(),
-        authorization_details_types_supported: z.array(z.string()).optional(),
-        dpop_signing_alg_values_supported: z.array(z.string()).optional(),
-        dpop_bound_access_tokens_required: z.boolean().optional()
-    })
-    .passthrough();
+export const OAuthProtectedResourceMetadataSchema = z.looseObject({
+    resource: z.string().url(),
+    authorization_servers: z.array(SafeUrlSchema).optional(),
+    jwks_uri: z.string().url().optional(),
+    scopes_supported: z.array(z.string()).optional(),
+    bearer_methods_supported: z.array(z.string()).optional(),
+    resource_signing_alg_values_supported: z.array(z.string()).optional(),
+    resource_name: z.string().optional(),
+    resource_documentation: z.string().optional(),
+    resource_policy_uri: z.string().url().optional(),
+    resource_tos_uri: z.string().url().optional(),
+    tls_client_certificate_bound_access_tokens: z.boolean().optional(),
+    authorization_details_types_supported: z.array(z.string()).optional(),
+    dpop_signing_alg_values_supported: z.array(z.string()).optional(),
+    dpop_bound_access_tokens_required: z.boolean().optional()
+});
 
 /**
  * RFC 8414 OAuth 2.0 Authorization Server Metadata
  */
-export const OAuthMetadataSchema = z
-    .object({
-        issuer: z.string(),
-        authorization_endpoint: SafeUrlSchema,
-        token_endpoint: SafeUrlSchema,
-        registration_endpoint: SafeUrlSchema.optional(),
-        scopes_supported: z.array(z.string()).optional(),
-        response_types_supported: z.array(z.string()),
-        response_modes_supported: z.array(z.string()).optional(),
-        grant_types_supported: z.array(z.string()).optional(),
-        token_endpoint_auth_methods_supported: z.array(z.string()).optional(),
-        token_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
-        service_documentation: SafeUrlSchema.optional(),
-        revocation_endpoint: SafeUrlSchema.optional(),
-        revocation_endpoint_auth_methods_supported: z.array(z.string()).optional(),
-        revocation_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
-        introspection_endpoint: z.string().optional(),
-        introspection_endpoint_auth_methods_supported: z.array(z.string()).optional(),
-        introspection_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
-        code_challenge_methods_supported: z.array(z.string()).optional(),
-        client_id_metadata_document_supported: z.boolean().optional()
-    })
-    .passthrough();
+export const OAuthMetadataSchema = z.looseObject({
+    issuer: z.string(),
+    authorization_endpoint: SafeUrlSchema,
+    token_endpoint: SafeUrlSchema,
+    registration_endpoint: SafeUrlSchema.optional(),
+    scopes_supported: z.array(z.string()).optional(),
+    response_types_supported: z.array(z.string()),
+    response_modes_supported: z.array(z.string()).optional(),
+    grant_types_supported: z.array(z.string()).optional(),
+    token_endpoint_auth_methods_supported: z.array(z.string()).optional(),
+    token_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
+    service_documentation: SafeUrlSchema.optional(),
+    revocation_endpoint: SafeUrlSchema.optional(),
+    revocation_endpoint_auth_methods_supported: z.array(z.string()).optional(),
+    revocation_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
+    introspection_endpoint: z.string().optional(),
+    introspection_endpoint_auth_methods_supported: z.array(z.string()).optional(),
+    introspection_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
+    code_challenge_methods_supported: z.array(z.string()).optional(),
+    client_id_metadata_document_supported: z.boolean().optional()
+});
 
 /**
  * OpenID Connect Discovery 1.0 Provider Metadata
  * see: https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata
  */
-export const OpenIdProviderMetadataSchema = z
-    .object({
-        issuer: z.string(),
-        authorization_endpoint: SafeUrlSchema,
-        token_endpoint: SafeUrlSchema,
-        userinfo_endpoint: SafeUrlSchema.optional(),
-        jwks_uri: SafeUrlSchema,
-        registration_endpoint: SafeUrlSchema.optional(),
-        scopes_supported: z.array(z.string()).optional(),
-        response_types_supported: z.array(z.string()),
-        response_modes_supported: z.array(z.string()).optional(),
-        grant_types_supported: z.array(z.string()).optional(),
-        acr_values_supported: z.array(z.string()).optional(),
-        subject_types_supported: z.array(z.string()),
-        id_token_signing_alg_values_supported: z.array(z.string()),
-        id_token_encryption_alg_values_supported: z.array(z.string()).optional(),
-        id_token_encryption_enc_values_supported: z.array(z.string()).optional(),
-        userinfo_signing_alg_values_supported: z.array(z.string()).optional(),
-        userinfo_encryption_alg_values_supported: z.array(z.string()).optional(),
-        userinfo_encryption_enc_values_supported: z.array(z.string()).optional(),
-        request_object_signing_alg_values_supported: z.array(z.string()).optional(),
-        request_object_encryption_alg_values_supported: z.array(z.string()).optional(),
-        request_object_encryption_enc_values_supported: z.array(z.string()).optional(),
-        token_endpoint_auth_methods_supported: z.array(z.string()).optional(),
-        token_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
-        display_values_supported: z.array(z.string()).optional(),
-        claim_types_supported: z.array(z.string()).optional(),
-        claims_supported: z.array(z.string()).optional(),
-        service_documentation: z.string().optional(),
-        claims_locales_supported: z.array(z.string()).optional(),
-        ui_locales_supported: z.array(z.string()).optional(),
-        claims_parameter_supported: z.boolean().optional(),
-        request_parameter_supported: z.boolean().optional(),
-        request_uri_parameter_supported: z.boolean().optional(),
-        require_request_uri_registration: z.boolean().optional(),
-        op_policy_uri: SafeUrlSchema.optional(),
-        op_tos_uri: SafeUrlSchema.optional(),
-        client_id_metadata_document_supported: z.boolean().optional()
-    })
-    .passthrough();
+export const OpenIdProviderMetadataSchema = z.looseObject({
+    issuer: z.string(),
+    authorization_endpoint: SafeUrlSchema,
+    token_endpoint: SafeUrlSchema,
+    userinfo_endpoint: SafeUrlSchema.optional(),
+    jwks_uri: SafeUrlSchema,
+    registration_endpoint: SafeUrlSchema.optional(),
+    scopes_supported: z.array(z.string()).optional(),
+    response_types_supported: z.array(z.string()),
+    response_modes_supported: z.array(z.string()).optional(),
+    grant_types_supported: z.array(z.string()).optional(),
+    acr_values_supported: z.array(z.string()).optional(),
+    subject_types_supported: z.array(z.string()),
+    id_token_signing_alg_values_supported: z.array(z.string()),
+    id_token_encryption_alg_values_supported: z.array(z.string()).optional(),
+    id_token_encryption_enc_values_supported: z.array(z.string()).optional(),
+    userinfo_signing_alg_values_supported: z.array(z.string()).optional(),
+    userinfo_encryption_alg_values_supported: z.array(z.string()).optional(),
+    userinfo_encryption_enc_values_supported: z.array(z.string()).optional(),
+    request_object_signing_alg_values_supported: z.array(z.string()).optional(),
+    request_object_encryption_alg_values_supported: z.array(z.string()).optional(),
+    request_object_encryption_enc_values_supported: z.array(z.string()).optional(),
+    token_endpoint_auth_methods_supported: z.array(z.string()).optional(),
+    token_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
+    display_values_supported: z.array(z.string()).optional(),
+    claim_types_supported: z.array(z.string()).optional(),
+    claims_supported: z.array(z.string()).optional(),
+    service_documentation: z.string().optional(),
+    claims_locales_supported: z.array(z.string()).optional(),
+    ui_locales_supported: z.array(z.string()).optional(),
+    claims_parameter_supported: z.boolean().optional(),
+    request_parameter_supported: z.boolean().optional(),
+    request_uri_parameter_supported: z.boolean().optional(),
+    require_request_uri_registration: z.boolean().optional(),
+    op_policy_uri: SafeUrlSchema.optional(),
+    op_tos_uri: SafeUrlSchema.optional(),
+    client_id_metadata_document_supported: z.boolean().optional()
+});
 
 /**
  * OpenID Connect Discovery metadata that may include OAuth 2.0 fields
  * This schema represents the real-world scenario where OIDC providers
  * return a mix of OpenID Connect and OAuth 2.0 metadata fields
  */
-export const OpenIdProviderDiscoveryMetadataSchema = OpenIdProviderMetadataSchema.merge(
-    OAuthMetadataSchema.pick({
+export const OpenIdProviderDiscoveryMetadataSchema = z.object({
+    ...OpenIdProviderMetadataSchema.shape,
+    ...OAuthMetadataSchema.pick({
         code_challenge_methods_supported: true
-    })
-);
+    }).shape
+});
 
 /**
  * OAuth 2.1 token response

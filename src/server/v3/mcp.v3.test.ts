@@ -1,8 +1,8 @@
-import * as z from 'zod/v4';
-import { Client } from '../client/index.js';
-import { InMemoryTransport } from '../inMemory.js';
-import { getDisplayName } from '../shared/metadataUtils.js';
-import { UriTemplate } from '../shared/uriTemplate.js';
+import * as z from 'zod/v3';
+import { Client } from '../../client/index.js';
+import { InMemoryTransport } from '../../inMemory.js';
+import { getDisplayName } from '../../shared/metadataUtils.js';
+import { UriTemplate } from '../../shared/uriTemplate.js';
 import {
     CallToolResultSchema,
     CompleteResultSchema,
@@ -15,12 +15,10 @@ import {
     LoggingMessageNotificationSchema,
     type Notification,
     ReadResourceResultSchema,
-    type TextContent,
-    UrlElicitationRequiredError,
-    ErrorCode
-} from '../types.js';
-import { completable } from './completable.js';
-import { McpServer, ResourceTemplate } from './mcp.js';
+    type TextContent
+} from '../../types.js';
+import { completable } from '../completable.js';
+import { McpServer, ResourceTemplate } from '../mcp.js';
 
 describe('McpServer', () => {
     /***
@@ -1618,60 +1616,6 @@ describe('tool()', () => {
                 }
             ])
         );
-    });
-
-    /***
-     * Test: URL Elicitation Required Error Propagation
-     */
-    test('should propagate UrlElicitationRequiredError to client callers', async () => {
-        const mcpServer = new McpServer({
-            name: 'test server',
-            version: '1.0'
-        });
-
-        const client = new Client(
-            {
-                name: 'test client',
-                version: '1.0'
-            },
-            {
-                capabilities: {
-                    elicitation: {
-                        url: {}
-                    }
-                }
-            }
-        );
-
-        const elicitationParams = {
-            mode: 'url' as const,
-            elicitationId: 'elicitation-123',
-            url: 'https://mcp.example.com/connect',
-            message: 'Authorization required'
-        };
-
-        mcpServer.tool('needs-authorization', async () => {
-            throw new UrlElicitationRequiredError([elicitationParams], 'Confirmation required');
-        });
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-
-        await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
-
-        await client
-            .callTool({
-                name: 'needs-authorization'
-            })
-            .then(() => {
-                throw new Error('Expected callTool to throw UrlElicitationRequiredError');
-            })
-            .catch(error => {
-                expect(error).toBeInstanceOf(UrlElicitationRequiredError);
-                if (error instanceof UrlElicitationRequiredError) {
-                    expect(error.code).toBe(ErrorCode.UrlElicitationRequired);
-                    expect(error.elicitations).toEqual([elicitationParams]);
-                }
-            });
     });
 
     /***
@@ -4154,7 +4098,6 @@ describe('elicitInput()', () => {
                 if (!available) {
                     // Ask user if they want to try alternative dates
                     const result = await mcpServer.server.elicitInput({
-                        mode: 'form',
                         message: `No tables available at ${restaurant} on ${date}. Would you like to check alternative dates?`,
                         requestedSchema: {
                             type: 'object',
