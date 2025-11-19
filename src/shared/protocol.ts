@@ -27,6 +27,7 @@ import {
 } from '../types.js';
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
+import { consoleLogger, Logger } from './logger.js';
 
 /**
  * Callback for progress notifications.
@@ -52,6 +53,11 @@ export type ProtocolOptions = {
      * e.g., ['notifications/tools/list_changed']
      */
     debouncedNotificationMethods?: string[];
+
+    /**
+     * A custom logger to use for SDK internal logs.
+     */
+    logger?: Logger;
 };
 
 /**
@@ -184,6 +190,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
+    private readonly _logger: Logger;
 
     /**
      * Callback for when the connection is closed for any reason.
@@ -210,7 +217,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     fallbackNotificationHandler?: (notification: Notification) => Promise<void>;
 
     constructor(private _options?: ProtocolOptions) {
+        this._logger = _options?.logger ?? consoleLogger;
         this.setNotificationHandler(CancelledNotificationSchema, notification => {
+            this._logger.debug('Received a cancelled notification', { notification });
             const controller = this._requestHandlerAbortControllers.get(notification.params.requestId);
             controller?.abort(notification.params.reason);
         });
