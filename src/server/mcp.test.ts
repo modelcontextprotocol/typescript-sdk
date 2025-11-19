@@ -5,6 +5,7 @@ import { getDisplayName } from '../shared/metadataUtils.js';
 import { UriTemplate } from '../shared/uriTemplate.js';
 import {
     CallToolResultSchema,
+    type CallToolResult,
     CompleteResultSchema,
     ElicitRequestSchema,
     GetPromptResultSchema,
@@ -19,6 +20,23 @@ import {
 } from '../types.js';
 import { completable } from './completable.js';
 import { McpServer, ResourceTemplate } from './mcp.js';
+import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
+
+function createLatch() {
+    let latch = false;
+    const waitForLatch = async () => {
+        while (!latch) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    };
+
+    return {
+        releaseLatch: () => {
+            latch = true;
+        },
+        waitForLatch
+    };
+}
 
 describe('McpServer', () => {
     /***
@@ -556,7 +574,7 @@ describe('tool()', () => {
                 inputSchema: { name: z.string(), value: z.number() }
             },
             async ({ name, value }) => ({
-                content: [{ type: 'text', text: `${name}: ${value}` }]
+                content: [{ type: 'text' as const, text: `${name}: ${value}` }]
             })
         );
 
@@ -716,7 +734,7 @@ describe('tool()', () => {
         });
 
         mcpServer.tool('test', { name: z.string() }, { title: 'Test Tool', readOnlyHint: true }, async ({ name }) => ({
-            content: [{ type: 'text', text: `Hello, ${name}!` }]
+            content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
         }));
 
         mcpServer.registerTool(
@@ -726,7 +744,7 @@ describe('tool()', () => {
                 annotations: { title: 'Test Tool', readOnlyHint: true }
             },
             async ({ name }) => ({
-                content: [{ type: 'text', text: `Hello, ${name}!` }]
+                content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
             })
         );
 
@@ -770,7 +788,7 @@ describe('tool()', () => {
             { name: z.string() },
             { title: 'Complete Test Tool', readOnlyHint: true, openWorldHint: false, taskHint: 'never' },
             async ({ name }) => ({
-                content: [{ type: 'text', text: `Hello, ${name}!` }]
+                content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
             })
         );
 
@@ -787,7 +805,7 @@ describe('tool()', () => {
                 }
             },
             async ({ name }) => ({
-                content: [{ type: 'text', text: `Hello, ${name}!` }]
+                content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
             })
         );
 
@@ -840,7 +858,7 @@ describe('tool()', () => {
                 taskHint: 'never'
             },
             async () => ({
-                content: [{ type: 'text', text: 'Test response' }]
+                content: [{ type: 'text' as const, text: 'Test response' }]
             })
         );
 
@@ -1651,7 +1669,7 @@ describe('tool()', () => {
                 _meta: metaData
             },
             async ({ name }) => ({
-                content: [{ type: 'text', text: `Hello, ${name}!` }]
+                content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
             })
         );
 
@@ -1687,7 +1705,7 @@ describe('tool()', () => {
                 inputSchema: { name: z.string() }
             },
             async ({ name }) => ({
-                content: [{ type: 'text', text: `Hello, ${name}!` }]
+                content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
             })
         );
 
@@ -3684,7 +3702,7 @@ describe('Tool title precedence', () => {
 
         // Tool 1: Only name
         mcpServer.tool('tool_name_only', async () => ({
-            content: [{ type: 'text', text: 'Response' }]
+            content: [{ type: 'text' as const, text: 'Response' }]
         }));
 
         // Tool 2: Name and annotations.title
@@ -3695,7 +3713,7 @@ describe('Tool title precedence', () => {
                 title: 'Annotations Title'
             },
             async () => ({
-                content: [{ type: 'text', text: 'Response' }]
+                content: [{ type: 'text' as const, text: 'Response' }]
             })
         );
 
@@ -4307,11 +4325,11 @@ describe('Tools with union and intersection schemas', () => {
         server.registerTool('contact', { inputSchema: unionSchema }, async args => {
             if (args.type === 'email') {
                 return {
-                    content: [{ type: 'text', text: `Email contact: ${args.email}` }]
+                    content: [{ type: 'text' as const, text: `Email contact: ${args.email}` }]
                 };
             } else {
                 return {
-                    content: [{ type: 'text', text: `Phone contact: ${args.phone}` }]
+                    content: [{ type: 'text' as const, text: `Phone contact: ${args.phone}` }]
                 };
             }
         });
@@ -4477,7 +4495,7 @@ describe('Tools with union and intersection schemas', () => {
 
         server.registerTool('union-test', { inputSchema: unionSchema }, async () => {
             return {
-                content: [{ type: 'text', text: 'Success' }]
+                content: [{ type: 'text' as const, text: 'Success' }]
             };
         });
 
@@ -4520,5 +4538,737 @@ describe('Tools with union and intersection schemas', () => {
                 })
             ])
         );
+    });
+});
+
+describe('Tool-level task hints with automatic polling wrapper', () => {
+    test('should return error for tool with taskHint "always" called without task augmentation', async () => {
+        const taskStore = new InMemoryTaskStore();
+
+        const mcpServer = new McpServer(
+            {
+                name: 'test server',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    tools: {},
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                },
+                taskStore
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test client',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                }
+            }
+        );
+
+        // Register a task-based tool with taskHint "always" BEFORE connecting
+        mcpServer.registerToolTask(
+            'long-running-task',
+            {
+                description: 'A long running task',
+                inputSchema: {
+                    input: z.string()
+                },
+                annotations: {
+                    taskHint: 'always' as unknown as 'never' // override to allow violating build-time constraints
+                }
+            },
+            {
+                createTask: async ({ input }, extra) => {
+                    const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 }, extra.requestId, {
+                        method: 'tools/call',
+                        params: { name: 'long-running-task', arguments: { input } }
+                    });
+
+                    // Capture taskStore for use in setTimeout
+                    const store = extra.taskStore;
+
+                    // Simulate async work
+                    setTimeout(async () => {
+                        await store.storeTaskResult(task.taskId, {
+                            content: [{ type: 'text' as const, text: `Processed: ${input}` }]
+                        });
+                    }, 200);
+
+                    return { task };
+                },
+                getTask: async (_args, extra) => {
+                    const task = await extra.taskStore.getTask(extra.taskId);
+                    if (!task) {
+                        throw new Error('Task not found');
+                    }
+                    return task;
+                },
+                getTaskResult: async (_input, extra) => {
+                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    return result as CallToolResult;
+                }
+            }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Call the tool WITHOUT task augmentation - should return error
+        const result = await client.callTool(
+            {
+                name: 'long-running-task',
+                arguments: { input: 'test data' }
+            },
+            CallToolResultSchema
+        );
+
+        // Should receive error result
+        expect(result.isError).toBe(true);
+        const content = result.content as TextContent[];
+        expect(content[0].text).toContain('requires task augmentation');
+
+        taskStore.cleanup();
+    });
+
+    test('should automatically poll and return CallToolResult for tool with taskHint "optional" called without task augmentation', async () => {
+        const taskStore = new InMemoryTaskStore();
+        const { releaseLatch, waitForLatch } = createLatch();
+
+        const mcpServer = new McpServer(
+            {
+                name: 'test server',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    tools: {},
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                },
+                taskStore
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test client',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                }
+            }
+        );
+
+        // Register a task-based tool with taskHint "optional" BEFORE connecting
+        mcpServer.registerToolTask(
+            'optional-task',
+            {
+                description: 'An optional task',
+                inputSchema: {
+                    value: z.number()
+                },
+                annotations: {
+                    taskHint: 'optional' as unknown as 'never' // override to allow violating build-time constraints
+                }
+            },
+            {
+                createTask: async ({ value }, extra) => {
+                    const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 }, extra.requestId, {
+                        method: 'tools/call',
+                        params: { name: 'optional-task', arguments: { value } }
+                    });
+
+                    // Capture taskStore for use in setTimeout
+                    const store = extra.taskStore;
+
+                    // Simulate async work
+                    setTimeout(async () => {
+                        await store.storeTaskResult(task.taskId, {
+                            content: [{ type: 'text' as const, text: `Result: ${value * 2}` }]
+                        });
+                        releaseLatch();
+                    }, 150);
+
+                    return { task };
+                },
+                getTask: async (_args, extra) => {
+                    const task = await extra.taskStore.getTask(extra.taskId);
+                    if (!task) {
+                        throw new Error('Task not found');
+                    }
+                    return task;
+                },
+                getTaskResult: async (_value, extra) => {
+                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    return result as CallToolResult;
+                }
+            }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Call the tool WITHOUT task augmentation
+        const result = await client.callTool(
+            {
+                name: 'optional-task',
+                arguments: { value: 21 }
+            },
+            CallToolResultSchema
+        );
+
+        // Should receive CallToolResult directly, not CreateTaskResult
+        expect(result).toHaveProperty('content');
+        expect(result.content).toEqual([{ type: 'text' as const, text: 'Result: 42' }]);
+        expect(result).not.toHaveProperty('task');
+
+        // Wait for async operations to complete
+        await waitForLatch();
+        taskStore.cleanup();
+    });
+
+    test('should return CreateTaskResult when tool with taskHint "always" is called WITH task augmentation', async () => {
+        const taskStore = new InMemoryTaskStore();
+        const { releaseLatch, waitForLatch } = createLatch();
+
+        const mcpServer = new McpServer(
+            {
+                name: 'test server',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    tools: {},
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                },
+                taskStore
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test client',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                }
+            }
+        );
+
+        // Register a task-based tool with taskHint "always" BEFORE connecting
+        mcpServer.registerToolTask(
+            'task-tool',
+            {
+                description: 'A task tool',
+                inputSchema: {
+                    data: z.string()
+                },
+                annotations: {
+                    taskHint: 'always' as unknown as 'never' // override to allow violating build-time constraints
+                }
+            },
+            {
+                createTask: async ({ data }, extra) => {
+                    const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 }, extra.requestId, {
+                        method: 'tools/call',
+                        params: { name: 'task-tool', arguments: { data } }
+                    });
+
+                    // Capture taskStore for use in setTimeout
+                    const store = extra.taskStore;
+
+                    // Simulate async work
+                    setTimeout(async () => {
+                        await store.storeTaskResult(task.taskId, {
+                            content: [{ type: 'text' as const, text: `Completed: ${data}` }]
+                        });
+                        releaseLatch();
+                    }, 200);
+
+                    return { task };
+                },
+                getTask: async (_args, extra) => {
+                    const task = await extra.taskStore.getTask(extra.taskId);
+                    if (!task) {
+                        throw new Error('Task not found');
+                    }
+                    return task;
+                },
+                getTaskResult: async (_data, extra) => {
+                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    return result as CallToolResult;
+                }
+            }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Call the tool WITH task augmentation
+        const result = await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'task-tool',
+                    arguments: { data: 'test' },
+                    task: { ttl: 60000 }
+                }
+            },
+            z.object({
+                task: z.object({
+                    taskId: z.string(),
+                    status: z.string(),
+                    ttl: z.union([z.number(), z.null()]),
+                    createdAt: z.string(),
+                    pollInterval: z.number().optional()
+                })
+            })
+        );
+
+        // Should receive CreateTaskResult with task field
+        expect(result).toHaveProperty('task');
+        expect(result.task).toHaveProperty('taskId');
+        expect(result.task.status).toBe('working');
+
+        // Wait for async operations to complete
+        await waitForLatch();
+        taskStore.cleanup();
+    });
+
+    test('should throw error if tool with taskHint "always" is not registered with registerToolTask', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        // Register a regular tool with taskHint "always" (incorrect usage) BEFORE connecting
+        mcpServer.registerTool(
+            'bad-tool',
+            {
+                description: 'A tool with incorrect taskHint',
+                annotations: {
+                    taskHint: 'always'
+                }
+            },
+            async () => ({
+                content: [{ type: 'text' as const, text: 'Should not work' }]
+            })
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Call the tool - should return error result
+        const result = await client.callTool(
+            {
+                name: 'bad-tool',
+                arguments: {}
+            },
+            CallToolResultSchema
+        );
+
+        expect(result.isError).toBe(true);
+        const content = result.content as TextContent[];
+        expect(content[0].text).toContain("has taskHint 'always' but was not registered with registerToolTask");
+    });
+
+    test('should throw error if tool with taskHint "optional" is not registered with registerToolTask', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        // Register a regular tool with taskHint "optional" (incorrect usage) BEFORE connecting
+        mcpServer.registerTool(
+            'bad-optional-tool',
+            {
+                description: 'A tool with incorrect taskHint',
+                annotations: {
+                    taskHint: 'optional'
+                }
+            },
+            async () => ({
+                content: [{ type: 'text' as const, text: 'Should not work' }]
+            })
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Call the tool - should return error result
+        const result = await client.callTool(
+            {
+                name: 'bad-optional-tool',
+                arguments: {}
+            },
+            CallToolResultSchema
+        );
+
+        expect(result.isError).toBe(true);
+        const content = result.content as TextContent[];
+        expect(content[0].text).toContain("has taskHint 'optional' but was not registered with registerToolTask");
+    });
+
+    test('should work normally for tool with taskHint "never"', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        // Register a regular tool with taskHint "never" BEFORE connecting
+        mcpServer.registerTool(
+            'normal-tool',
+            {
+                description: 'A normal tool',
+                inputSchema: {
+                    message: z.string()
+                },
+                annotations: {
+                    taskHint: 'never'
+                }
+            },
+            async ({ message }) => ({
+                content: [{ type: 'text' as const, text: `Echo: ${message}` }]
+            })
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Call the tool - should work normally
+        const result = await client.callTool(
+            {
+                name: 'normal-tool',
+                arguments: { message: 'hello' }
+            },
+            CallToolResultSchema
+        );
+
+        expect(result.content).toEqual([{ type: 'text' as const, text: 'Echo: hello' }]);
+    });
+
+    test('should work normally for tool without taskHint', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+
+        const client = new Client({
+            name: 'test client',
+            version: '1.0'
+        });
+
+        // Register a regular tool without taskHint BEFORE connecting
+        mcpServer.registerTool(
+            'simple-tool',
+            {
+                description: 'A simple tool',
+                inputSchema: {
+                    value: z.number()
+                }
+            },
+            async ({ value }) => ({
+                content: [{ type: 'text' as const, text: `Value: ${value}` }]
+            })
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Call the tool - should work normally
+        const result = await client.callTool(
+            {
+                name: 'simple-tool',
+                arguments: { value: 42 }
+            },
+            CallToolResultSchema
+        );
+
+        expect(result.content).toEqual([{ type: 'text' as const, text: 'Value: 42' }]);
+    });
+
+    test('should handle task failures during automatic polling', async () => {
+        const taskStore = new InMemoryTaskStore();
+        const { releaseLatch, waitForLatch } = createLatch();
+
+        const mcpServer = new McpServer(
+            {
+                name: 'test server',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    tools: {},
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                },
+                taskStore
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test client',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                }
+            }
+        );
+
+        // Register a task-based tool that fails BEFORE connecting
+        mcpServer.registerToolTask(
+            'failing-task',
+            {
+                description: 'A failing task',
+                annotations: {
+                    taskHint: 'optional' as unknown as 'never' // override to allow violating build-time constraints
+                }
+            },
+            {
+                createTask: async extra => {
+                    const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 }, extra.requestId, {
+                        method: 'tools/call',
+                        params: { name: 'failing-task', arguments: {} }
+                    });
+
+                    // Capture taskStore for use in setTimeout
+                    const store = extra.taskStore;
+
+                    // Simulate async failure
+                    setTimeout(async () => {
+                        await store.updateTaskStatus(task.taskId, 'failed', 'Task failed');
+                        await store.storeTaskResult(task.taskId, {
+                            content: [{ type: 'text' as const, text: 'Error occurred' }],
+                            isError: true
+                        });
+                        releaseLatch();
+                    }, 150);
+
+                    return { task };
+                },
+                getTask: async extra => {
+                    const task = await extra.taskStore.getTask(extra.taskId);
+                    if (!task) {
+                        throw new Error('Task not found');
+                    }
+                    return task;
+                },
+                getTaskResult: async extra => {
+                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    return result as CallToolResult;
+                }
+            }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Call the tool WITHOUT task augmentation
+        const result = await client.callTool(
+            {
+                name: 'failing-task',
+                arguments: {}
+            },
+            CallToolResultSchema
+        );
+
+        // Should receive the error result
+        expect(result).toHaveProperty('content');
+        expect(result.content).toEqual([{ type: 'text' as const, text: 'Error occurred' }]);
+        expect(result.isError).toBe(true);
+
+        // Wait for async operations to complete
+        await waitForLatch();
+        taskStore.cleanup();
+    });
+
+    test('should handle task cancellation during automatic polling', async () => {
+        const taskStore = new InMemoryTaskStore();
+        const { releaseLatch, waitForLatch } = createLatch();
+
+        const mcpServer = new McpServer(
+            {
+                name: 'test server',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    tools: {},
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                },
+                taskStore
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test client',
+                version: '1.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                }
+            }
+        );
+
+        // Register a task-based tool that gets cancelled BEFORE connecting
+        mcpServer.registerToolTask(
+            'cancelled-task',
+            {
+                description: 'A task that gets cancelled',
+                annotations: {
+                    taskHint: 'optional' as unknown as 'never' // override to allow violating build-time constraints
+                }
+            },
+            {
+                createTask: async extra => {
+                    const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 }, extra.requestId, {
+                        method: 'tools/call',
+                        params: { name: 'cancelled-task', arguments: {} }
+                    });
+
+                    // Capture taskStore for use in setTimeout
+                    const store = extra.taskStore;
+
+                    // Simulate async cancellation
+                    setTimeout(async () => {
+                        await store.updateTaskStatus(task.taskId, 'cancelled', 'Task was cancelled');
+                        await store.storeTaskResult(task.taskId, {
+                            content: [{ type: 'text' as const, text: 'Task cancelled' }]
+                        });
+                        releaseLatch();
+                    }, 150);
+
+                    return { task };
+                },
+                getTask: async extra => {
+                    const task = await extra.taskStore.getTask(extra.taskId);
+                    if (!task) {
+                        throw new Error('Task not found');
+                    }
+                    return task;
+                },
+                getTaskResult: async extra => {
+                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    return result as CallToolResult;
+                }
+            }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Call the tool WITHOUT task augmentation
+        const result = await client.callTool(
+            {
+                name: 'cancelled-task',
+                arguments: {}
+            },
+            CallToolResultSchema
+        );
+
+        // Should receive the cancellation result
+        expect(result).toHaveProperty('content');
+        expect(result.content).toEqual([{ type: 'text' as const, text: 'Task cancelled' }]);
+
+        // Wait for async operations to complete
+        await waitForLatch();
+        taskStore.cleanup();
     });
 });

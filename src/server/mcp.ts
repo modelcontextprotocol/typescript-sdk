@@ -37,7 +37,8 @@ import {
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     assertCompleteRequestPrompt,
-    assertCompleteRequestResourceTemplate
+    assertCompleteRequestResourceTemplate,
+    CallToolRequest
 } from '../types.js';
 import { Completable, CompletableDef } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
@@ -133,89 +134,55 @@ export class McpServer {
         );
 
         this.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult | CreateTaskResult> => {
-            const tool = this._registeredTools[request.params.name];
-
-            let result: CallToolResult | CreateTaskResult;
-
             try {
+                const tool = this._registeredTools[request.params.name];
                 if (!tool) {
                     throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
                 }
-
                 if (!tool.enabled) {
                     throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
                 }
 
                 const isTaskRequest = !!request.params.task;
-                if (tool.inputSchema) {
-                    const parseResult = await tool.inputSchema.safeParseAsync(request.params.arguments);
-                    if (!parseResult.success) {
-                        throw new McpError(
-                            ErrorCode.InvalidParams,
-                            `Input validation error: Invalid arguments for tool ${request.params.name}: ${parseResult.error.message}`
-                        );
-                    }
+                const taskHint = tool.annotations?.taskHint;
+                const isTaskHandler = 'createTask' in (tool.handler as AnyToolHandler<ZodRawShape>);
 
-                    const args = parseResult.data;
-
-                    const handler = tool.handler as AnyToolHandler<ZodRawShape>;
-                    if ('createTask' in handler) {
-                        const cb = handler.createTask;
-                        if (!extra.taskStore) {
-                            throw new Error('No task store provided.');
-                        }
-
-                        // Needed to show the compiler this field exists
-                        const taskExtra = { ...extra, taskStore: extra.taskStore };
-                        result = await Promise.resolve(cb(args, taskExtra));
-                    } else {
-                        const cb = handler;
-                        result = await Promise.resolve(cb(args, extra));
-                    }
-                } else {
-                    const handler = tool.handler as AnyToolHandler<undefined>;
-                    if ('createTask' in handler) {
-                        const cb = handler.createTask;
-                        if (!extra.taskStore) {
-                            throw new Error('No task store provided.');
-                        }
-
-                        // Needed to show the compiler this field exists
-                        const taskExtra = { ...extra, taskStore: extra.taskStore };
-                        result = await Promise.resolve(cb(taskExtra));
-                    } else {
-                        const cb = handler;
-                        result = await Promise.resolve(cb(extra));
-                    }
+                // Validate task hint configuration
+                if ((taskHint === 'always' || taskHint === 'optional') && !isTaskHandler) {
+                    throw new McpError(
+                        ErrorCode.InternalError,
+                        `Tool ${request.params.name} has taskHint '${taskHint}' but was not registered with registerToolTask`
+                    );
                 }
 
+                // Handle taskHint 'always' without task augmentation
+                if (taskHint === 'always' && !isTaskRequest) {
+                    throw new McpError(
+                        ErrorCode.MethodNotFound,
+                        `Tool ${request.params.name} requires task augmentation (taskHint: 'always')`
+                    );
+                }
+
+                // Handle taskHint 'optional' without task augmentation - automatic polling
+                if (taskHint === 'optional' && !isTaskRequest && isTaskHandler) {
+                    return await this.handleAutomaticTaskPolling(tool, request, extra);
+                }
+
+                // Normal execution path
+                const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
+                const result = await this.executeToolHandler(tool, args, extra);
+
+                // Return CreateTaskResult immediately for task requests
                 if (isTaskRequest) {
-                    // Return the CreateTaskResult immediately
                     return result;
                 }
 
-                if (tool.outputSchema && !result.isError) {
-                    if (!result.structuredContent) {
-                        throw new McpError(
-                            ErrorCode.InvalidParams,
-                            `Output validation error: Tool ${request.params.name} has an output schema but no structured content was provided`
-                        );
-                    }
-
-                    // if the tool has an output schema, validate structured content
-                    const parseResult = await tool.outputSchema.safeParseAsync(result.structuredContent);
-                    if (!parseResult.success) {
-                        throw new McpError(
-                            ErrorCode.InvalidParams,
-                            `Output validation error: Invalid structured content for tool ${request.params.name}: ${parseResult.error.message}`
-                        );
-                    }
-                }
+                // Validate output schema for non-task requests
+                await this.validateToolOutput(tool, result, request.params.name);
+                return result;
             } catch (error) {
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
-
-            return result;
         });
 
         this._toolHandlersInitialized = true;
@@ -237,6 +204,141 @@ export class McpServer {
             ],
             isError: true
         };
+    }
+
+    /**
+     * Validates tool input arguments against the tool's input schema.
+     */
+    private async validateToolInput<
+        Tool extends RegisteredTool,
+        Args extends Tool['inputSchema'] extends infer InputSchema
+            ? InputSchema extends ZodType
+                ? z.infer<InputSchema>
+                : undefined
+            : undefined
+    >(tool: Tool, args: Args, toolName: string): Promise<Args> {
+        if (!tool.inputSchema) {
+            return undefined as Args;
+        }
+
+        const parseResult = await tool.inputSchema.safeParseAsync(args);
+        if (!parseResult.success) {
+            throw new McpError(
+                ErrorCode.InvalidParams,
+                `Input validation error: Invalid arguments for tool ${toolName}: ${parseResult.error.message}`
+            );
+        }
+
+        return parseResult.data as unknown as Args;
+    }
+
+    /**
+     * Validates tool output against the tool's output schema.
+     */
+    private async validateToolOutput(tool: RegisteredTool, result: CallToolResult | CreateTaskResult, toolName: string): Promise<void> {
+        if (!tool.outputSchema) {
+            return;
+        }
+
+        // Only validate CallToolResult, not CreateTaskResult
+        if (!('content' in result)) {
+            return;
+        }
+
+        if (result.isError) {
+            return;
+        }
+
+        if (!result.structuredContent) {
+            throw new McpError(
+                ErrorCode.InvalidParams,
+                `Output validation error: Tool ${toolName} has an output schema but no structured content was provided`
+            );
+        }
+
+        const parseResult = await tool.outputSchema.safeParseAsync(result.structuredContent);
+        if (!parseResult.success) {
+            throw new McpError(
+                ErrorCode.InvalidParams,
+                `Output validation error: Invalid structured content for tool ${toolName}: ${parseResult.error.message}`
+            );
+        }
+    }
+
+    /**
+     * Executes a tool handler (either regular or task-based).
+     */
+    private async executeToolHandler(
+        tool: RegisteredTool,
+        args: unknown,
+        extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+    ): Promise<CallToolResult | CreateTaskResult> {
+        const handler = tool.handler as AnyToolHandler<ZodRawShape | undefined>;
+        const isTaskHandler = 'createTask' in handler;
+
+        if (isTaskHandler) {
+            if (!extra.taskStore) {
+                throw new Error('No task store provided.');
+            }
+            const taskExtra = { ...extra, taskStore: extra.taskStore };
+
+            if (tool.inputSchema) {
+                const typedHandler = handler as ToolTaskHandler<ZodRawShape>;
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                return await Promise.resolve(typedHandler.createTask(args as any, taskExtra));
+            } else {
+                const typedHandler = handler as ToolTaskHandler<undefined>;
+                return await Promise.resolve(typedHandler.createTask(taskExtra));
+            }
+        }
+
+        if (tool.inputSchema) {
+            const typedHandler = handler as ToolCallback<ZodRawShape>;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            return await Promise.resolve(typedHandler(args as any, extra));
+        } else {
+            const typedHandler = handler as ToolCallback<undefined>;
+            return await Promise.resolve(typedHandler(extra));
+        }
+    }
+
+    /**
+     * Handles automatic task polling for tools with taskHint 'optional'.
+     */
+    private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
+        tool: RegisteredTool,
+        request: RequestT,
+        extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+    ): Promise<CallToolResult> {
+        if (!extra.taskStore) {
+            throw new Error('No task store provided for task-capable tool.');
+        }
+
+        // Validate input and create task
+        const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
+        const handler = tool.handler as ToolTaskHandler<ZodRawShape | undefined>;
+        const taskExtra = { ...extra, taskStore: extra.taskStore };
+
+        const createTaskResult: CreateTaskResult = args // undefined only if tool.inputSchema is undefined
+            ? await Promise.resolve((handler as ToolTaskHandler<ZodRawShape>).createTask(args, taskExtra))
+            : await Promise.resolve((handler as ToolTaskHandler<undefined>).createTask(taskExtra));
+
+        // Poll until completion
+        const taskId = createTaskResult.task.taskId;
+        let task = createTaskResult.task;
+        const pollInterval = task.pollInterval ?? 5000;
+
+        while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
+            await new Promise(resolve => setTimeout(resolve, pollInterval));
+            const updatedTask = await extra.taskStore.getTask(taskId);
+            if (!updatedTask) {
+                throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
+            }
+            task = updatedTask;
+        }
+
+        // Return the final result
+        return (await extra.taskStore.getTaskResult(taskId)) as CallToolResult;
     }
 
     private _completionHandlerInitialized = false;
@@ -887,7 +989,7 @@ export class McpServer {
             description?: string;
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
-            annotations?: ToolAnnotations;
+            annotations?: NoTaskToolAnnotations;
             _meta?: Record<string, unknown>;
         },
         handler: ToolTaskHandler<InputArgs>
@@ -898,7 +1000,7 @@ export class McpServer {
             config.description,
             config.inputSchema,
             config.outputSchema,
-            { ...config.annotations, taskHint: 'always' },
+            { taskHint: 'always', ...config.annotations },
             config._meta,
             handler
         );
@@ -1157,6 +1259,10 @@ export type AnyToolCallback<Args extends undefined | ZodRawShape | ZodType<objec
  * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
  */
 export type AnyToolHandler<Args extends undefined | ZodRawShape | ZodType<object> = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
+
+export interface NoTaskToolAnnotations extends ToolAnnotations {
+    taskHint?: 'never';
+}
 
 export type RegisteredTool = {
     title?: string;
