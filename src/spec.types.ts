@@ -307,7 +307,17 @@ export interface ClientCapabilities {
   /**
    * Present if the client supports sampling from an LLM.
    */
-  sampling?: object;
+  sampling?: {
+    /**
+     * Whether the client supports context inclusion via includeContext parameter.
+     * If not declared, servers SHOULD only use `includeContext: "none"` (or omit it).
+     */
+    context?: object;
+    /**
+     * Whether the client supports tool use via tools and toolChoice parameters.
+     */
+    tools?: object;
+  };
   /**
    * Present if the client supports elicitation from the server.
    */
@@ -1255,7 +1265,11 @@ export interface CreateMessageRequestParams extends RequestParams {
    */
   systemPrompt?: string;
   /**
-   * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt. The client MAY ignore this request.
+   * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt.
+   * The client MAY ignore this request.
+   *
+   * Default is "none". Values "thisServer" and "allServers" are soft-deprecated. Servers SHOULD only use these values if the client
+   * declares ClientCapabilities.sampling.context. These values may be removed in future spec releases.
    */
   includeContext?: "none" | "thisServer" | "allServers";
   /**
@@ -1273,6 +1287,32 @@ export interface CreateMessageRequestParams extends RequestParams {
    * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
    */
   metadata?: object;
+  /**
+   * Tools that the model may use during generation.
+   * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
+   */
+  tools?: Tool[];
+  /**
+   * Controls how the model uses tools.
+   * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
+   * Default is `{ mode: "auto" }`.
+   */
+  toolChoice?: ToolChoice;
+}
+
+/**
+ * Controls tool selection behavior for sampling requests.
+ *
+ * @category `sampling/createMessage`
+ */
+export interface ToolChoice {
+  /**
+   * Controls the tool use ability of the model:
+   * - "auto": Model decides whether to use tools (default)
+   * - "required": Model MUST use at least one tool before completing
+   * - "none": Model MUST NOT use any tools
+   */
+  mode?: "auto" | "required" | "none";
 }
 
 /**
@@ -1295,10 +1335,19 @@ export interface CreateMessageResult extends Result, SamplingMessage {
    * The name of the model that generated the message.
    */
   model: string;
+
   /**
    * The reason why sampling stopped, if known.
+   *
+   * Standard values:
+   * - "endTurn": Natural end of the assistant's turn
+   * - "stopSequence": A stop sequence was encountered
+   * - "maxTokens": Maximum token limit was reached
+   * - "toolUse": The model wants to use one or more tools
+   *
+   * This field is an open string to allow for provider-specific stop reasons.
    */
-  stopReason?: "endTurn" | "stopSequence" | "maxTokens" | string;
+  stopReason?: "endTurn" | "stopSequence" | "maxTokens" | "toolUse" | string;
 }
 
 /**
@@ -1308,8 +1357,18 @@ export interface CreateMessageResult extends Result, SamplingMessage {
  */
 export interface SamplingMessage {
   role: Role;
-  content: TextContent | ImageContent | AudioContent;
+  content: SamplingMessageContentBlock | SamplingMessageContentBlock[];
+  /**
+   * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
+   */
+  _meta?: { [key: string]: unknown };
 }
+export type SamplingMessageContentBlock =
+  | TextContent
+  | ImageContent
+  | AudioContent
+  | ToolUseContent
+  | ToolResultContent;
 
 /**
  * Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
@@ -1439,6 +1498,87 @@ export interface AudioContent {
   annotations?: Annotations;
 
   /**
+   * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
+   */
+  _meta?: { [key: string]: unknown };
+}
+
+/**
+ * A request from the assistant to call a tool.
+ *
+ * @category `sampling/createMessage`
+ */
+export interface ToolUseContent {
+  type: "tool_use";
+
+  /**
+   * A unique identifier for this tool use.
+   *
+   * This ID is used to match tool results to their corresponding tool uses.
+   */
+  id: string;
+
+  /**
+   * The name of the tool to call.
+   */
+  name: string;
+
+  /**
+   * The arguments to pass to the tool, conforming to the tool's input schema.
+   */
+  input: { [key: string]: unknown };
+
+  /**
+   * Optional metadata about the tool use. Clients SHOULD preserve this field when
+   * including tool uses in subsequent sampling requests to enable caching optimizations.
+   *
+   * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
+   */
+  _meta?: { [key: string]: unknown };
+}
+
+/**
+ * The result of a tool use, provided by the user back to the assistant.
+ *
+ * @category `sampling/createMessage`
+ */
+export interface ToolResultContent {
+  type: "tool_result";
+
+  /**
+   * The ID of the tool use this result corresponds to.
+   *
+   * This MUST match the ID from a previous ToolUseContent.
+   */
+  toolUseId: string;
+
+  /**
+   * The unstructured result content of the tool use.
+   *
+   * This has the same format as CallToolResult.content and can include text, images,
+   * audio, resource links, and embedded resources.
+   */
+  content: ContentBlock[];
+
+  /**
+   * An optional structured result object.
+   *
+   * If the tool defined an outputSchema, this SHOULD conform to that schema.
+   */
+  structuredContent?: { [key: string]: unknown };
+
+  /**
+   * Whether the tool use resulted in an error.
+   *
+   * If true, the content typically describes the error that occurred.
+   * Default: false
+   */
+  isError?: boolean;
+
+  /**
+   * Optional metadata about the tool result. Clients SHOULD preserve this field when
+   * including tool results in subsequent sampling requests to enable caching optimizations.
+   *
    * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
    */
   _meta?: { [key: string]: unknown };
@@ -1762,7 +1902,6 @@ export interface ElicitRequest extends JSONRPCRequest {
   params: ElicitRequestParams;
 }
 
-/**
 /**
  * Restricted schema definitions that only allow primitive types
  * without nested objects or arrays.

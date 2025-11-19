@@ -354,7 +354,7 @@ export class Server<
         params: LegacyElicitRequestFormParams | ElicitRequestFormParams | ElicitRequestURLParams,
         options?: RequestOptions
     ): Promise<ElicitResult> {
-        const mode = 'mode' in params ? params.mode : 'form';
+        const mode = ('mode' in params ? params.mode : 'form') as 'form' | 'url';
 
         switch (mode) {
             case 'url': {
@@ -370,7 +370,9 @@ export class Server<
                     throw new Error('Client does not support form elicitation.');
                 }
                 const formParams: ElicitRequestFormParams =
-                    'mode' in params ? (params as ElicitRequestFormParams) : { ...(params as LegacyElicitRequestFormParams), mode: 'form' };
+                    'mode' in params
+                        ? (params as ElicitRequestFormParams)
+                        : ({ ...(params as LegacyElicitRequestFormParams), mode: 'form' } as ElicitRequestFormParams);
 
                 const result = await this.request({ method: 'elicitation/create', params: formParams }, ElicitResultSchema, options);
 
