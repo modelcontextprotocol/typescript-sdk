@@ -1798,7 +1798,8 @@ export const ClientNotificationSchema = z.union([
     CancelledNotificationSchema,
     ProgressNotificationSchema,
     InitializedNotificationSchema,
-    RootsListChangedNotificationSchema
+    RootsListChangedNotificationSchema,
+    TaskStatusNotificationSchema
 ]);
 
 export const ClientResultSchema = z.union([
@@ -1829,7 +1830,8 @@ export const ServerNotificationSchema = z.union([
     ResourceUpdatedNotificationSchema,
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
-    PromptListChangedNotificationSchema
+    PromptListChangedNotificationSchema,
+    TaskStatusNotificationSchema
 ]);
 
 export const ServerResultSchema = z.union([

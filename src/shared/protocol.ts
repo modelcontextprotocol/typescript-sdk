@@ -38,7 +38,9 @@ import {
     TaskCreationParams,
     RelatedTaskMetadata,
     CancelledNotification,
-    Task
+    Task,
+    TaskStatusNotification,
+    TaskStatusNotificationSchema
 } from '../types.js';
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
@@ -1147,12 +1149,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 // Get updated task state and send notification
                 const task = await taskStore.getTask(taskId, sessionId);
                 if (task) {
-                    await this.notification({
+                    const notification: TaskStatusNotification = TaskStatusNotificationSchema.parse({
                         method: 'notifications/tasks/status',
                         params: {
                             task
                         }
-                    } as unknown as SendNotificationT);
+                    });
+                    await this.notification(notification as SendNotificationT);
                 }
             },
             getTaskResult: taskId => {
@@ -1180,12 +1183,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     // Get updated task state and send notification
                     const updatedTask = await taskStore.getTask(taskId, sessionId);
                     if (updatedTask) {
-                        await this.notification({
+                        const notification: TaskStatusNotification = TaskStatusNotificationSchema.parse({
                             method: 'notifications/tasks/status',
                             params: {
                                 task: updatedTask
                             }
-                        } as unknown as SendNotificationT);
+                        });
+                        await this.notification(notification as SendNotificationT);
                     }
                 } catch (error) {
                     throw new Error(`Failed to update status of task "${taskId}" to "${status}": ${error}`);
