@@ -141,7 +141,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    CreateMessageRequestParams: (sdk: SDKTypes.CreateMessageRequestParams, spec: SpecTypes.CreateMessageRequestParams) => {
+    CreateMessageRequestParams: (sdk: RemovePassthrough<SDKTypes.CreateMessageRequestParams>, spec: SpecTypes.CreateMessageRequestParams) => {
         sdk = spec;
         spec = sdk;
     },
@@ -351,11 +351,11 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    SamplingMessage: (sdk: SDKTypes.SamplingMessage, spec: SpecTypes.SamplingMessage) => {
+    SamplingMessage: (sdk: RemovePassthrough<SDKTypes.SamplingMessage>, spec: SpecTypes.SamplingMessage) => {
         sdk = spec;
         spec = sdk;
     },
-    CreateMessageResult: (sdk: SDKTypes.CreateMessageResult, spec: SpecTypes.CreateMessageResult) => {
+    CreateMessageResult: (sdk: RemovePassthrough<SDKTypes.CreateMessageResult>, spec: SpecTypes.CreateMessageResult) => {
         sdk = spec;
         spec = sdk;
     },
@@ -535,7 +535,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    CreateMessageRequest: (sdk: WithJSONRPCRequest<SDKTypes.CreateMessageRequest>, spec: SpecTypes.CreateMessageRequest) => {
+    CreateMessageRequest: (sdk: RemovePassthrough<WithJSONRPCRequest<SDKTypes.CreateMessageRequest>>, spec: SpecTypes.CreateMessageRequest) => {
         sdk = spec;
         spec = sdk;
     },
@@ -607,15 +607,15 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ToolUseContent: (sdk: SDKTypes.ToolUseContent, spec: SpecTypes.ToolUseContent) => {
+    ToolUseContent: (sdk: RemovePassthrough<SDKTypes.ToolUseContent>, spec: SpecTypes.ToolUseContent) => {
         sdk = spec;
         spec = sdk;
     },
-    ToolResultContent: (sdk: SDKTypes.ToolResultContent, spec: SpecTypes.ToolResultContent) => {
+    ToolResultContent: (sdk: RemovePassthrough<SDKTypes.ToolResultContent>, spec: SpecTypes.ToolResultContent) => {
         sdk = spec;
         spec = sdk;
     },
-    SamplingMessageContentBlock: (sdk: SDKTypes.SamplingMessageContentBlock, spec: SpecTypes.SamplingMessageContentBlock) => {
+    SamplingMessageContentBlock: (sdk: RemovePassthrough<SDKTypes.SamplingMessageContentBlock>, spec: SpecTypes.SamplingMessageContentBlock) => {
         sdk = spec;
         spec = sdk;
     }
