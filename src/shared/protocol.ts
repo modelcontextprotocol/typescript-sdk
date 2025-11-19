@@ -1158,8 +1158,19 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                 return task;
             },
-            storeTaskResult: (taskId, result) => {
-                return taskStore.storeTaskResult(taskId, result, sessionId);
+            storeTaskResult: async (taskId, result) => {
+                await taskStore.storeTaskResult(taskId, result, sessionId);
+
+                // Get updated task state and send notification
+                const task = await taskStore.getTask(taskId, sessionId);
+                if (task) {
+                    await this.notification({
+                        method: 'notifications/tasks/status',
+                        params: {
+                            task
+                        }
+                    } as unknown as SendNotificationT);
+                }
             },
             getTaskResult: taskId => {
                 return taskStore.getTaskResult(taskId, sessionId);
@@ -1182,6 +1193,17 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     }
 
                     await taskStore.updateTaskStatus(taskId, status, statusMessage, sessionId);
+
+                    // Get updated task state and send notification
+                    const updatedTask = await taskStore.getTask(taskId, sessionId);
+                    if (updatedTask) {
+                        await this.notification({
+                            method: 'notifications/tasks/status',
+                            params: {
+                                task: updatedTask
+                            }
+                        } as unknown as SendNotificationT);
+                    }
                 } catch (error) {
                     throw new Error(`Failed to update status of task "${taskId}" to "${status}": ${error}`);
                 }

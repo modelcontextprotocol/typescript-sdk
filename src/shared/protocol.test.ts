@@ -1547,4 +1547,54 @@ describe('Task-based execution', () => {
             expect(result._meta).toBeDefined();
         });
     });
+
+    describe('task status notifications', () => {
+        it('should call getTask after updateTaskStatus to enable notification sending', async () => {
+            const mockTaskStore = createMockTaskStore();
+
+            // Create a task first
+            const task = await mockTaskStore.createTask({}, 1, {
+                method: 'test/method',
+                params: {}
+            });
+
+            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+            const serverTransport = new MockTransport();
+
+            await serverProtocol.connect(serverTransport);
+
+            // Simulate cancelling the task
+            serverTransport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'tasks/cancel',
+                params: {
+                    taskId: task.taskId
+                }
+            });
+
+            // Wait for async processing
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Verify that updateTaskStatus was called
+            expect(mockTaskStore.updateTaskStatus).toHaveBeenCalledWith(
+                task.taskId,
+                'cancelled',
+                'Client cancelled task execution.',
+                undefined
+            );
+
+            // Verify that getTask was called after updateTaskStatus
+            // This is done by the RequestTaskStore wrapper to get the updated task for the notification
+            const getTaskCalls = mockTaskStore.getTask.mock.calls;
+            const lastGetTaskCall = getTaskCalls[getTaskCalls.length - 1];
+            expect(lastGetTaskCall[0]).toBe(task.taskId);
+        });
+    });
 });
