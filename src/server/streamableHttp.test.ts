@@ -1270,14 +1270,19 @@ describe('StreamableHTTPServerTransport with resumability', () => {
     let baseUrl: URL;
     let sessionId: string;
     let mcpServer: McpServer;
-    const storedEvents: Map<string, { eventId: string; message: JSONRPCMessage }> = new Map();
+    const storedEvents: Map<string, { eventId: string; message: JSONRPCMessage; streamId: string }> = new Map();
 
     // Simple implementation of EventStore
     const eventStore: EventStore = {
         async storeEvent(streamId: string, message: JSONRPCMessage): Promise<string> {
             const eventId = `${streamId}_${randomUUID()}`;
-            storedEvents.set(eventId, { eventId, message });
+            storedEvents.set(eventId, { eventId, message, streamId });
             return eventId;
+        },
+
+        async getStreamIdForEventId(eventId: string): Promise<string | undefined> {
+            const event = storedEvents.get(eventId);
+            return event?.streamId;
         },
 
         async replayEventsAfter(
@@ -1288,11 +1293,11 @@ describe('StreamableHTTPServerTransport with resumability', () => {
                 send: (eventId: EventId, message: JSONRPCMessage) => Promise<void>;
             }
         ): Promise<StreamId> {
-            const streamId = lastEventId.split('_')[0];
-            // Extract stream ID from the event ID
+            const event = storedEvents.get(lastEventId);
+            const streamId = event?.streamId || lastEventId.split('_')[0];
             // For test simplicity, just return all events with matching streamId that aren't the lastEventId
-            for (const [eventId, { message }] of storedEvents.entries()) {
-                if (eventId.startsWith(streamId) && eventId !== lastEventId) {
+            for (const [eventId, { message, streamId: evtStreamId }] of storedEvents.entries()) {
+                if (evtStreamId === streamId && eventId !== lastEventId) {
                     await send(eventId, message);
                 }
             }
@@ -1405,6 +1410,8 @@ describe('StreamableHTTPServerTransport with resumability', () => {
 
         // Close the first SSE stream to simulate a disconnect
         await reader!.cancel();
+        // Give the close handler time to clean up the stream mapping
+        await new Promise(resolve => setTimeout(resolve, 10));
 
         // Reconnect with the Last-Event-ID to get missed messages
         const reconnectResponse = await fetch(baseUrl, {
@@ -1535,11 +1542,16 @@ describe('StreamableHTTPServerTransport POST SSE priming events', () => {
                 storedEvents.set(eventId, { eventId, message, streamId });
                 return eventId;
             },
+            async getStreamIdForEventId(eventId: string): Promise<string | undefined> {
+                const event = storedEvents.get(eventId);
+                return event?.streamId;
+            },
             async replayEventsAfter(
                 lastEventId: EventId,
                 { send }: { send: (eventId: EventId, message: JSONRPCMessage) => Promise<void> }
             ): Promise<StreamId> {
-                const streamId = lastEventId.split('::')[0];
+                const event = storedEvents.get(lastEventId);
+                const streamId = event?.streamId || lastEventId.split('::')[0];
                 const eventsToReplay: Array<[string, { message: JSONRPCMessage }]> = [];
                 for (const [eventId, data] of storedEvents.entries()) {
                     if (data.streamId === streamId && eventId > lastEventId) {
@@ -1964,6 +1976,159 @@ describe('StreamableHTTPServerTransport POST SSE priming events', () => {
         const eventIds = replayText.match(/id: [^\n]+/g);
         expect(eventIds).toBeTruthy();
         expect(eventIds!.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('should allow resuming multiple POST streams via separate GET streams', async () => {
+        const result = await createTestServer({
+            sessionIdGenerator: () => randomUUID(),
+            eventStore: createEventStore(),
+            retryInterval: 1000
+        });
+        server = result.server;
+        transport = result.transport;
+        baseUrl = result.baseUrl;
+        mcpServer = result.mcpServer;
+
+        // Track tool execution state for two separate tools
+        let tool1Resolve: () => void;
+        let tool2Resolve: () => void;
+        const tool1Promise = new Promise<void>(resolve => {
+            tool1Resolve = resolve;
+        });
+        const tool2Promise = new Promise<void>(resolve => {
+            tool2Resolve = resolve;
+        });
+
+        // Register two tools
+        mcpServer.tool('stream-tool-1', 'First stream tool', {}, async () => {
+            await tool1Promise;
+            return { content: [{ type: 'text', text: 'Result from stream 1' }] };
+        });
+        mcpServer.tool('stream-tool-2', 'Second stream tool', {}, async () => {
+            await tool2Promise;
+            return { content: [{ type: 'text', text: 'Result from stream 2' }] };
+        });
+
+        // Initialize to get session ID
+        const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+        sessionId = initResponse.headers.get('mcp-session-id') as string;
+        expect(sessionId).toBeDefined();
+
+        // POST tool call #1
+        const toolCall1: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            id: 301,
+            method: 'tools/call',
+            params: { name: 'stream-tool-1', arguments: {} }
+        };
+        const post1Response = await fetch(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream, application/json',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-03-26'
+            },
+            body: JSON.stringify(toolCall1)
+        });
+        expect(post1Response.status).toBe(200);
+
+        // Read priming event and extract event ID for stream 1
+        const reader1 = post1Response.body?.getReader();
+        const { value: priming1 } = await reader1!.read();
+        const priming1Text = new TextDecoder().decode(priming1);
+        const priming1Match = priming1Text.match(/id: ([^\n]+)/);
+        expect(priming1Match).toBeTruthy();
+        const eventId1 = priming1Match![1];
+
+        // POST tool call #2
+        const toolCall2: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            id: 302,
+            method: 'tools/call',
+            params: { name: 'stream-tool-2', arguments: {} }
+        };
+        const post2Response = await fetch(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream, application/json',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-03-26'
+            },
+            body: JSON.stringify(toolCall2)
+        });
+        expect(post2Response.status).toBe(200);
+
+        // Read priming event and extract event ID for stream 2
+        const reader2 = post2Response.body?.getReader();
+        const { value: priming2 } = await reader2!.read();
+        const priming2Text = new TextDecoder().decode(priming2);
+        const priming2Match = priming2Text.match(/id: ([^\n]+)/);
+        expect(priming2Match).toBeTruthy();
+        const eventId2 = priming2Match![1];
+
+        // Verify we have two different stream IDs
+        const streamId1 = eventId1.split('::')[0];
+        const streamId2 = eventId2.split('::')[0];
+        expect(streamId1).not.toBe(streamId2);
+
+        // Close both streams
+        transport.closeSSEStream(301);
+        transport.closeSSEStream(302);
+
+        // Verify both streams are closed
+        const { done: done1 } = await reader1!.read();
+        const { done: done2 } = await reader2!.read();
+        expect(done1).toBe(true);
+        expect(done2).toBe(true);
+
+        // Complete both tools while disconnected
+        tool1Resolve!();
+        tool2Resolve!();
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        // Resume BOTH streams via GET - they should work concurrently (no 409)
+        const [reconnect1Response, reconnect2Response] = await Promise.all([
+            fetch(baseUrl, {
+                method: 'GET',
+                headers: {
+                    Accept: 'text/event-stream',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-03-26',
+                    'last-event-id': eventId1
+                }
+            }),
+            fetch(baseUrl, {
+                method: 'GET',
+                headers: {
+                    Accept: 'text/event-stream',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-03-26',
+                    'last-event-id': eventId2
+                }
+            })
+        ]);
+
+        // Both should succeed (not 409)
+        expect(reconnect1Response.status).toBe(200);
+        expect(reconnect2Response.status).toBe(200);
+
+        // Read results from both streams
+        const reconnect1Reader = reconnect1Response.body?.getReader();
+        const { value: replay1 } = await reconnect1Reader!.read();
+        const replay1Text = new TextDecoder().decode(replay1);
+
+        const reconnect2Reader = reconnect2Response.body?.getReader();
+        const { value: replay2 } = await reconnect2Reader!.read();
+        const replay2Text = new TextDecoder().decode(replay2);
+
+        // Each stream should have its own result
+        expect(replay1Text).toContain('Result from stream 1');
+        expect(replay1Text).toContain('"id":301');
+
+        expect(replay2Text).toContain('Result from stream 2');
+        expect(replay2Text).toContain('"id":302');
     });
 });
 

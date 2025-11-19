@@ -35,6 +35,17 @@ export interface EventStore {
      */
     storeEvent(streamId: StreamId, message: JSONRPCMessage): Promise<EventId>;
 
+    /**
+     * Get the stream ID associated with a given event ID.
+     * @param eventId The event ID to look up
+     * @returns The stream ID, or undefined if not found
+     *
+     * Optional: If not provided, the SDK will attempt to parse the streamId
+     * from the eventId assuming format "streamId::...". Implementations should
+     * provide this method for more reliable stream ID resolution.
+     */
+    getStreamIdForEventId?(eventId: EventId): Promise<StreamId | undefined>;
+
     replayEventsAfter(
         lastEventId: EventId,
         {
@@ -369,6 +380,44 @@ export class StreamableHTTPServerTransport implements Transport {
             return;
         }
         try {
+            // Get streamId - prefer explicit method, fall back to parsing
+            let streamId: string | undefined;
+            if (this._eventStore.getStreamIdForEventId) {
+                streamId = await this._eventStore.getStreamIdForEventId(lastEventId);
+            } else {
+                // Fallback: assume format "streamId::..."
+                streamId = lastEventId.split('::')[0] || undefined;
+            }
+
+            if (!streamId) {
+                res.writeHead(400).end(
+                    JSON.stringify({
+                        jsonrpc: '2.0',
+                        error: {
+                            code: -32000,
+                            message: 'Invalid event ID format'
+                        },
+                        id: null
+                    })
+                );
+                return;
+            }
+
+            // Check conflict with the SAME streamId we'll use for mapping
+            if (this._streamMapping.get(streamId) !== undefined) {
+                res.writeHead(409).end(
+                    JSON.stringify({
+                        jsonrpc: '2.0',
+                        error: {
+                            code: -32000,
+                            message: 'Conflict: Stream already has an active connection'
+                        },
+                        id: null
+                    })
+                );
+                return;
+            }
+
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache, no-transform',
@@ -380,7 +429,8 @@ export class StreamableHTTPServerTransport implements Transport {
             }
             res.writeHead(200, headers).flushHeaders();
 
-            const streamId = await this._eventStore?.replayEventsAfter(lastEventId, {
+            // Replay events
+            await this._eventStore.replayEventsAfter(lastEventId, {
                 send: async (eventId: string, message: JSONRPCMessage) => {
                     if (!this.writeSSEEvent(res, message, eventId)) {
                         this.onerror?.(new Error('Failed replay events'));
@@ -388,7 +438,14 @@ export class StreamableHTTPServerTransport implements Transport {
                     }
                 }
             });
+
+            // Map using the same streamId we checked for conflicts
             this._streamMapping.set(streamId, res);
+
+            // Set up close handler for client disconnects
+            res.on('close', () => {
+                this._streamMapping.delete(streamId);
+            });
 
             // Add error handler for replay stream
             res.on('error', error => {
