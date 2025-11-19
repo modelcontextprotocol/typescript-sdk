@@ -982,7 +982,38 @@ export class McpServer {
     /**
      * Registers a task-based tool with a config object and callback.
      */
-    registerToolTask<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape>(
+    registerToolTask<OutputArgs extends undefined | ZodRawShape | ZodType<object>>(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            outputSchema?: OutputArgs;
+            annotations?: NoTaskToolAnnotations;
+            _meta?: Record<string, unknown>;
+        },
+        handler: ToolTaskHandler<undefined>
+    ): RegisteredTool;
+
+    /**
+     * Registers a task-based tool with a config object and callback.
+     */
+    registerToolTask<InputArgs extends ZodRawShape | ZodType<object>, OutputArgs extends undefined | ZodRawShape | ZodType<object>>(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            inputSchema: InputArgs;
+            outputSchema?: OutputArgs;
+            annotations?: NoTaskToolAnnotations;
+            _meta?: Record<string, unknown>;
+        },
+        handler: ToolTaskHandler<InputArgs>
+    ): RegisteredTool;
+
+    registerToolTask<
+        InputArgs extends undefined | ZodRawShape | ZodType<object>,
+        OutputArgs extends undefined | ZodRawShape | ZodType<object>
+    >(
         name: string,
         config: {
             title?: string;
