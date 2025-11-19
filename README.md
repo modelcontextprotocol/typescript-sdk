@@ -47,8 +47,10 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 ## Installation
 
 ```bash
-npm install @modelcontextprotocol/sdk
+npm install @modelcontextprotocol/sdk zod
 ```
+
+This SDK has a **required peer dependency** on `zod` for schema validation. The SDK internally imports from `zod/v4`, but maintains backwards compatibility with projects using Zod v3.25 or later. You can use either API in your code by importing from `zod/v3` or `zod/v4`:
 
 ## Quick Start
 
@@ -130,7 +132,7 @@ app.listen(port, () => {
 });
 ```
 
-Install the deps with `npm install @modelcontextprotocol/sdk express zod@3`, and run with `npx -y tsx server.ts`.
+Install the deps with `npm install @modelcontextprotocol/sdk express zod`, and run with `npx -y tsx server.ts`.
 
 You can connect to it using any MCP client that supports streamable http, such as:
 
