@@ -369,15 +369,52 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             });
 
             this.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra) => {
+                // Helper function to wait with abort signal support
+                const waitWithAbort = (ms: number, signal: AbortSignal): Promise<void> => {
+                    return new Promise((resolve, reject) => {
+                        if (signal.aborted) {
+                            reject(new McpError(ErrorCode.InvalidRequest, 'Request cancelled while waiting for task completion'));
+                            return;
+                        }
+
+                        const timeoutId = setTimeout(() => {
+                            signal.removeEventListener('abort', abortHandler);
+                            resolve();
+                        }, ms);
+
+                        const abortHandler = () => {
+                            clearTimeout(timeoutId);
+                            reject(new McpError(ErrorCode.InvalidRequest, 'Request cancelled while waiting for task completion'));
+                        };
+
+                        signal.addEventListener('abort', abortHandler, { once: true });
+                    });
+                };
+
                 const task = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
                 if (!task) {
-                    throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
+                    throw new McpError(ErrorCode.InvalidParams, `Task not found: ${request.params.taskId}`);
                 }
 
-                if (task.status !== 'completed') {
-                    throw new McpError(ErrorCode.InvalidParams, `Cannot retrieve result: Task status is '${task.status}', not 'completed'`);
+                // If task is not in a terminal state, block until it reaches one
+                if (!isTerminal(task.status)) {
+                    // Poll for task completion
+                    let currentTask = task;
+                    while (!isTerminal(currentTask.status)) {
+                        // Wait for the poll interval before checking again
+                        await waitWithAbort(currentTask.pollInterval ?? 5000, extra.signal);
+
+                        // Get updated task status
+                        const updatedTask = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
+                        if (!updatedTask) {
+                            throw new McpError(ErrorCode.InvalidParams, `Task not found: ${request.params.taskId}`);
+                        }
+                        currentTask = updatedTask;
+                    }
                 }
 
+                // Task is now in a terminal state (completed, failed, or cancelled)
+                // Retrieve and return the result
                 const result = await this._taskStore!.getTaskResult(request.params.taskId, extra.sessionId);
                 return {
                     ...result,

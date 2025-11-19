@@ -2154,13 +2154,13 @@ describe('Task-based execution', () => {
             // Check if task creation is requested
             if (request.params.task && extra.taskStore) {
                 const createdTask = await extra.taskStore.createTask(
-                        {
-                            ttl: extra.taskRequestedTtl
-                        },
-                        extra.requestId,
-                        request
-                    );
-                    taskId = createdTask.taskId;
+                    {
+                        ttl: extra.taskRequestedTtl
+                    },
+                    extra.requestId,
+                    request
+                );
+                taskId = createdTask.taskId;
             }
             if (request.params.name === 'test-tool') {
                 const result = {
