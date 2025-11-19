@@ -1843,3 +1843,296 @@ describe('Task-based execution', () => {
         });
     });
 });
+
+describe('Request Cancellation vs Task Cancellation', () => {
+    let protocol: Protocol<Request, Notification, Result>;
+    let transport: MockTransport;
+    let taskStore: TaskStore;
+
+    beforeEach(() => {
+        transport = new MockTransport();
+        taskStore = createMockTaskStore();
+        protocol = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(): void {}
+            protected assertNotificationCapability(): void {}
+            protected assertRequestHandlerCapability(): void {}
+            protected assertTaskCapability(): void {}
+            protected assertTaskHandlerCapability(): void {}
+        })({ taskStore });
+    });
+
+    describe('notifications/cancelled behavior', () => {
+        test('should abort request handler when notifications/cancelled is received', async () => {
+            await protocol.connect(transport);
+
+            // Set up a request handler that checks if it was aborted
+            let wasAborted = false;
+            const TestRequestSchema = z.object({
+                method: z.literal('test/longRunning'),
+                params: z.optional(z.record(z.unknown()))
+            });
+            protocol.setRequestHandler(TestRequestSchema, async (_request, extra) => {
+                // Simulate a long-running operation
+                await new Promise(resolve => setTimeout(resolve, 100));
+                wasAborted = extra.signal.aborted;
+                return { _meta: {} } as Result;
+            });
+
+            // Simulate an incoming request
+            const requestId = 123;
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: requestId,
+                    method: 'test/longRunning',
+                    params: {}
+                });
+            }
+
+            // Wait a bit for the handler to start
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Send cancellation notification
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/cancelled',
+                    params: {
+                        requestId: requestId,
+                        reason: 'User cancelled'
+                    }
+                });
+            }
+
+            // Wait for the handler to complete
+            await new Promise(resolve => setTimeout(resolve, 150));
+
+            // Verify the request was aborted
+            expect(wasAborted).toBe(true);
+        });
+
+        test('should NOT automatically cancel associated tasks when notifications/cancelled is received', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await taskStore.createTask({ ttl: 60000 }, 'req-1', {
+                method: 'test/method',
+                params: {}
+            });
+
+            // Send cancellation notification for the request
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/cancelled',
+                    params: {
+                        requestId: 'req-1',
+                        reason: 'User cancelled'
+                    }
+                });
+            }
+
+            // Wait a bit
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Verify the task status was NOT changed to cancelled
+            const updatedTask = await taskStore.getTask(task.taskId);
+            expect(updatedTask?.status).toBe('working');
+            expect(taskStore.updateTaskStatus).not.toHaveBeenCalledWith(task.taskId, 'cancelled', expect.any(String));
+        });
+    });
+
+    describe('tasks/cancel behavior', () => {
+        test('should cancel task independently of request cancellation', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await taskStore.createTask({ ttl: 60000 }, 'req-1', {
+                method: 'test/method',
+                params: {}
+            });
+
+            // Cancel the task using tasks/cancel
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: 999,
+                    method: 'tasks/cancel',
+                    params: {
+                        taskId: task.taskId
+                    }
+                });
+            }
+
+            // Wait for the handler to complete
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Verify the task was cancelled
+            expect(taskStore.updateTaskStatus).toHaveBeenCalledWith(
+                task.taskId,
+                'cancelled',
+                'Client cancelled task execution.',
+                undefined
+            );
+        });
+
+        test('should reject cancellation of terminal tasks', async () => {
+            await protocol.connect(transport);
+            const sendSpy = vi.spyOn(transport, 'send');
+
+            // Create a task and mark it as completed
+            const task = await taskStore.createTask({ ttl: 60000 }, 'req-1', {
+                method: 'test/method',
+                params: {}
+            });
+            await taskStore.updateTaskStatus(task.taskId, 'completed');
+
+            // Try to cancel the completed task
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: 999,
+                    method: 'tasks/cancel',
+                    params: {
+                        taskId: task.taskId
+                    }
+                });
+            }
+
+            // Wait for the handler to complete
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Verify an error was sent
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    jsonrpc: '2.0',
+                    id: 999,
+                    error: expect.objectContaining({
+                        code: ErrorCode.InvalidParams,
+                        message: expect.stringContaining('Cannot cancel task in terminal status')
+                    })
+                })
+            );
+        });
+
+        test('should return error when task not found', async () => {
+            await protocol.connect(transport);
+            const sendSpy = vi.spyOn(transport, 'send');
+
+            // Try to cancel a non-existent task
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: 999,
+                    method: 'tasks/cancel',
+                    params: {
+                        taskId: 'non-existent-task'
+                    }
+                });
+            }
+
+            // Wait for the handler to complete
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Verify an error was sent
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    jsonrpc: '2.0',
+                    id: 999,
+                    error: expect.objectContaining({
+                        code: ErrorCode.InvalidParams,
+                        message: expect.stringContaining('Task not found')
+                    })
+                })
+            );
+        });
+    });
+
+    describe('separation of concerns', () => {
+        test('should allow request cancellation without affecting task', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await taskStore.createTask({ ttl: 60000 }, 'req-1', {
+                method: 'test/method',
+                params: {}
+            });
+
+            // Cancel the request (not the task)
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/cancelled',
+                    params: {
+                        requestId: 'req-1',
+                        reason: 'User cancelled request'
+                    }
+                });
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Verify task is still working
+            const updatedTask = await taskStore.getTask(task.taskId);
+            expect(updatedTask?.status).toBe('working');
+        });
+
+        test('should allow task cancellation without affecting request', async () => {
+            await protocol.connect(transport);
+
+            // Set up a request handler
+            let requestCompleted = false;
+            const TestMethodSchema = z.object({
+                method: z.literal('test/method'),
+                params: z.optional(z.record(z.unknown()))
+            });
+            protocol.setRequestHandler(TestMethodSchema, async () => {
+                await new Promise(resolve => setTimeout(resolve, 50));
+                requestCompleted = true;
+                return { _meta: {} } as Result;
+            });
+
+            // Create a task
+            const task = await taskStore.createTask({ ttl: 60000 }, 'req-1', {
+                method: 'test/method',
+                params: {}
+            });
+
+            // Start a request
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: 123,
+                    method: 'test/method',
+                    params: {}
+                });
+            }
+
+            // Cancel the task (not the request)
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: 999,
+                    method: 'tasks/cancel',
+                    params: {
+                        taskId: task.taskId
+                    }
+                });
+            }
+
+            // Wait for request to complete
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // Verify request completed normally
+            expect(requestCompleted).toBe(true);
+
+            // Verify task was cancelled
+            expect(taskStore.updateTaskStatus).toHaveBeenCalledWith(
+                task.taskId,
+                'cancelled',
+                'Client cancelled task execution.',
+                undefined
+            );
+        });
+    });
+});
