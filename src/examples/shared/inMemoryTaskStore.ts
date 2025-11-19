@@ -39,11 +39,13 @@ export class InMemoryTaskStore implements TaskStore {
             throw new Error(`Task with ID ${taskId} already exists`);
         }
 
+        const actualTtl = taskParams.ttl ?? null;
+
         // Create task with generated ID and timestamp
         const task: Task = {
             taskId,
             status: 'working',
-            ttl: taskParams.ttl ?? null,
+            ttl: actualTtl,
             createdAt: new Date().toISOString(),
             pollInterval: taskParams.pollInterval ?? 500
         };
@@ -55,11 +57,12 @@ export class InMemoryTaskStore implements TaskStore {
         });
 
         // Schedule cleanup if ttl is specified
-        if (taskParams.ttl) {
+        // Cleanup occurs regardless of task status
+        if (actualTtl) {
             const timer = setTimeout(() => {
                 this.tasks.delete(taskId);
                 this.cleanupTimers.delete(taskId);
-            }, taskParams.ttl);
+            }, actualTtl);
 
             this.cleanupTimers.set(taskId, timer);
         }

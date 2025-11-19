@@ -11,6 +11,13 @@ export interface TaskStore {
      * Creates a new task with the given creation parameters and original request.
      * The implementation must generate a unique taskId and createdAt timestamp.
      *
+     * TTL Management:
+     * - The implementation receives the TTL suggested by the requestor via taskParams.ttl
+     * - The implementation MAY override the requested TTL (e.g., to enforce limits)
+     * - The actual TTL used MUST be returned in the Task object
+     * - Null TTL indicates unlimited task lifetime (no automatic cleanup)
+     * - Cleanup SHOULD occur automatically after TTL expires, regardless of task status
+     *
      * @param taskParams - The task creation parameters from the request (ttl, pollInterval)
      * @param requestId - The JSON-RPC request ID
      * @param request - The original request that triggered task creation

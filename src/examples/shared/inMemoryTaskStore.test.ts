@@ -463,6 +463,85 @@ describe('InMemoryTaskStore', () => {
             task = await store.getTask(createdTask2.taskId);
             expect(task).toBeNull();
         });
+
+        it('should return actual TTL in task response', async () => {
+            // Test that the TaskStore returns the actual TTL it will use
+            // This implementation uses the requested TTL as-is, but implementations
+            // MAY override it (e.g., enforce maximum TTL limits)
+            const requestedTtl = 5000;
+            const taskParams: TaskCreationParams = {
+                ttl: requestedTtl
+            };
+            const createdTask = await store.createTask(taskParams, 1111, {
+                method: 'tools/call',
+                params: {}
+            });
+
+            // The returned task should include the actual TTL that will be used
+            expect(createdTask.ttl).toBe(requestedTtl);
+
+            // Verify the task is cleaned up after the actual TTL
+            vi.advanceTimersByTime(requestedTtl + 1);
+            const task = await store.getTask(createdTask.taskId);
+            expect(task).toBeNull();
+        });
+
+        it('should support null TTL for unlimited lifetime', async () => {
+            // Test that null TTL means unlimited lifetime
+            const taskParams: TaskCreationParams = {
+                ttl: null
+            };
+            const createdTask = await store.createTask(taskParams, 2222, {
+                method: 'tools/call',
+                params: {}
+            });
+
+            // The returned task should have null TTL
+            expect(createdTask.ttl).toBeNull();
+
+            // Task should not be cleaned up even after a long time
+            vi.advanceTimersByTime(100000);
+            const task = await store.getTask(createdTask.taskId);
+            expect(task).toBeDefined();
+            expect(task?.taskId).toBe(createdTask.taskId);
+        });
+
+        it('should cleanup tasks regardless of status', async () => {
+            // Test that TTL cleanup happens regardless of task status
+            const taskParams: TaskCreationParams = {
+                ttl: 1000
+            };
+
+            // Create tasks in different statuses
+            const workingTask = await store.createTask(taskParams, 3333, {
+                method: 'tools/call',
+                params: {}
+            });
+
+            const completedTask = await store.createTask(taskParams, 4444, {
+                method: 'tools/call',
+                params: {}
+            });
+            await store.storeTaskResult(completedTask.taskId, 'completed', {
+                content: [{ type: 'text' as const, text: 'Done' }]
+            });
+
+            const failedTask = await store.createTask(taskParams, 5555, {
+                method: 'tools/call',
+                params: {}
+            });
+            await store.storeTaskResult(failedTask.taskId, 'failed', {
+                content: [{ type: 'text' as const, text: 'Error' }]
+            });
+
+            // Fast-forward past TTL
+            vi.advanceTimersByTime(1001);
+
+            // All tasks should be cleaned up regardless of status
+            expect(await store.getTask(workingTask.taskId)).toBeNull();
+            expect(await store.getTask(completedTask.taskId)).toBeNull();
+            expect(await store.getTask(failedTask.taskId)).toBeNull();
+        });
     });
 
     describe('getAllTasks', () => {
