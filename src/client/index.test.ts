@@ -1382,7 +1382,7 @@ describe('Task-based execution', () => {
                         content: [{ type: 'text', text: 'Tool executed successfully!' }]
                     };
                     if (taskId && extra.taskStore) {
-                        await extra.taskStore.storeTaskResult(taskId, result);
+                        await extra.taskStore.storeTaskResult(taskId, 'completed', result);
                     }
                     return result;
                 }
@@ -1468,7 +1468,7 @@ describe('Task-based execution', () => {
                         content: [{ type: 'text', text: 'Success!' }]
                     };
                     if (taskId && extra.taskStore) {
-                        await extra.taskStore.storeTaskResult(taskId, result);
+                        await extra.taskStore.storeTaskResult(taskId, 'completed', result);
                     }
                     return result;
                 }
@@ -1554,7 +1554,7 @@ describe('Task-based execution', () => {
                         content: [{ type: 'text', text: 'Result data!' }]
                     };
                     if (taskId && extra.taskStore) {
-                        await extra.taskStore.storeTaskResult(taskId, result);
+                        await extra.taskStore.storeTaskResult(taskId, 'completed', result);
                     }
                     return result;
                 }
@@ -1637,7 +1637,7 @@ describe('Task-based execution', () => {
                         content: [{ type: 'text', text: 'Success!' }]
                     };
                     if (taskId && extra.taskStore) {
-                        await extra.taskStore.storeTaskResult(taskId, result);
+                        await extra.taskStore.storeTaskResult(taskId, 'completed', result);
                     }
                     return result;
                 }
@@ -1748,7 +1748,7 @@ describe('Task-based execution', () => {
                     content: { username: 'list-user' }
                 };
                 if (taskId && extra.taskStore) {
-                    await extra.taskStore.storeTaskResult(taskId, result);
+                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
                 }
                 return result;
             });
@@ -1851,7 +1851,7 @@ describe('Task-based execution', () => {
                     content: { username: 'list-user' }
                 };
                 if (taskId && extra.taskStore) {
-                    await extra.taskStore.storeTaskResult(taskId, result);
+                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
                 }
                 return result;
             });
@@ -1952,7 +1952,7 @@ describe('Task-based execution', () => {
                     content: { username: 'result-user' }
                 };
                 if (taskId && extra.taskStore) {
-                    await extra.taskStore.storeTaskResult(taskId, result);
+                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
                 }
                 return result;
             });
@@ -2052,7 +2052,7 @@ describe('Task-based execution', () => {
                     content: { username: 'list-user' }
                 };
                 if (taskId && extra.taskStore) {
-                    await extra.taskStore.storeTaskResult(taskId, result);
+                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
                 }
                 return result;
             });
@@ -2167,7 +2167,7 @@ describe('Task-based execution', () => {
                     content: [{ type: 'text', text: `Result for ${request.params.arguments?.id || 'unknown'}` }]
                 };
                 if (taskId && extra.taskStore) {
-                    await extra.taskStore.storeTaskResult(taskId, result);
+                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
                 }
                 return result;
             }

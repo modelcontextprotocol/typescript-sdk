@@ -179,12 +179,13 @@ export interface RequestTaskStore {
     getTask(taskId: string): Promise<Task>;
 
     /**
-     * Stores the result of a completed task.
+     * Stores the result of a task and sets its final status.
      *
      * @param taskId - The task identifier
+     * @param status - The final status: 'completed' for success, 'failed' for errors
      * @param result - The result to store
      */
-    storeTaskResult(taskId: string, result: Result): Promise<void>;
+    storeTaskResult(taskId: string, status: 'completed' | 'failed', result: Result): Promise<void>;
 
     /**
      * Retrieves the stored result of a task.
@@ -1153,8 +1154,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                 return task;
             },
-            storeTaskResult: async (taskId, result) => {
-                await taskStore.storeTaskResult(taskId, result, sessionId);
+            storeTaskResult: async (taskId, status, result) => {
+                await taskStore.storeTaskResult(taskId, status, result, sessionId);
 
                 // Get updated task state and send notification
                 const task = await taskStore.getTask(taskId, sessionId);
@@ -1173,17 +1174,18 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             },
             updateTaskStatus: async (taskId, status, statusMessage) => {
                 try {
-                    // Check the current task status to avoid overwriting terminal states
-                    // as a safeguard for when the TaskStore implementation doesn't try
-                    // to avoid this.
+                    // Check if task is in terminal state before attempting to update
                     const task = await taskStore.getTask(taskId, sessionId);
                     if (!task) {
                         return;
                     }
 
+                    // Don't allow transitions from terminal states
                     if (isTerminal(task.status)) {
                         this._onerror(
-                            new Error(`Failed to update status of task "${taskId}" from terminal status "${task.status}" to "${status}"`)
+                            new Error(
+                                `Cannot update task "${taskId}" from terminal status "${task.status}" to "${status}". Terminal states (completed, failed, cancelled) cannot transition to other states.`
+                            )
                         );
                         return;
                     }

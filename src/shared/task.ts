@@ -29,13 +29,14 @@ export interface TaskStore {
     getTask(taskId: string, sessionId?: string): Promise<Task | null>;
 
     /**
-     * Stores the result of a completed task.
+     * Stores the result of a task and sets its final status.
      *
      * @param taskId - The task identifier
+     * @param status - The final status: 'completed' for success, 'failed' for errors
      * @param result - The result to store
      * @param sessionId - Optional session ID for binding the operation to a specific session
      */
-    storeTaskResult(taskId: string, result: Result, sessionId?: string): Promise<void>;
+    storeTaskResult(taskId: string, status: 'completed' | 'failed', result: Result, sessionId?: string): Promise<void>;
 
     /**
      * Retrieves the stored result of a task.

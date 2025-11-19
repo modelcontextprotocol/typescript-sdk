@@ -4607,7 +4607,7 @@ describe('Tool-level task hints with automatic polling wrapper', () => {
 
                     // Simulate async work
                     setTimeout(async () => {
-                        await store.storeTaskResult(task.taskId, {
+                        await store.storeTaskResult(task.taskId, 'completed', {
                             content: [{ type: 'text' as const, text: `Processed: ${input}` }]
                         });
                     }, 200);
@@ -4715,7 +4715,7 @@ describe('Tool-level task hints with automatic polling wrapper', () => {
 
                     // Simulate async work
                     setTimeout(async () => {
-                        await store.storeTaskResult(task.taskId, {
+                        await store.storeTaskResult(task.taskId, 'completed', {
                             content: [{ type: 'text' as const, text: `Result: ${value * 2}` }]
                         });
                         releaseLatch();
@@ -4826,7 +4826,7 @@ describe('Tool-level task hints with automatic polling wrapper', () => {
 
                     // Simulate async work
                     setTimeout(async () => {
-                        await store.storeTaskResult(task.taskId, {
+                        await store.storeTaskResult(task.taskId, 'completed', {
                             content: [{ type: 'text' as const, text: `Completed: ${data}` }]
                         });
                         releaseLatch();
@@ -5117,8 +5117,7 @@ describe('Tool-level task hints with automatic polling wrapper', () => {
 
                     // Simulate async failure
                     setTimeout(async () => {
-                        await store.updateTaskStatus(task.taskId, 'failed', 'Task failed');
-                        await store.storeTaskResult(task.taskId, {
+                        await store.storeTaskResult(task.taskId, 'failed', {
                             content: [{ type: 'text' as const, text: 'Error occurred' }],
                             isError: true
                         });
@@ -5228,9 +5227,6 @@ describe('Tool-level task hints with automatic polling wrapper', () => {
                     // Simulate async cancellation
                     setTimeout(async () => {
                         await store.updateTaskStatus(task.taskId, 'cancelled', 'Task was cancelled');
-                        await store.storeTaskResult(task.taskId, {
-                            content: [{ type: 'text' as const, text: 'Task cancelled' }]
-                        });
                         releaseLatch();
                     }, 150);
 
@@ -5263,9 +5259,9 @@ describe('Tool-level task hints with automatic polling wrapper', () => {
             CallToolResultSchema
         );
 
-        // Should receive the cancellation result
+        // Should receive an error since cancelled tasks don't have results
         expect(result).toHaveProperty('content');
-        expect(result.content).toEqual([{ type: 'text' as const, text: 'Task cancelled' }]);
+        expect(result.content).toEqual([{ type: 'text' as const, text: expect.stringContaining('has no result stored') }]);
 
         // Wait for async operations to complete
         await waitForLatch();

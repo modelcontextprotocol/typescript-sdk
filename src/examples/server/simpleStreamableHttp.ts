@@ -482,7 +482,7 @@ const getServer = () => {
                 // Simulate out-of-band work
                 (async () => {
                     await new Promise(resolve => setTimeout(resolve, duration));
-                    await taskStore.storeTaskResult(taskId, {
+                    await taskStore.storeTaskResult(taskId, 'completed', {
                         content: [
                             {
                                 type: 'text',

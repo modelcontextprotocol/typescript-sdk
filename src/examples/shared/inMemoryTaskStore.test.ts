@@ -134,6 +134,84 @@ describe('InMemoryTaskStore', () => {
         it('should throw if task not found', async () => {
             await expect(store.updateTaskStatus('non-existent', 'working')).rejects.toThrow('Task with ID non-existent not found');
         });
+
+        describe('status lifecycle validation', () => {
+            it('should allow transition from working to input_required', async () => {
+                await store.updateTaskStatus(taskId, 'input_required');
+                const task = await store.getTask(taskId);
+                expect(task?.status).toBe('input_required');
+            });
+
+            it('should allow transition from working to completed', async () => {
+                await store.updateTaskStatus(taskId, 'completed');
+                const task = await store.getTask(taskId);
+                expect(task?.status).toBe('completed');
+            });
+
+            it('should allow transition from working to failed', async () => {
+                await store.updateTaskStatus(taskId, 'failed');
+                const task = await store.getTask(taskId);
+                expect(task?.status).toBe('failed');
+            });
+
+            it('should allow transition from working to cancelled', async () => {
+                await store.updateTaskStatus(taskId, 'cancelled');
+                const task = await store.getTask(taskId);
+                expect(task?.status).toBe('cancelled');
+            });
+
+            it('should allow transition from input_required to working', async () => {
+                await store.updateTaskStatus(taskId, 'input_required');
+                await store.updateTaskStatus(taskId, 'working');
+                const task = await store.getTask(taskId);
+                expect(task?.status).toBe('working');
+            });
+
+            it('should allow transition from input_required to completed', async () => {
+                await store.updateTaskStatus(taskId, 'input_required');
+                await store.updateTaskStatus(taskId, 'completed');
+                const task = await store.getTask(taskId);
+                expect(task?.status).toBe('completed');
+            });
+
+            it('should allow transition from input_required to failed', async () => {
+                await store.updateTaskStatus(taskId, 'input_required');
+                await store.updateTaskStatus(taskId, 'failed');
+                const task = await store.getTask(taskId);
+                expect(task?.status).toBe('failed');
+            });
+
+            it('should allow transition from input_required to cancelled', async () => {
+                await store.updateTaskStatus(taskId, 'input_required');
+                await store.updateTaskStatus(taskId, 'cancelled');
+                const task = await store.getTask(taskId);
+                expect(task?.status).toBe('cancelled');
+            });
+
+            it('should reject transition from completed to any other status', async () => {
+                await store.updateTaskStatus(taskId, 'completed');
+                await expect(store.updateTaskStatus(taskId, 'working')).rejects.toThrow('Cannot update task');
+                await expect(store.updateTaskStatus(taskId, 'input_required')).rejects.toThrow('Cannot update task');
+                await expect(store.updateTaskStatus(taskId, 'failed')).rejects.toThrow('Cannot update task');
+                await expect(store.updateTaskStatus(taskId, 'cancelled')).rejects.toThrow('Cannot update task');
+            });
+
+            it('should reject transition from failed to any other status', async () => {
+                await store.updateTaskStatus(taskId, 'failed');
+                await expect(store.updateTaskStatus(taskId, 'working')).rejects.toThrow('Cannot update task');
+                await expect(store.updateTaskStatus(taskId, 'input_required')).rejects.toThrow('Cannot update task');
+                await expect(store.updateTaskStatus(taskId, 'completed')).rejects.toThrow('Cannot update task');
+                await expect(store.updateTaskStatus(taskId, 'cancelled')).rejects.toThrow('Cannot update task');
+            });
+
+            it('should reject transition from cancelled to any other status', async () => {
+                await store.updateTaskStatus(taskId, 'cancelled');
+                await expect(store.updateTaskStatus(taskId, 'working')).rejects.toThrow('Cannot update task');
+                await expect(store.updateTaskStatus(taskId, 'input_required')).rejects.toThrow('Cannot update task');
+                await expect(store.updateTaskStatus(taskId, 'completed')).rejects.toThrow('Cannot update task');
+                await expect(store.updateTaskStatus(taskId, 'failed')).rejects.toThrow('Cannot update task');
+            });
+        });
     });
 
     describe('storeTaskResult', () => {
@@ -155,7 +233,7 @@ describe('InMemoryTaskStore', () => {
                 content: [{ type: 'text' as const, text: 'Success!' }]
             };
 
-            await store.storeTaskResult(taskId, result);
+            await store.storeTaskResult(taskId, 'completed', result);
 
             const task = await store.getTask(taskId);
             expect(task?.status).toBe('completed');
@@ -165,7 +243,79 @@ describe('InMemoryTaskStore', () => {
         });
 
         it('should throw if task not found', async () => {
-            await expect(store.storeTaskResult('non-existent', {})).rejects.toThrow('Task with ID non-existent not found');
+            await expect(store.storeTaskResult('non-existent', 'completed', {})).rejects.toThrow('Task with ID non-existent not found');
+        });
+
+        it('should reject storing result for task already in completed status', async () => {
+            // First complete the task
+            const firstResult = {
+                content: [{ type: 'text' as const, text: 'First result' }]
+            };
+            await store.storeTaskResult(taskId, 'completed', firstResult);
+
+            // Try to store result again (should fail)
+            const secondResult = {
+                content: [{ type: 'text' as const, text: 'Second result' }]
+            };
+
+            await expect(store.storeTaskResult(taskId, 'completed', secondResult)).rejects.toThrow('Cannot store result for task');
+        });
+
+        it('should store result with failed status', async () => {
+            const result = {
+                content: [{ type: 'text' as const, text: 'Error details' }],
+                isError: true
+            };
+
+            await store.storeTaskResult(taskId, 'failed', result);
+
+            const task = await store.getTask(taskId);
+            expect(task?.status).toBe('failed');
+
+            const storedResult = await store.getTaskResult(taskId);
+            expect(storedResult).toEqual(result);
+        });
+
+        it('should reject storing result for task already in failed status', async () => {
+            // First fail the task
+            const firstResult = {
+                content: [{ type: 'text' as const, text: 'First error' }],
+                isError: true
+            };
+            await store.storeTaskResult(taskId, 'failed', firstResult);
+
+            // Try to store result again (should fail)
+            const secondResult = {
+                content: [{ type: 'text' as const, text: 'Second error' }],
+                isError: true
+            };
+
+            await expect(store.storeTaskResult(taskId, 'failed', secondResult)).rejects.toThrow('Cannot store result for task');
+        });
+
+        it('should reject storing result for cancelled task', async () => {
+            // Mark task as cancelled
+            await store.updateTaskStatus(taskId, 'cancelled');
+
+            // Try to store result (should fail)
+            const result = {
+                content: [{ type: 'text' as const, text: 'Cancellation result' }]
+            };
+
+            await expect(store.storeTaskResult(taskId, 'completed', result)).rejects.toThrow('Cannot store result for task');
+        });
+
+        it('should allow storing result from input_required status', async () => {
+            await store.updateTaskStatus(taskId, 'input_required');
+
+            const result = {
+                content: [{ type: 'text' as const, text: 'Success!' }]
+            };
+
+            await store.storeTaskResult(taskId, 'completed', result);
+
+            const task = await store.getTask(taskId);
+            expect(task?.status).toBe('completed');
         });
     });
 
@@ -194,7 +344,7 @@ describe('InMemoryTaskStore', () => {
             const result = {
                 content: [{ type: 'text' as const, text: 'Result data' }]
             };
-            await store.storeTaskResult(createdTask.taskId, result);
+            await store.storeTaskResult(createdTask.taskId, 'completed', result);
 
             const retrieved = await store.getTaskResult(createdTask.taskId);
             expect(retrieved).toEqual(result);
@@ -244,7 +394,7 @@ describe('InMemoryTaskStore', () => {
             vi.advanceTimersByTime(500);
 
             // Store result (should reset timer)
-            await store.storeTaskResult(createdTask.taskId, {
+            await store.storeTaskResult(createdTask.taskId, 'completed', {
                 content: [{ type: 'text' as const, text: 'Done' }]
             });
 

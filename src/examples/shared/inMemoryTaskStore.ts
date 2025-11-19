@@ -72,14 +72,21 @@ export class InMemoryTaskStore implements TaskStore {
         return stored ? { ...stored.task } : null;
     }
 
-    async storeTaskResult(taskId: string, result: Result, _sessionId?: string): Promise<void> {
+    async storeTaskResult(taskId: string, status: 'completed' | 'failed', result: Result, _sessionId?: string): Promise<void> {
         const stored = this.tasks.get(taskId);
         if (!stored) {
             throw new Error(`Task with ID ${taskId} not found`);
         }
 
+        // Don't allow storing results for tasks already in terminal state
+        if (isTerminal(stored.task.status)) {
+            throw new Error(
+                `Cannot store result for task ${taskId} in terminal status '${stored.task.status}'. Task results can only be stored once.`
+            );
+        }
+
         stored.result = result;
-        stored.task.status = 'completed';
+        stored.task.status = status;
 
         // Reset cleanup timer to start from now (if ttl is set)
         if (stored.task.ttl) {
@@ -114,6 +121,13 @@ export class InMemoryTaskStore implements TaskStore {
         const stored = this.tasks.get(taskId);
         if (!stored) {
             throw new Error(`Task with ID ${taskId} not found`);
+        }
+
+        // Don't allow transitions from terminal states
+        if (isTerminal(stored.task.status)) {
+            throw new Error(
+                `Cannot update task ${taskId} from terminal status '${stored.task.status}' to '${status}'. Terminal states (completed, failed, cancelled) cannot transition to other states.`
+            );
         }
 
         stored.task.status = status;

@@ -62,12 +62,12 @@ function createMockTaskStore(options?: {
             }
             return Promise.resolve();
         }),
-        storeTaskResult: vi.fn((taskId: string, result: Result) => {
+        storeTaskResult: vi.fn((taskId: string, status: 'completed' | 'failed', result: Result) => {
             const task = tasks[taskId];
             if (task) {
-                task.status = 'completed';
+                task.status = status;
                 task.result = result;
-                options?.onStatus?.('completed');
+                options?.onStatus?.(status);
             }
             return Promise.resolve();
         }),
@@ -1737,7 +1737,7 @@ describe('Task-based execution', () => {
                 content: [{ type: 'text', text: 'test result' }]
             };
 
-            await mockTaskStore.storeTaskResult(task.taskId, testResult);
+            await mockTaskStore.storeTaskResult(task.taskId, 'completed', testResult);
 
             const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
                 protected assertCapabilityForMethod(): void {}
