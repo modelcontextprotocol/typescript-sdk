@@ -19,7 +19,7 @@ import { Transport, TransportSendOptions } from './transport.js';
 import { TaskStore } from './task.js';
 import { MockInstance, vi } from 'vitest';
 import { JSONRPCResponse, JSONRPCRequest, JSONRPCError } from '../types.js';
-import { ErrorMessage, ResponseMessage } from './responseMessage.js';
+import { ErrorMessage, ResponseMessage, toArrayAsync } from './responseMessage.js';
 
 // Type helper for accessing private Protocol properties in tests
 interface TestProtocol {
@@ -116,17 +116,6 @@ function createLatch() {
         },
         waitForLatch
     };
-}
-
-type AsyncGeneratorValue<T> = T extends AsyncGenerator<infer U> ? U : never;
-
-async function toArrayAsync<T extends AsyncGenerator<unknown>>(it: T): Promise<AsyncGeneratorValue<T>[]> {
-    const arr: AsyncGeneratorValue<T>[] = [];
-    for await (const o of it) {
-        arr.push(o as AsyncGeneratorValue<T>);
-    }
-
-    return arr;
 }
 
 function assertErrorResponse(o: ResponseMessage<Result>): asserts o is ErrorMessage {

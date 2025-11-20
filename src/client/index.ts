@@ -1,6 +1,6 @@
 import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
 import type { Transport } from '../shared/transport.js';
-import { ResponseMessage } from '../shared/responseMessage.js';
+import { ResponseMessage, takeResult } from '../shared/responseMessage.js';
 
 import {
     type CallToolRequest,
@@ -161,6 +161,7 @@ export class Client<
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
+    private _cachedKnownTaskTools: Set<string> = new Set();
 
     /**
      * Initializes this client with the given name and version information.
@@ -533,126 +534,12 @@ export class Client<
      *
      * For task-based execution with streaming behavior, use callToolStream() instead.
      */
-    async callTool(
+    async callTool<T extends typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema>(
         params: CallToolRequest['params'],
-        resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
+        resultSchema: T = CallToolResultSchema as T,
         options?: RequestOptions
-    ) {
-        const result = await this.request({ method: 'tools/call', params }, resultSchema, options);
-
-        // Check if the tool has an outputSchema
-        const validator = this.getToolOutputValidator(params.name);
-        if (validator) {
-            // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
-            if (!result.structuredContent && !result.isError) {
-                throw new McpError(
-                    ErrorCode.InvalidRequest,
-                    `Tool ${params.name} has an output schema but did not return structured content`
-                );
-            }
-
-            // Only validate structured content if present (not when there's an error)
-            if (result.structuredContent) {
-                try {
-                    // Validate the structured content against the schema
-                    const validationResult = validator(result.structuredContent);
-
-                    if (!validationResult.valid) {
-                        throw new McpError(
-                            ErrorCode.InvalidParams,
-                            `Structured content does not match the tool's output schema: ${validationResult.errorMessage}`
-                        );
-                    }
-                } catch (error) {
-                    if (error instanceof McpError) {
-                        throw error;
-                    }
-                    throw new McpError(
-                        ErrorCode.InvalidParams,
-                        `Failed to validate structured content: ${error instanceof Error ? error.message : String(error)}`
-                    );
-                }
-            }
-        }
-
-        return result;
-    }
-
-    /**
-     * Cache validators for tool output schemas.
-     * Called after listTools() to pre-compile validators for better performance.
-     */
-    private cacheToolOutputSchemas(tools: Tool[]): void {
-        this._cachedToolOutputValidators.clear();
-
-        for (const tool of tools) {
-            // If the tool has an outputSchema, create and cache the validator
-            if (tool.outputSchema) {
-                const toolValidator = this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
-                this._cachedToolOutputValidators.set(tool.name, toolValidator);
-            }
-        }
-    }
-
-    /**
-     * Get cached validator for a tool
-     */
-    private getToolOutputValidator(toolName: string): JsonSchemaValidator<unknown> | undefined {
-        return this._cachedToolOutputValidators.get(toolName);
-    }
-
-    async listTools(params?: ListToolsRequest['params'], options?: RequestOptions) {
-        const result = await this.request({ method: 'tools/list', params }, ListToolsResultSchema, options);
-
-        // Cache the tools and their output schemas for future validation
-        this.cacheToolOutputSchemas(result.tools);
-
-        return result;
-    }
-
-    async sendRootsListChanged() {
-        return this.notification({ method: 'notifications/roots/list_changed' });
-    }
-
-    /**
-     * Sends a request and returns an AsyncGenerator that yields response messages.
-     * The generator is guaranteed to end with either a 'result' or 'error' message.
-     *
-     * This method provides streaming access to request processing, allowing you to
-     * observe intermediate task status updates for task-augmented requests.
-     *
-     * @example
-     * ```typescript
-     * const stream = client.requestStream(request, resultSchema, options);
-     * for await (const message of stream) {
-     *   switch (message.type) {
-     *     case 'taskCreated':
-     *       console.log('Task created:', message.task.taskId);
-     *       break;
-     *     case 'taskStatus':
-     *       console.log('Task status:', message.task.status);
-     *       break;
-     *     case 'result':
-     *       console.log('Final result:', message.result);
-     *       break;
-     *     case 'error':
-     *       console.error('Error:', message.error);
-     *       break;
-     *   }
-     * }
-     * ```
-     *
-     * @param request - The request to send
-     * @param resultSchema - Zod schema for validating the result
-     * @param options - Optional request options (timeout, signal, task creation params, etc.)
-     * @returns AsyncGenerator that yields ResponseMessage objects
-     */
-    requestStream<T extends z.ZodType<Result>>(
-        request: ClientRequest | RequestT,
-        resultSchema: T,
-        options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<z.infer<T>>, void, void> {
-        return super.requestStream(request, resultSchema, options);
+    ): Promise<z.infer<T>> {
+        return await takeResult(this.callToolStream<T>(params, resultSchema, options));
     }
 
     /**
@@ -700,8 +587,9 @@ export class Client<
         // Add task creation parameters if server supports it and not explicitly provided
         const optionsWithTask = {
             ...options,
-            // We check the server capabilities in auto-assignment, but assume the caller knows what they're doing if they pass this explicitly
-            task: options?.task ?? (this._serverCapabilities?.tasks?.requests?.tools?.call ? {} : undefined)
+            // We check if the tool is known to be a task during auto-configuration, but assume
+            // the caller knows what they're doing if they pass this explicitly
+            task: options?.task ?? (this.isToolTask(params.name) ? {} : undefined)
         };
 
         const stream = this.requestStream({ method: 'tools/call', params }, resultSchema, optionsWithTask);
@@ -763,5 +651,97 @@ export class Client<
             // Yield the message (either validated result or any other message type)
             yield message;
         }
+    }
+
+    private isToolTask(toolName: string): boolean {
+        if (!this._serverCapabilities?.tasks?.requests?.tools?.call) {
+            return false;
+        }
+
+        return this._cachedKnownTaskTools.has(toolName);
+    }
+
+    /**
+     * Cache validators for tool output schemas.
+     * Called after listTools() to pre-compile validators for better performance.
+     */
+    private cacheToolMetadata(tools: Tool[]): void {
+        this._cachedToolOutputValidators.clear();
+        this._cachedKnownTaskTools.clear();
+
+        for (const tool of tools) {
+            // If the tool has an outputSchema, create and cache the validator
+            if (tool.outputSchema) {
+                const toolValidator = this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
+                this._cachedToolOutputValidators.set(tool.name, toolValidator);
+            }
+
+            // If the tool supports task-based execution, cache that information
+            const taskHint = tool.annotations?.taskHint;
+            if (taskHint === 'always' || taskHint === 'optional') {
+                this._cachedKnownTaskTools.add(tool.name);
+            }
+        }
+    }
+
+    /**
+     * Get cached validator for a tool
+     */
+    private getToolOutputValidator(toolName: string): JsonSchemaValidator<unknown> | undefined {
+        return this._cachedToolOutputValidators.get(toolName);
+    }
+
+    async listTools(params?: ListToolsRequest['params'], options?: RequestOptions) {
+        const result = await this.request({ method: 'tools/list', params }, ListToolsResultSchema, options);
+
+        // Cache the tools and their output schemas for future validation
+        this.cacheToolMetadata(result.tools);
+
+        return result;
+    }
+
+    async sendRootsListChanged() {
+        return this.notification({ method: 'notifications/roots/list_changed' });
+    }
+
+    /**
+     * Sends a request and returns an AsyncGenerator that yields response messages.
+     * The generator is guaranteed to end with either a 'result' or 'error' message.
+     *
+     * This method provides streaming access to request processing, allowing you to
+     * observe intermediate task status updates for task-augmented requests.
+     *
+     * @example
+     * ```typescript
+     * const stream = client.requestStream(request, resultSchema, options);
+     * for await (const message of stream) {
+     *   switch (message.type) {
+     *     case 'taskCreated':
+     *       console.log('Task created:', message.task.taskId);
+     *       break;
+     *     case 'taskStatus':
+     *       console.log('Task status:', message.task.status);
+     *       break;
+     *     case 'result':
+     *       console.log('Final result:', message.result);
+     *       break;
+     *     case 'error':
+     *       console.error('Error:', message.error);
+     *       break;
+     *   }
+     * }
+     * ```
+     *
+     * @param request - The request to send
+     * @param resultSchema - Zod schema for validating the result
+     * @param options - Optional request options (timeout, signal, task creation params, etc.)
+     * @returns AsyncGenerator that yields ResponseMessage objects
+     */
+    requestStream<T extends z.ZodType<Result>>(
+        request: ClientRequest | RequestT,
+        resultSchema: T,
+        options?: RequestOptions
+    ): AsyncGenerator<ResponseMessage<z.infer<T>>, void, void> {
+        return super.requestStream(request, resultSchema, options);
     }
 }

@@ -45,3 +45,26 @@ export interface ErrorMessage extends BaseResponseMessage {
  * Side-channeled messages (server requests/notifications) are handled through registered handlers.
  */
 export type ResponseMessage<T extends Result> = TaskStatusMessage | TaskCreatedMessage | ResultMessage<T> | ErrorMessage;
+
+export type AsyncGeneratorValue<T> = T extends AsyncGenerator<infer U> ? U : never;
+
+export async function toArrayAsync<T extends AsyncGenerator<unknown>>(it: T): Promise<AsyncGeneratorValue<T>[]> {
+    const arr: AsyncGeneratorValue<T>[] = [];
+    for await (const o of it) {
+        arr.push(o as AsyncGeneratorValue<T>);
+    }
+
+    return arr;
+}
+
+export async function takeResult<T extends Result, U extends AsyncGenerator<ResponseMessage<T>>>(it: U): Promise<T> {
+    for await (const o of it) {
+        if (o.type === 'result') {
+            return o.result;
+        } else if (o.type === 'error') {
+            throw o.error;
+        }
+    }
+
+    throw new Error('No result in stream.');
+}

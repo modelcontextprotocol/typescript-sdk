@@ -22,6 +22,7 @@ import {
 } from '../types.js';
 import { Transport } from '../shared/transport.js';
 import { Server } from '../server/index.js';
+import { McpServer } from '../server/mcp.js';
 import { InMemoryTransport } from '../inMemory.js';
 import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
 
@@ -1343,14 +1344,13 @@ describe('Task-based execution', () => {
         });
 
         test('should create task on server via tool call', async () => {
-            const server = new Server(
+            const server = new McpServer(
                 {
                     name: 'test-server',
                     version: '1.0.0'
                 },
                 {
                     capabilities: {
-                        tools: {},
                         tasks: {
                             requests: {
                                 tools: {
@@ -1363,45 +1363,42 @@ describe('Task-based execution', () => {
                 }
             );
 
-            server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-                let taskId: string | undefined;
+            server.registerToolTask(
+                'test-tool',
+                {
+                    description: 'A test tool',
+                    inputSchema: {}
+                },
+                {
+                    async createTask(_args, extra) {
+                        const task = await extra.taskStore.createTask(
+                            {
+                                ttl: extra.taskRequestedTtl
+                            },
+                            extra.requestId,
+                            { method: 'tools/call', params: { name: 'test-tool', arguments: {} } }
+                        );
 
-                // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const createdTask = await extra.taskStore.createTask(
-                        {
-                            ttl: extra.taskRequestedTtl
-                        },
-                        extra.requestId,
-                        request
-                    );
-                    taskId = createdTask.taskId;
-                }
+                        const result = {
+                            content: [{ type: 'text', text: 'Tool executed successfully!' }]
+                        };
+                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
 
-                if (request.params.name === 'test-tool') {
-                    const result = {
-                        content: [{ type: 'text', text: 'Tool executed successfully!' }]
-                    };
-                    if (taskId && extra.taskStore) {
-                        await extra.taskStore.storeTaskResult(taskId, 'completed', result);
-                    }
-                    return result;
-                }
-                throw new Error('Unknown tool');
-            });
-
-            server.setRequestHandler(ListToolsRequestSchema, async () => ({
-                tools: [
-                    {
-                        name: 'test-tool',
-                        description: 'A test tool',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {}
+                        return { task };
+                    },
+                    async getTask(_args, extra) {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) {
+                            throw new Error(`Task ${extra.taskId} not found`);
                         }
+                        return task;
+                    },
+                    async getTaskResult(_args, extra) {
+                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        return result as { content: Array<{ type: 'text'; text: string }> };
                     }
-                ]
-            }));
+                }
+            );
 
             const client = new Client({
                 name: 'test-client',
@@ -1427,14 +1424,13 @@ describe('Task-based execution', () => {
         });
 
         test('should query task status from server using getTask', async () => {
-            const server = new Server(
+            const server = new McpServer(
                 {
                     name: 'test-server',
                     version: '1.0.0'
                 },
                 {
                     capabilities: {
-                        tools: {},
                         tasks: {
                             requests: {
                                 tools: {
@@ -1447,45 +1443,42 @@ describe('Task-based execution', () => {
                 }
             );
 
-            server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-                let taskId: string | undefined;
+            server.registerToolTask(
+                'test-tool',
+                {
+                    description: 'A test tool',
+                    inputSchema: {}
+                },
+                {
+                    async createTask(_args, extra) {
+                        const task = await extra.taskStore.createTask(
+                            {
+                                ttl: extra.taskRequestedTtl
+                            },
+                            extra.requestId,
+                            { method: 'tools/call', params: { name: 'test-tool', arguments: {} } }
+                        );
 
-                // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const createdTask = await extra.taskStore.createTask(
-                        {
-                            ttl: extra.taskRequestedTtl
-                        },
-                        extra.requestId,
-                        request
-                    );
-                    taskId = createdTask.taskId;
-                }
+                        const result = {
+                            content: [{ type: 'text', text: 'Success!' }]
+                        };
+                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
 
-                if (request.params.name === 'test-tool') {
-                    const result = {
-                        content: [{ type: 'text', text: 'Success!' }]
-                    };
-                    if (taskId && extra.taskStore) {
-                        await extra.taskStore.storeTaskResult(taskId, 'completed', result);
-                    }
-                    return result;
-                }
-                throw new Error('Unknown tool');
-            });
-
-            server.setRequestHandler(ListToolsRequestSchema, async () => ({
-                tools: [
-                    {
-                        name: 'test-tool',
-                        description: 'A test tool',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {}
+                        return { task };
+                    },
+                    async getTask(_args, extra) {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) {
+                            throw new Error(`Task ${extra.taskId} not found`);
                         }
+                        return task;
+                    },
+                    async getTaskResult(_args, extra) {
+                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        return result as { content: Array<{ type: 'text'; text: string }> };
                     }
-                ]
-            }));
+                }
+            );
 
             const client = new Client({
                 name: 'test-client',
@@ -1511,14 +1504,13 @@ describe('Task-based execution', () => {
         });
 
         test('should query task result from server using getTaskResult', async () => {
-            const server = new Server(
+            const server = new McpServer(
                 {
                     name: 'test-server',
                     version: '1.0.0'
                 },
                 {
                     capabilities: {
-                        tools: {},
                         tasks: {
                             requests: {
                                 tools: {
@@ -1532,45 +1524,42 @@ describe('Task-based execution', () => {
                 }
             );
 
-            server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-                let taskId: string | undefined;
+            server.registerToolTask(
+                'test-tool',
+                {
+                    description: 'A test tool',
+                    inputSchema: {}
+                },
+                {
+                    async createTask(_args, extra) {
+                        const task = await extra.taskStore.createTask(
+                            {
+                                ttl: extra.taskRequestedTtl
+                            },
+                            extra.requestId,
+                            { method: 'tools/call', params: { name: 'test-tool', arguments: {} } }
+                        );
 
-                // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const createdTask = await extra.taskStore.createTask(
-                        {
-                            ttl: extra.taskRequestedTtl
-                        },
-                        extra.requestId,
-                        request
-                    );
-                    taskId = createdTask.taskId;
-                }
+                        const result = {
+                            content: [{ type: 'text', text: 'Result data!' }]
+                        };
+                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
 
-                if (request.params.name === 'test-tool') {
-                    const result = {
-                        content: [{ type: 'text', text: 'Result data!' }]
-                    };
-                    if (taskId && extra.taskStore) {
-                        await extra.taskStore.storeTaskResult(taskId, 'completed', result);
-                    }
-                    return result;
-                }
-                throw new Error('Unknown tool');
-            });
-
-            server.setRequestHandler(ListToolsRequestSchema, async () => ({
-                tools: [
-                    {
-                        name: 'test-tool',
-                        description: 'A test tool',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {}
+                        return { task };
+                    },
+                    async getTask(_args, extra) {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) {
+                            throw new Error(`Task ${extra.taskId} not found`);
                         }
+                        return task;
+                    },
+                    async getTaskResult(_args, extra) {
+                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        return result as { content: Array<{ type: 'text'; text: string }> };
                     }
-                ]
-            }));
+                }
+            );
 
             const client = new Client({
                 name: 'test-client',
@@ -1595,14 +1584,13 @@ describe('Task-based execution', () => {
         });
 
         test('should query task list from server using listTasks', async () => {
-            const server = new Server(
+            const server = new McpServer(
                 {
                     name: 'test-server',
                     version: '1.0.0'
                 },
                 {
                     capabilities: {
-                        tools: {},
                         tasks: {
                             requests: {
                                 tools: {
@@ -1615,44 +1603,42 @@ describe('Task-based execution', () => {
                 }
             );
 
-            server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-                let taskId: string | undefined;
+            server.registerToolTask(
+                'test-tool',
+                {
+                    description: 'A test tool',
+                    inputSchema: {}
+                },
+                {
+                    async createTask(_args, extra) {
+                        const task = await extra.taskStore.createTask(
+                            {
+                                ttl: extra.taskRequestedTtl
+                            },
+                            extra.requestId,
+                            { method: 'tools/call', params: { name: 'test-tool', arguments: {} } }
+                        );
 
-                // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const createdTask = await extra.taskStore.createTask(
-                        {
-                            ttl: extra.taskRequestedTtl
-                        },
-                        extra.requestId,
-                        request
-                    );
-                    taskId = createdTask.taskId;
-                }
-                if (request.params.name === 'test-tool') {
-                    const result = {
-                        content: [{ type: 'text', text: 'Success!' }]
-                    };
-                    if (taskId && extra.taskStore) {
-                        await extra.taskStore.storeTaskResult(taskId, 'completed', result);
-                    }
-                    return result;
-                }
-                throw new Error('Unknown tool');
-            });
+                        const result = {
+                            content: [{ type: 'text', text: 'Success!' }]
+                        };
+                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
 
-            server.setRequestHandler(ListToolsRequestSchema, async () => ({
-                tools: [
-                    {
-                        name: 'test-tool',
-                        description: 'A test tool',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {}
+                        return { task };
+                    },
+                    async getTask(_args, extra) {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) {
+                            throw new Error(`Task ${extra.taskId} not found`);
                         }
+                        return task;
+                    },
+                    async getTaskResult(_args, extra) {
+                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        return result as { content: Array<{ type: 'text'; text: string }> };
                     }
-                ]
-            }));
+                }
+            );
 
             const client = new Client({
                 name: 'test-client',
@@ -2119,14 +2105,13 @@ describe('Task-based execution', () => {
     test('should list tasks from server with pagination', async () => {
         const serverTaskStore = new InMemoryTaskStore();
 
-        const server = new Server(
+        const server = new McpServer(
             {
                 name: 'test-server',
                 version: '1.0.0'
             },
             {
                 capabilities: {
-                    tools: {},
                     tasks: {
                         requests: {
                             tools: {
@@ -2139,44 +2124,44 @@ describe('Task-based execution', () => {
             }
         );
 
-        server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-            let taskId: string | undefined;
-
-            // Check if task creation is requested
-            if (request.params.task && extra.taskStore) {
-                const createdTask = await extra.taskStore.createTask(
-                    {
-                        ttl: extra.taskRequestedTtl
-                    },
-                    extra.requestId,
-                    request
-                );
-                taskId = createdTask.taskId;
-            }
-            if (request.params.name === 'test-tool') {
-                const result = {
-                    content: [{ type: 'text', text: `Result for ${request.params.arguments?.id || 'unknown'}` }]
-                };
-                if (taskId && extra.taskStore) {
-                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
+        server.registerToolTask(
+            'test-tool',
+            {
+                description: 'A test tool',
+                inputSchema: {
+                    id: z.string().optional()
                 }
-                return result;
-            }
-            throw new Error('Unknown tool');
-        });
+            },
+            {
+                async createTask({ id }, extra) {
+                    const task = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        { method: 'tools/call', params: { name: 'test-tool', arguments: { id } } }
+                    );
 
-        server.setRequestHandler(ListToolsRequestSchema, async () => ({
-            tools: [
-                {
-                    name: 'test-tool',
-                    description: 'A test tool',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {}
+                    const result = {
+                        content: [{ type: 'text', text: `Result for ${id || 'unknown'}` }]
+                    };
+                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+
+                    return { task };
+                },
+                async getTask(_args, extra) {
+                    const task = await extra.taskStore.getTask(extra.taskId);
+                    if (!task) {
+                        throw new Error(`Task ${extra.taskId} not found`);
                     }
+                    return task;
+                },
+                async getTaskResult(_args, extra) {
+                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    return result as { content: Array<{ type: 'text'; text: string }> };
                 }
-            ]
-        }));
+            }
+        );
 
         const client = new Client(
             {
@@ -2394,14 +2379,13 @@ describe('Task-based execution', () => {
 
 test('should respect server task capabilities', async () => {
     const serverTaskStore = new InMemoryTaskStore();
-    const server = new Server(
+    const server = new McpServer(
         {
             name: 'test-server',
             version: '1.0.0'
         },
         {
             capabilities: {
-                tools: {},
                 tasks: {
                     requests: {
                         tools: {
@@ -2414,22 +2398,42 @@ test('should respect server task capabilities', async () => {
         }
     );
 
-    server.setRequestHandler(CallToolRequestSchema, async () => ({
-        content: [{ type: 'text', text: 'Success!' }]
-    }));
+    server.registerToolTask(
+        'test-tool',
+        {
+            description: 'A test tool',
+            inputSchema: {}
+        },
+        {
+            async createTask(_args, extra) {
+                const task = await extra.taskStore.createTask(
+                    {
+                        ttl: extra.taskRequestedTtl
+                    },
+                    extra.requestId,
+                    { method: 'tools/call', params: { name: 'test-tool', arguments: {} } }
+                );
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
-        tools: [
-            {
-                name: 'test-tool',
-                description: 'A test tool',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
+                const result = {
+                    content: [{ type: 'text', text: 'Success!' }]
+                };
+                await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+
+                return { task };
+            },
+            async getTask(_args, extra) {
+                const task = await extra.taskStore.getTask(extra.taskId);
+                if (!task) {
+                    throw new Error(`Task ${extra.taskId} not found`);
                 }
+                return task;
+            },
+            async getTaskResult(_args, extra) {
+                const result = await extra.taskStore.getTaskResult(extra.taskId);
+                return result as { content: Array<{ type: 'text'; text: string }> };
             }
-        ]
-    }));
+        }
+    );
 
     const client = new Client(
         {
@@ -2446,7 +2450,9 @@ test('should respect server task capabilities', async () => {
 
     // Server supports task creation for tools/call
     expect(client.getServerCapabilities()).toEqual({
-        tools: {},
+        tools: {
+            listChanged: true
+        },
         tasks: {
             requests: {
                 tools: {

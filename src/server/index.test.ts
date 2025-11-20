@@ -21,6 +21,7 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types.js';
 import { Server } from './index.js';
+import { McpServer } from './mcp.js';
 import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
 import { CallToolRequestSchema, CallToolResultSchema } from '../types.js';
 
@@ -958,14 +959,13 @@ describe('Task-based execution', () => {
     test('server with TaskStore should handle task-based tool execution', async () => {
         const taskStore = new InMemoryTaskStore();
 
-        const server = new Server(
+        const server = new McpServer(
             {
                 name: 'test-server',
                 version: '1.0.0'
             },
             {
                 capabilities: {
-                    tools: {},
                     tasks: {
                         requests: {
                             tools: {
@@ -978,48 +978,47 @@ describe('Task-based execution', () => {
             }
         );
 
-        // Set up a tool handler that simulates some work
-        server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-            let taskId: string | undefined;
+        // Register a tool using registerToolTask
+        server.registerToolTask(
+            'test-tool',
+            {
+                description: 'A test tool',
+                inputSchema: {}
+            },
+            {
+                async createTask(_args, extra) {
+                    const task = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        { method: 'tools/call', params: { name: 'test-tool', arguments: {} } }
+                    );
 
-            // Check if task creation is requested
-            if (request.params.task && extra.taskStore) {
-                const createdTask = await extra.taskStore.createTask(
-                    {
-                        ttl: extra.taskRequestedTtl
-                    },
-                    extra.requestId,
-                    request
-                );
-                taskId = createdTask.taskId;
-            }
+                    // Simulate some async work
+                    (async () => {
+                        await new Promise(resolve => setTimeout(resolve, 10));
+                        const result = {
+                            content: [{ type: 'text', text: 'Tool executed successfully!' }]
+                        };
+                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    })();
 
-            if (request.params.name === 'test-tool') {
-                // Simulate some async work
-                await new Promise(resolve => setTimeout(resolve, 10));
-                const result = {
-                    content: [{ type: 'text', text: 'Tool executed successfully!' }]
-                };
-                if (taskId && extra.taskStore) {
-                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
-                }
-                return result;
-            }
-            throw new Error('Unknown tool');
-        });
-
-        server.setRequestHandler(ListToolsRequestSchema, async () => ({
-            tools: [
-                {
-                    name: 'test-tool',
-                    description: 'A test tool',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {}
+                    return { task };
+                },
+                async getTask(_args, extra) {
+                    const task = await extra.taskStore.getTask(extra.taskId);
+                    if (!task) {
+                        throw new Error(`Task ${extra.taskId} not found`);
                     }
+                    return task;
+                },
+                async getTaskResult(_args, extra) {
+                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    return result as { content: Array<{ type: 'text'; text: string }> };
                 }
-            ]
-        }));
+            }
+        );
 
         const client = new Client(
             {
@@ -1043,7 +1042,7 @@ describe('Task-based execution', () => {
 
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-        // Use beginCallTool to create a task
+        // Use callTool to create a task
         await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
             task: {
                 ttl: 60000
@@ -1051,6 +1050,7 @@ describe('Task-based execution', () => {
         });
 
         // Wait for the task to complete
+        await new Promise(resolve => setTimeout(resolve, 50));
 
         // Get the task ID from the task list since it's generated automatically
         const taskList = await client.listTasks();
@@ -1136,14 +1136,13 @@ describe('Task-based execution', () => {
     test('should automatically attach related-task metadata to nested requests during tool execution', async () => {
         const taskStore = new InMemoryTaskStore();
 
-        const server = new Server(
+        const server = new McpServer(
             {
                 name: 'test-server',
                 version: '1.0.0'
             },
             {
                 capabilities: {
-                    tools: {},
                     tasks: {
                         requests: {
                             tools: {
@@ -1205,69 +1204,69 @@ describe('Task-based execution', () => {
             };
         });
 
-        // Set up server tool that makes a nested elicitation request
-        server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-            let taskId: string | undefined;
-
-            // Check if task creation is requested
-            if (request.params.task && extra.taskStore) {
-                const createdTask = await extra.taskStore.createTask(
-                    {
-                        ttl: extra.taskRequestedTtl
-                    },
-                    extra.requestId,
-                    request
-                );
-                taskId = createdTask.taskId;
-            }
-
-            if (request.params.name === 'collect-info') {
-                // During tool execution, make a nested request to the client using extra.sendRequest
-                const elicitResult = await extra.sendRequest(
-                    {
-                        method: 'elicitation/create',
-                        params: {
-                            message: 'Please provide your username',
-                            requestedSchema: {
-                                type: 'object',
-                                properties: {
-                                    username: { type: 'string' }
-                                },
-                                required: ['username']
-                            }
-                        }
-                    },
-                    ElicitResultSchema
-                );
-
-                const result = {
-                    content: [
+        // Register a tool using registerToolTask that makes a nested elicitation request
+        server.registerToolTask(
+            'collect-info',
+            {
+                description: 'Collects user info via elicitation',
+                inputSchema: {}
+            },
+            {
+                async createTask(_args, extra) {
+                    const task = await extra.taskStore.createTask(
                         {
-                            type: 'text',
-                            text: `Collected username: ${elicitResult.action === 'accept' && elicitResult.content ? (elicitResult.content as Record<string, unknown>).username : 'none'}`
-                        }
-                    ]
-                };
-                if (taskId && extra.taskStore) {
-                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
-                }
-                return result;
-            }
-            throw new Error('Unknown tool');
-        });
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        { method: 'tools/call', params: { name: 'collect-info', arguments: {} } }
+                    );
 
-        server.setRequestHandler(ListToolsRequestSchema, async () => ({
-            tools: [
-                {
-                    name: 'collect-info',
-                    description: 'Collects user info via elicitation',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {}
+                    // Perform async work that makes a nested request
+                    (async () => {
+                        // During tool execution, make a nested request to the client using extra.sendRequest
+                        const elicitResult = await extra.sendRequest(
+                            {
+                                method: 'elicitation/create',
+                                params: {
+                                    message: 'Please provide your username',
+                                    requestedSchema: {
+                                        type: 'object',
+                                        properties: {
+                                            username: { type: 'string' }
+                                        },
+                                        required: ['username']
+                                    }
+                                }
+                            },
+                            ElicitResultSchema
+                        );
+
+                        const result = {
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: `Collected username: ${elicitResult.action === 'accept' && elicitResult.content ? (elicitResult.content as Record<string, unknown>).username : 'none'}`
+                                }
+                            ]
+                        };
+                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    })();
+
+                    return { task };
+                },
+                async getTask(_args, extra) {
+                    const task = await extra.taskStore.getTask(extra.taskId);
+                    if (!task) {
+                        throw new Error(`Task ${extra.taskId} not found`);
                     }
+                    return task;
+                },
+                async getTaskResult(_args, extra) {
+                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    return result as { content: Array<{ type: 'text'; text: string }> };
                 }
-            ]
-        }));
+            }
+        );
 
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -1281,6 +1280,7 @@ describe('Task-based execution', () => {
         });
 
         // Wait for completion
+        await new Promise(resolve => setTimeout(resolve, 50));
 
         // Verify the nested elicitation request was made (related-task metadata is no longer automatically attached)
         expect(capturedElicitRequest).toBeDefined();
@@ -1694,14 +1694,13 @@ describe('Task-based execution', () => {
     test('should handle multiple concurrent task-based tool calls', async () => {
         const taskStore = new InMemoryTaskStore();
 
-        const server = new Server(
+        const server = new McpServer(
             {
                 name: 'test-server',
                 version: '1.0.0'
             },
             {
                 capabilities: {
-                    tools: {},
                     tasks: {
                         requests: {
                             tools: {
@@ -1714,50 +1713,50 @@ describe('Task-based execution', () => {
             }
         );
 
-        // Set up a tool handler with variable delay
-        server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-            let taskId: string | undefined;
-
-            // Check if task creation is requested
-            if (request.params.task && extra.taskStore) {
-                const createdTask = await extra.taskStore.createTask(
-                    {
-                        ttl: extra.taskRequestedTtl
-                    },
-                    extra.requestId,
-                    request
-                );
-                taskId = createdTask.taskId;
-            }
-            if (request.params.name === 'async-tool') {
-                const delay = (request.params.arguments?.delay as number) || 10;
-                await new Promise(resolve => setTimeout(resolve, delay));
-                const result = {
-                    content: [{ type: 'text', text: `Completed task ${request.params.arguments?.taskNum || 'unknown'}` }]
-                };
-                if (taskId && extra.taskStore) {
-                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
+        // Register a tool using registerToolTask with variable delay
+        server.registerToolTask(
+            'async-tool',
+            {
+                description: 'An async test tool',
+                inputSchema: {
+                    delay: z.number().optional().default(10),
+                    taskNum: z.number().optional()
                 }
-                return result;
-            }
-            throw new Error('Unknown tool');
-        });
+            },
+            {
+                async createTask({ delay, taskNum }, extra) {
+                    const task = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        { method: 'tools/call', params: { name: 'async-tool', arguments: { delay, taskNum } } }
+                    );
 
-        server.setRequestHandler(ListToolsRequestSchema, async () => ({
-            tools: [
-                {
-                    name: 'async-tool',
-                    description: 'An async test tool',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            delay: { type: 'number' },
-                            taskNum: { type: 'number' }
-                        }
+                    // Simulate async work
+                    (async () => {
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        const result = {
+                            content: [{ type: 'text', text: `Completed task ${taskNum || 'unknown'}` }]
+                        };
+                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    })();
+
+                    return { task };
+                },
+                async getTask(_args, extra) {
+                    const task = await extra.taskStore.getTask(extra.taskId);
+                    if (!task) {
+                        throw new Error(`Task ${extra.taskId} not found`);
                     }
+                    return task;
+                },
+                async getTaskResult(_args, extra) {
+                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    return result as { content: Array<{ type: 'text'; text: string }> };
                 }
-            ]
-        }));
+            }
+        );
 
         const client = new Client(
             {
@@ -1790,6 +1789,9 @@ describe('Task-based execution', () => {
 
         // Wait for all tasks to complete
         await Promise.all(pendingRequests);
+
+        // Wait a bit more to ensure all tasks are completed
+        await new Promise(resolve => setTimeout(resolve, 50));
 
         // Get all task IDs from the task list
         const taskList = await client.listTasks();
