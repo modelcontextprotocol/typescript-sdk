@@ -134,6 +134,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
     private _hasCompletedAuthFlow = false; // Circuit breaker: detect auth success followed by immediate 401
+    private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -452,12 +453,49 @@ export class StreamableHTTPClientTransport implements Transport {
                     return this.send(message);
                 }
 
+                if (response.status === 403 && this._authProvider) {
+                    const { resourceMetadataUrl, scope, error } = extractWWWAuthenticateParams(response);
+
+                    if (error === 'insufficient_scope') {
+                        const wwwAuthHeader = response.headers.get('WWW-Authenticate');
+
+                        // Check if we've already tried upscoping with this header to prevent infinite loops.
+                        if (this._lastUpscopingHeader === wwwAuthHeader) {
+                            throw new StreamableHTTPError(403, 'Server returned 403 after trying upscoping');
+                        }
+
+                        if (scope) {
+                            this._scope = scope;
+                        }
+
+                        if (resourceMetadataUrl) {
+                            this._resourceMetadataUrl = resourceMetadataUrl;
+                        }
+
+                        // Mark that upscoping was tried.
+                        this._lastUpscopingHeader = wwwAuthHeader ?? undefined;
+                        const result = await auth(this._authProvider, {
+                            serverUrl: this._url,
+                            resourceMetadataUrl: this._resourceMetadataUrl,
+                            scope: this._scope,
+                            fetchFn: this._fetch
+                        });
+
+                        if (result !== 'AUTHORIZED') {
+                            throw new UnauthorizedError();
+                        }
+
+                        return this.send(message);
+                    }
+                }
+
                 const text = await response.text().catch(() => null);
                 throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
             }
 
             // Reset auth loop flag on successful response
             this._hasCompletedAuthFlow = false;
+            this._lastUpscopingHeader = undefined;
 
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {

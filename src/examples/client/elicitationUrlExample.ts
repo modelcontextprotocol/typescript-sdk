@@ -477,6 +477,42 @@ async function waitForOAuthCallback(): Promise<string> {
     });
 }
 
+/**
+ * Attempts to connect to the MCP server with OAuth authentication.
+ * Handles OAuth flow recursively if authorization is required.
+ */
+async function attemptConnection(oauthProvider: InMemoryOAuthClientProvider): Promise<void> {
+    console.log('🚢 Creating transport with OAuth provider...');
+    const baseUrl = new URL(serverUrl);
+    transport = new StreamableHTTPClientTransport(baseUrl, {
+        sessionId: sessionId,
+        authProvider: oauthProvider
+    });
+    console.log('🚢 Transport created');
+
+    try {
+        console.log('🔌 Attempting connection (this will trigger OAuth redirect if needed)...');
+        await client!.connect(transport);
+        sessionId = transport.sessionId;
+        console.log('Transport created with session ID:', sessionId);
+        console.log('✅ Connected successfully');
+    } catch (error) {
+        if (error instanceof UnauthorizedError) {
+            console.log('🔐 OAuth required - waiting for authorization...');
+            const callbackPromise = waitForOAuthCallback();
+            const authCode = await callbackPromise;
+            await transport.finishAuth(authCode);
+            console.log('🔐 Authorization code received:', authCode);
+            console.log('🔌 Reconnecting with authenticated transport...');
+            // Recursively retry connection after OAuth completion
+            await attemptConnection(oauthProvider);
+        } else {
+            console.error('❌ Connection failed with non-auth error:', error);
+            throw error;
+        }
+    }
+}
+
 async function connect(url?: string): Promise<void> {
     if (client) {
         console.log('Already connected. Disconnect first.');
@@ -487,7 +523,10 @@ async function connect(url?: string): Promise<void> {
         serverUrl = url;
     }
 
+    console.log(`🔗 Attempting to connect to ${serverUrl}...`);
+
     // Create a new client with elicitation capability
+    console.log('👤 Creating MCP client...');
     client = new Client(
         {
             name: 'example-client',
@@ -503,19 +542,7 @@ async function connect(url?: string): Promise<void> {
             }
         }
     );
-    if (!transport) {
-        // Only create a new transport if one doesn't exist
-        transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
-            sessionId: sessionId,
-            authProvider: oauthProvider,
-            requestInit: {
-                headers: {
-                    'Content-Type': 'application/json',
-                    Accept: 'application/json, text/event-stream'
-                }
-            }
-        });
-    }
+    console.log('👤 Client created');
 
     // Set up elicitation request handler with proper validation
     client.setRequestHandler(ElicitRequestSchema, elicitationRequestHandler);
@@ -536,42 +563,20 @@ async function connect(url?: string): Promise<void> {
     });
 
     try {
-        console.log(`Connecting to ${serverUrl}...`);
-        // Connect the client
-        await client.connect(transport);
-        sessionId = transport.sessionId;
-        console.log('Transport created with session ID:', sessionId);
+        console.log('🔐 Starting OAuth flow...');
+        await attemptConnection(oauthProvider!);
         console.log('Connected to MCP server');
+
+        // Set up error handler after connection is established so we don't double log errors
+        client.onerror = error => {
+            console.error('\x1b[31mClient error:', error, '\x1b[0m');
+        };
     } catch (error) {
-        if (error instanceof UnauthorizedError) {
-            console.log('OAuth required - waiting for authorization...');
-            const callbackPromise = waitForOAuthCallback();
-            const authCode = await callbackPromise;
-            await transport.finishAuth(authCode);
-            console.log('🔐 Authorization code received:', authCode);
-            console.log('🔌 Reconnecting with authenticated transport...');
-            transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
-                sessionId: sessionId,
-                authProvider: oauthProvider,
-                requestInit: {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Accept: 'application/json, text/event-stream'
-                    }
-                }
-            });
-            await client.connect(transport);
-        } else {
-            console.error('Failed to connect:', error);
-            client = null;
-            transport = null;
-            return;
-        }
+        console.error('Failed to connect:', error);
+        client = null;
+        transport = null;
+        return;
     }
-    // Set up error handler after connection is established so we don't double log errors
-    client.onerror = error => {
-        console.error('\x1b[31mClient error:', error, '\x1b[0m');
-    };
 }
 
 async function disconnect(): Promise<void> {
