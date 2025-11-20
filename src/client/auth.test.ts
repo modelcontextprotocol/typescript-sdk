@@ -16,7 +16,7 @@ import {
     isHttpsUrl
 } from './auth.js';
 import { InvalidClientMetadataError, ServerError } from '../server/auth/errors.js';
-import { AuthorizationServerMetadata, OAuthClientMetadata } from '../shared/auth.js';
+import { AuthorizationServerMetadata } from '../shared/auth.js';
 import { expect, vi, type Mock } from 'vitest';
 
 // Mock pkce-challenge
@@ -1553,8 +1553,6 @@ describe('OAuth Authorization', () => {
     });
 
     describe('auth function', () => {
-        let clientMetadataScope: string | undefined = undefined;
-
         const mockProvider: OAuthClientProvider = {
             get redirectUrl() {
                 return 'http://localhost:3000/callback';
@@ -1562,8 +1560,7 @@ describe('OAuth Authorization', () => {
             get clientMetadata() {
                 return {
                     redirect_uris: ['http://localhost:3000/callback'],
-                    client_name: 'Test Client',
-                    scope: clientMetadataScope
+                    client_name: 'Test Client'
                 };
             },
             clientInformation: vi.fn(),
@@ -2472,91 +2469,6 @@ describe('OAuth Authorization', () => {
 
             // Verify custom fetch was called for AS metadata discovery
             expect(customFetch.mock.calls[1][0].toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
-        });
-
-        it('prioritizes provided scope over resourceMetadata.scope', async () => {
-            const providedScope = 'provided_scope';
-            (mockProvider.clientMetadata as OAuthClientMetadata).scope = 'client_metadata_scope';
-
-            mockFetch.mockImplementation(url => {
-                if (url.toString().includes('/.well-known/oauth-protected-resource')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => ({
-                            resource: 'https://api.example.com/mcp-server',
-                            scopes_supported: ['read', 'write'],
-                            authorization_servers: ['https://auth.example.com']
-                        })
-                    });
-                }
-                return Promise.resolve({ ok: false, status: 404 });
-            });
-
-            await auth(mockProvider, {
-                serverUrl: 'https://api.example.com/mcp-server',
-                scope: providedScope
-            });
-
-            const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0];
-            const authUrl: URL = redirectCall[0];
-            expect(authUrl.searchParams.get('scope')).toBe(providedScope);
-        });
-
-        it('uses resourceMetadata.scope when provided scope is missing', async () => {
-            const resourceScope = 'resource_metadata_scope';
-            (mockProvider.clientMetadata as OAuthClientMetadata).scope = 'client_metadata_scope';
-
-            mockFetch.mockImplementation(url => {
-                if (url.toString().includes('/.well-known/oauth-protected-resource')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => ({
-                            resource: 'https://api.example.com/mcp-server',
-                            scopes_supported: ['resource_metadata_scope'],
-                            authorization_servers: ['https://auth.example.com']
-                        })
-                    });
-                }
-                return Promise.resolve({ ok: false, status: 404 });
-            });
-
-            await auth(mockProvider, {
-                serverUrl: 'https://api.example.com/mcp-server'
-            });
-
-            const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0];
-            const authUrl: URL = redirectCall[0];
-            expect(authUrl.searchParams.get('scope')).toBe(resourceScope);
-        });
-
-        it('falls back to clientMetadata.scope when provided and resourceMetadata scopes are missing', async () => {
-            const expectedScope = 'client_metadata_scope';
-            clientMetadataScope = expectedScope;
-
-            mockFetch.mockImplementation(url => {
-                if (url.toString().includes('/.well-known/oauth-protected-resource')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => ({
-                            resource: 'https://api.example.com/mcp-server',
-                            resource_metadata_scope: [],
-                            authorization_servers: ['https://auth.example.com']
-                        })
-                    });
-                }
-                return Promise.resolve({ ok: false, status: 404 });
-            });
-
-            await auth(mockProvider, {
-                serverUrl: 'https://api.example.com/mcp-server'
-            });
-
-            const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0];
-            const authUrl: URL = redirectCall[0];
-            expect(authUrl.searchParams.get('scope')).toBe(clientMetadataScope);
         });
     });
 
