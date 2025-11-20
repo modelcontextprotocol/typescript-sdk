@@ -5,9 +5,10 @@ import { Client } from '../client/index.js';
 import { StreamableHTTPClientTransport } from '../client/streamableHttp.js';
 import { McpServer } from '../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../server/streamableHttp.js';
-import { TaskSchema } from '../types.js';
+import { CallToolResultSchema, CreateTaskResultSchema, ElicitRequestSchema, ElicitResultSchema, TaskSchema } from '../types.js';
 import { z } from 'zod';
 import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
+import { InMemoryTransport } from '../inMemory.js';
 
 describe('Task Lifecycle Integration Tests', () => {
     let server: Server;
@@ -93,31 +94,64 @@ describe('Task Lifecycle Integration Tests', () => {
             }
         );
 
-        // Register a tool that requires input
+        // Register a tool that requires input via elicitation
         mcpServer.registerToolTask(
             'input-task',
             {
                 title: 'Input Required Task',
                 description: 'A tool that requires user input',
                 inputSchema: {
-                    initialMessage: z.string().describe('Initial message').default('Waiting for input')
+                    userName: z.string().describe('User name').optional()
                 }
             },
             {
-                async createTask({ initialMessage }, extra) {
+                async createTask({ userName }, extra) {
                     const task = await extra.taskStore.createTask(
                         {
                             ttl: 60000,
                             pollInterval: 100
                         },
                         0,
-                        { method: 'tools/call', params: { name: 'input-task', arguments: { initialMessage } } }
+                        { method: 'tools/call', params: { name: 'input-task', arguments: { userName } } }
                     );
 
-                    // Simulate moving to input_required status
+                    // Perform async work that requires elicitation
                     (async () => {
                         await new Promise(resolve => setTimeout(resolve, 100));
-                        await extra.taskStore.updateTaskStatus(task.taskId, 'input_required');
+
+                        // If userName not provided, request it via elicitation
+                        if (!userName) {
+                            const elicitationResult = await extra.sendRequest(
+                                {
+                                    method: 'elicitation/create',
+                                    params: {
+                                        message: 'What is your name?',
+                                        requestedSchema: {
+                                            type: 'object',
+                                            properties: {
+                                                userName: { type: 'string' }
+                                            },
+                                            required: ['userName']
+                                        }
+                                    }
+                                },
+                                ElicitResultSchema
+                            );
+
+                            // Complete with the elicited name
+                            const name =
+                                elicitationResult.action === 'accept' && elicitationResult.content
+                                    ? elicitationResult.content.userName
+                                    : 'Unknown';
+                            await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                content: [{ type: 'text', text: `Hello, ${name}!` }]
+                            });
+                        } else {
+                            // Complete immediately if userName was provided
+                            await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                content: [{ type: 'text', text: `Hello, ${userName}!` }]
+                            });
+                        }
                     })();
 
                     return { task };
@@ -189,9 +223,7 @@ describe('Task Lifecycle Integration Tests', () => {
                         }
                     }
                 },
-                z.object({
-                    task: TaskSchema
-                })
+                CreateTaskResultSchema
             );
 
             // Verify CreateTaskResult structure
@@ -248,9 +280,7 @@ describe('Task Lifecycle Integration Tests', () => {
                         }
                     }
                 },
-                z.object({
-                    task: TaskSchema
-                })
+                CreateTaskResultSchema
             );
 
             const taskId = createResult.task.taskId;
@@ -295,9 +325,7 @@ describe('Task Lifecycle Integration Tests', () => {
                         }
                     }
                 },
-                z.object({
-                    task: TaskSchema
-                })
+                CreateTaskResultSchema
             );
 
             const taskId = createResult.task.taskId;
@@ -339,9 +367,7 @@ describe('Task Lifecycle Integration Tests', () => {
                         }
                     }
                 },
-                z.object({
-                    task: TaskSchema
-                })
+                CreateTaskResultSchema
             );
 
             const taskId = createResult.task.taskId;
@@ -361,7 +387,107 @@ describe('Task Lifecycle Integration Tests', () => {
     });
 
     describe('Input Required Flow', () => {
-        it('should handle input_required status', async () => {
+        it('should handle elicitation during tool execution', async () => {
+            // Use InMemoryTransport for this test since elicitation requires bidirectional communication
+            const elicitClient = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {}
+                    }
+                }
+            );
+
+            // Set up elicitation handler on client
+            elicitClient.setRequestHandler(ElicitRequestSchema, async request => {
+                // Verify elicitation request structure
+                expect(request.params.message).toBe('What is your name?');
+                expect(request.params.requestedSchema).toHaveProperty('properties');
+
+                // Respond with user input
+                return {
+                    action: 'accept' as const,
+                    content: {
+                        userName: 'Alice'
+                    }
+                };
+            });
+
+            const [elicitClientTransport, elicitServerTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([elicitClient.connect(elicitClientTransport), mcpServer.connect(elicitServerTransport)]);
+
+            // Create a task without userName (will trigger elicitation)
+            const createResult = await elicitClient.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'input-task',
+                        arguments: {},
+                        task: {
+                            ttl: 60000
+                        }
+                    }
+                },
+                CreateTaskResultSchema
+            );
+
+            const taskId = createResult.task.taskId;
+
+            // Wait for elicitation to occur and task to transition to input_required
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            // Check task status - should be input_required during elicitation
+            let task = await elicitClient.request(
+                {
+                    method: 'tasks/get',
+                    params: { taskId }
+                },
+                TaskSchema
+            );
+
+            // Task should either be input_required or already completed (if elicitation was fast)
+            expect(['input_required', 'working', 'completed']).toContain(task.status);
+
+            // Wait for completion after elicitation response
+            // Poll until task completes or times out
+            let attempts = 0;
+            while (attempts < 20) {
+                task = await elicitClient.request(
+                    {
+                        method: 'tasks/get',
+                        params: { taskId }
+                    },
+                    TaskSchema
+                );
+                if (task.status === 'completed' || task.status === 'failed') {
+                    break;
+                }
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+
+            // Verify task completed with elicited input
+            expect(task.status).toBe('completed');
+
+            // Get result
+            const result = await elicitClient.request(
+                {
+                    method: 'tasks/result',
+                    params: { taskId }
+                },
+                CallToolResultSchema
+            );
+
+            expect(result.content).toEqual([{ type: 'text', text: 'Hello, Alice!' }]);
+
+            await elicitClientTransport.close();
+            await elicitServerTransport.close();
+        });
+
+        it('should complete immediately when input is provided upfront', async () => {
             const client = new Client({
                 name: 'test-client',
                 version: '1.0.0'
@@ -370,42 +496,48 @@ describe('Task Lifecycle Integration Tests', () => {
             const transport = new StreamableHTTPClientTransport(baseUrl);
             await client.connect(transport);
 
-            // Create a task that requires input
+            // Create a task with userName provided (no elicitation needed)
             const createResult = await client.request(
                 {
                     method: 'tools/call',
                     params: {
                         name: 'input-task',
                         arguments: {
-                            initialMessage: 'Need user input'
+                            userName: 'Bob'
                         },
                         task: {
                             ttl: 60000
                         }
                     }
                 },
-                z.object({
-                    task: TaskSchema
-                })
+                CreateTaskResultSchema
             );
 
             const taskId = createResult.task.taskId;
 
-            // Wait for input_required status
-            await new Promise(resolve => setTimeout(resolve, 200));
+            // Wait for completion
+            await new Promise(resolve => setTimeout(resolve, 300));
 
-            const task = await taskStore.getTask(taskId);
-            expect(task?.status).toBe('input_required');
+            // Verify task completed without elicitation
+            const task = await client.request(
+                {
+                    method: 'tasks/get',
+                    params: { taskId }
+                },
+                TaskSchema
+            );
+            expect(task.status).toBe('completed');
 
-            // Simulate providing input and completing the task
-            await taskStore.updateTaskStatus(taskId, 'working');
-            await taskStore.storeTaskResult(taskId, 'completed', {
-                content: [{ type: 'text', text: 'Input received and processed' }]
-            });
+            // Get result
+            const result = await client.request(
+                {
+                    method: 'tasks/result',
+                    params: { taskId }
+                },
+                CallToolResultSchema
+            );
 
-            // Verify completion
-            const completedTask = await taskStore.getTask(taskId);
-            expect(completedTask?.status).toBe('completed');
+            expect(result.content).toEqual([{ type: 'text', text: 'Hello, Bob!' }]);
 
             await transport.close();
         });
@@ -437,9 +569,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             }
                         }
                     },
-                    z.object({
-                        task: TaskSchema
-                    })
+                    CreateTaskResultSchema
                 );
                 taskIds.push(createResult.task.taskId);
             }
@@ -477,9 +607,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             }
                         }
                     },
-                    z.object({
-                        task: TaskSchema
-                    })
+                    CreateTaskResultSchema
                 );
             }
 
@@ -538,9 +666,7 @@ describe('Task Lifecycle Integration Tests', () => {
                         }
                     }
                 },
-                z.object({
-                    task: TaskSchema
-                })
+                CreateTaskResultSchema
             );
 
             const taskId = createResult.task.taskId;
@@ -579,9 +705,7 @@ describe('Task Lifecycle Integration Tests', () => {
                         }
                     }
                 },
-                z.object({
-                    task: TaskSchema
-                })
+                CreateTaskResultSchema
             );
 
             const taskId = createResult.task.taskId;
@@ -629,9 +753,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             }
                         }
                     },
-                    z.object({
-                        task: TaskSchema
-                    })
+                    CreateTaskResultSchema
                 )
             );
 
@@ -672,9 +794,7 @@ describe('Task Lifecycle Integration Tests', () => {
                         }
                     }
                 },
-                z.object({
-                    task: TaskSchema
-                })
+                CreateTaskResultSchema
             );
 
             const taskId = createResult.task.taskId;

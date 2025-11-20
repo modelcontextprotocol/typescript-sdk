@@ -218,11 +218,7 @@ export interface RequestTaskStore {
 /**
  * Extra data given to request handlers.
  */
-export type RequestHandlerExtra<
-    SendRequestT extends Request,
-    SendNotificationT extends Notification,
-    SendResultT extends Result = Result
-> = {
+export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT extends Notification> = {
     /**
      * An abort signal used to communicate if the request was cancelled from the sender's side.
      */
@@ -272,11 +268,7 @@ export type RequestHandlerExtra<
      *
      * This is used by certain transports to correctly associate related messages.
      */
-    sendRequest: <U extends ZodType<SendResultT>>(
-        request: SendRequestT,
-        resultSchema: U,
-        options?: TaskRequestOptions
-    ) => Promise<z.infer<U>>;
+    sendRequest: <U extends ZodType<Result>>(request: SendRequestT, resultSchema: U, options?: TaskRequestOptions) => Promise<z.infer<U>>;
 };
 
 /**
@@ -300,7 +292,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _requestMessageId = 0;
     private _requestHandlers: Map<
         string,
-        (request: JSONRPCRequest, extra: RequestHandlerExtra<SendRequestT, SendNotificationT, SendResultT>) => Promise<SendResultT>
+        (request: JSONRPCRequest, extra: RequestHandlerExtra<SendRequestT, SendNotificationT>) => Promise<SendResultT>
     > = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
@@ -331,10 +323,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * A handler to invoke for any request types that do not have their own handler installed.
      */
-    fallbackRequestHandler?: (
-        request: JSONRPCRequest,
-        extra: RequestHandlerExtra<SendRequestT, SendNotificationT, SendResultT>
-    ) => Promise<SendResultT>;
+    fallbackRequestHandler?: (request: JSONRPCRequest, extra: RequestHandlerExtra<SendRequestT, SendNotificationT>) => Promise<SendResultT>;
 
     /**
      * A handler to invoke for any notification types that do not have their own handler installed.
@@ -635,7 +624,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         // Extract taskId from request metadata if present
         const relatedTaskId = request.params?._meta?.[RELATED_TASK_META_KEY]?.taskId;
 
-        const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT, SendResultT> = {
+        const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
             signal: abortController.signal,
             sessionId: capturedTransport?.sessionId,
             _meta: request.params?._meta,
@@ -825,11 +814,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Do not use this method to emit notifications! Use notification() instead.
      */
-    beginRequest<T extends ZodType<SendResultT>>(
+    beginRequest<T extends ZodType<Result>>(
         request: SendRequestT,
         resultSchema: T,
         options?: RequestOptions
-    ): PendingRequest<SendRequestT, SendNotificationT, SendResultT> {
+    ): PendingRequest<SendRequestT, SendNotificationT, z.infer<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
 
         // Send the request
@@ -950,7 +939,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             });
         });
 
-        return new PendingRequest(this, result, resultSchema, undefined, this._options?.defaultTaskPollInterval);
+        return new PendingRequest(
+            this as unknown as Protocol<SendRequestT, SendNotificationT, z.infer<T>>,
+            result,
+            resultSchema,
+            undefined,
+            this._options?.defaultTaskPollInterval
+        );
     }
 
     /**
@@ -958,7 +953,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Do not use this method to emit notifications! Use notification() instead.
      */
-    request<T extends ZodType<SendResultT>>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<z.infer<T>> {
+    request<T extends ZodType<Result>>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<z.infer<T>> {
         return this.beginRequest(request, resultSchema, options).result();
     }
 
@@ -973,7 +968,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * Retrieves the result of a completed task.
      */
-    async getTaskResult<T extends ZodType<SendResultT>>(
+    async getTaskResult<T extends ZodType<Result>>(
         params: GetTaskPayloadRequest['params'],
         resultSchema: T,
         options?: RequestOptions
@@ -1095,10 +1090,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         }>
     >(
         requestSchema: T,
-        handler: (
-            request: z.infer<T>,
-            extra: RequestHandlerExtra<SendRequestT, SendNotificationT, SendResultT>
-        ) => SendResultT | Promise<SendResultT>
+        handler: (request: z.infer<T>, extra: RequestHandlerExtra<SendRequestT, SendNotificationT>) => SendResultT | Promise<SendResultT>
     ): void {
         const method = requestSchema.shape.method.value;
         this.assertRequestHandlerCapability(method);

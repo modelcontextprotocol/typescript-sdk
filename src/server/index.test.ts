@@ -6,6 +6,7 @@ import type { Transport } from '../shared/transport.js';
 import {
     CreateMessageRequestSchema,
     ElicitRequestSchema,
+    ElicitResultSchema,
     ErrorCode,
     LATEST_PROTOCOL_VERSION,
     ListPromptsRequestSchema,
@@ -1236,10 +1237,7 @@ describe('Task-based execution', () => {
                             }
                         }
                     },
-                    z.object({
-                        action: z.enum(['accept', 'decline', 'cancel']),
-                        content: z.record(z.unknown()).optional()
-                    })
+                    ElicitResultSchema
                 );
 
                 const result = {

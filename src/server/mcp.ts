@@ -1228,7 +1228,7 @@ export class ResourceTemplate {
 
 export type BaseToolCallback<
     SendResultT extends Result,
-    Extra extends RequestHandlerExtra<ServerRequest, ServerNotification, SendResultT>,
+    Extra extends RequestHandlerExtra<ServerRequest, ServerNotification>,
     Args extends undefined | ZodRawShape | ZodType<object>
 > = Args extends ZodRawShape
     ? (args: z.objectOutputType<Args, ZodTypeAny>, extra: Extra) => SendResultT | Promise<SendResultT>
@@ -1252,13 +1252,11 @@ export type ToolCallback<Args extends undefined | ZodRawShape | ZodType<object> 
     Args
 >;
 
-export interface CreateTaskRequestHandlerExtra<SendResultT extends Result>
-    extends RequestHandlerExtra<ServerRequest, ServerNotification, SendResultT> {
+export interface CreateTaskRequestHandlerExtra extends RequestHandlerExtra<ServerRequest, ServerNotification> {
     taskStore: RequestTaskStore;
 }
 
-export interface TaskRequestHandlerExtra<SendResultT extends Result>
-    extends RequestHandlerExtra<ServerRequest, ServerNotification, SendResultT> {
+export interface TaskRequestHandlerExtra extends RequestHandlerExtra<ServerRequest, ServerNotification> {
     taskId: string;
     taskStore: RequestTaskStore;
 }
@@ -1266,12 +1264,12 @@ export interface TaskRequestHandlerExtra<SendResultT extends Result>
 export type CreateTaskRequestHandler<
     SendResultT extends Result,
     Args extends undefined | ZodRawShape | ZodType<object> = undefined
-> = BaseToolCallback<SendResultT, CreateTaskRequestHandlerExtra<SendResultT>, Args>;
+> = BaseToolCallback<SendResultT, CreateTaskRequestHandlerExtra, Args>;
 
 export type TaskRequestHandler<
     SendResultT extends Result,
     Args extends undefined | ZodRawShape | ZodType<object> = undefined
-> = BaseToolCallback<SendResultT, TaskRequestHandlerExtra<SendResultT>, Args>;
+> = BaseToolCallback<SendResultT, TaskRequestHandlerExtra, Args>;
 
 export interface ToolTaskHandler<Args extends undefined | ZodRawShape | ZodType<object> = undefined> {
     createTask: CreateTaskRequestHandler<CreateTaskResult, Args>;
