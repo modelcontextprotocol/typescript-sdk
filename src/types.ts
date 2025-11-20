@@ -964,7 +964,7 @@ export const ToolSchema = BaseMetadataSchema.extend({
             properties: z.record(z.string(), AssertObjectSchema).optional(),
             required: z.array(z.string()).optional()
         })
-        .passthrough(),
+        .catchall(z.unknown()),
     /**
      * An optional JSON Schema 2020-12 object defining the structure of the tool's output
      * returned in the structuredContent field of a CallToolResult.
@@ -976,7 +976,7 @@ export const ToolSchema = BaseMetadataSchema.extend({
             properties: z.record(z.string(), AssertObjectSchema).optional(),
             required: z.array(z.string()).optional()
         })
-        .passthrough()
+        .catchall(z.unknown())
         .optional(),
     /**
      * Optional additional tool information.
