@@ -380,42 +380,39 @@ export class StreamableHTTPServerTransport implements Transport {
             return;
         }
         try {
-            // Get streamId - prefer explicit method, fall back to parsing
+            // If getStreamIdForEventId is available, use it for conflict checking
             let streamId: string | undefined;
             if (this._eventStore.getStreamIdForEventId) {
                 streamId = await this._eventStore.getStreamIdForEventId(lastEventId);
-            } else {
-                // Fallback: assume format "streamId::..."
-                streamId = lastEventId.split('::')[0] || undefined;
-            }
 
-            if (!streamId) {
-                res.writeHead(400).end(
-                    JSON.stringify({
-                        jsonrpc: '2.0',
-                        error: {
-                            code: -32000,
-                            message: 'Invalid event ID format'
-                        },
-                        id: null
-                    })
-                );
-                return;
-            }
+                if (!streamId) {
+                    res.writeHead(400).end(
+                        JSON.stringify({
+                            jsonrpc: '2.0',
+                            error: {
+                                code: -32000,
+                                message: 'Invalid event ID format'
+                            },
+                            id: null
+                        })
+                    );
+                    return;
+                }
 
-            // Check conflict with the SAME streamId we'll use for mapping
-            if (this._streamMapping.get(streamId) !== undefined) {
-                res.writeHead(409).end(
-                    JSON.stringify({
-                        jsonrpc: '2.0',
-                        error: {
-                            code: -32000,
-                            message: 'Conflict: Stream already has an active connection'
-                        },
-                        id: null
-                    })
-                );
-                return;
+                // Check conflict with the SAME streamId we'll use for mapping
+                if (this._streamMapping.get(streamId) !== undefined) {
+                    res.writeHead(409).end(
+                        JSON.stringify({
+                            jsonrpc: '2.0',
+                            error: {
+                                code: -32000,
+                                message: 'Conflict: Stream already has an active connection'
+                            },
+                            id: null
+                        })
+                    );
+                    return;
+                }
             }
 
             const headers: Record<string, string> = {
@@ -429,8 +426,8 @@ export class StreamableHTTPServerTransport implements Transport {
             }
             res.writeHead(200, headers).flushHeaders();
 
-            // Replay events
-            await this._eventStore.replayEventsAfter(lastEventId, {
+            // Replay events - returns the streamId for backwards compatibility
+            const replayedStreamId = await this._eventStore.replayEventsAfter(lastEventId, {
                 send: async (eventId: string, message: JSONRPCMessage) => {
                     if (!this.writeSSEEvent(res, message, eventId)) {
                         this.onerror?.(new Error('Failed replay events'));
@@ -439,12 +436,13 @@ export class StreamableHTTPServerTransport implements Transport {
                 }
             });
 
-            // Map using the same streamId we checked for conflicts
-            this._streamMapping.set(streamId, res);
+            // Use streamId from getStreamIdForEventId if available, otherwise from replay
+            const finalStreamId = streamId ?? replayedStreamId;
+            this._streamMapping.set(finalStreamId, res);
 
             // Set up close handler for client disconnects
             res.on('close', () => {
-                this._streamMapping.delete(streamId);
+                this._streamMapping.delete(finalStreamId);
             });
 
             // Add error handler for replay stream
