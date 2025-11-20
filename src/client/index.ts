@@ -36,10 +36,90 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS,
     type SubscribeRequest,
     type Tool,
-    type UnsubscribeRequest
+    type UnsubscribeRequest,
+    ElicitResultSchema,
+    ElicitRequestSchema
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
+import {
+    AnyObjectSchema,
+    SchemaOutput,
+    getObjectShape,
+    isZ4Schema,
+    safeParse,
+    type ZodV3Internal,
+    type ZodV4Internal
+} from '../server/zod-compat.js';
+import type { RequestHandlerExtra } from '../shared/protocol.js';
+
+/**
+ * Elicitation default application helper. Applies defaults to the data based on the schema.
+ *
+ * @param schema - The schema to apply defaults to.
+ * @param data - The data to apply defaults to.
+ */
+function applyElicitationDefaults(schema: JsonSchemaType | undefined, data: unknown): void {
+    if (!schema || data === null || typeof data !== 'object') return;
+
+    // Handle object properties
+    if (schema.type === 'object' && schema.properties && typeof schema.properties === 'object') {
+        const obj = data as Record<string, unknown>;
+        const props = schema.properties as Record<string, JsonSchemaType & { default?: unknown }>;
+        for (const key of Object.keys(props)) {
+            const propSchema = props[key];
+            // If missing or explicitly undefined, apply default if present
+            if (obj[key] === undefined && Object.prototype.hasOwnProperty.call(propSchema, 'default')) {
+                obj[key] = propSchema.default;
+            }
+            // Recurse into existing nested objects/arrays
+            if (obj[key] !== undefined) {
+                applyElicitationDefaults(propSchema, obj[key]);
+            }
+        }
+    }
+
+    if (Array.isArray(schema.anyOf)) {
+        for (const sub of schema.anyOf) {
+            applyElicitationDefaults(sub, data);
+        }
+    }
+
+    // Combine schemas
+    if (Array.isArray(schema.oneOf)) {
+        for (const sub of schema.oneOf) {
+            applyElicitationDefaults(sub, data);
+        }
+    }
+}
+
+/**
+ * Determines which elicitation modes are supported based on declared client capabilities.
+ *
+ * According to the spec:
+ * - An empty elicitation capability object defaults to form mode support (backwards compatibility)
+ * - URL mode is only supported if explicitly declared
+ *
+ * @param capabilities - The client's elicitation capabilities
+ * @returns An object indicating which modes are supported
+ */
+export function getSupportedElicitationModes(capabilities: ClientCapabilities['elicitation']): {
+    supportsFormMode: boolean;
+    supportsUrlMode: boolean;
+} {
+    if (!capabilities) {
+        return { supportsFormMode: false, supportsUrlMode: false };
+    }
+
+    const hasFormCapability = capabilities.form !== undefined;
+    const hasUrlCapability = capabilities.url !== undefined;
+
+    // If neither form nor url are explicitly declared, form mode is supported (backwards compatibility)
+    const supportsFormMode = hasFormCapability || (!hasFormCapability && !hasUrlCapability);
+    const supportsUrlMode = hasUrlCapability;
+
+    return { supportsFormMode, supportsUrlMode };
+}
 
 export type ClientOptions = ProtocolOptions & {
     /**
@@ -139,6 +219,96 @@ export class Client<
         }
 
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
+    }
+
+    /**
+     * Override request handler registration to enforce client-side validation for elicitation.
+     */
+    public override setRequestHandler<T extends AnyObjectSchema>(
+        requestSchema: T,
+        handler: (
+            request: SchemaOutput<T>,
+            extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+        ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
+    ): void {
+        const shape = getObjectShape(requestSchema);
+        const methodSchema = shape?.method;
+        if (!methodSchema) {
+            throw new Error('Schema is missing a method literal');
+        }
+
+        // Extract literal value using type-safe property access
+        let methodValue: unknown;
+        if (isZ4Schema(methodSchema)) {
+            const v4Schema = methodSchema as unknown as ZodV4Internal;
+            const v4Def = v4Schema._zod?.def;
+            methodValue = v4Def?.value ?? v4Schema.value;
+        } else {
+            const v3Schema = methodSchema as unknown as ZodV3Internal;
+            const legacyDef = v3Schema._def;
+            methodValue = legacyDef?.value ?? v3Schema.value;
+        }
+
+        if (typeof methodValue !== 'string') {
+            throw new Error('Schema method literal must be a string');
+        }
+        const method = methodValue;
+        if (method === 'elicitation/create') {
+            const wrappedHandler = async (
+                request: SchemaOutput<T>,
+                extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+            ): Promise<ClientResult | ResultT> => {
+                const validatedRequest = safeParse(ElicitRequestSchema, request);
+                if (!validatedRequest.success) {
+                    // Type guard: if success is false, error is guaranteed to exist
+                    const errorMessage =
+                        validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation request: ${errorMessage}`);
+                }
+
+                const { params } = validatedRequest.data;
+                const { supportsFormMode, supportsUrlMode } = getSupportedElicitationModes(this._capabilities.elicitation);
+
+                if (params.mode === 'form' && !supportsFormMode) {
+                    throw new McpError(ErrorCode.InvalidParams, 'Client does not support form-mode elicitation requests');
+                }
+
+                if (params.mode === 'url' && !supportsUrlMode) {
+                    throw new McpError(ErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
+                }
+
+                const result = await Promise.resolve(handler(request, extra));
+
+                const validationResult = safeParse(ElicitResultSchema, result);
+                if (!validationResult.success) {
+                    // Type guard: if success is false, error is guaranteed to exist
+                    const errorMessage =
+                        validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation result: ${errorMessage}`);
+                }
+
+                const validatedResult = validationResult.data;
+                const requestedSchema = params.mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
+
+                if (params.mode === 'form' && validatedResult.action === 'accept' && validatedResult.content && requestedSchema) {
+                    if (this._capabilities.elicitation?.form?.applyDefaults) {
+                        try {
+                            applyElicitationDefaults(requestedSchema, validatedResult.content);
+                        } catch {
+                            // gracefully ignore errors in default application
+                        }
+                    }
+                }
+
+                return validatedResult;
+            };
+
+            // Install the wrapped handler
+            return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
+        }
+
+        // Non-elicitation handlers use default behavior
+        return super.setRequestHandler(requestSchema, handler);
     }
 
     protected assertCapability(capability: keyof ServerCapabilities, method: string): void {

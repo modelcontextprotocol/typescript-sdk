@@ -1,4 +1,4 @@
-import { Transport, FetchLike } from '../shared/transport.js';
+import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../shared/transport.js';
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
@@ -129,10 +129,12 @@ export class StreamableHTTPClientTransport implements Transport {
     private _requestInit?: RequestInit;
     private _authProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
+    private _fetchWithInit: FetchLike;
     private _sessionId?: string;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
     private _hasCompletedAuthFlow = false; // Circuit breaker: detect auth success followed by immediate 401
+    private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -145,6 +147,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._requestInit = opts?.requestInit;
         this._authProvider = opts?.authProvider;
         this._fetch = opts?.fetch;
+        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
     }
@@ -160,7 +163,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 serverUrl: this._url,
                 resourceMetadataUrl: this._resourceMetadataUrl,
                 scope: this._scope,
-                fetchFn: this._fetch
+                fetchFn: this._fetchWithInit
             });
         } catch (error) {
             this.onerror?.(error as Error);
@@ -190,7 +193,7 @@ export class StreamableHTTPClientTransport implements Transport {
             headers['mcp-protocol-version'] = this._protocolVersion;
         }
 
-        const extraHeaders = this._normalizeHeaders(this._requestInit?.headers);
+        const extraHeaders = normalizeHeaders(this._requestInit?.headers);
 
         return new Headers({
             ...headers,
@@ -253,20 +256,6 @@ export class StreamableHTTPClientTransport implements Transport {
 
         // Cap at maximum delay
         return Math.min(initialDelay * Math.pow(growFactor, attempt), maxDelay);
-    }
-
-    private _normalizeHeaders(headers: HeadersInit | undefined): Record<string, string> {
-        if (!headers) return {};
-
-        if (headers instanceof Headers) {
-            return Object.fromEntries(headers.entries());
-        }
-
-        if (Array.isArray(headers)) {
-            return Object.fromEntries(headers);
-        }
-
-        return { ...(headers as Record<string, string>) };
     }
 
     /**
@@ -388,7 +377,7 @@ export class StreamableHTTPClientTransport implements Transport {
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
-            fetchFn: this._fetch
+            fetchFn: this._fetchWithInit
         });
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');
@@ -452,7 +441,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         serverUrl: this._url,
                         resourceMetadataUrl: this._resourceMetadataUrl,
                         scope: this._scope,
-                        fetchFn: this._fetch
+                        fetchFn: this._fetchWithInit
                     });
                     if (result !== 'AUTHORIZED') {
                         throw new UnauthorizedError();
@@ -464,12 +453,49 @@ export class StreamableHTTPClientTransport implements Transport {
                     return this.send(message);
                 }
 
+                if (response.status === 403 && this._authProvider) {
+                    const { resourceMetadataUrl, scope, error } = extractWWWAuthenticateParams(response);
+
+                    if (error === 'insufficient_scope') {
+                        const wwwAuthHeader = response.headers.get('WWW-Authenticate');
+
+                        // Check if we've already tried upscoping with this header to prevent infinite loops.
+                        if (this._lastUpscopingHeader === wwwAuthHeader) {
+                            throw new StreamableHTTPError(403, 'Server returned 403 after trying upscoping');
+                        }
+
+                        if (scope) {
+                            this._scope = scope;
+                        }
+
+                        if (resourceMetadataUrl) {
+                            this._resourceMetadataUrl = resourceMetadataUrl;
+                        }
+
+                        // Mark that upscoping was tried.
+                        this._lastUpscopingHeader = wwwAuthHeader ?? undefined;
+                        const result = await auth(this._authProvider, {
+                            serverUrl: this._url,
+                            resourceMetadataUrl: this._resourceMetadataUrl,
+                            scope: this._scope,
+                            fetchFn: this._fetch
+                        });
+
+                        if (result !== 'AUTHORIZED') {
+                            throw new UnauthorizedError();
+                        }
+
+                        return this.send(message);
+                    }
+                }
+
                 const text = await response.text().catch(() => null);
                 throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
             }
 
             // Reset auth loop flag on successful response
             this._hasCompletedAuthFlow = false;
+            this._lastUpscopingHeader = undefined;
 
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {
