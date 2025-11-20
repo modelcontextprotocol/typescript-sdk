@@ -360,11 +360,11 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    SamplingMessage: (sdk: SDKTypes.SamplingMessage, spec: SpecTypes.SamplingMessage) => {
+    SamplingMessage: (sdk: RemovePassthrough<SDKTypes.SamplingMessage>, spec: SpecTypes.SamplingMessage) => {
         sdk = spec;
         spec = sdk;
     },
-    CreateMessageResult: (sdk: SDKTypes.CreateMessageResult, spec: SpecTypes.CreateMessageResult) => {
+    CreateMessageResult: (sdk: RemovePassthrough<SDKTypes.CreateMessageResult>, spec: SpecTypes.CreateMessageResult) => {
         sdk = spec;
         spec = sdk;
     },
@@ -614,6 +614,25 @@ const sdkTypeChecks = {
     ModelPreferences: (sdk: SDKTypes.ModelPreferences, spec: SpecTypes.ModelPreferences) => {
         sdk = spec;
         spec = sdk;
+    },
+    ToolChoice: (sdk: SDKTypes.ToolChoice, spec: SpecTypes.ToolChoice) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ToolUseContent: (sdk: RemovePassthrough<SDKTypes.ToolUseContent>, spec: SpecTypes.ToolUseContent) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ToolResultContent: (sdk: RemovePassthrough<SDKTypes.ToolResultContent>, spec: SpecTypes.ToolResultContent) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    SamplingMessageContentBlock: (
+        sdk: RemovePassthrough<SDKTypes.SamplingMessageContentBlock>,
+        spec: SpecTypes.SamplingMessageContentBlock
+    ) => {
+        sdk = spec;
+        spec = sdk;
     }
 };
 
@@ -643,7 +662,7 @@ describe('Spec Types', () => {
     it('should define some expected types', () => {
         expect(specTypes).toContain('JSONRPCNotification');
         expect(specTypes).toContain('ElicitResult');
-        expect(specTypes).toHaveLength(123);
+        expect(specTypes).toHaveLength(127);
     });
 
     it('should have up to date list of missing sdk types', () => {
