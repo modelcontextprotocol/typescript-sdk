@@ -13,7 +13,8 @@ export class InMemoryOAuthClientProvider implements OAuthClientProvider {
     constructor(
         private readonly _redirectUrl: string | URL,
         private readonly _clientMetadata: OAuthClientMetadata,
-        onRedirect?: (url: URL) => void
+        onRedirect?: (url: URL) => void,
+        public readonly clientMetadataUrl?: string
     ) {
         this._onRedirect =
             onRedirect ||

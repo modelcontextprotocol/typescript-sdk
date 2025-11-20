@@ -6,7 +6,7 @@
 
 import { McpServer } from '../../server/mcp.js';
 import { StdioServerTransport } from '../../server/stdio.js';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 const server = new McpServer({
     name: 'mcp-output-schema-high-level-example',

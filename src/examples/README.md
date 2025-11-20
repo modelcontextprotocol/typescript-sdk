@@ -39,7 +39,7 @@ npx tsx src/examples/client/simpleStreamableHttp.ts
 Example client with OAuth:
 
 ```bash
-npx tsx src/examples/client/simpleOAuthClient.js
+npx tsx src/examples/client/simpleOAuthClient.ts <optional-server-url> <optional-client-metadata-url>
 ```
 
 ### Backwards Compatible Client
