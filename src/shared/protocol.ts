@@ -989,12 +989,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         let taskId: string | undefined;
         try {
             // Send the request and get the CreateTaskResult
-            const createResult = await this.request(request, CreateTaskResultSchema as unknown as T, options);
+            const createResult = await this.request(request, CreateTaskResultSchema, options);
 
             // Extract taskId from the result
-            if ('task' in createResult && typeof createResult.task === 'object' && createResult.task && 'taskId' in createResult.task) {
-                taskId = (createResult.task as { taskId: string }).taskId;
-                yield { type: 'taskCreated', task: createResult.task as Task };
+            if (createResult.task) {
+                taskId = createResult.task.taskId;
+                yield { type: 'taskCreated', task: createResult.task };
             } else {
                 throw new McpError(ErrorCode.InternalError, 'Task creation did not return a task');
             }
@@ -1026,7 +1026,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
 
                 // Wait before polling again
-                const pollInterval = task.pollInterval ?? 1000;
+                const pollInterval = task.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1000;
                 await new Promise(resolve => setTimeout(resolve, pollInterval));
 
                 // Check if cancelled
