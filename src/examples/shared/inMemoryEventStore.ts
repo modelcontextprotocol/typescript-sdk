@@ -25,6 +25,15 @@ export class InMemoryEventStore implements EventStore {
     }
 
     /**
+     * Gets the stream ID for a given event ID
+     * Implements EventStore.getStreamIdForEventId
+     */
+    async getStreamIdForEventId(eventId: string): Promise<string | undefined> {
+        const event = this.events.get(eventId);
+        return event?.streamId;
+    }
+
+    /**
      * Stores an event with a generated event ID
      * Implements EventStore.storeEvent
      */
