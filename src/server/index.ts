@@ -345,16 +345,19 @@ export class Server<
     async elicitInput(params: ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult>;
     /**
      * Creates an elicitation request for the given parameters.
+     * @deprecated Use the overloads with explicit `mode: 'form' | 'url'` instead.
      * @param params The parameters for the form elicitation request (legacy signature without mode).
      * @param options Optional request options.
      * @returns The result of the elicitation request.
      */
     async elicitInput(params: LegacyElicitRequestFormParams, options?: RequestOptions): Promise<ElicitResult>;
+
+    // Implementation (not visible to callers)
     async elicitInput(
         params: LegacyElicitRequestFormParams | ElicitRequestFormParams | ElicitRequestURLParams,
         options?: RequestOptions
     ): Promise<ElicitResult> {
-        const mode = 'mode' in params ? params.mode : 'form';
+        const mode = ('mode' in params ? params.mode : 'form') as 'form' | 'url';
 
         switch (mode) {
             case 'url': {
@@ -370,7 +373,9 @@ export class Server<
                     throw new Error('Client does not support form elicitation.');
                 }
                 const formParams: ElicitRequestFormParams =
-                    'mode' in params ? (params as ElicitRequestFormParams) : { ...(params as LegacyElicitRequestFormParams), mode: 'form' };
+                    'mode' in params
+                        ? (params as ElicitRequestFormParams)
+                        : ({ ...(params as LegacyElicitRequestFormParams), mode: 'form' } as ElicitRequestFormParams);
 
                 const result = await this.request({ method: 'elicitation/create', params: formParams }, ElicitResultSchema, options);
 
