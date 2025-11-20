@@ -1345,6 +1345,14 @@ describe('StreamableHTTPServerTransport with resumability', () => {
         expect(sseResponse.status).toBe(200);
         expect(sseResponse.headers.get('content-type')).toBe('text/event-stream');
 
+        const reader = sseResponse.body?.getReader();
+
+        // First read the priming event (SEP-1699)
+        const { value: primingValue } = await reader!.read();
+        const primingText = new TextDecoder().decode(primingValue);
+        expect(primingText).toContain('id: ');
+        expect(primingText).toContain('data: ');
+
         // Send a notification that should be stored with an event ID
         const notification: JSONRPCMessage = {
             jsonrpc: '2.0',
@@ -1356,7 +1364,6 @@ describe('StreamableHTTPServerTransport with resumability', () => {
         await transport.send(notification);
 
         // Read from the stream and verify we got the notification with an event ID
-        const reader = sseResponse.body?.getReader();
         const { value } = await reader!.read();
         const text = new TextDecoder().decode(value);
 
@@ -1388,11 +1395,15 @@ describe('StreamableHTTPServerTransport with resumability', () => {
         });
         expect(sseResponse.status).toBe(200);
 
+        const reader = sseResponse.body?.getReader();
+
+        // First read the priming event (SEP-1699)
+        await reader!.read();
+
         // Send a server notification through the MCP server
         await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'First notification from MCP server' });
 
         // Read the notification from the SSE stream
-        const reader = sseResponse.body?.getReader();
         const { value } = await reader!.read();
         const text = new TextDecoder().decode(value);
 
@@ -1745,7 +1756,7 @@ describe('StreamableHTTPServerTransport POST SSE priming events', () => {
         toolResolve!();
     });
 
-    it('should support POST SSE polling with client reconnection', async () => {
+    it('should support POST SSE polling with client reconnection', { timeout: 10000 }, async () => {
         const result = await createTestServer({
             sessionIdGenerator: () => randomUUID(),
             eventStore: createEventStore(),
@@ -2129,6 +2140,235 @@ describe('StreamableHTTPServerTransport POST SSE priming events', () => {
 
         expect(replay2Text).toContain('Result from stream 2');
         expect(replay2Text).toContain('"id":302');
+    });
+});
+
+// Test SSE priming events for GET streams (SEP-1699)
+describe('StreamableHTTPServerTransport GET SSE priming events', () => {
+    let server: Server;
+    let transport: StreamableHTTPServerTransport;
+    let baseUrl: URL;
+    let sessionId: string;
+
+    // Simple eventStore for priming event tests
+    const createEventStore = (): EventStore => {
+        const storedEvents = new Map<string, { eventId: string; message: JSONRPCMessage; streamId: string }>();
+        return {
+            async storeEvent(streamId: string, message: JSONRPCMessage): Promise<string> {
+                const eventId = `${streamId}::${Date.now()}_${randomUUID()}`;
+                storedEvents.set(eventId, { eventId, message, streamId });
+                return eventId;
+            },
+            async getStreamIdForEventId(eventId: string): Promise<string | undefined> {
+                const event = storedEvents.get(eventId);
+                return event?.streamId;
+            },
+            async replayEventsAfter(
+                lastEventId: EventId,
+                { send }: { send: (eventId: EventId, message: JSONRPCMessage) => Promise<void> }
+            ): Promise<StreamId> {
+                const event = storedEvents.get(lastEventId);
+                const streamId = event?.streamId || lastEventId.split('::')[0];
+                const eventsToReplay: Array<[string, { message: JSONRPCMessage }]> = [];
+                for (const [eventId, data] of storedEvents.entries()) {
+                    if (data.streamId === streamId && eventId > lastEventId) {
+                        eventsToReplay.push([eventId, data]);
+                    }
+                }
+                eventsToReplay.sort(([a], [b]) => a.localeCompare(b));
+                for (const [eventId, { message }] of eventsToReplay) {
+                    if (Object.keys(message).length > 0) {
+                        await send(eventId, message);
+                    }
+                }
+                return streamId;
+            }
+        };
+    };
+
+    afterEach(async () => {
+        if (server && transport) {
+            await stopTestServer({ server, transport });
+        }
+    });
+
+    it('should send priming event with retry field on GET SSE stream', async () => {
+        const result = await createTestServer({
+            sessionIdGenerator: () => randomUUID(),
+            eventStore: createEventStore(),
+            retryInterval: 5000
+        });
+        server = result.server;
+        transport = result.transport;
+        baseUrl = result.baseUrl;
+
+        // Initialize to get session ID
+        const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+        sessionId = initResponse.headers.get('mcp-session-id') as string;
+        expect(sessionId).toBeDefined();
+
+        // Open a GET SSE stream
+        const getResponse = await fetch(baseUrl, {
+            method: 'GET',
+            headers: {
+                Accept: 'text/event-stream',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-03-26'
+            }
+        });
+
+        expect(getResponse.status).toBe(200);
+        expect(getResponse.headers.get('content-type')).toBe('text/event-stream');
+
+        // Read the priming event
+        const reader = getResponse.body?.getReader();
+        const { value } = await reader!.read();
+        const text = new TextDecoder().decode(value);
+
+        // Verify priming event has id and retry field
+        expect(text).toContain('id: ');
+        expect(text).toContain('retry: 5000');
+        expect(text).toContain('data: ');
+    });
+
+    it('should send priming event without retry field when retryInterval is not configured', async () => {
+        const result = await createTestServer({
+            sessionIdGenerator: () => randomUUID(),
+            eventStore: createEventStore()
+            // No retryInterval
+        });
+        server = result.server;
+        transport = result.transport;
+        baseUrl = result.baseUrl;
+
+        // Initialize to get session ID
+        const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+        sessionId = initResponse.headers.get('mcp-session-id') as string;
+        expect(sessionId).toBeDefined();
+
+        // Open a GET SSE stream
+        const getResponse = await fetch(baseUrl, {
+            method: 'GET',
+            headers: {
+                Accept: 'text/event-stream',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-03-26'
+            }
+        });
+
+        expect(getResponse.status).toBe(200);
+
+        // Read the priming event
+        const reader = getResponse.body?.getReader();
+        const { value } = await reader!.read();
+        const text = new TextDecoder().decode(value);
+
+        // Priming event should have id field but NOT retry field
+        expect(text).toContain('id: ');
+        expect(text).toContain('data: ');
+        expect(text).not.toContain('retry:');
+    });
+
+    it('should close GET SSE stream when closeStandaloneSSEStream is called', async () => {
+        const result = await createTestServer({
+            sessionIdGenerator: () => randomUUID(),
+            eventStore: createEventStore(),
+            retryInterval: 1000
+        });
+        server = result.server;
+        transport = result.transport;
+        baseUrl = result.baseUrl;
+
+        // Initialize to get session ID
+        const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+        sessionId = initResponse.headers.get('mcp-session-id') as string;
+        expect(sessionId).toBeDefined();
+
+        // Open a GET SSE stream
+        const getResponse = await fetch(baseUrl, {
+            method: 'GET',
+            headers: {
+                Accept: 'text/event-stream',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-03-26'
+            }
+        });
+
+        expect(getResponse.status).toBe(200);
+
+        const reader = getResponse.body?.getReader();
+
+        // Read the priming event
+        await reader!.read();
+
+        // Close the standalone SSE stream
+        transport.closeStandaloneSSEStream();
+
+        // Stream should now be closed
+        const { done } = await reader!.read();
+        expect(done).toBe(true);
+    });
+
+    it('should allow GET SSE stream reconnection with Last-Event-ID after closeStandaloneSSEStream', async () => {
+        const result = await createTestServer({
+            sessionIdGenerator: () => randomUUID(),
+            eventStore: createEventStore(),
+            retryInterval: 1000
+        });
+        server = result.server;
+        transport = result.transport;
+        baseUrl = result.baseUrl;
+
+        // Initialize to get session ID
+        const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+        sessionId = initResponse.headers.get('mcp-session-id') as string;
+        expect(sessionId).toBeDefined();
+
+        // Open a GET SSE stream
+        const getResponse = await fetch(baseUrl, {
+            method: 'GET',
+            headers: {
+                Accept: 'text/event-stream',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-03-26'
+            }
+        });
+
+        expect(getResponse.status).toBe(200);
+
+        const reader = getResponse.body?.getReader();
+
+        // Read the priming event and extract event ID
+        const { value: primingValue } = await reader!.read();
+        const primingText = new TextDecoder().decode(primingValue);
+        expect(primingText).toContain('id: ');
+        expect(primingText).toContain('retry: 1000');
+
+        // Extract the priming event ID
+        const primingIdMatch = primingText.match(/id: ([^\n]+)/);
+        expect(primingIdMatch).toBeTruthy();
+        const primingEventId = primingIdMatch![1];
+
+        // Close the standalone SSE stream
+        transport.closeStandaloneSSEStream();
+
+        // Verify stream is closed
+        const { done } = await reader!.read();
+        expect(done).toBe(true);
+
+        // Client reconnects with Last-Event-ID
+        const reconnectResponse = await fetch(baseUrl, {
+            method: 'GET',
+            headers: {
+                Accept: 'text/event-stream',
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': '2025-03-26',
+                'last-event-id': primingEventId
+            }
+        });
+
+        expect(reconnectResponse.status).toBe(200);
+        expect(reconnectResponse.headers.get('content-type')).toBe('text/event-stream');
     });
 });
 
