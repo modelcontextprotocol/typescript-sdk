@@ -1347,7 +1347,7 @@ describe('StreamableHTTPServerTransport with resumability', () => {
 
         const reader = sseResponse.body?.getReader();
 
-        // First read the priming event (SEP-1699)
+        // First read the priming event
         const { value: primingValue } = await reader!.read();
         const primingText = new TextDecoder().decode(primingValue);
         expect(primingText).toContain('id: ');
@@ -1397,7 +1397,7 @@ describe('StreamableHTTPServerTransport with resumability', () => {
 
         const reader = sseResponse.body?.getReader();
 
-        // First read the priming event (SEP-1699)
+        // First read the priming event
         await reader!.read();
 
         // Send a server notification through the MCP server
@@ -1536,7 +1536,7 @@ describe('StreamableHTTPServerTransport in stateless mode', () => {
     });
 });
 
-// Test SSE priming events for POST streams (SEP-1699)
+// Test SSE priming events for POST streams
 describe('StreamableHTTPServerTransport POST SSE priming events', () => {
     let server: Server;
     let transport: StreamableHTTPServerTransport;
@@ -2143,7 +2143,7 @@ describe('StreamableHTTPServerTransport POST SSE priming events', () => {
     });
 });
 
-// Test SSE priming events for GET streams (SEP-1699)
+// Test SSE priming events for GET streams
 describe('StreamableHTTPServerTransport GET SSE priming events', () => {
     let server: Server;
     let transport: StreamableHTTPServerTransport;
