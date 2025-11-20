@@ -1,6 +1,6 @@
 import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../shared/transport.js';
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
-import { auth, AuthResult, extractFieldFromWwwAuth, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
+import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
 // Default reconnection options for StreamableHTTP connections
@@ -454,7 +454,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 }
 
                 if (response.status === 403 && this._authProvider) {
-                    const error = extractFieldFromWwwAuth(response, 'error');
+                    const { resourceMetadataUrl, scope, error } = extractWWWAuthenticateParams(response);
 
                     if (error === 'insufficient_scope') {
                         const wwwAuthHeader = response.headers.get('WWW-Authenticate');
@@ -463,8 +463,6 @@ export class StreamableHTTPClientTransport implements Transport {
                         if (this._lastUpscopingHeader === wwwAuthHeader) {
                             throw new StreamableHTTPError(403, 'Server returned 403 after trying upscoping');
                         }
-
-                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
 
                         if (scope) {
                             this._scope = scope;

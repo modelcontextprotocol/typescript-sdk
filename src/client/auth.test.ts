@@ -8,7 +8,6 @@ import {
     refreshAuthorization,
     registerClient,
     discoverOAuthProtectedResourceMetadata,
-    extractFieldFromWwwAuth,
     extractWWWAuthenticateParams,
     auth,
     type OAuthClientProvider,
@@ -34,50 +33,6 @@ global.fetch = mockFetch;
 describe('OAuth Authorization', () => {
     beforeEach(() => {
         mockFetch.mockReset();
-    });
-
-    describe('extractFieldFromWwwAuth', () => {
-        function mockResponseWithWWWAuthenticate(headerValue: string): Response {
-            return {
-                headers: {
-                    get: vi.fn(name => (name === 'WWW-Authenticate' ? headerValue : null))
-                }
-            } as unknown as Response;
-        }
-
-        it('returns the value of a quoted field', () => {
-            const mockResponse = mockResponseWithWWWAuthenticate(`Bearer realm="example", field="value"`);
-            expect(extractFieldFromWwwAuth(mockResponse, 'field')).toBe('value');
-        });
-
-        it('returns the value of an unquoted field', () => {
-            const mockResponse = mockResponseWithWWWAuthenticate(`Bearer realm=example, field=value`);
-            expect(extractFieldFromWwwAuth(mockResponse, 'field')).toBe('value');
-        });
-
-        it('returns the correct value when multiple parameters are present', () => {
-            const mockResponse = mockResponseWithWWWAuthenticate(
-                `Bearer realm="api", error="invalid_token", field="test_value", scope="admin"`
-            );
-            expect(extractFieldFromWwwAuth(mockResponse, 'field')).toBe('test_value');
-        });
-
-        it('returns null if the field is not present', () => {
-            const mockResponse = mockResponseWithWWWAuthenticate(`Bearer realm="api", scope="admin"`);
-            expect(extractFieldFromWwwAuth(mockResponse, 'missing_field')).toBeNull();
-        });
-
-        it('returns null if the WWW-Authenticate header is missing', () => {
-            const mockResponse = { headers: new Headers() } as unknown as Response;
-            expect(extractFieldFromWwwAuth(mockResponse, 'field')).toBeNull();
-        });
-
-        it('handles fields with special characters in quotes', () => {
-            const mockResponse = mockResponseWithWWWAuthenticate(
-                `Bearer error="invalid_token", error_description="The token has expired, please re-authenticate."`
-            );
-            expect(extractFieldFromWwwAuth(mockResponse, 'error_description')).toBe('The token has expired, please re-authenticate.');
-        });
     });
 
     describe('extractWWWAuthenticateParams', () => {
@@ -139,6 +94,16 @@ describe('OAuth Authorization', () => {
             } as unknown as Response;
 
             expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ scope: scope });
+        });
+
+        it('returns error when present', async () => {
+            const mockResponse = {
+                headers: {
+                    get: vi.fn(name => (name === 'WWW-Authenticate' ? `Bearer error="insufficient_scope", scope="admin"` : null))
+                }
+            } as unknown as Response;
+
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ error: 'insufficient_scope', scope: 'admin' });
         });
     });
 

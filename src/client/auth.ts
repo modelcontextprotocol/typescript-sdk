@@ -522,9 +522,9 @@ export async function selectResourceURL(
 }
 
 /**
- * Extract resource_metadata and scope from WWW-Authenticate header.
+ * Extract resource_metadata, scope, and error from WWW-Authenticate header.
  */
-export function extractWWWAuthenticateParams(res: Response): { resourceMetadataUrl?: URL; scope?: string } {
+export function extractWWWAuthenticateParams(res: Response): { resourceMetadataUrl?: URL; scope?: string; error?: string } {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
     if (!authenticateHeader) {
         return {};
@@ -547,10 +547,12 @@ export function extractWWWAuthenticateParams(res: Response): { resourceMetadataU
     }
 
     const scope = extractFieldFromWwwAuth(res, 'scope') || undefined;
+    const error = extractFieldFromWwwAuth(res, 'error') || undefined;
 
     return {
         resourceMetadataUrl,
-        scope
+        scope,
+        error
     };
 }
 
@@ -561,7 +563,7 @@ export function extractWWWAuthenticateParams(res: Response): { resourceMetadataU
  * @param fieldName The name of the field to extract (e.g., "realm", "nonce").
  * @returns The field value
  */
-export function extractFieldFromWwwAuth(response: Response, fieldName: string): string | null {
+function extractFieldFromWwwAuth(response: Response, fieldName: string): string | null {
     const wwwAuthHeader = response.headers.get('WWW-Authenticate');
     if (!wwwAuthHeader) {
         return null;
