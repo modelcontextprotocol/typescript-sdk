@@ -3,7 +3,7 @@
 ## Build & Test Commands
 
 ```sh
-npm run build        # Build ESM and CJS versions
+npm run build        # Build
 npm run lint         # Run ESLint
 npm test             # Run all tests
 npx jest path/to/file.test.ts  # Run specific test file

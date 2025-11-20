@@ -12,41 +12,20 @@
         "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
     },
     "engines": {
-        "node": ">=18"
+        "node": ">=20"
     },
     "keywords": [
         "modelcontextprotocol",
         "mcp"
     ],
     "exports": {
-        ".": {
-            "import": "./dist/esm/index.js",
-            "require": "./dist/cjs/index.js"
-        },
-        "./client": {
-            "import": "./dist/esm/client/index.js",
-            "require": "./dist/cjs/client/index.js"
-        },
-        "./server": {
-            "import": "./dist/esm/server/index.js",
-            "require": "./dist/cjs/server/index.js"
-        },
-        "./validation": {
-            "import": "./dist/esm/validation/index.js",
-            "require": "./dist/cjs/validation/index.js"
-        },
-        "./validation/ajv": {
-            "import": "./dist/esm/validation/ajv-provider.js",
-            "require": "./dist/cjs/validation/ajv-provider.js"
-        },
-        "./validation/cfworker": {
-            "import": "./dist/esm/validation/cfworker-provider.js",
-            "require": "./dist/cjs/validation/cfworker-provider.js"
-        },
-        "./*": {
-            "import": "./dist/esm/*",
-            "require": "./dist/cjs/*"
-        }
+        ".": "./dist/index.js",
+        "./client": "./dist/client/index.js",
+        "./server": "./dist/server/index.js",
+        "./validation": "./dist/validation/index.js",
+        "./validation/ajv": "./dist/validation/ajv-provider.js",
+        "./validation/cfworker": "./dist/validation/cfworker-provider.js",
+        "./*": "./dist/*"
     },
     "typesVersions": {
         "*": {
@@ -61,13 +40,10 @@
     "scripts": {
         "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
         "typecheck": "tsgo --noEmit",
-        "build": "npm run build:esm && npm run build:cjs",
-        "build:esm": "mkdir -p dist/esm && echo '{\"type\": \"module\"}' > dist/esm/package.json && tsc -p tsconfig.prod.json",
-        "build:esm:w": "npm run build:esm -- -w",
-        "build:cjs": "mkdir -p dist/cjs && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json && tsc -p tsconfig.cjs.json",
-        "build:cjs:w": "npm run build:cjs -- -w",
+        "build": "mkdir -p dist/ && tsc -p tsconfig.prod.json",
+        "build:w": "npm run build -- -w",
         "examples:simple-server:w": "tsx --watch src/examples/server/simpleStreamableHttp.ts --oauth",
-        "prepack": "npm run build:esm && npm run build:cjs",
+        "prepack": "npm run build",
         "lint": "eslint src/ && prettier --check .",
         "lint:fix": "eslint src/ --fix && prettier --write .",
         "check": "npm run typecheck && npm run lint",
