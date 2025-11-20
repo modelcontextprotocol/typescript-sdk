@@ -2,7 +2,6 @@
 /* eslint-disable no-constant-binary-expression */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 import { Client, getSupportedElicitationModes } from './index.js';
-import * as z from 'zod/v4';
 import {
     RequestSchema,
     NotificationSchema,
@@ -21,6 +20,165 @@ import {
 import { Transport } from '../shared/transport.js';
 import { Server } from '../server/index.js';
 import { InMemoryTransport } from '../inMemory.js';
+import * as z3 from 'zod/v3';
+import * as z4 from 'zod/v4';
+
+describe('Zod v4', () => {
+    /***
+     * Test: Type Checking
+     * Test that custom request/notification/result schemas can be used with the Client class.
+     */
+    test('should typecheck', () => {
+        const GetWeatherRequestSchema = RequestSchema.extend({
+            method: z4.literal('weather/get'),
+            params: z4.object({
+                city: z4.string()
+            })
+        });
+
+        const GetForecastRequestSchema = RequestSchema.extend({
+            method: z4.literal('weather/forecast'),
+            params: z4.object({
+                city: z4.string(),
+                days: z4.number()
+            })
+        });
+
+        const WeatherForecastNotificationSchema = NotificationSchema.extend({
+            method: z4.literal('weather/alert'),
+            params: z4.object({
+                severity: z4.enum(['warning', 'watch']),
+                message: z4.string()
+            })
+        });
+
+        const WeatherRequestSchema = GetWeatherRequestSchema.or(GetForecastRequestSchema);
+        const WeatherNotificationSchema = WeatherForecastNotificationSchema;
+        const WeatherResultSchema = ResultSchema.extend({
+            temperature: z4.number(),
+            conditions: z4.string()
+        });
+
+        type WeatherRequest = z4.infer<typeof WeatherRequestSchema>;
+        type WeatherNotification = z4.infer<typeof WeatherNotificationSchema>;
+        type WeatherResult = z4.infer<typeof WeatherResultSchema>;
+
+        // Create a typed Client for weather data
+        const weatherClient = new Client<WeatherRequest, WeatherNotification, WeatherResult>(
+            {
+                name: 'WeatherClient',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    sampling: {}
+                }
+            }
+        );
+
+        // Typecheck that only valid weather requests/notifications/results are allowed
+        false &&
+            weatherClient.request(
+                {
+                    method: 'weather/get',
+                    params: {
+                        city: 'Seattle'
+                    }
+                },
+                WeatherResultSchema
+            );
+
+        false &&
+            weatherClient.notification({
+                method: 'weather/alert',
+                params: {
+                    severity: 'warning',
+                    message: 'Storm approaching'
+                }
+            });
+    });
+});
+
+describe('Zod v3', () => {
+    /***
+     * Test: Type Checking
+     * Test that custom request/notification/result schemas can be used with the Client class.
+     */
+    test('should typecheck', () => {
+        const GetWeatherRequestSchema = z3.object({
+            ...RequestSchema.shape,
+            method: z3.literal('weather/get'),
+            params: z3.object({
+                city: z3.string()
+            })
+        });
+
+        const GetForecastRequestSchema = z3.object({
+            ...RequestSchema.shape,
+            method: z3.literal('weather/forecast'),
+            params: z3.object({
+                city: z3.string(),
+                days: z3.number()
+            })
+        });
+
+        const WeatherForecastNotificationSchema = z3.object({
+            ...NotificationSchema.shape,
+            method: z3.literal('weather/alert'),
+            params: z3.object({
+                severity: z3.enum(['warning', 'watch']),
+                message: z3.string()
+            })
+        });
+
+        const WeatherRequestSchema = GetWeatherRequestSchema.or(GetForecastRequestSchema);
+        const WeatherNotificationSchema = WeatherForecastNotificationSchema;
+        const WeatherResultSchema = z3.object({
+            ...ResultSchema.shape,
+            _meta: z3.record(z3.string(), z3.unknown()).optional(),
+            temperature: z3.number(),
+            conditions: z3.string()
+        });
+
+        type WeatherRequest = z3.infer<typeof WeatherRequestSchema>;
+        type WeatherNotification = z3.infer<typeof WeatherNotificationSchema>;
+        type WeatherResult = z3.infer<typeof WeatherResultSchema>;
+
+        // Create a typed Client for weather data
+        const weatherClient = new Client<WeatherRequest, WeatherNotification, WeatherResult>(
+            {
+                name: 'WeatherClient',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    sampling: {}
+                }
+            }
+        );
+
+        // Typecheck that only valid weather requests/notifications/results are allowed
+        false &&
+            weatherClient.request(
+                {
+                    method: 'weather/get',
+                    params: {
+                        city: 'Seattle'
+                    }
+                },
+                WeatherResultSchema
+            );
+
+        false &&
+            weatherClient.notification({
+                method: 'weather/alert',
+                params: {
+                    severity: 'warning',
+                    message: 'Storm approaching'
+                }
+            });
+    });
+});
 
 /***
  * Test: Initialize with Matching Protocol Version
@@ -904,80 +1062,6 @@ test('should apply defaults for form-mode elicitation when applyDefaults is enab
     });
 
     await client.close();
-});
-
-/***
- * Test: Type Checking
- * Test that custom request/notification/result schemas can be used with the Client class.
- */
-test('should typecheck', () => {
-    const GetWeatherRequestSchema = RequestSchema.extend({
-        method: z.literal('weather/get'),
-        params: z.object({
-            city: z.string()
-        })
-    });
-
-    const GetForecastRequestSchema = RequestSchema.extend({
-        method: z.literal('weather/forecast'),
-        params: z.object({
-            city: z.string(),
-            days: z.number()
-        })
-    });
-
-    const WeatherForecastNotificationSchema = NotificationSchema.extend({
-        method: z.literal('weather/alert'),
-        params: z.object({
-            severity: z.enum(['warning', 'watch']),
-            message: z.string()
-        })
-    });
-
-    const WeatherRequestSchema = GetWeatherRequestSchema.or(GetForecastRequestSchema);
-    const WeatherNotificationSchema = WeatherForecastNotificationSchema;
-    const WeatherResultSchema = ResultSchema.extend({
-        temperature: z.number(),
-        conditions: z.string()
-    });
-
-    type WeatherRequest = z.infer<typeof WeatherRequestSchema>;
-    type WeatherNotification = z.infer<typeof WeatherNotificationSchema>;
-    type WeatherResult = z.infer<typeof WeatherResultSchema>;
-
-    // Create a typed Client for weather data
-    const weatherClient = new Client<WeatherRequest, WeatherNotification, WeatherResult>(
-        {
-            name: 'WeatherClient',
-            version: '1.0.0'
-        },
-        {
-            capabilities: {
-                sampling: {}
-            }
-        }
-    );
-
-    // Typecheck that only valid weather requests/notifications/results are allowed
-    false &&
-        weatherClient.request(
-            {
-                method: 'weather/get',
-                params: {
-                    city: 'Seattle'
-                }
-            },
-            WeatherResultSchema
-        );
-
-    false &&
-        weatherClient.notification({
-            method: 'weather/alert',
-            params: {
-                severity: 'warning',
-                message: 'Storm approaching'
-            }
-        });
 });
 
 /***
