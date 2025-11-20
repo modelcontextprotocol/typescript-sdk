@@ -2,6 +2,7 @@ import { ZodLiteral, ZodObject, ZodType, z } from 'zod';
 import {
     CancelledNotificationSchema,
     ClientCapabilities,
+    CreateTaskResultSchema,
     ErrorCode,
     GetTaskRequest,
     GetTaskRequestSchema,
@@ -44,8 +45,8 @@ import {
 } from '../types.js';
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
-import { PendingRequest } from './request.js';
 import { isTerminal, TaskStore } from './task.js';
+import { ResponseMessage } from './responseMessage.js';
 
 /**
  * Represents a message queued for side-channel delivery via tasks/result.
@@ -454,9 +455,21 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         while (!queue.isEmpty()) {
                             const queuedMessage = queue.dequeue()!;
 
+                            // Strip relatedTask metadata when dequeuing for delivery
+                            // The metadata was used for queuing, but shouldn't be sent to the client
+                            const messageToSend = { ...queuedMessage.message };
+                            if (messageToSend.params?._meta?.[RELATED_TASK_META_KEY]) {
+                                const metaCopy = { ...messageToSend.params._meta };
+                                delete metaCopy[RELATED_TASK_META_KEY];
+                                messageToSend.params = {
+                                    ...messageToSend.params,
+                                    _meta: metaCopy
+                                };
+                            }
+
                             // Send the message on the response stream by passing the relatedRequestId
                             // This tells the transport to write the message to the tasks/result response stream
-                            await this._transport?.send(queuedMessage.message, { relatedRequestId: extra.requestId });
+                            await this._transport?.send(messageToSend, { relatedRequestId: extra.requestId });
 
                             // If it was a request, wait for the response before delivering the next message
                             if (queuedMessage.type === 'request' && queuedMessage.responseResolver) {
@@ -926,19 +939,117 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     protected abstract assertTaskHandlerCapability(method: string): void;
 
     /**
-     * Begins a request and returns a PendingRequest object for granular control over task-based execution.
+     * Sends a request and returns an AsyncGenerator that yields response messages.
+     * The generator is guaranteed to end with either a 'result' or 'error' message.
      *
-     * Do not use this method to emit notifications! Use notification() instead.
+     * @example
+     * ```typescript
+     * const stream = protocol.requestStream(request, resultSchema, options);
+     * for await (const message of stream) {
+     *   switch (message.type) {
+     *     case 'taskCreated':
+     *       console.log('Task created:', message.task.taskId);
+     *       break;
+     *     case 'taskStatus':
+     *       console.log('Task status:', message.task.status);
+     *       break;
+     *     case 'result':
+     *       console.log('Final result:', message.result);
+     *       break;
+     *     case 'error':
+     *       console.error('Error:', message.error);
+     *       break;
+     *   }
+     * }
+     * ```
      */
-    beginRequest<T extends ZodType<Result>>(
+    async *requestStream<T extends ZodType<Result>>(
         request: SendRequestT,
         resultSchema: T,
         options?: RequestOptions
-    ): PendingRequest<SendRequestT, SendNotificationT, z.infer<T>> {
+    ): AsyncGenerator<ResponseMessage<z.infer<T>>, void, void> {
+        const { task } = options ?? {};
+
+        // For non-task requests, just yield the result
+        if (!task) {
+            try {
+                const result = await this.request(request, resultSchema, options);
+                yield { type: 'result', result };
+            } catch (error) {
+                yield {
+                    type: 'error',
+                    error: error instanceof McpError ? error : new McpError(ErrorCode.InternalError, String(error))
+                };
+            }
+            return;
+        }
+
+        // For task-augmented requests, we need to poll for status
+        // First, make the request to create the task
+        let taskId: string | undefined;
+        try {
+            // Send the request and get the CreateTaskResult
+            const createResult = await this.request(request, CreateTaskResultSchema as unknown as T, options);
+
+            // Extract taskId from the result
+            if ('task' in createResult && typeof createResult.task === 'object' && createResult.task && 'taskId' in createResult.task) {
+                taskId = (createResult.task as { taskId: string }).taskId;
+                yield { type: 'taskCreated', task: createResult.task as Task };
+            } else {
+                throw new McpError(ErrorCode.InternalError, 'Task creation did not return a task');
+            }
+
+            // Poll for task completion
+            while (true) {
+                // Get current task status
+                const task = await this.getTask({ taskId }, options);
+                yield { type: 'taskStatus', task };
+
+                // Check if task is terminal
+                if (isTerminal(task.status)) {
+                    if (task.status === 'completed') {
+                        // Get the final result
+                        const result = await this.getTaskResult({ taskId }, resultSchema, options);
+                        yield { type: 'result', result };
+                    } else if (task.status === 'failed') {
+                        yield {
+                            type: 'error',
+                            error: new McpError(ErrorCode.InternalError, `Task ${taskId} failed`)
+                        };
+                    } else if (task.status === 'cancelled') {
+                        yield {
+                            type: 'error',
+                            error: new McpError(ErrorCode.InternalError, `Task ${taskId} was cancelled`)
+                        };
+                    }
+                    return;
+                }
+
+                // Wait before polling again
+                const pollInterval = task.pollInterval ?? 1000;
+                await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+                // Check if cancelled
+                options?.signal?.throwIfAborted();
+            }
+        } catch (error) {
+            yield {
+                type: 'error',
+                error: error instanceof McpError ? error : new McpError(ErrorCode.InternalError, String(error))
+            };
+        }
+    }
+
+    /**
+     * Sends a request and waits for a response.
+     *
+     * Do not use this method to emit notifications! Use notification() instead.
+     */
+    request<T extends ZodType<Result>>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<z.infer<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
 
         // Send the request
-        const result = new Promise<z.infer<T>>((resolve, reject) => {
+        return new Promise<z.infer<T>>((resolve, reject) => {
             const earlyReject = (error: unknown) => {
                 reject(error);
             };
@@ -1020,7 +1131,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     )
                     .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
 
-                reject(reason);
+                // Wrap the reason in an McpError if it isn't already
+                const error = reason instanceof McpError ? reason : new McpError(ErrorCode.RequestTimeout, String(reason));
+                reject(error);
             };
 
             this._responseHandlers.set(messageId, response => {
@@ -1081,22 +1194,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     return;
                 }
 
-                // Try sending through transport (will be delivered via queue if transport fails)
-                try {
-                    this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
-                        this._onerror(
-                            new Error(
-                                `Transport send failed for queued message (this is expected for unidirectional transports): ${error.message}`
-                            )
-                        );
-                    });
-                } catch (error) {
-                    this._onerror(
-                        new Error(
-                            `Transport send failed synchronously for queued message (this is expected for unidirectional transports): ${error instanceof Error ? error.message : String(error)}`
-                        )
-                    );
-                }
+                // Don't send through transport - queued messages are delivered via tasks/result only
+                // This prevents duplicate delivery for bidirectional transports
             } else {
                 // No related task - send through transport normally
                 this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
@@ -1105,23 +1204,6 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 });
             }
         });
-
-        return new PendingRequest(
-            this as unknown as Protocol<SendRequestT, SendNotificationT, z.infer<T>>,
-            result,
-            resultSchema,
-            undefined,
-            this._options?.defaultTaskPollInterval
-        );
-    }
-
-    /**
-     * Sends a request and waits for a response.
-     *
-     * Do not use this method to emit notifications! Use notification() instead.
-     */
-    request<T extends ZodType<Result>>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<z.infer<T>> {
-        return this.beginRequest(request, resultSchema, options).result();
     }
 
     /**
@@ -1195,22 +1277,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             // Notify any waiting tasks/result calls
             this._notifyTaskResultWaiters(relatedTaskId);
 
-            // Try sending through transport (will be delivered via queue if transport fails)
-            try {
-                this._transport.send(jsonrpcNotification, options).catch(error => {
-                    this._onerror(
-                        new Error(
-                            `Transport send failed for queued notification (this is expected for unidirectional transports): ${error.message}`
-                        )
-                    );
-                });
-            } catch (error) {
-                this._onerror(
-                    new Error(
-                        `Transport send failed synchronously for queued notification (this is expected for unidirectional transports): ${error instanceof Error ? error.message : String(error)}`
-                    )
-                );
-            }
+            // Don't send through transport - queued messages are delivered via tasks/result only
+            // This prevents duplicate delivery for bidirectional transports
             return;
         }
 
@@ -1521,7 +1589,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                     if (isTerminal(task.status)) {
                         this._cleanupTaskProgressHandler(taskId);
-                        this._clearTaskQueue(taskId);
+                        // Don't clear queue here - it will be cleared after delivery via tasks/result
+                        // this._clearTaskQueue(taskId);
                     }
                 }
             },
@@ -1561,7 +1630,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                         if (isTerminal(updatedTask.status)) {
                             this._cleanupTaskProgressHandler(taskId);
-                            this._clearTaskQueue(taskId);
+                            // Don't clear queue here - it will be cleared after delivery via tasks/result
+                            // this._clearTaskQueue(taskId);
                         }
                     }
                 } catch (error) {

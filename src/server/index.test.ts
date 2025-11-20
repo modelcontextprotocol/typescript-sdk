@@ -13,6 +13,7 @@ import {
     ListResourcesRequestSchema,
     ListToolsRequestSchema,
     type LoggingMessageNotification,
+    McpError,
     NotificationSchema,
     RequestSchema,
     ResultSchema,
@@ -263,7 +264,7 @@ test('should respect client capabilities', async () => {
     ).resolves.not.toThrow();
 
     // This should still throw because roots are not supported by the client
-    await expect(server.listRoots()).rejects.toThrow(/^Client does not support/);
+    await expect(server.listRoots()).rejects.toThrow(/Client does not support/);
 });
 
 test('should respect client elicitation capabilities', async () => {
@@ -345,7 +346,7 @@ test('should respect client elicitation capabilities', async () => {
             messages: [],
             maxTokens: 10
         })
-    ).rejects.toThrow(/^Client does not support/);
+    ).rejects.toThrow(/Client does not support/);
 });
 
 test('should validate elicitation response against requested schema', async () => {
@@ -753,8 +754,8 @@ test('should handle server cancelling a request', async () => {
     );
     controller.abort('Cancelled by test');
 
-    // Request should be rejected
-    await expect(createMessagePromise).rejects.toBe('Cancelled by test');
+    // Request should be rejected with an McpError
+    await expect(createMessagePromise).rejects.toThrow(McpError);
 });
 
 test('should handle request timeout', async () => {
@@ -1043,14 +1044,13 @@ describe('Task-based execution', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         // Use beginCallTool to create a task
-        const pendingRequest = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+        await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
             task: {
                 ttl: 60000
             }
         });
 
         // Wait for the task to complete
-        await pendingRequest.result();
 
         // Get the task ID from the task list since it's generated automatically
         const taskList = await client.listTasks();
@@ -1274,14 +1274,13 @@ describe('Task-based execution', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         // Call tool WITH task creation
-        const pendingRequest = client.beginCallTool({ name: 'collect-info', arguments: {} }, CallToolResultSchema, {
+        await client.callTool({ name: 'collect-info', arguments: {} }, CallToolResultSchema, {
             task: {
                 ttl: 60000
             }
         });
 
         // Wait for completion
-        await pendingRequest.result();
 
         // Verify the nested elicitation request was made (related-task metadata is no longer automatically attached)
         expect(capturedElicitRequest).toBeDefined();
@@ -1375,7 +1374,7 @@ describe('Task-based execution', () => {
                 content: z.record(z.unknown()).optional()
             });
 
-            const pendingRequest = server.beginRequest(
+            await server.request(
                 {
                     method: 'elicitation/create',
                     params: {
@@ -1393,8 +1392,6 @@ describe('Task-based execution', () => {
                 ElicitResultSchema,
                 { task: { ttl: 60000 } }
             );
-
-            await pendingRequest.result();
 
             // Get the task ID from the task list since it's generated automatically
             const taskList = await server.listTasks();
@@ -1466,7 +1463,7 @@ describe('Task-based execution', () => {
                 content: z.record(z.unknown()).optional()
             });
 
-            const pending = server.beginRequest(
+            await server.request(
                 {
                     method: 'elicitation/create',
                     params: {
@@ -1480,7 +1477,6 @@ describe('Task-based execution', () => {
                 ElicitResultSchema,
                 { task: { ttl: 60000 } }
             );
-            await pending.result();
 
             // Get the task ID from the task list since it's generated automatically
             const taskList = await server.listTasks();
@@ -1554,7 +1550,7 @@ describe('Task-based execution', () => {
                 content: z.record(z.unknown()).optional()
             });
 
-            const pending = server.beginRequest(
+            await server.request(
                 {
                     method: 'elicitation/create',
                     params: {
@@ -1571,7 +1567,6 @@ describe('Task-based execution', () => {
                 ElicitResultSchema,
                 { task: { ttl: 60000 } }
             );
-            await pending.result();
 
             // Get the task ID from the task list since it's generated automatically
             const taskList = await server.listTasks();
@@ -1659,7 +1654,7 @@ describe('Task-based execution', () => {
 
             const createdTaskIds: string[] = [];
             for (let i = 0; i < 2; i++) {
-                const pending = server.beginRequest(
+                await server.request(
                     {
                         method: 'elicitation/create',
                         params: {
@@ -1673,7 +1668,6 @@ describe('Task-based execution', () => {
                     ElicitResultSchema,
                     { task: { ttl: 60000 } }
                 );
-                await pending.result();
 
                 // Get the task ID from the task list
                 const taskList = await server.listTasks();
@@ -1789,13 +1783,13 @@ describe('Task-based execution', () => {
 
         // Create multiple tasks concurrently
         const pendingRequests = Array.from({ length: 4 }, (_, index) =>
-            client.beginCallTool({ name: 'async-tool', arguments: { delay: 10 + index * 5, taskNum: index + 1 } }, CallToolResultSchema, {
+            client.callTool({ name: 'async-tool', arguments: { delay: 10 + index * 5, taskNum: index + 1 } }, CallToolResultSchema, {
                 task: { ttl: 60000 }
             })
         );
 
         // Wait for all tasks to complete
-        await Promise.all(pendingRequests.map(p => p.result()));
+        await Promise.all(pendingRequests);
 
         // Get all task IDs from the task list
         const taskList = await client.listTasks();
@@ -2026,21 +2020,22 @@ test('should respect client task capabilities', async () => {
     });
 
     // These should work because client supports tasks
-    const pendingRequest = server.beginRequest(
-        {
-            method: 'elicitation/create',
-            params: {
-                message: 'Test',
-                requestedSchema: {
-                    type: 'object',
-                    properties: { username: { type: 'string' } }
+    await expect(
+        server.request(
+            {
+                method: 'elicitation/create',
+                params: {
+                    message: 'Test',
+                    requestedSchema: {
+                        type: 'object',
+                        properties: { username: { type: 'string' } }
+                    }
                 }
-            }
-        },
-        ElicitResultSchema,
-        { task: { ttl: 60000 } }
-    );
-    await expect(pendingRequest.result()).resolves.not.toThrow();
+            },
+            ElicitResultSchema,
+            { task: { ttl: 60000 } }
+        )
+    ).resolves.not.toThrow();
     await expect(server.listTasks()).resolves.not.toThrow();
 
     // Get the task ID from the task list since it's generated automatically
@@ -2051,23 +2046,21 @@ test('should respect client task capabilities', async () => {
 
     // This should throw because client doesn't support task creation for sampling/createMessage
     await expect(
-        server
-            .beginRequest(
-                {
-                    method: 'sampling/createMessage',
-                    params: {
-                        messages: [],
-                        maxTokens: 10
-                    }
-                },
-                z.object({
-                    model: z.string(),
-                    role: z.string(),
-                    content: z.any()
-                }),
-                { task: { taskId: 'test-task-2', keepAlive: 60000 } }
-            )
-            .result()
+        server.request(
+            {
+                method: 'sampling/createMessage',
+                params: {
+                    messages: [],
+                    maxTokens: 10
+                }
+            },
+            z.object({
+                model: z.string(),
+                role: z.string(),
+                content: z.any()
+            }),
+            { task: { taskId: 'test-task-2', keepAlive: 60000 } }
+        )
     ).rejects.toThrow('Client does not support task creation for sampling/createMessage');
 
     clientTaskStore.cleanup();

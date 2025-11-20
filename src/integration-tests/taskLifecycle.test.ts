@@ -1056,9 +1056,9 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(task.status).toBe('cancelled');
 
             // Attempt to call tasks/result
-            // According to Requirement 4.2: "WHEN a task is cancelled THEN the system SHALL
-            // clear the message queue and reject any pending message delivery promises"
-            // This means NO messages should be delivered for a cancelled task
+            // When a task is cancelled, the system needs to clear the message queue
+            // and reject any pending message delivery promises, meaning no further
+            // messages should be delivered for a cancelled task.
             try {
                 await client.request(
                     {
@@ -1072,8 +1072,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 // This is acceptable behavior
             }
 
-            // Verify no elicitation messages were delivered
-            // This validates Property 12: queue should be cleared immediately on cancellation
+            // Verify no elicitation messages were delivered, as the queue should be cleared immediately on cancellation
             expect(elicitationCallCount).toBe(0);
 
             // Verify queue remains cleared on subsequent calls

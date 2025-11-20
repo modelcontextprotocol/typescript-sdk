@@ -17,7 +17,8 @@ import {
     CreateMessageRequestSchema,
     ElicitRequestSchema,
     ListRootsRequestSchema,
-    ErrorCode
+    ErrorCode,
+    McpError
 } from '../types.js';
 import { Transport } from '../shared/transport.js';
 import { Server } from '../server/index.js';
@@ -719,8 +720,8 @@ test('should handle client cancelling a request', async () => {
     });
     controller.abort('Cancelled by test');
 
-    // Request should be rejected
-    await expect(listResourcesPromise).rejects.toBe('Cancelled by test');
+    // Request should be rejected with an McpError
+    await expect(listResourcesPromise).rejects.toThrow(McpError);
 });
 
 /***
@@ -1412,13 +1413,11 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Client creates task on server via tool call
-            const pendingRequest = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+            await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
                 task: {
                     ttl: 60000
                 }
             });
-
-            await pendingRequest.result();
 
             // Verify task was created successfully by listing tasks
             const taskList = await client.listTasks();
@@ -1498,10 +1497,9 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Create a task
-            const pending = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+            await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
                 task: { ttl: 60000 }
             });
-            await pending.result();
 
             // Query task status by listing tasks and getting the first one
             const taskList = await client.listTasks();
@@ -1584,10 +1582,9 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Create a task
-            const pending = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+            await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
                 task: { ttl: 60000 }
             });
-            await pending.result();
 
             // Get the task ID from the task list and query task result
             const taskList = await client.listTasks();
@@ -1670,10 +1667,9 @@ describe('Task-based execution', () => {
             const createdTaskIds: string[] = [];
 
             for (let i = 0; i < 2; i++) {
-                const pending = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+                await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
                     task: { ttl: 60000 }
                 });
-                await pending.result();
 
                 // Get the task ID from the task list
                 const taskList = await client.listTasks();
@@ -1781,7 +1777,7 @@ describe('Task-based execution', () => {
                 content: z.record(z.unknown()).optional()
             });
 
-            const pendingRequest = server.beginRequest(
+            await server.request(
                 {
                     method: 'elicitation/create',
                     params: {
@@ -1798,8 +1794,6 @@ describe('Task-based execution', () => {
                 ElicitResultSchema,
                 { task: { ttl: 60000 } }
             );
-
-            await pendingRequest.result();
 
             // Get the task ID from the task list since it's generated automatically
             const taskList = await server.listTasks();
@@ -1884,7 +1878,7 @@ describe('Task-based execution', () => {
                 content: z.record(z.unknown()).optional()
             });
 
-            const pending = server.beginRequest(
+            const pending = server.request(
                 {
                     method: 'elicitation/create',
                     params: {
@@ -1898,7 +1892,6 @@ describe('Task-based execution', () => {
                 ElicitResultSchema,
                 { task: { ttl: 60000 } }
             );
-            await pending.result();
 
             // Get the task ID from the task list since it's generated automatically
             const taskList = await server.listTasks();
@@ -1985,7 +1978,7 @@ describe('Task-based execution', () => {
                 content: z.record(z.unknown()).optional()
             });
 
-            const pending = server.beginRequest(
+            const pending = server.request(
                 {
                     method: 'elicitation/create',
                     params: {
@@ -1999,7 +1992,6 @@ describe('Task-based execution', () => {
                 ElicitResultSchema,
                 { task: { ttl: 60000 } }
             );
-            await pending.result();
 
             // Get the task ID from the task list since it's generated automatically
             const taskList = await server.listTasks();
@@ -2087,7 +2079,7 @@ describe('Task-based execution', () => {
 
             const createdTaskIds: string[] = [];
             for (let i = 0; i < 2; i++) {
-                const pending = server.beginRequest(
+                const pending = server.request(
                     {
                         method: 'elicitation/create',
                         params: {
@@ -2101,7 +2093,6 @@ describe('Task-based execution', () => {
                     ElicitResultSchema,
                     { task: { ttl: 60000 } }
                 );
-                await pending.result();
 
                 // Get the task ID from the task list
                 const taskList = await server.listTasks();
@@ -2213,10 +2204,9 @@ describe('Task-based execution', () => {
         const createdTaskIds: string[] = [];
 
         for (let i = 0; i < 3; i++) {
-            const pending = client.beginCallTool({ name: 'test-tool', arguments: { id: `task-${i + 1}` } }, CallToolResultSchema, {
+            await client.callTool({ name: 'test-tool', arguments: { id: `task-${i + 1}` } }, CallToolResultSchema, {
                 task: { ttl: 60000 }
             });
-            await pending.result();
 
             // Get the task ID from the task list
             const taskList = await client.listTasks();
@@ -2467,10 +2457,11 @@ test('should respect server task capabilities', async () => {
     });
 
     // These should work because server supports tasks
-    const pendingRequest = client.beginCallTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
-        task: { ttl: 60000 }
-    });
-    await expect(pendingRequest.result()).resolves.not.toThrow();
+    await expect(
+        client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+            task: { ttl: 60000 }
+        })
+    ).resolves.not.toThrow();
     await expect(client.listTasks()).resolves.not.toThrow();
 
     // tools/list doesn't support task creation, but it shouldn't throw - it should just ignore the task metadata
@@ -2485,4 +2476,205 @@ test('should respect server task capabilities', async () => {
     ).resolves.not.toThrow();
 
     serverTaskStore.cleanup();
+});
+
+/**
+ * Test: requestStream() method
+ */
+test('should expose requestStream() method for streaming responses', async () => {
+    const server = new Server(
+        {
+            name: 'test-server',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                tools: {}
+            }
+        }
+    );
+
+    server.setRequestHandler(CallToolRequestSchema, async () => {
+        return {
+            content: [{ type: 'text', text: 'Tool result' }]
+        };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // First verify that regular request() works
+    const regularResult = await client.callTool({ name: 'test-tool', arguments: {} });
+    expect(regularResult.content).toEqual([{ type: 'text', text: 'Tool result' }]);
+
+    // Test requestStream with non-task request (should yield only result)
+    const stream = client.requestStream(
+        {
+            method: 'tools/call',
+            params: { name: 'test-tool', arguments: {} }
+        },
+        CallToolResultSchema
+    );
+
+    const messages = [];
+    for await (const message of stream) {
+        messages.push(message);
+    }
+
+    // Should have received only a result message (no task messages)
+    expect(messages.length).toBe(1);
+    expect(messages[0].type).toBe('result');
+    if (messages[0].type === 'result') {
+        expect(messages[0].result.content).toEqual([{ type: 'text', text: 'Tool result' }]);
+    }
+
+    await client.close();
+    await server.close();
+});
+
+/**
+ * Test: callToolStream() method
+ */
+test('should expose callToolStream() method for streaming tool calls', async () => {
+    const server = new Server(
+        {
+            name: 'test-server',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                tools: {}
+            }
+        }
+    );
+
+    server.setRequestHandler(CallToolRequestSchema, async () => {
+        return {
+            content: [{ type: 'text', text: 'Tool result' }]
+        };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Test callToolStream
+    const stream = client.callToolStream({ name: 'test-tool', arguments: {} });
+
+    const messages = [];
+    for await (const message of stream) {
+        messages.push(message);
+    }
+
+    // Should have received messages ending with result
+    expect(messages.length).toBe(1);
+    expect(messages[0].type).toBe('result');
+    if (messages[0].type === 'result') {
+        expect(messages[0].result.content).toEqual([{ type: 'text', text: 'Tool result' }]);
+    }
+
+    await client.close();
+    await server.close();
+});
+
+/**
+ * Test: callToolStream() with output schema validation
+ */
+test('should validate structured output in callToolStream()', async () => {
+    const server = new Server(
+        {
+            name: 'test-server',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                tools: {}
+            }
+        }
+    );
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => {
+        return {
+            tools: [
+                {
+                    name: 'structured-tool',
+                    description: 'A tool with output schema',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {}
+                    },
+                    outputSchema: {
+                        type: 'object',
+                        properties: {
+                            value: { type: 'number' }
+                        },
+                        required: ['value']
+                    }
+                }
+            ]
+        };
+    });
+
+    server.setRequestHandler(CallToolRequestSchema, async () => {
+        return {
+            content: [{ type: 'text', text: 'Result' }],
+            structuredContent: { value: 42 }
+        };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // List tools to cache the output schema
+    await client.listTools();
+
+    // Test callToolStream with valid structured output
+    const stream = client.callToolStream({ name: 'structured-tool', arguments: {} });
+
+    const messages = [];
+    for await (const message of stream) {
+        messages.push(message);
+    }
+
+    // Should have received result with validated structured content
+    expect(messages.length).toBe(1);
+    expect(messages[0].type).toBe('result');
+    if (messages[0].type === 'result') {
+        expect(messages[0].result.structuredContent).toEqual({ value: 42 });
+    }
+
+    await client.close();
+    await server.close();
 });

@@ -807,13 +807,11 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
     console.log('Arguments:', args);
 
     // Use task-based execution - call now, fetch later
-    const taskId = `task-${Date.now()}`;
-    console.log(`Task ID: ${taskId}`);
     console.log('This will return immediately while processing continues in the background...');
 
     try {
-        // Begin the tool call with task metadata
-        const pendingRequest = client.beginCallTool(
+        // Call the tool with task metadata using streaming API
+        const stream = client.callToolStream(
             {
                 name,
                 arguments: args
@@ -821,7 +819,6 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
             CallToolResultSchema,
             {
                 task: {
-                    taskId,
                     ttl: 60000 // Keep results for 60 seconds
                 }
             }
@@ -830,29 +827,30 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
         console.log('Waiting for task completion...');
 
         let lastStatus = '';
-        await pendingRequest.result({
-            onTaskCreated: () => {
-                console.log('Task created successfully');
-            },
-            onTaskStatus: task => {
-                if (lastStatus !== task.status) {
-                    console.log(`  ${task.status}${task.statusMessage ? ` - ${task.statusMessage}` : ''}`);
-                }
-                lastStatus = task.status;
+        for await (const message of stream) {
+            switch (message.type) {
+                case 'taskCreated':
+                    console.log('Task created successfully');
+                    break;
+                case 'taskStatus':
+                    if (lastStatus !== message.task.status) {
+                        console.log(`  ${message.task.status}${message.task.statusMessage ? ` - ${message.task.statusMessage}` : ''}`);
+                    }
+                    lastStatus = message.task.status;
+                    break;
+                case 'result':
+                    console.log('Task completed!');
+                    console.log('Tool result:');
+                    message.result.content.forEach(item => {
+                        if (item.type === 'text') {
+                            console.log(`  ${item.text}`);
+                        }
+                    });
+                    break;
+                case 'error':
+                    throw message.error;
             }
-        });
-
-        console.log('Task completed! Fetching result...');
-
-        // Get the actual result
-        const result = await client.getTaskResult({ taskId }, CallToolResultSchema);
-
-        console.log('Tool result:');
-        result.content.forEach(item => {
-            if (item.type === 'text') {
-                console.log(`  ${item.text}`);
-            }
-        });
+        }
     } catch (error) {
         console.log(`Error with task-based execution: ${error}`);
     }

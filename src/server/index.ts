@@ -1,4 +1,5 @@
 import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
+import { ResponseMessage } from '../shared/responseMessage.js';
 import {
     type ClientCapabilities,
     type CreateMessageRequest,
@@ -33,6 +34,7 @@ import {
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
+import { type ZodType, z } from 'zod';
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -377,6 +379,47 @@ export class Server<
 
     private getCapabilities(): ServerCapabilities {
         return this._capabilities;
+    }
+
+    /**
+     * Sends a request and returns an AsyncGenerator that yields response messages.
+     * The generator is guaranteed to end with either a 'result' or 'error' message.
+     *
+     * This method provides streaming access to request processing, allowing you to
+     * observe intermediate task status updates for task-augmented requests.
+     *
+     * @example
+     * ```typescript
+     * const stream = server.requestStream(request, resultSchema, options);
+     * for await (const message of stream) {
+     *   switch (message.type) {
+     *     case 'taskCreated':
+     *       console.log('Task created:', message.task.taskId);
+     *       break;
+     *     case 'taskStatus':
+     *       console.log('Task status:', message.task.status);
+     *       break;
+     *     case 'result':
+     *       console.log('Final result:', message.result);
+     *       break;
+     *     case 'error':
+     *       console.error('Error:', message.error);
+     *       break;
+     *   }
+     * }
+     * ```
+     *
+     * @param request - The request to send
+     * @param resultSchema - Zod schema for validating the result
+     * @param options - Optional request options (timeout, signal, task creation params, etc.)
+     * @returns AsyncGenerator that yields ResponseMessage objects
+     */
+    requestStream<T extends ZodType<Result>>(
+        request: ServerRequest | RequestT,
+        resultSchema: T,
+        options?: RequestOptions
+    ): AsyncGenerator<ResponseMessage<z.infer<T>>, void, void> {
+        return super.requestStream(request, resultSchema, options);
     }
 
     async ping() {

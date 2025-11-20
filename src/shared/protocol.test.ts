@@ -3,6 +3,7 @@ import {
     CallToolRequestSchema,
     ClientCapabilities,
     ErrorCode,
+    JSONRPCMessage,
     McpError,
     Notification,
     RELATED_TASK_META_KEY,
@@ -14,10 +15,11 @@ import {
     TaskCreationParams
 } from '../types.js';
 import { Protocol, mergeCapabilities, TaskMessageQueue } from './protocol.js';
-import { Transport } from './transport.js';
+import { Transport, TransportSendOptions } from './transport.js';
 import { TaskStore } from './task.js';
 import { MockInstance, vi } from 'vitest';
 import { JSONRPCResponse, JSONRPCRequest, JSONRPCError } from '../types.js';
+import { ErrorMessage, ResponseMessage } from './responseMessage.js';
 
 // Type helper for accessing private Protocol properties in tests
 interface TestProtocol {
@@ -40,7 +42,7 @@ class MockTransport implements Transport {
     async close(): Promise<void> {
         this.onclose?.();
     }
-    async send(_message: unknown): Promise<void> {}
+    async send(_message: JSONRPCMessage, _options?: TransportSendOptions): Promise<void> {}
 }
 
 function createMockTaskStore(options?: {
@@ -114,6 +116,21 @@ function createLatch() {
         },
         waitForLatch
     };
+}
+
+type AsyncGeneratorValue<T> = T extends AsyncGenerator<infer U> ? U : never;
+
+async function toArrayAsync<T extends AsyncGenerator<unknown>>(it: T): Promise<AsyncGeneratorValue<T>[]> {
+    const arr: AsyncGeneratorValue<T>[] = [];
+    for await (const o of it) {
+        arr.push(o as AsyncGeneratorValue<T>);
+    }
+
+    return arr;
+}
+
+function assertErrorResponse(o: ResponseMessage<Result>): asserts o is ErrorMessage {
+    expect(o.type).toBe('error');
 }
 
 describe('protocol tests', () => {
@@ -193,9 +210,14 @@ describe('protocol tests', () => {
             });
             const onProgressMock = vi.fn();
 
-            protocol.request(request, mockSchema, {
-                onprogress: onProgressMock
-            });
+            // Start request but don't await - we're testing the sent message
+            void protocol
+                .request(request, mockSchema, {
+                    onprogress: onProgressMock
+                })
+                .catch(() => {
+                    // May not complete, ignore error
+                });
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -228,9 +250,14 @@ describe('protocol tests', () => {
             });
             const onProgressMock = vi.fn();
 
-            protocol.request(request, mockSchema, {
-                onprogress: onProgressMock
-            });
+            // Start request but don't await - we're testing the sent message
+            void protocol
+                .request(request, mockSchema, {
+                    onprogress: onProgressMock
+                })
+                .catch(() => {
+                    // May not complete, ignore error
+                });
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -263,7 +290,10 @@ describe('protocol tests', () => {
                 result: z.string()
             });
 
-            protocol.request(request, mockSchema);
+            // Start request but don't await - we're testing the sent message
+            void protocol.request(request, mockSchema).catch(() => {
+                // May not complete, ignore error
+            });
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -291,9 +321,14 @@ describe('protocol tests', () => {
             });
             const onProgressMock = vi.fn();
 
-            protocol.request(request, mockSchema, {
-                onprogress: onProgressMock
-            });
+            // Start request but don't await - we're testing the sent message
+            void protocol
+                .request(request, mockSchema, {
+                    onprogress: onProgressMock
+                })
+                .catch(() => {
+                    // May not complete, ignore error
+                });
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -1056,7 +1091,7 @@ describe('Task-based execution', () => {
         })();
     });
 
-    describe('beginRequest with task metadata', () => {
+    describe('request with task metadata', () => {
         it('should include task parameters at top level', async () => {
             await protocol.connect(transport);
 
@@ -1069,12 +1104,16 @@ describe('Task-based execution', () => {
                 content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
             });
 
-            protocol.beginRequest(request, resultSchema, {
-                task: {
-                    ttl: 30000,
-                    pollInterval: 1000
-                }
-            });
+            void protocol
+                .request(request, resultSchema, {
+                    task: {
+                        ttl: 30000,
+                        pollInterval: 1000
+                    }
+                })
+                .catch(() => {
+                    // May not complete, ignore error
+                });
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -1108,11 +1147,15 @@ describe('Task-based execution', () => {
                 content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
             });
 
-            protocol.beginRequest(request, resultSchema, {
-                task: {
-                    ttl: 60000
-                }
-            });
+            void protocol
+                .request(request, resultSchema, {
+                    task: {
+                        ttl: 60000
+                    }
+                })
+                .catch(() => {
+                    // May not complete, ignore error
+                });
 
             expect(sendSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -1130,7 +1173,7 @@ describe('Task-based execution', () => {
             );
         });
 
-        it('should return PendingRequest object', async () => {
+        it('should return Promise for task-augmented request', async () => {
             await protocol.connect(transport);
 
             const request = {
@@ -1142,14 +1185,14 @@ describe('Task-based execution', () => {
                 content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
             });
 
-            const pendingRequest = protocol.beginRequest(request, resultSchema, {
+            const resultPromise = protocol.request(request, resultSchema, {
                 task: {
                     ttl: 30000
                 }
             });
 
-            expect(pendingRequest).toBeDefined();
-            expect(pendingRequest.taskId).toBeUndefined(); // taskId is generated by receiver, not provided by client
+            expect(resultPromise).toBeDefined();
+            expect(resultPromise).toBeInstanceOf(Promise);
         });
     });
 
@@ -1164,25 +1207,28 @@ describe('Task-based execution', () => {
 
             const resultSchema = z.object({});
 
-            protocol.beginRequest(request, resultSchema, {
-                relatedTask: {
-                    taskId: 'parent-task-123'
-                }
-            });
-
-            expect(sendSpy).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    params: {
-                        data: 'test',
-                        _meta: {
-                            [RELATED_TASK_META_KEY]: {
-                                taskId: 'parent-task-123'
-                            }
-                        }
+            // Start the request (don't await completion, just let it send)
+            void protocol
+                .request(request, resultSchema, {
+                    relatedTask: {
+                        taskId: 'parent-task-123'
                     }
-                }),
-                expect.any(Object)
-            );
+                })
+                .catch(() => {
+                    // May not complete, ignore error
+                });
+
+            // Wait a bit for the request to be queued
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Requests with relatedTask should be queued, not sent via transport
+            // This prevents duplicate delivery for bidirectional transports
+            expect(sendSpy).not.toHaveBeenCalled();
+
+            // Verify the message was queued
+            const queue = (protocol as unknown as TestProtocol)._taskMessageQueues.get('parent-task-123');
+            expect(queue).toBeDefined();
+            expect(queue!.size()).toBeGreaterThan(0);
         });
 
         it('should work with notification method', async () => {
@@ -1200,21 +1246,20 @@ describe('Task-based execution', () => {
                 }
             );
 
-            expect(sendSpy).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    method: 'notifications/message',
-                    params: {
-                        level: 'info',
-                        data: 'test message',
-                        _meta: {
-                            [RELATED_TASK_META_KEY]: {
-                                taskId: 'parent-task-456'
-                            }
-                        }
-                    }
-                }),
-                expect.any(Object)
-            );
+            // Notifications with relatedTask should be queued, not sent via transport
+            // This prevents duplicate delivery for bidirectional transports
+            expect(sendSpy).not.toHaveBeenCalled();
+
+            // Verify the message was queued
+            const queue = (protocol as unknown as TestProtocol)._taskMessageQueues.get('parent-task-456');
+            expect(queue).toBeDefined();
+            expect(queue!.size()).toBe(1);
+
+            const queuedMessage = queue!.dequeue();
+            expect(queuedMessage).toBeDefined();
+            expect(queuedMessage?.type).toBe('notification');
+            expect(queuedMessage?.message.method).toBe('notifications/message');
+            expect(queuedMessage!.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({ taskId: 'parent-task-456' });
         });
     });
 
@@ -1231,35 +1276,50 @@ describe('Task-based execution', () => {
                 content: z.array(z.object({ type: z.literal('text'), text: z.string() }))
             });
 
-            protocol.beginRequest(request, resultSchema, {
+            // Start the request (don't await completion, just let it send)
+            void protocol
+                .request(request, resultSchema, {
+                    task: {
+                        ttl: 60000,
+                        pollInterval: 1000
+                    },
+                    relatedTask: {
+                        taskId: 'parent-task'
+                    },
+                    onprogress: vi.fn()
+                })
+                .catch(() => {
+                    // May not complete, ignore error
+                });
+
+            // Wait a bit for the request to be queued
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Requests with relatedTask should be queued, not sent via transport
+            // This prevents duplicate delivery for bidirectional transports
+            expect(sendSpy).not.toHaveBeenCalled();
+
+            // Verify the message was queued with all metadata combined
+            const queue = (protocol as unknown as TestProtocol)._taskMessageQueues.get('parent-task');
+            expect(queue).toBeDefined();
+            expect(queue!.size()).toBeGreaterThan(0);
+
+            const queuedMessage = queue!.dequeue();
+            expect(queuedMessage).toBeDefined();
+            expect(queuedMessage?.type).toBe('request');
+            expect(queuedMessage?.message.params).toMatchObject({
+                name: 'test-tool',
                 task: {
                     ttl: 60000,
                     pollInterval: 1000
                 },
-                relatedTask: {
-                    taskId: 'parent-task'
-                },
-                onprogress: vi.fn()
+                _meta: {
+                    [RELATED_TASK_META_KEY]: {
+                        taskId: 'parent-task'
+                    },
+                    progressToken: expect.any(Number)
+                }
             });
-
-            expect(sendSpy).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    params: {
-                        name: 'test-tool',
-                        task: {
-                            ttl: 60000,
-                            pollInterval: 1000
-                        },
-                        _meta: {
-                            [RELATED_TASK_META_KEY]: {
-                                taskId: 'parent-task'
-                            },
-                            progressToken: expect.any(Number)
-                        }
-                    }
-                }),
-                expect.any(Object)
-            );
         });
     });
 
@@ -1996,7 +2056,15 @@ describe('Task-based execution', () => {
             });
 
             // Send a request with related-task metadata
-            serverTransport.onmessage?.({
+            let handlerPromise: Promise<void> | undefined;
+            const originalOnMessage = serverTransport.onmessage;
+
+            serverTransport.onmessage = message => {
+                handlerPromise = Promise.resolve(originalOnMessage?.(message));
+                return handlerPromise;
+            };
+
+            serverTransport.onmessage({
                 jsonrpc: '2.0',
                 id: 1,
                 method: 'tools/call',
@@ -2010,23 +2078,32 @@ describe('Task-based execution', () => {
                 }
             });
 
-            // Wait for async processing
-            await new Promise(resolve => setTimeout(resolve, 50));
+            // Wait for handler to complete
+            if (handlerPromise) {
+                await handlerPromise;
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
 
-            // Verify the notification includes related-task metadata
-            expect(sendSpy).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    method: 'notifications/message',
-                    params: expect.objectContaining({
-                        _meta: expect.objectContaining({
-                            [RELATED_TASK_META_KEY]: {
-                                taskId: 'parent-task-123'
-                            }
-                        })
-                    })
-                }),
-                expect.any(Object)
-            );
+            // Verify the notification was QUEUED (not sent via transport)
+            // Messages with relatedTask metadata should be queued for delivery via tasks/result
+            // to prevent duplicate delivery for bidirectional transports
+            const queues = (serverProtocol as unknown as TestProtocol)._taskMessageQueues;
+            expect(queues.has('parent-task-123')).toBe(true);
+
+            const queue = queues.get('parent-task-123')!;
+            expect(queue.size()).toBeGreaterThan(0);
+
+            const queuedMessage = queue.dequeue();
+            expect(queuedMessage).toBeDefined();
+            expect(queuedMessage?.type).toBe('notification');
+            expect(queuedMessage?.message.method).toBe('notifications/message');
+            expect(queuedMessage!.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({
+                taskId: 'parent-task-123'
+            });
+
+            // Verify the notification was NOT sent via transport (should be queued instead)
+            const notificationCalls = sendSpy.mock.calls.filter(call => 'method' in call[0] && call[0].method === 'notifications/message');
+            expect(notificationCalls).toHaveLength(0);
         });
     });
 });
@@ -2371,10 +2448,17 @@ describe('Progress notification support for tasks', () => {
         });
 
         // Start a task-augmented request with progress callback
-        protocol.beginRequest(request, resultSchema, {
-            task: { ttl: 60000 },
-            onprogress: progressCallback
-        });
+        void protocol
+            .request(request, resultSchema, {
+                task: { ttl: 60000 },
+                onprogress: progressCallback
+            })
+            .catch(() => {
+                // May not complete, ignore error
+            });
+
+        // Wait a bit for the request to be sent
+        await new Promise(resolve => setTimeout(resolve, 10));
 
         // Get the message ID from the sent request
         const sentRequest = sendSpy.mock.calls[0][0] as { id: number; params: { _meta: { progressToken: number } } };
@@ -2474,10 +2558,17 @@ describe('Progress notification support for tasks', () => {
         });
 
         // Start a task-augmented request with progress callback
-        protocol.beginRequest(request, resultSchema, {
-            task: { ttl: 60000 },
-            onprogress: progressCallback
-        });
+        void protocol
+            .request(request, resultSchema, {
+                task: { ttl: 60000 },
+                onprogress: progressCallback
+            })
+            .catch(() => {
+                // May not complete, ignore error
+            });
+
+        // Wait a bit for the request to be sent
+        await new Promise(resolve => setTimeout(resolve, 10));
 
         const sentRequest = sendSpy.mock.calls[0][0] as { id: number; params: { _meta: { progressToken: number } } };
         const messageId = sentRequest.id;
@@ -2584,7 +2675,7 @@ describe('Progress notification support for tasks', () => {
             })
         });
 
-        protocol.beginRequest(request, resultSchema, {
+        void protocol.request(request, resultSchema, {
             task: { ttl: 60000 },
             onprogress: progressCallback
         });
@@ -2683,7 +2774,7 @@ describe('Progress notification support for tasks', () => {
             })
         });
 
-        protocol.beginRequest(request, resultSchema, {
+        void protocol.request(request, resultSchema, {
             task: { ttl: 60000 },
             onprogress: progressCallback
         });
@@ -2779,7 +2870,7 @@ describe('Progress notification support for tasks', () => {
             })
         });
 
-        protocol.beginRequest(request, resultSchema, {
+        void protocol.request(request, resultSchema, {
             task: { ttl: 60000 },
             onprogress: progressCallback
         });
@@ -2850,7 +2941,7 @@ describe('Progress notification support for tasks', () => {
 
         const onProgressMock = vi.fn();
 
-        protocol.beginRequest(request, resultSchema, {
+        void protocol.request(request, resultSchema, {
             task: {
                 ttl: 60000
             },
@@ -2875,7 +2966,7 @@ describe('Progress notification support for tasks', () => {
 
         const onProgressMock = vi.fn();
 
-        protocol.beginRequest(request, resultSchema, {
+        void protocol.request(request, resultSchema, {
             task: {
                 ttl: 30000
             },
@@ -2925,7 +3016,7 @@ describe('Progress notification support for tasks', () => {
 
         const onProgressMock = vi.fn();
 
-        protocol.beginRequest(request, resultSchema, {
+        void protocol.request(request, resultSchema, {
             task: {
                 ttl: 30000
             },
@@ -4259,6 +4350,405 @@ describe('Queue lifecycle management', () => {
             // Verify resolver mapping is cleaned up
             // The resolver should be removed from the map
             expect(requestResolvers.size).toBeLessThan(initialResolverCount);
+        });
+    });
+});
+
+describe('requestStream() method', () => {
+    const CallToolResultSchema = z.object({
+        content: z.array(z.object({ type: z.string(), text: z.string() })),
+        _meta: z.object({}).optional()
+    });
+
+    test('should yield result immediately for non-task requests', async () => {
+        const transport = new MockTransport();
+        const protocol = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(): void {}
+            protected assertNotificationCapability(): void {}
+            protected assertRequestHandlerCapability(): void {}
+            protected assertTaskCapability(): void {}
+            protected assertTaskHandlerCapability(): void {}
+        })();
+        await protocol.connect(transport);
+
+        // Start the request stream
+        const streamPromise = (async () => {
+            const messages = [];
+            const stream = protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema);
+            for await (const message of stream) {
+                messages.push(message);
+            }
+            return messages;
+        })();
+
+        // Simulate server response
+        await new Promise(resolve => setTimeout(resolve, 10));
+        transport.onmessage?.({
+            jsonrpc: '2.0',
+            id: 0,
+            result: {
+                content: [{ type: 'text', text: 'test result' }],
+                _meta: {}
+            }
+        });
+
+        const messages = await streamPromise;
+
+        // Should yield exactly one result message
+        expect(messages).toHaveLength(1);
+        expect(messages[0].type).toBe('result');
+        expect(messages[0]).toHaveProperty('result');
+    });
+
+    test('should yield error message on request failure', async () => {
+        const transport = new MockTransport();
+        const protocol = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(): void {}
+            protected assertNotificationCapability(): void {}
+            protected assertRequestHandlerCapability(): void {}
+            protected assertTaskCapability(): void {}
+            protected assertTaskHandlerCapability(): void {}
+        })();
+        await protocol.connect(transport);
+
+        // Start the request stream
+        const streamPromise = (async () => {
+            const messages = [];
+            const stream = protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema);
+            for await (const message of stream) {
+                messages.push(message);
+            }
+            return messages;
+        })();
+
+        // Simulate server error response
+        await new Promise(resolve => setTimeout(resolve, 10));
+        transport.onmessage?.({
+            jsonrpc: '2.0',
+            id: 0,
+            error: {
+                code: ErrorCode.InternalError,
+                message: 'Test error'
+            }
+        });
+
+        const messages = await streamPromise;
+
+        // Should yield exactly one error message
+        expect(messages).toHaveLength(1);
+        expect(messages[0].type).toBe('error');
+        expect(messages[0]).toHaveProperty('error');
+        if (messages[0].type === 'error') {
+            expect(messages[0].error.message).toContain('Test error');
+        }
+    });
+
+    test('should handle cancellation via AbortSignal', async () => {
+        const transport = new MockTransport();
+        const protocol = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(): void {}
+            protected assertNotificationCapability(): void {}
+            protected assertRequestHandlerCapability(): void {}
+            protected assertTaskCapability(): void {}
+            protected assertTaskHandlerCapability(): void {}
+        })();
+        await protocol.connect(transport);
+
+        const abortController = new AbortController();
+
+        // Abort immediately before starting the stream
+        abortController.abort('User cancelled');
+
+        // Start the request stream with already-aborted signal
+        const messages = [];
+        const stream = protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema, {
+            signal: abortController.signal
+        });
+        for await (const message of stream) {
+            messages.push(message);
+        }
+
+        // Should yield error message about cancellation
+        expect(messages).toHaveLength(1);
+        expect(messages[0].type).toBe('error');
+        if (messages[0].type === 'error') {
+            expect(messages[0].error.message).toContain('cancelled');
+        }
+    });
+
+    describe('Error responses', () => {
+        test('should yield error as terminal message for server error response', async () => {
+            const transport = new MockTransport();
+            const protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })();
+            await protocol.connect(transport);
+
+            const messagesPromise = toArrayAsync(
+                protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema)
+            );
+
+            // Simulate server error response
+            await new Promise(resolve => setTimeout(resolve, 10));
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 0,
+                error: {
+                    code: ErrorCode.InternalError,
+                    message: 'Server error'
+                }
+            });
+
+            // Collect messages
+            const messages = await messagesPromise;
+
+            // Verify error is terminal and last message
+            expect(messages.length).toBeGreaterThan(0);
+            const lastMessage = messages[messages.length - 1];
+            assertErrorResponse(lastMessage);
+            expect(lastMessage.error).toBeDefined();
+            expect(lastMessage.error.message).toContain('Server error');
+        });
+
+        test('should yield error as terminal message for timeout', async () => {
+            vi.useFakeTimers();
+            try {
+                const transport = new MockTransport();
+                const protocol = new (class extends Protocol<Request, Notification, Result> {
+                    protected assertCapabilityForMethod(): void {}
+                    protected assertNotificationCapability(): void {}
+                    protected assertRequestHandlerCapability(): void {}
+                    protected assertTaskCapability(): void {}
+                    protected assertTaskHandlerCapability(): void {}
+                })();
+                await protocol.connect(transport);
+
+                const messagesPromise = toArrayAsync(
+                    protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema, {
+                        timeout: 100
+                    })
+                );
+
+                // Advance time to trigger timeout
+                await vi.advanceTimersByTimeAsync(101);
+
+                // Collect messages
+                const messages = await messagesPromise;
+
+                // Verify error is terminal and last message
+                expect(messages.length).toBeGreaterThan(0);
+                const lastMessage = messages[messages.length - 1];
+                assertErrorResponse(lastMessage);
+                expect(lastMessage.error).toBeDefined();
+                expect(lastMessage.error.code).toBe(ErrorCode.RequestTimeout);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        test('should yield error as terminal message for cancellation', async () => {
+            const transport = new MockTransport();
+            const protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })();
+            await protocol.connect(transport);
+
+            const abortController = new AbortController();
+            abortController.abort('User cancelled');
+
+            // Collect messages
+            const messages = await toArrayAsync(
+                protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema, {
+                    signal: abortController.signal
+                })
+            );
+
+            // Verify error is terminal and last message
+            expect(messages.length).toBeGreaterThan(0);
+            const lastMessage = messages[messages.length - 1];
+            assertErrorResponse(lastMessage);
+            expect(lastMessage.error).toBeDefined();
+            expect(lastMessage.error.message).toContain('cancelled');
+        });
+
+        test('should not yield any messages after error message', async () => {
+            const transport = new MockTransport();
+            const protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })();
+            await protocol.connect(transport);
+
+            const messagesPromise = toArrayAsync(
+                protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema)
+            );
+
+            // Simulate server error response
+            await new Promise(resolve => setTimeout(resolve, 10));
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 0,
+                error: {
+                    code: ErrorCode.InternalError,
+                    message: 'Test error'
+                }
+            });
+
+            // Collect messages
+            const messages = await messagesPromise;
+
+            // Verify only one message (the error) was yielded
+            expect(messages).toHaveLength(1);
+            expect(messages[0].type).toBe('error');
+
+            // Try to send another message (should be ignored)
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 0,
+                result: {
+                    content: [{ type: 'text', text: 'should not appear' }]
+                }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Verify no additional messages were yielded
+            expect(messages).toHaveLength(1);
+        });
+
+        test('should yield error as terminal message for task failure', async () => {
+            const transport = new MockTransport();
+            const mockTaskStore = createMockTaskStore();
+            const protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore: mockTaskStore });
+            await protocol.connect(transport);
+
+            const messagesPromise = toArrayAsync(
+                protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema)
+            );
+
+            // Simulate task creation response
+            await new Promise(resolve => setTimeout(resolve, 10));
+            const taskId = 'test-task-123';
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 0,
+                result: {
+                    _meta: {
+                        task: {
+                            taskId,
+                            status: 'working',
+                            createdAt: new Date().toISOString(),
+                            pollInterval: 100
+                        }
+                    }
+                }
+            });
+
+            // Wait for task creation to be processed
+            await new Promise(resolve => setTimeout(resolve, 20));
+
+            // Update task to failed status
+            const failedTask = {
+                taskId,
+                status: 'failed' as const,
+                createdAt: new Date().toISOString(),
+                pollInterval: 100,
+                ttl: null,
+                statusMessage: 'Task failed'
+            };
+            mockTaskStore.getTask.mockResolvedValue(failedTask);
+
+            // Collect messages
+            const messages = await messagesPromise;
+
+            // Verify error is terminal and last message
+            expect(messages.length).toBeGreaterThan(0);
+            const lastMessage = messages[messages.length - 1];
+            assertErrorResponse(lastMessage);
+            expect(lastMessage.error).toBeDefined();
+        });
+
+        test('should yield error as terminal message for network error', async () => {
+            const transport = new MockTransport();
+            const protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })();
+            await protocol.connect(transport);
+
+            // Override send to simulate network error
+            transport.send = vi.fn().mockRejectedValue(new Error('Network error'));
+
+            const messages = await toArrayAsync(
+                protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema)
+            );
+
+            // Verify error is terminal and last message
+            expect(messages.length).toBeGreaterThan(0);
+            const lastMessage = messages[messages.length - 1];
+            assertErrorResponse(lastMessage);
+            expect(lastMessage.error).toBeDefined();
+        });
+
+        test('should ensure error is always the final message', async () => {
+            const transport = new MockTransport();
+            const protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })();
+            await protocol.connect(transport);
+
+            const messagesPromise = toArrayAsync(
+                protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema)
+            );
+
+            // Simulate server error response
+            await new Promise(resolve => setTimeout(resolve, 10));
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 0,
+                error: {
+                    code: ErrorCode.InternalError,
+                    message: 'Test error'
+                }
+            });
+
+            // Collect messages
+            const messages = await messagesPromise;
+
+            // Verify error is the last message
+            expect(messages.length).toBeGreaterThan(0);
+            const lastMessage = messages[messages.length - 1];
+            expect(lastMessage.type).toBe('error');
+
+            // Verify all messages before the last are not terminal
+            for (let i = 0; i < messages.length - 1; i++) {
+                expect(messages[i].type).not.toBe('error');
+                expect(messages[i].type).not.toBe('result');
+            }
         });
     });
 });
