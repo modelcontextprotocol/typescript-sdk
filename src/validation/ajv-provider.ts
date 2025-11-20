@@ -1,8 +1,5 @@
 /**
  * AJV-based JSON Schema validator provider
- *
- * Defaults to JSON Schema 2020-12 (the default dialect per MCP specification).
- * Schemas without an explicit $schema field are validated as 2020-12.
  */
 
 import { Ajv } from 'ajv';
