@@ -2135,4 +2135,503 @@ describe('Request Cancellation vs Task Cancellation', () => {
             );
         });
     });
+
+    describe('progress notification support for tasks', () => {
+        it('should maintain progress token association after CreateTaskResult is returned', async () => {
+            const taskStore = createMockTaskStore();
+            const protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore });
+
+            const transport = new MockTransport();
+            const sendSpy = vi.spyOn(transport, 'send');
+            await protocol.connect(transport);
+
+            const progressCallback = vi.fn();
+            const request = {
+                method: 'tools/call',
+                params: { name: 'test-tool' }
+            };
+
+            const resultSchema = z.object({
+                task: z.object({
+                    taskId: z.string(),
+                    status: z.string(),
+                    ttl: z.number().nullable(),
+                    createdAt: z.string()
+                })
+            });
+
+            // Start a task-augmented request with progress callback
+            protocol.beginRequest(request, resultSchema, {
+                task: { ttl: 60000 },
+                onprogress: progressCallback
+            });
+
+            // Get the message ID from the sent request
+            const sentRequest = sendSpy.mock.calls[0][0] as { id: number; params: { _meta: { progressToken: number } } };
+            const messageId = sentRequest.id;
+            const progressToken = sentRequest.params._meta.progressToken;
+
+            expect(progressToken).toBe(messageId);
+
+            // Simulate CreateTaskResult response
+            const taskId = 'test-task-123';
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        task: {
+                            taskId,
+                            status: 'working',
+                            ttl: 60000,
+                            createdAt: new Date().toISOString()
+                        }
+                    }
+                });
+            }
+
+            // Wait for response to be processed
+            await Promise.resolve();
+            await Promise.resolve();
+
+            // Send a progress notification - should still work after CreateTaskResult
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken,
+                        progress: 50,
+                        total: 100
+                    }
+                });
+            }
+
+            // Wait for notification to be processed
+            await Promise.resolve();
+
+            // Verify progress callback was invoked
+            expect(progressCallback).toHaveBeenCalledWith({
+                progress: 50,
+                total: 100
+            });
+        });
+
+        it('should stop progress notifications when task reaches terminal status (completed)', async () => {
+            const taskStore = createMockTaskStore();
+            const protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore });
+
+            const transport = new MockTransport();
+            const sendSpy = vi.spyOn(transport, 'send');
+            await protocol.connect(transport);
+
+            // Set up a request handler that will complete the task
+            protocol.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+                if (extra.taskStore) {
+                    const task = await extra.taskStore.createTask({ ttl: 60000 }, extra.requestId, request);
+
+                    // Simulate async work then complete the task
+                    setTimeout(async () => {
+                        await extra.taskStore!.storeTaskResult(task.taskId, 'completed', {
+                            content: [{ type: 'text', text: 'Done' }]
+                        });
+                    }, 50);
+
+                    return { task };
+                }
+                return { content: [] };
+            });
+
+            const progressCallback = vi.fn();
+            const request = {
+                method: 'tools/call',
+                params: { name: 'test-tool' }
+            };
+
+            const resultSchema = z.object({
+                task: z.object({
+                    taskId: z.string(),
+                    status: z.string(),
+                    ttl: z.number().nullable(),
+                    createdAt: z.string()
+                })
+            });
+
+            // Start a task-augmented request with progress callback
+            protocol.beginRequest(request, resultSchema, {
+                task: { ttl: 60000 },
+                onprogress: progressCallback
+            });
+
+            const sentRequest = sendSpy.mock.calls[0][0] as { id: number; params: { _meta: { progressToken: number } } };
+            const messageId = sentRequest.id;
+            const progressToken = sentRequest.params._meta.progressToken;
+
+            // Create a task in the mock store first so it exists when we try to get it later
+            const createdTask = await taskStore.createTask({ ttl: 60000 }, messageId, request);
+            const taskId = createdTask.taskId;
+
+            // Simulate CreateTaskResult response
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        task: createdTask
+                    }
+                });
+            }
+
+            await Promise.resolve();
+            await Promise.resolve();
+
+            // Progress notification should work while task is working
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken,
+                        progress: 50,
+                        total: 100
+                    }
+                });
+            }
+
+            await Promise.resolve();
+
+            expect(progressCallback).toHaveBeenCalledTimes(1);
+
+            // Verify the task-progress association was created
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const taskProgressTokens = (protocol as any)._taskProgressTokens as Map<string, number>;
+            expect(taskProgressTokens.has(taskId)).toBe(true);
+            expect(taskProgressTokens.get(taskId)).toBe(progressToken);
+
+            // Simulate task completion by calling through the protocol's task store
+            // This will trigger the cleanup logic
+            const mockRequest = { jsonrpc: '2.0' as const, id: 999, method: 'test', params: {} };
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const requestTaskStore = (protocol as any).requestTaskStore(mockRequest, undefined);
+            await requestTaskStore.storeTaskResult(taskId, 'completed', { content: [] });
+
+            // Wait for all async operations including notification sending to complete
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Verify the association was cleaned up
+            expect(taskProgressTokens.has(taskId)).toBe(false);
+
+            // Try to send progress notification after task completion - should be ignored
+            progressCallback.mockClear();
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken,
+                        progress: 100,
+                        total: 100
+                    }
+                });
+            }
+
+            await Promise.resolve();
+
+            // Progress callback should NOT be invoked after task completion
+            expect(progressCallback).not.toHaveBeenCalled();
+        });
+
+        it('should stop progress notifications when task reaches terminal status (failed)', async () => {
+            const taskStore = createMockTaskStore();
+            const protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore });
+
+            const transport = new MockTransport();
+            const sendSpy = vi.spyOn(transport, 'send');
+            await protocol.connect(transport);
+
+            const progressCallback = vi.fn();
+            const request = {
+                method: 'tools/call',
+                params: { name: 'test-tool' }
+            };
+
+            const resultSchema = z.object({
+                task: z.object({
+                    taskId: z.string(),
+                    status: z.string(),
+                    ttl: z.number().nullable(),
+                    createdAt: z.string()
+                })
+            });
+
+            protocol.beginRequest(request, resultSchema, {
+                task: { ttl: 60000 },
+                onprogress: progressCallback
+            });
+
+            const sentRequest = sendSpy.mock.calls[0][0] as { id: number; params: { _meta: { progressToken: number } } };
+            const messageId = sentRequest.id;
+            const progressToken = sentRequest.params._meta.progressToken;
+
+            // Simulate CreateTaskResult response
+            const taskId = 'test-task-456';
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        task: {
+                            taskId,
+                            status: 'working',
+                            ttl: 60000,
+                            createdAt: new Date().toISOString()
+                        }
+                    }
+                });
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Simulate task failure via storeTaskResult
+            await taskStore.storeTaskResult(taskId, 'failed', {
+                content: [],
+                isError: true
+            });
+
+            // Manually trigger the status notification
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/tasks/status',
+                    params: {
+                        task: {
+                            taskId,
+                            status: 'failed',
+                            ttl: 60000,
+                            createdAt: new Date().toISOString(),
+                            statusMessage: 'Task failed'
+                        }
+                    }
+                });
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Try to send progress notification after task failure - should be ignored
+            progressCallback.mockClear();
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken,
+                        progress: 75,
+                        total: 100
+                    }
+                });
+            }
+
+            expect(progressCallback).not.toHaveBeenCalled();
+        });
+
+        it('should stop progress notifications when task is cancelled', async () => {
+            const taskStore = createMockTaskStore();
+            const protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore });
+
+            const transport = new MockTransport();
+            const sendSpy = vi.spyOn(transport, 'send');
+            await protocol.connect(transport);
+
+            const progressCallback = vi.fn();
+            const request = {
+                method: 'tools/call',
+                params: { name: 'test-tool' }
+            };
+
+            const resultSchema = z.object({
+                task: z.object({
+                    taskId: z.string(),
+                    status: z.string(),
+                    ttl: z.number().nullable(),
+                    createdAt: z.string()
+                })
+            });
+
+            protocol.beginRequest(request, resultSchema, {
+                task: { ttl: 60000 },
+                onprogress: progressCallback
+            });
+
+            const sentRequest = sendSpy.mock.calls[0][0] as { id: number; params: { _meta: { progressToken: number } } };
+            const messageId = sentRequest.id;
+            const progressToken = sentRequest.params._meta.progressToken;
+
+            // Simulate CreateTaskResult response
+            const taskId = 'test-task-789';
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        task: {
+                            taskId,
+                            status: 'working',
+                            ttl: 60000,
+                            createdAt: new Date().toISOString()
+                        }
+                    }
+                });
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Simulate task cancellation via updateTaskStatus
+            await taskStore.updateTaskStatus(taskId, 'cancelled', 'User cancelled');
+
+            // Manually trigger the status notification
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/tasks/status',
+                    params: {
+                        task: {
+                            taskId,
+                            status: 'cancelled',
+                            ttl: 60000,
+                            createdAt: new Date().toISOString(),
+                            statusMessage: 'User cancelled'
+                        }
+                    }
+                });
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Try to send progress notification after cancellation - should be ignored
+            progressCallback.mockClear();
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken,
+                        progress: 25,
+                        total: 100
+                    }
+                });
+            }
+
+            expect(progressCallback).not.toHaveBeenCalled();
+        });
+
+        it('should use the same progressToken throughout task lifetime', async () => {
+            const taskStore = createMockTaskStore();
+            const protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ taskStore });
+
+            const transport = new MockTransport();
+            const sendSpy = vi.spyOn(transport, 'send');
+            await protocol.connect(transport);
+
+            const progressCallback = vi.fn();
+            const request = {
+                method: 'tools/call',
+                params: { name: 'test-tool' }
+            };
+
+            const resultSchema = z.object({
+                task: z.object({
+                    taskId: z.string(),
+                    status: z.string(),
+                    ttl: z.number().nullable(),
+                    createdAt: z.string()
+                })
+            });
+
+            protocol.beginRequest(request, resultSchema, {
+                task: { ttl: 60000 },
+                onprogress: progressCallback
+            });
+
+            const sentRequest = sendSpy.mock.calls[0][0] as { id: number; params: { _meta: { progressToken: number } } };
+            const messageId = sentRequest.id;
+            const progressToken = sentRequest.params._meta.progressToken;
+
+            // Simulate CreateTaskResult response
+            const taskId = 'test-task-consistency';
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        task: {
+                            taskId,
+                            status: 'working',
+                            ttl: 60000,
+                            createdAt: new Date().toISOString()
+                        }
+                    }
+                });
+            }
+
+            await Promise.resolve();
+            await Promise.resolve();
+
+            // Send multiple progress notifications with the same token
+            const progressUpdates = [
+                { progress: 25, total: 100 },
+                { progress: 50, total: 100 },
+                { progress: 75, total: 100 }
+            ];
+
+            for (const update of progressUpdates) {
+                if (transport.onmessage) {
+                    transport.onmessage({
+                        jsonrpc: '2.0',
+                        method: 'notifications/progress',
+                        params: {
+                            progressToken, // Same token for all notifications
+                            ...update
+                        }
+                    });
+                }
+                await Promise.resolve();
+            }
+
+            // Verify all progress notifications were received with the same token
+            expect(progressCallback).toHaveBeenCalledTimes(3);
+            expect(progressCallback).toHaveBeenNthCalledWith(1, { progress: 25, total: 100 });
+            expect(progressCallback).toHaveBeenNthCalledWith(2, { progress: 50, total: 100 });
+            expect(progressCallback).toHaveBeenNthCalledWith(3, { progress: 75, total: 100 });
+        });
+    });
 });

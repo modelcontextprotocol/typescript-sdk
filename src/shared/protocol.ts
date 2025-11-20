@@ -94,6 +94,8 @@ export const DEFAULT_REQUEST_TIMEOUT_MSEC = 60000;
 export type RequestOptions = {
     /**
      * If set, requests progress notifications from the remote end (if supported). When progress notifications are received, this callback will be invoked.
+     *
+     * For task-augmented requests: progress notifications continue after CreateTaskResult is returned and stop automatically when the task reaches a terminal status.
      */
     onprogress?: ProgressCallback;
 
@@ -307,6 +309,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
 
+    // Maps task IDs to progress tokens to keep handlers alive after CreateTaskResult
+    private _taskProgressTokens: Map<string, number> = new Map();
+
     private _taskStore?: TaskStore;
 
     /**
@@ -361,7 +366,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
 
                 // Per spec: tasks/get responses SHALL NOT include related-task metadata
-                // as the taskId parameter is the source of truth (Requirement 6.3)
+                // as the taskId parameter is the source of truth
                 // @ts-expect-error SendResultT cannot contain GetTaskResult, but we include it in our derived types everywhere else
                 return {
                     ...task
@@ -570,6 +575,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
+        this._taskProgressTokens.clear();
         this._pendingDebouncedNotifications.clear();
 
         const error = new McpError(ErrorCode.ConnectionClosed, 'Connection closed');
@@ -626,7 +632,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const taskCreationParams = request.params?.task;
         const taskStore = this._taskStore ? this.requestTaskStore(request, capturedTransport?.sessionId) : undefined;
 
-        // Extract taskId from request metadata if present (Requirement 6.1)
+        // Extract taskId from request metadata if present
         const relatedTaskId = request.params?._meta?.[RELATED_TASK_META_KEY]?.taskId;
 
         const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT, SendResultT> = {
@@ -634,7 +640,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             sessionId: capturedTransport?.sessionId,
             _meta: request.params?._meta,
             sendNotification: async notification => {
-                // Include related-task metadata if this request is part of a task (Requirement 6.1)
+                // Include related-task metadata if this request is part of a task
                 const notificationOptions: NotificationOptions = { relatedRequestId: request.id };
                 if (relatedTaskId) {
                     notificationOptions.relatedTask = { taskId: relatedTaskId };
@@ -642,7 +648,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 await this.notification(notification, notificationOptions);
             },
             sendRequest: async (r, resultSchema, options?) => {
-                // Include related-task metadata if this request is part of a task (Requirement 6.1)
+                // Include related-task metadata if this request is part of a task
                 const requestOptions: RequestOptions = { ...options, relatedRequestId: request.id };
                 if (relatedTaskId && !requestOptions.relatedTask) {
                     requestOptions.relatedTask = { taskId: relatedTaskId };
@@ -741,8 +747,24 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         }
 
         this._responseHandlers.delete(messageId);
-        this._progressHandlers.delete(messageId);
         this._cleanupTimeout(messageId);
+
+        // Keep progress handler alive for CreateTaskResult responses
+        let isTaskResponse = false;
+        if (isJSONRPCResponse(response) && response.result && typeof response.result === 'object') {
+            const result = response.result as Record<string, unknown>;
+            if (result.task && typeof result.task === 'object') {
+                const task = result.task as Record<string, unknown>;
+                if (typeof task.taskId === 'string') {
+                    isTaskResponse = true;
+                    this._taskProgressTokens.set(task.taskId, messageId);
+                }
+            }
+        }
+
+        if (!isTaskResponse) {
+            this._progressHandlers.delete(messageId);
+        }
 
         if (isJSONRPCResponse(response)) {
             handler(response);
@@ -1124,6 +1146,18 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._notificationHandlers.delete(method);
     }
 
+    /**
+     * Cleans up the progress handler associated with a task.
+     * This should be called when a task reaches a terminal status.
+     */
+    private _cleanupTaskProgressHandler(taskId: string): void {
+        const progressToken = this._taskProgressTokens.get(taskId);
+        if (progressToken !== undefined) {
+            this._progressHandlers.delete(progressToken);
+            this._taskProgressTokens.delete(taskId);
+        }
+    }
+
     private requestTaskStore(request?: JSONRPCRequest, sessionId?: string): RequestTaskStore {
         const taskStore = this._taskStore;
         if (!taskStore) {
@@ -1167,6 +1201,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         }
                     });
                     await this.notification(notification as SendNotificationT);
+
+                    if (isTerminal(task.status)) {
+                        this._cleanupTaskProgressHandler(taskId);
+                    }
                 }
             },
             getTaskResult: taskId => {
@@ -1202,6 +1240,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                             }
                         });
                         await this.notification(notification as SendNotificationT);
+
+                        if (isTerminal(updatedTask.status)) {
+                            this._cleanupTaskProgressHandler(taskId);
+                        }
                     }
                 } catch (error) {
                     throw new Error(`Failed to update status of task "${taskId}" to "${status}": ${error}`);
