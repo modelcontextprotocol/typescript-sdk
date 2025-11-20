@@ -358,9 +358,6 @@ export class StreamableHTTPServerTransport implements Transport {
         // otherwise the client will just wait for the first message
         res.writeHead(200, headers).flushHeaders();
 
-        // Send priming event for resumability/polling support
-        await this._maybeWritePrimingEvent(res, this._standaloneSseStreamId);
-
         // Assign the response to the standalone SSE stream
         this._streamMapping.set(this._standaloneSseStreamId, res);
         // Set up close handler for client disconnects
@@ -811,19 +808,6 @@ export class StreamableHTTPServerTransport implements Transport {
         if (stream) {
             stream.end();
             this._streamMapping.delete(streamId);
-        }
-    }
-
-    /**
-     * Close the standalone SSE notification stream, triggering client reconnection.
-     * Use this to implement polling behavior on the GET stream -
-     * client will reconnect after the retry interval specified in the priming event.
-     */
-    closeStandaloneSSEStream(): void {
-        const stream = this._streamMapping.get(this._standaloneSseStreamId);
-        if (stream) {
-            stream.end();
-            this._streamMapping.delete(this._standaloneSseStreamId);
         }
     }
 
