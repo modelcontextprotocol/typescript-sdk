@@ -522,9 +522,9 @@ export async function selectResourceURL(
 }
 
 /**
- * Extract resource_metadata and scope from WWW-Authenticate header.
+ * Extract resource_metadata, scope, and error from WWW-Authenticate header.
  */
-export function extractWWWAuthenticateParams(res: Response): { resourceMetadataUrl?: URL; scope?: string } {
+export function extractWWWAuthenticateParams(res: Response): { resourceMetadataUrl?: URL; scope?: string; error?: string } {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
     if (!authenticateHeader) {
         return {};
@@ -535,27 +535,49 @@ export function extractWWWAuthenticateParams(res: Response): { resourceMetadataU
         return {};
     }
 
-    const resourceMetadataRegex = /resource_metadata="([^"]*)"/;
-    const resourceMetadataMatch = resourceMetadataRegex.exec(authenticateHeader);
-
-    const scopeRegex = /scope="([^"]*)"/;
-    const scopeMatch = scopeRegex.exec(authenticateHeader);
+    const resourceMetadataMatch = extractFieldFromWwwAuth(res, 'resource_metadata') || undefined;
 
     let resourceMetadataUrl: URL | undefined;
     if (resourceMetadataMatch) {
         try {
-            resourceMetadataUrl = new URL(resourceMetadataMatch[1]);
+            resourceMetadataUrl = new URL(resourceMetadataMatch);
         } catch {
             // Ignore invalid URL
         }
     }
 
-    const scope = scopeMatch?.[1] || undefined;
+    const scope = extractFieldFromWwwAuth(res, 'scope') || undefined;
+    const error = extractFieldFromWwwAuth(res, 'error') || undefined;
 
     return {
         resourceMetadataUrl,
-        scope
+        scope,
+        error
     };
+}
+
+/**
+ * Extracts a specific field's value from the WWW-Authenticate header string.
+ *
+ * @param response The HTTP response object containing the headers.
+ * @param fieldName The name of the field to extract (e.g., "realm", "nonce").
+ * @returns The field value
+ */
+function extractFieldFromWwwAuth(response: Response, fieldName: string): string | null {
+    const wwwAuthHeader = response.headers.get('WWW-Authenticate');
+    if (!wwwAuthHeader) {
+        return null;
+    }
+
+    const pattern = new RegExp(`${fieldName}=(?:"([^"]+)"|([^\\s,]+))`);
+    const match = wwwAuthHeader.match(pattern);
+
+    if (match) {
+        // Pattern matches: field_name="value" or field_name=value (unquoted)
+        return match[1] || match[2];
+    }
+
+    return null;
 }
 
 /**
