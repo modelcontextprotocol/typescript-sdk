@@ -47,8 +47,10 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 ## Installation
 
 ```bash
-npm install @modelcontextprotocol/sdk
+npm install @modelcontextprotocol/sdk zod
 ```
+
+This SDK has a **required peer dependency** on `zod` for schema validation. The SDK internally imports from `zod/v4`, but maintains backwards compatibility with projects using Zod v3.25 or later. You can use either API in your code by importing from `zod/v3` or `zod/v4`:
 
 ## Quick Start
 
@@ -58,7 +60,7 @@ Let's create a simple MCP server that exposes a calculator tool and some data. S
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 // Create an MCP server
 const server = new McpServer({
@@ -130,7 +132,7 @@ app.listen(port, () => {
 });
 ```
 
-Install the deps with `npm install @modelcontextprotocol/sdk express zod@3`, and run with `npx -y tsx server.ts`.
+Install the deps with `npm install @modelcontextprotocol/sdk express zod`, and run with `npx -y tsx server.ts`.
 
 You can connect to it using any MCP client that supports streamable http, such as:
 
@@ -477,7 +479,7 @@ MCP servers can request LLM completions from connected clients that support samp
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 const mcpServer = new McpServer({
     name: 'tools-with-sample-server',
@@ -561,7 +563,7 @@ For most use cases where session management isn't needed:
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 const app = express();
 app.use(express.json());
@@ -796,7 +798,7 @@ A simple server demonstrating resources, tools, and prompts:
 
 ```typescript
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 const server = new McpServer({
     name: 'echo-server',
@@ -866,7 +868,7 @@ A more complex example showing database integration:
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import sqlite3 from 'sqlite3';
 import { promisify } from 'util';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 const server = new McpServer({
     name: 'sqlite-explorer',
@@ -961,7 +963,7 @@ If you want to offer an initial set of tools/prompts/resources, but later add ad
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 const server = new McpServer({
     name: 'Dynamic Example',
