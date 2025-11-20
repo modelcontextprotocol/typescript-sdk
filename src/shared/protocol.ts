@@ -1,4 +1,4 @@
-import { ZodLiteral, ZodObject, ZodType, z } from 'zod';
+import { AnySchema, AnyObjectSchema, SchemaOutput, safeParse } from '../server/zod-compat.js';
 import {
     CancelledNotificationSchema,
     ClientCapabilities,
@@ -27,6 +27,7 @@ import {
 } from '../types.js';
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
+import { getMethodLiteral, parseWithCompat } from '../server/zod-json-schema-compat.js';
 
 /**
  * Callback for progress notifications.
@@ -152,7 +153,7 @@ export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT 
      *
      * This is used by certain transports to correctly associate related messages.
      */
-    sendRequest: <U extends ZodType<object>>(request: SendRequestT, resultSchema: U, options?: RequestOptions) => Promise<z.infer<U>>;
+    sendRequest: <U extends AnySchema>(request: SendRequestT, resultSchema: U, options?: RequestOptions) => Promise<SchemaOutput<U>>;
 };
 
 /**
@@ -490,7 +491,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Do not use this method to emit notifications! Use notification() instead.
      */
-    request<T extends ZodType<object>>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<z.infer<T>> {
+    request<T extends AnySchema>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken } = options ?? {};
 
         return new Promise((resolve, reject) => {
@@ -555,8 +556,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
 
                 try {
-                    const result = resultSchema.parse(response.result);
-                    resolve(result);
+                    const parseResult = safeParse(resultSchema, response.result);
+                    if (!parseResult.success) {
+                        // Type guard: if success is false, error is guaranteed to exist
+                        reject(parseResult.error);
+                    } else {
+                        resolve(parseResult.data as SchemaOutput<T>);
+                    }
                 } catch (error) {
                     reject(error);
                 }
@@ -639,19 +645,19 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Note that this will replace any previous request handler for the same method.
      */
-    setRequestHandler<
-        T extends ZodObject<{
-            method: ZodLiteral<string>;
-        }>
-    >(
+    setRequestHandler<T extends AnyObjectSchema>(
         requestSchema: T,
-        handler: (request: z.infer<T>, extra: RequestHandlerExtra<SendRequestT, SendNotificationT>) => SendResultT | Promise<SendResultT>
+        handler: (
+            request: SchemaOutput<T>,
+            extra: RequestHandlerExtra<SendRequestT, SendNotificationT>
+        ) => SendResultT | Promise<SendResultT>
     ): void {
-        const method = requestSchema.shape.method.value;
+        const method = getMethodLiteral(requestSchema);
         this.assertRequestHandlerCapability(method);
 
         this._requestHandlers.set(method, (request, extra) => {
-            return Promise.resolve(handler(requestSchema.parse(request), extra));
+            const parsed = parseWithCompat(requestSchema, request) as SchemaOutput<T>;
+            return Promise.resolve(handler(parsed, extra));
         });
     }
 
@@ -676,14 +682,15 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Note that this will replace any previous notification handler for the same method.
      */
-    setNotificationHandler<
-        T extends ZodObject<{
-            method: ZodLiteral<string>;
-        }>
-    >(notificationSchema: T, handler: (notification: z.infer<T>) => void | Promise<void>): void {
-        this._notificationHandlers.set(notificationSchema.shape.method.value, notification =>
-            Promise.resolve(handler(notificationSchema.parse(notification)))
-        );
+    setNotificationHandler<T extends AnyObjectSchema>(
+        notificationSchema: T,
+        handler: (notification: SchemaOutput<T>) => void | Promise<void>
+    ): void {
+        const method = getMethodLiteral(notificationSchema);
+        this._notificationHandlers.set(method, notification => {
+            const parsed = parseWithCompat(notificationSchema, notification) as SchemaOutput<T>;
+            return Promise.resolve(handler(parsed));
+        });
     }
 
     /**

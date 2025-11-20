@@ -21,6 +21,7 @@ import {
 import { checkResourceAllowed, resourceUrlFromServerUrl } from '../shared/auth-utils.js';
 import {
     InvalidClientError,
+    InvalidClientMetadataError,
     InvalidGrantError,
     OAUTH_ERRORS,
     OAuthError,
@@ -41,6 +42,11 @@ export interface OAuthClientProvider {
      * The URL to redirect the user agent to after authorization.
      */
     get redirectUrl(): string | URL;
+
+    /**
+     * External URL the server should use to fetch client metadata document
+     */
+    clientMetadataUrl?: string;
 
     /**
      * Metadata about this OAuth client.
@@ -379,18 +385,38 @@ async function authInternal(
             throw new Error('Existing OAuth client information is required when exchanging an authorization code');
         }
 
-        if (!provider.saveClientInformation) {
-            throw new Error('OAuth client information must be saveable for dynamic registration');
+        const supportsUrlBasedClientId = metadata?.client_id_metadata_document_supported === true;
+        const clientMetadataUrl = provider.clientMetadataUrl;
+
+        if (clientMetadataUrl && !isHttpsUrl(clientMetadataUrl)) {
+            throw new InvalidClientMetadataError(
+                `clientMetadataUrl must be a valid HTTPS URL with a non-root pathname, got: ${clientMetadataUrl}`
+            );
         }
 
-        const fullInformation = await registerClient(authorizationServerUrl, {
-            metadata,
-            clientMetadata: provider.clientMetadata,
-            fetchFn
-        });
+        const shouldUseUrlBasedClientId = supportsUrlBasedClientId && clientMetadataUrl;
 
-        await provider.saveClientInformation(fullInformation);
-        clientInformation = fullInformation;
+        if (shouldUseUrlBasedClientId) {
+            // SEP-991: URL-based Client IDs
+            clientInformation = {
+                client_id: clientMetadataUrl
+            };
+            await provider.saveClientInformation?.(clientInformation);
+        } else {
+            // Fallback to dynamic registration
+            if (!provider.saveClientInformation) {
+                throw new Error('OAuth client information must be saveable for dynamic registration');
+            }
+
+            const fullInformation = await registerClient(authorizationServerUrl, {
+                metadata,
+                clientMetadata: provider.clientMetadata,
+                fetchFn
+            });
+
+            await provider.saveClientInformation(fullInformation);
+            clientInformation = fullInformation;
+        }
     }
 
     // Exchange authorization code for tokens
@@ -447,13 +473,27 @@ async function authInternal(
         clientInformation,
         state,
         redirectUrl: provider.redirectUrl,
-        scope: scope || provider.clientMetadata.scope,
+        scope: scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope,
         resource
     });
 
     await provider.saveCodeVerifier(codeVerifier);
     await provider.redirectToAuthorization(authorizationUrl);
     return 'REDIRECT';
+}
+
+/**
+ * SEP-991: URL-based Client IDs
+ * Validate that the client_id is a valid URL with https scheme
+ */
+export function isHttpsUrl(value?: string): boolean {
+    if (!value) return false;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'https:' && url.pathname !== '/';
+    } catch {
+        return false;
+    }
 }
 
 export async function selectResourceURL(

@@ -92,7 +92,7 @@ export const createOAuthMetadata = (options: {
         code_challenge_methods_supported: ['S256'],
 
         token_endpoint: new URL(token_endpoint, baseUrl || issuer).href,
-        token_endpoint_auth_methods_supported: ['client_secret_post'],
+        token_endpoint_auth_methods_supported: ['client_secret_post', 'none'],
         grant_types_supported: ['authorization_code', 'refresh_token'],
 
         scopes_supported: options.scopesSupported,
