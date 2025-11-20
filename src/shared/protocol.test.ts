@@ -13,10 +13,22 @@ import {
     Task,
     TaskCreationParams
 } from '../types.js';
-import { Protocol, mergeCapabilities } from './protocol.js';
+import { Protocol, mergeCapabilities, TaskMessageQueue } from './protocol.js';
 import { Transport } from './transport.js';
 import { TaskStore } from './task.js';
 import { MockInstance, vi } from 'vitest';
+import { JSONRPCResponse, JSONRPCRequest, JSONRPCError } from '../types.js';
+
+// Type helper for accessing private Protocol properties in tests
+interface TestProtocol {
+    _taskMessageQueues: Map<string, TaskMessageQueue>;
+    _taskResultWaiters: Map<string, Array<() => void>>;
+    _requestResolvers: Map<RequestId, (response: JSONRPCResponse | Error) => void>;
+    _responseHandlers: Map<RequestId, (response: JSONRPCResponse | Error) => void>;
+    _taskProgressTokens: Map<string, number>;
+    _clearTaskQueue: (taskId: string) => void;
+    requestTaskStore: (request: Request, authInfo: unknown) => TaskStore;
+}
 
 // Mock Transport class
 class MockTransport implements Transport {
@@ -759,6 +771,184 @@ describe('protocol tests', () => {
     });
 });
 
+describe('TaskMessageQueue', () => {
+    let queue: TaskMessageQueue;
+
+    beforeEach(() => {
+        queue = new TaskMessageQueue();
+    });
+
+    describe('enqueue/dequeue maintains FIFO order', () => {
+        it('should maintain FIFO order for multiple messages', () => {
+            const msg1 = {
+                type: 'notification' as const,
+                message: { jsonrpc: '2.0' as const, method: 'test1' },
+                timestamp: 1
+            };
+            const msg2 = {
+                type: 'request' as const,
+                message: { jsonrpc: '2.0' as const, id: 1, method: 'test2' },
+                timestamp: 2
+            };
+            const msg3 = {
+                type: 'notification' as const,
+                message: { jsonrpc: '2.0' as const, method: 'test3' },
+                timestamp: 3
+            };
+
+            queue.enqueue(msg1);
+            queue.enqueue(msg2);
+            queue.enqueue(msg3);
+
+            expect(queue!.dequeue()).toEqual(msg1);
+            expect(queue!.dequeue()).toEqual(msg2);
+            expect(queue!.dequeue()).toEqual(msg3);
+        });
+
+        it('should return undefined when dequeuing from empty queue', () => {
+            expect(queue!.dequeue()).toBeUndefined();
+        });
+    });
+
+    describe('clear operation', () => {
+        it('should remove all messages from queue', () => {
+            queue.enqueue({
+                type: 'notification' as const,
+                message: { jsonrpc: '2.0' as const, method: 'test1' },
+                timestamp: 1
+            });
+            queue.enqueue({
+                type: 'notification' as const,
+                message: { jsonrpc: '2.0' as const, method: 'test2' },
+                timestamp: 2
+            });
+            queue.enqueue({
+                type: 'notification' as const,
+                message: { jsonrpc: '2.0' as const, method: 'test3' },
+                timestamp: 3
+            });
+
+            expect(queue!.size()).toBe(3);
+
+            queue.clear();
+
+            expect(queue!.size()).toBe(0);
+            expect(queue.isEmpty()).toBe(true);
+            expect(queue!.dequeue()).toBeUndefined();
+        });
+
+        it('should work on empty queue', () => {
+            expect(() => queue.clear()).not.toThrow();
+            expect(queue.isEmpty()).toBe(true);
+        });
+    });
+
+    describe('isEmpty and size methods', () => {
+        it('should return true for empty queue', () => {
+            expect(queue.isEmpty()).toBe(true);
+            expect(queue!.size()).toBe(0);
+        });
+
+        it('should return false after enqueuing', () => {
+            queue.enqueue({
+                type: 'notification' as const,
+                message: { jsonrpc: '2.0' as const, method: 'test' },
+                timestamp: 1
+            });
+            expect(queue.isEmpty()).toBe(false);
+            expect(queue!.size()).toBe(1);
+        });
+
+        it('should return correct size for multiple messages', () => {
+            for (let i = 0; i < 5; i++) {
+                queue.enqueue({
+                    type: 'notification' as const,
+                    message: { jsonrpc: '2.0' as const, method: `test${i}` },
+                    timestamp: i
+                });
+            }
+            expect(queue!.size()).toBe(5);
+            expect(queue.isEmpty()).toBe(false);
+        });
+
+        it('should update size correctly after dequeue', () => {
+            queue.enqueue({
+                type: 'notification' as const,
+                message: { jsonrpc: '2.0' as const, method: 'test1' },
+                timestamp: 1
+            });
+            queue.enqueue({
+                type: 'notification' as const,
+                message: { jsonrpc: '2.0' as const, method: 'test2' },
+                timestamp: 2
+            });
+            expect(queue!.size()).toBe(2);
+
+            queue!.dequeue();
+            expect(queue!.size()).toBe(1);
+            expect(queue.isEmpty()).toBe(false);
+
+            queue!.dequeue();
+            expect(queue!.size()).toBe(0);
+            expect(queue.isEmpty()).toBe(true);
+        });
+    });
+
+    describe('dequeueAll operation', () => {
+        it('should return all messages in FIFO order', () => {
+            const msg1 = {
+                type: 'notification' as const,
+                message: { jsonrpc: '2.0' as const, method: 'test1' },
+                timestamp: 1
+            };
+            const msg2 = {
+                type: 'request' as const,
+                message: { jsonrpc: '2.0' as const, id: 1, method: 'test2' },
+                timestamp: 2
+            };
+            const msg3 = {
+                type: 'notification' as const,
+                message: { jsonrpc: '2.0' as const, method: 'test3' },
+                timestamp: 3
+            };
+
+            queue.enqueue(msg1);
+            queue.enqueue(msg2);
+            queue.enqueue(msg3);
+
+            const allMessages = queue.dequeueAll();
+
+            expect(allMessages).toEqual([msg1, msg2, msg3]);
+            expect(queue.isEmpty()).toBe(true);
+            expect(queue!.size()).toBe(0);
+        });
+
+        it('should return empty array for empty queue', () => {
+            const allMessages = queue.dequeueAll();
+            expect(allMessages).toEqual([]);
+            expect(queue.isEmpty()).toBe(true);
+        });
+
+        it('should clear queue after dequeueAll', () => {
+            queue.enqueue({
+                type: 'notification' as const,
+                message: { jsonrpc: '2.0' as const, method: 'test1' },
+                timestamp: 1
+            });
+            queue.enqueue({
+                type: 'notification' as const,
+                message: { jsonrpc: '2.0' as const, method: 'test2' },
+                timestamp: 2
+            });
+
+            queue.dequeueAll();
+
+            expect(queue!.dequeue()).toBeUndefined();
+            expect(queue!.size()).toBe(0);
+        });
+    });
+});
+
 describe('mergeCapabilities', () => {
     it('should merge client capabilities', () => {
         const base: ClientCapabilities = {
@@ -1420,8 +1610,7 @@ describe('Task-based execution', () => {
                 'Client cancelled task execution.',
                 undefined
             );
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const sentMessage = sendSpy.mock.calls[0][0] as any;
+            const sentMessage = sendSpy.mock.calls[0][0] as unknown as JSONRPCResponse;
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(5);
             expect(sentMessage.result._meta).toBeDefined();
@@ -1459,8 +1648,7 @@ describe('Task-based execution', () => {
             taskDeleted.releaseLatch();
 
             expect(mockTaskStore.getTask).toHaveBeenCalledWith('non-existent', undefined);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const sentMessage = sendSpy.mock.calls[0][0] as any;
+            const sentMessage = sendSpy.mock.calls[0][0] as unknown as JSONRPCError;
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(6);
             expect(sentMessage.error).toBeDefined();
@@ -1508,8 +1696,7 @@ describe('Task-based execution', () => {
 
             expect(mockTaskStore.getTask).toHaveBeenCalledWith(completedTask.taskId, undefined);
             expect(mockTaskStore.updateTaskStatus).not.toHaveBeenCalled();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const sentMessage = sendSpy.mock.calls[0][0] as any;
+            const sentMessage = sendSpy.mock.calls[0][0] as unknown as JSONRPCError;
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(7);
             expect(sentMessage.error).toBeDefined();
@@ -2332,16 +2519,14 @@ describe('Progress notification support for tasks', () => {
         expect(progressCallback).toHaveBeenCalledTimes(1);
 
         // Verify the task-progress association was created
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const taskProgressTokens = (protocol as any)._taskProgressTokens as Map<string, number>;
+        const taskProgressTokens = (protocol as unknown as TestProtocol)._taskProgressTokens as Map<string, number>;
         expect(taskProgressTokens.has(taskId)).toBe(true);
         expect(taskProgressTokens.get(taskId)).toBe(progressToken);
 
         // Simulate task completion by calling through the protocol's task store
         // This will trigger the cleanup logic
         const mockRequest = { jsonrpc: '2.0' as const, id: 999, method: 'test', params: {} };
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const requestTaskStore = (protocol as any).requestTaskStore(mockRequest, undefined);
+        const requestTaskStore = (protocol as unknown as TestProtocol).requestTaskStore(mockRequest, undefined);
         await requestTaskStore.storeTaskResult(taskId, 'completed', { content: [] });
 
         // Wait for all async operations including notification sending to complete
@@ -2829,5 +3014,1251 @@ describe('Capability negotiation for tasks', () => {
 
         expect('list' in clientCapabilities.tasks).toBe(true);
         expect('cancel' in clientCapabilities.tasks).toBe(true);
+    });
+});
+
+describe('Message interception for task-related notifications', () => {
+    it('should queue notifications with io.modelcontextprotocol/related-task metadata', async () => {
+        const taskStore = createMockTaskStore();
+        const transport = new MockTransport();
+        const server = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(_method: string): void {}
+            protected assertNotificationCapability(_method: string): void {}
+            protected assertRequestHandlerCapability(_method: string): void {}
+            protected assertTaskCapability(_method: string): void {}
+            protected assertTaskHandlerCapability(_method: string): void {}
+        })({ taskStore });
+
+        await server.connect(transport);
+
+        // Create a task first
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+
+        // Send a notification with related task metadata
+        await server.notification(
+            {
+                method: 'notifications/message',
+                params: { level: 'info', data: 'test message' }
+            },
+            {
+                relatedTask: { taskId: task.taskId }
+            }
+        );
+
+        // Access the private queue to verify the message was queued
+        const queue = (server as unknown as TestProtocol)._taskMessageQueues.get(task.taskId);
+        expect(queue).toBeDefined();
+        expect(queue!.size()).toBe(1);
+
+        const queuedMessage = queue!.dequeue();
+        expect(queuedMessage).toBeDefined();
+        expect(queuedMessage?.type).toBe('notification');
+        expect(queuedMessage?.message.method).toBe('notifications/message');
+        expect(queuedMessage!.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({ taskId: task.taskId });
+    });
+
+    it('should not queue notifications without related-task metadata', async () => {
+        const taskStore = createMockTaskStore();
+        const transport = new MockTransport();
+        const server = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(_method: string): void {}
+            protected assertNotificationCapability(_method: string): void {}
+            protected assertRequestHandlerCapability(_method: string): void {}
+            protected assertTaskCapability(_method: string): void {}
+            protected assertTaskHandlerCapability(_method: string): void {}
+        })({ taskStore });
+
+        await server.connect(transport);
+
+        // Send a notification without related task metadata
+        await server.notification({
+            method: 'notifications/message',
+            params: { level: 'info', data: 'test message' }
+        });
+
+        // Verify no queues were created
+        const queues = (server as unknown as TestProtocol)._taskMessageQueues;
+        expect(queues.size).toBe(0);
+    });
+
+    it('should notify task result waiters after queuing', async () => {
+        const taskStore = createMockTaskStore();
+        const transport = new MockTransport();
+        const server = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(_method: string): void {}
+            protected assertNotificationCapability(_method: string): void {}
+            protected assertRequestHandlerCapability(_method: string): void {}
+            protected assertTaskCapability(_method: string): void {}
+            protected assertTaskHandlerCapability(_method: string): void {}
+        })({ taskStore });
+
+        await server.connect(transport);
+
+        // Create a task
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+
+        // Set up a waiter
+        let waiterCalled = false;
+        const waiters = (server as unknown as TestProtocol)._taskResultWaiters;
+        waiters.set(task.taskId, [
+            () => {
+                waiterCalled = true;
+            }
+        ]);
+
+        // Send a notification with related task metadata
+        await server.notification(
+            {
+                method: 'notifications/message',
+                params: { level: 'info', data: 'test message' }
+            },
+            {
+                relatedTask: { taskId: task.taskId }
+            }
+        );
+
+        // Verify the waiter was called
+        expect(waiterCalled).toBe(true);
+        expect(waiters.has(task.taskId)).toBe(false); // Waiters should be cleared
+    });
+
+    it('should handle queue overflow by failing the task', async () => {
+        const taskStore = createMockTaskStore();
+        const transport = new MockTransport();
+        const server = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(_method: string): void {}
+            protected assertNotificationCapability(_method: string): void {}
+            protected assertRequestHandlerCapability(_method: string): void {}
+            protected assertTaskCapability(_method: string): void {}
+            protected assertTaskHandlerCapability(_method: string): void {}
+        })({ taskStore, maxTaskQueueSize: 100 });
+
+        await server.connect(transport);
+
+        // Create a task
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+
+        // Fill the queue to max capacity (100 messages)
+        for (let i = 0; i < 100; i++) {
+            await server.notification(
+                {
+                    method: 'notifications/message',
+                    params: { level: 'info', data: `message ${i}` }
+                },
+                {
+                    relatedTask: { taskId: task.taskId }
+                }
+            );
+        }
+
+        // Verify queue is at max capacity
+        const queue = (server as unknown as TestProtocol)._taskMessageQueues.get(task.taskId);
+        expect(queue!.size()).toBe(100);
+
+        // Try to add one more message - should throw and fail the task
+        await expect(
+            server.notification(
+                {
+                    method: 'notifications/message',
+                    params: { level: 'info', data: 'overflow message' }
+                },
+                {
+                    relatedTask: { taskId: task.taskId }
+                }
+            )
+        ).rejects.toThrow(McpError);
+
+        // Verify the task was failed
+        expect(taskStore.updateTaskStatus).toHaveBeenCalledWith(task.taskId, 'failed', 'Task message queue overflow');
+
+        // Verify the queue was cleared
+        expect(queue!.size()).toBe(0);
+    });
+
+    it('should extract task ID correctly from metadata', async () => {
+        const taskStore = createMockTaskStore();
+        const transport = new MockTransport();
+        const server = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(_method: string): void {}
+            protected assertNotificationCapability(_method: string): void {}
+            protected assertRequestHandlerCapability(_method: string): void {}
+            protected assertTaskCapability(_method: string): void {}
+            protected assertTaskHandlerCapability(_method: string): void {}
+        })({ taskStore });
+
+        await server.connect(transport);
+
+        const taskId = 'custom-task-id-123';
+
+        // Send a notification with custom task ID
+        await server.notification(
+            {
+                method: 'notifications/message',
+                params: { level: 'info', data: 'test message' }
+            },
+            {
+                relatedTask: { taskId }
+            }
+        );
+
+        // Verify the message was queued under the correct task ID
+        const queue = (server as unknown as TestProtocol)._taskMessageQueues.get(taskId);
+        expect(queue).toBeDefined();
+        expect(queue!.size()).toBe(1);
+    });
+
+    it('should preserve message order when queuing multiple notifications', async () => {
+        const taskStore = createMockTaskStore();
+        const transport = new MockTransport();
+        const server = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(_method: string): void {}
+            protected assertNotificationCapability(_method: string): void {}
+            protected assertRequestHandlerCapability(_method: string): void {}
+            protected assertTaskCapability(_method: string): void {}
+            protected assertTaskHandlerCapability(_method: string): void {}
+        })({ taskStore });
+
+        await server.connect(transport);
+
+        // Create a task
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+
+        // Send multiple notifications
+        for (let i = 0; i < 5; i++) {
+            await server.notification(
+                {
+                    method: 'notifications/message',
+                    params: { level: 'info', data: `message ${i}` }
+                },
+                {
+                    relatedTask: { taskId: task.taskId }
+                }
+            );
+        }
+
+        // Verify messages are in FIFO order
+        const queue = (server as unknown as TestProtocol)._taskMessageQueues.get(task.taskId);
+        expect(queue!.size()).toBe(5);
+
+        for (let i = 0; i < 5; i++) {
+            const message = queue!.dequeue();
+            expect(message!.message.params!.data).toBe(`message ${i}`);
+        }
+    });
+});
+
+describe('Message interception for task-related requests', () => {
+    it('should queue requests with io.modelcontextprotocol/related-task metadata', async () => {
+        const taskStore = createMockTaskStore();
+        const transport = new MockTransport();
+        const server = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(_method: string): void {}
+            protected assertNotificationCapability(_method: string): void {}
+            protected assertRequestHandlerCapability(_method: string): void {}
+            protected assertTaskCapability(_method: string): void {}
+            protected assertTaskHandlerCapability(_method: string): void {}
+        })({ taskStore });
+
+        await server.connect(transport);
+
+        // Create a task first
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+
+        // Send a request with related task metadata (don't await - we're testing queuing)
+        const requestPromise = server.request(
+            {
+                method: 'ping',
+                params: {}
+            },
+            z.object({}),
+            {
+                relatedTask: { taskId: task.taskId }
+            }
+        );
+
+        // Access the private queue to verify the message was queued
+        const queue = (server as unknown as TestProtocol)._taskMessageQueues.get(task.taskId);
+        expect(queue).toBeDefined();
+        expect(queue!.size()).toBe(1);
+
+        const queuedMessage = queue!.dequeue();
+        expect(queuedMessage).toBeDefined();
+        expect(queuedMessage?.type).toBe('request');
+        expect(queuedMessage?.message.method).toBe('ping');
+        expect(queuedMessage!.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({ taskId: task.taskId });
+        expect(queuedMessage?.responseResolver).toBeDefined();
+        expect(queuedMessage!.originalRequestId!).toBeDefined();
+
+        // Clean up - send a response to prevent hanging promise
+        transport.onmessage?.({
+            jsonrpc: '2.0',
+            id: queuedMessage!.originalRequestId!,
+            result: {}
+        });
+
+        await requestPromise;
+    });
+
+    it('should not queue requests without related-task metadata', async () => {
+        const taskStore = createMockTaskStore();
+        const transport = new MockTransport();
+        const server = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(_method: string): void {}
+            protected assertNotificationCapability(_method: string): void {}
+            protected assertRequestHandlerCapability(_method: string): void {}
+            protected assertTaskCapability(_method: string): void {}
+            protected assertTaskHandlerCapability(_method: string): void {}
+        })({ taskStore });
+
+        await server.connect(transport);
+
+        // Send a request without related task metadata
+        const requestPromise = server.request(
+            {
+                method: 'ping',
+                params: {}
+            },
+            z.object({})
+        );
+
+        // Verify no queues were created
+        const queues = (server as unknown as TestProtocol)._taskMessageQueues;
+        expect(queues.size).toBe(0);
+
+        // Clean up - send a response
+        transport.onmessage?.({
+            jsonrpc: '2.0',
+            id: 0,
+            result: {}
+        });
+
+        await requestPromise;
+    });
+
+    it('should notify task result waiters after queuing request', async () => {
+        const taskStore = createMockTaskStore();
+        const transport = new MockTransport();
+        const server = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(_method: string): void {}
+            protected assertNotificationCapability(_method: string): void {}
+            protected assertRequestHandlerCapability(_method: string): void {}
+            protected assertTaskCapability(_method: string): void {}
+            protected assertTaskHandlerCapability(_method: string): void {}
+        })({ taskStore });
+
+        await server.connect(transport);
+
+        // Create a task
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+
+        // Set up a waiter
+        let waiterCalled = false;
+        const waiters = (server as unknown as TestProtocol)._taskResultWaiters;
+        waiters.set(task.taskId, [
+            () => {
+                waiterCalled = true;
+            }
+        ]);
+
+        // Send a request with related task metadata
+        const requestPromise = server.request(
+            {
+                method: 'ping',
+                params: {}
+            },
+            z.object({}),
+            {
+                relatedTask: { taskId: task.taskId }
+            }
+        );
+
+        // Verify the waiter was called
+        expect(waiterCalled).toBe(true);
+        expect(waiters.has(task.taskId)).toBe(false); // Waiters should be cleared
+
+        // Clean up
+        const queue = (server as unknown as TestProtocol)._taskMessageQueues.get(task.taskId);
+        const queuedMessage = queue!.dequeue();
+        transport.onmessage?.({
+            jsonrpc: '2.0',
+            id: queuedMessage!.originalRequestId!,
+            result: {}
+        });
+
+        await requestPromise;
+    });
+
+    it('should store request resolver for response routing', async () => {
+        const taskStore = createMockTaskStore();
+        const transport = new MockTransport();
+        const server = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(_method: string): void {}
+            protected assertNotificationCapability(_method: string): void {}
+            protected assertRequestHandlerCapability(_method: string): void {}
+            protected assertTaskCapability(_method: string): void {}
+            protected assertTaskHandlerCapability(_method: string): void {}
+        })({ taskStore });
+
+        await server.connect(transport);
+
+        // Create a task
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+
+        // Send a request with related task metadata
+        const requestPromise = server.request(
+            {
+                method: 'ping',
+                params: {}
+            },
+            z.object({}),
+            {
+                relatedTask: { taskId: task.taskId }
+            }
+        );
+
+        // Verify the resolver was stored
+        const resolvers = (server as unknown as TestProtocol)._requestResolvers;
+        expect(resolvers.size).toBe(1);
+
+        // Get the request ID from the queue
+        const queue = (server as unknown as TestProtocol)._taskMessageQueues.get(task.taskId);
+        const queuedMessage = queue!.dequeue();
+        const requestId = queuedMessage!.originalRequestId!;
+
+        expect(resolvers.has(requestId)).toBe(true);
+
+        // Send a response to trigger resolver
+        transport.onmessage?.({
+            jsonrpc: '2.0',
+            id: requestId,
+            result: {}
+        });
+
+        await requestPromise;
+
+        // Verify resolver was cleaned up after response
+        expect(resolvers.has(requestId)).toBe(false);
+    });
+
+    it('should route responses to side-channeled requests', async () => {
+        const taskStore = createMockTaskStore();
+        const transport = new MockTransport();
+        const server = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(_method: string): void {}
+            protected assertNotificationCapability(_method: string): void {}
+            protected assertRequestHandlerCapability(_method: string): void {}
+            protected assertTaskCapability(_method: string): void {}
+            protected assertTaskHandlerCapability(_method: string): void {}
+        })({ taskStore });
+
+        await server.connect(transport);
+
+        // Create a task
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+
+        // Send a request with related task metadata
+        const requestPromise = server.request(
+            {
+                method: 'ping',
+                params: {}
+            },
+            z.object({ message: z.string() }),
+            {
+                relatedTask: { taskId: task.taskId }
+            }
+        );
+
+        // Get the request ID from the queue
+        const queue = (server as unknown as TestProtocol)._taskMessageQueues.get(task.taskId);
+        const queuedMessage = queue!.dequeue();
+        const requestId = queuedMessage!.originalRequestId!;
+
+        // Send a response
+        transport.onmessage?.({
+            jsonrpc: '2.0',
+            id: requestId,
+            result: { message: 'pong' }
+        });
+
+        // Verify the response was routed correctly
+        const result = await requestPromise;
+        expect(result).toEqual({ message: 'pong' });
+    });
+
+    it('should log error when resolver is missing for side-channeled request', async () => {
+        const taskStore = createMockTaskStore();
+        const transport = new MockTransport();
+        const server = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(_method: string): void {}
+            protected assertNotificationCapability(_method: string): void {}
+            protected assertRequestHandlerCapability(_method: string): void {}
+            protected assertTaskCapability(_method: string): void {}
+            protected assertTaskHandlerCapability(_method: string): void {}
+        })({ taskStore });
+
+        const errors: Error[] = [];
+        server.onerror = (error: Error) => {
+            errors.push(error);
+        };
+
+        await server.connect(transport);
+
+        // Create a task
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+
+        // Send a request with related task metadata
+        void server.request(
+            {
+                method: 'ping',
+                params: {}
+            },
+            z.object({ message: z.string() }),
+            {
+                relatedTask: { taskId: task.taskId }
+            }
+        );
+
+        // Get the request ID from the queue
+        const queue = (server as unknown as TestProtocol)._taskMessageQueues.get(task.taskId);
+        const queuedMessage = queue!.dequeue();
+        const requestId = queuedMessage!.originalRequestId!;
+
+        // Manually delete the response handler to simulate missing resolver
+        (server as unknown as TestProtocol)._responseHandlers.delete(requestId);
+
+        // Send a response - this should trigger the error logging
+        transport.onmessage?.({
+            jsonrpc: '2.0',
+            id: requestId,
+            result: { message: 'pong' }
+        });
+
+        // Wait a bit for the error to be logged
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        // Verify error was logged
+        expect(errors.length).toBe(1);
+        expect(errors[0].message).toContain('Response handler missing for side-channeled request');
+    });
+
+    it('should handle queue overflow for requests', async () => {
+        const taskStore = createMockTaskStore();
+        const transport = new MockTransport();
+        const server = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(_method: string): void {}
+            protected assertNotificationCapability(_method: string): void {}
+            protected assertRequestHandlerCapability(_method: string): void {}
+            protected assertTaskCapability(_method: string): void {}
+            protected assertTaskHandlerCapability(_method: string): void {}
+        })({ taskStore, maxTaskQueueSize: 100 });
+
+        await server.connect(transport);
+
+        // Create a task
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
+
+        // Fill the queue to max capacity (100 messages)
+        const promises: Promise<unknown>[] = [];
+        for (let i = 0; i < 100; i++) {
+            const promise = server
+                .request(
+                    {
+                        method: 'ping',
+                        params: {}
+                    },
+                    z.object({}),
+                    {
+                        relatedTask: { taskId: task.taskId }
+                    }
+                )
+                .catch(() => {
+                    // Expected to reject when queue is cleared
+                });
+            promises.push(promise);
+        }
+
+        // Verify queue is at max capacity
+        const queue = (server as unknown as TestProtocol)._taskMessageQueues.get(task.taskId);
+        expect(queue!.size()).toBe(100);
+
+        // Try to add one more request - should throw and fail the task
+        await expect(
+            server.request(
+                {
+                    method: 'ping',
+                    params: {}
+                },
+                z.object({}),
+                {
+                    relatedTask: { taskId: task.taskId }
+                }
+            )
+        ).rejects.toThrow(McpError);
+
+        // Verify the task was failed
+        expect(taskStore.updateTaskStatus).toHaveBeenCalledWith(task.taskId, 'failed', 'Task message queue overflow');
+
+        // Verify the queue was cleared
+        expect(queue!.size()).toBe(0);
+    });
+});
+
+describe('Message Interception', () => {
+    let protocol: Protocol<Request, Notification, Result>;
+    let transport: MockTransport;
+    let mockTaskStore: TaskStore & { [K in keyof TaskStore]: MockInstance };
+
+    beforeEach(() => {
+        transport = new MockTransport();
+        mockTaskStore = createMockTaskStore();
+        protocol = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(): void {}
+            protected assertNotificationCapability(): void {}
+            protected assertRequestHandlerCapability(): void {}
+            protected assertTaskCapability(): void {}
+            protected assertTaskHandlerCapability(): void {}
+        })({ taskStore: mockTaskStore });
+    });
+
+    describe('messages with relatedTask metadata are queued', () => {
+        it('should queue notifications with relatedTask metadata', async () => {
+            await protocol.connect(transport);
+
+            // Send a notification with relatedTask metadata
+            await protocol.notification(
+                {
+                    method: 'notifications/message',
+                    params: { level: 'info', data: 'test message' }
+                },
+                {
+                    relatedTask: {
+                        taskId: 'task-123'
+                    }
+                }
+            );
+
+            // Access the private _taskMessageQueues to verify the message was queued
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.has('task-123')).toBe(true);
+
+            const queue = queues.get('task-123')!;
+            expect(queue!.size()).toBe(1);
+
+            const queuedMessage = queue!.dequeue();
+            expect(queuedMessage).toBeDefined();
+            expect(queuedMessage!.type).toBe('notification');
+            expect(queuedMessage!.message.method).toBe('notifications/message');
+        });
+
+        it('should queue requests with relatedTask metadata', async () => {
+            await protocol.connect(transport);
+
+            const mockSchema = z.object({ result: z.string() });
+
+            // Send a request with relatedTask metadata
+            const requestPromise = protocol.request(
+                {
+                    method: 'test/request',
+                    params: { data: 'test' }
+                },
+                mockSchema,
+                {
+                    relatedTask: {
+                        taskId: 'task-456'
+                    }
+                }
+            );
+
+            // Access the private _taskMessageQueues to verify the message was queued
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.has('task-456')).toBe(true);
+
+            const queue = queues.get('task-456')!;
+            expect(queue!.size()).toBe(1);
+
+            const queuedMessage = queue!.dequeue();
+            expect(queuedMessage).toBeDefined();
+            expect(queuedMessage!.type).toBe('request');
+            expect(queuedMessage!.message.method).toBe('test/request');
+            expect(queuedMessage!.responseResolver).toBeDefined();
+
+            // Clean up the pending request
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: (queuedMessage!.message as JSONRPCRequest).id,
+                result: { result: 'success' }
+            });
+            await requestPromise;
+        });
+    });
+
+    describe('messages without metadata bypass the queue', () => {
+        it('should not queue notifications without relatedTask metadata', async () => {
+            await protocol.connect(transport);
+
+            // Send a notification without relatedTask metadata
+            await protocol.notification({
+                method: 'notifications/message',
+                params: { level: 'info', data: 'test message' }
+            });
+
+            // Access the private _taskMessageQueues to verify no queue was created
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.size).toBe(0);
+        });
+
+        it('should not queue requests without relatedTask metadata', async () => {
+            await protocol.connect(transport);
+
+            const mockSchema = z.object({ result: z.string() });
+            const sendSpy = vi.spyOn(transport, 'send');
+
+            // Send a request without relatedTask metadata
+            const requestPromise = protocol.request(
+                {
+                    method: 'test/request',
+                    params: { data: 'test' }
+                },
+                mockSchema
+            );
+
+            // Access the private _taskMessageQueues to verify no queue was created
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.size).toBe(0);
+
+            // Clean up the pending request
+            const requestId = (sendSpy.mock.calls[0][0] as JSONRPCResponse).id;
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: requestId,
+                result: { result: 'success' }
+            });
+            await requestPromise;
+        });
+    });
+
+    describe('task ID extraction from metadata', () => {
+        it('should extract correct task ID from relatedTask metadata for notifications', async () => {
+            await protocol.connect(transport);
+
+            const taskId = 'extracted-task-789';
+
+            // Send a notification with relatedTask metadata
+            await protocol.notification(
+                {
+                    method: 'notifications/message',
+                    params: { data: 'test' }
+                },
+                {
+                    relatedTask: {
+                        taskId: taskId
+                    }
+                }
+            );
+
+            // Verify the message was queued under the correct task ID
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.has(taskId)).toBe(true);
+            expect(queues.has('wrong-task-id')).toBe(false);
+        });
+
+        it('should extract correct task ID from relatedTask metadata for requests', async () => {
+            await protocol.connect(transport);
+
+            const taskId = 'extracted-task-999';
+            const mockSchema = z.object({ result: z.string() });
+
+            // Send a request with relatedTask metadata
+            const requestPromise = protocol.request(
+                {
+                    method: 'test/request',
+                    params: { data: 'test' }
+                },
+                mockSchema,
+                {
+                    relatedTask: {
+                        taskId: taskId
+                    }
+                }
+            );
+
+            // Verify the message was queued under the correct task ID
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.has(taskId)).toBe(true);
+            expect(queues.has('wrong-task-id')).toBe(false);
+
+            // Clean up the pending request
+            const queue = queues.get(taskId)!;
+            const queuedMessage = queue!.dequeue();
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: (queuedMessage!.message as JSONRPCRequest).id,
+                result: { result: 'success' }
+            });
+            await requestPromise;
+        });
+
+        it('should handle multiple messages for different task IDs', async () => {
+            await protocol.connect(transport);
+
+            // Send messages for different tasks
+            await protocol.notification({ method: 'test1', params: {} }, { relatedTask: { taskId: 'task-A' } });
+            await protocol.notification({ method: 'test2', params: {} }, { relatedTask: { taskId: 'task-B' } });
+            await protocol.notification({ method: 'test3', params: {} }, { relatedTask: { taskId: 'task-A' } });
+
+            // Verify messages are queued under correct task IDs
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.has('task-A')).toBe(true);
+            expect(queues.has('task-B')).toBe(true);
+
+            const queueA = queues.get('task-A')!;
+            const queueB = queues.get('task-B')!;
+
+            expect(queueA.size()).toBe(2); // Two messages for task-A
+            expect(queueB.size()).toBe(1); // One message for task-B
+        });
+    });
+
+    describe('queue creation on first message', () => {
+        it('should create queue on first message for a task', async () => {
+            await protocol.connect(transport);
+
+            // Verify no queues exist initially
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.size).toBe(0);
+
+            // Send first message for a task
+            await protocol.notification({ method: 'test', params: {} }, { relatedTask: { taskId: 'new-task' } });
+
+            // Verify queue was created
+            expect(queues.has('new-task')).toBe(true);
+            expect(queues.size).toBe(1);
+        });
+
+        it('should reuse existing queue for subsequent messages', async () => {
+            await protocol.connect(transport);
+
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+
+            // Send first message
+            await protocol.notification({ method: 'test1', params: {} }, { relatedTask: { taskId: 'reuse-task' } });
+
+            const firstQueue = queues.get('reuse-task');
+            expect(firstQueue).toBeDefined();
+            expect(firstQueue!.size()).toBe(1);
+
+            // Send second message
+            await protocol.notification({ method: 'test2', params: {} }, { relatedTask: { taskId: 'reuse-task' } });
+
+            const secondQueue = queues.get('reuse-task');
+
+            // Should be the same queue instance
+            expect(secondQueue).toBe(firstQueue);
+            expect(secondQueue!.size()).toBe(2);
+        });
+
+        it('should create separate queues for different tasks', async () => {
+            await protocol.connect(transport);
+
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+
+            // Send messages for different tasks
+            await protocol.notification({ method: 'test1', params: {} }, { relatedTask: { taskId: 'task-1' } });
+            await protocol.notification({ method: 'test2', params: {} }, { relatedTask: { taskId: 'task-2' } });
+
+            // Verify separate queues were created
+            expect(queues.size).toBe(2);
+            expect(queues.has('task-1')).toBe(true);
+            expect(queues.has('task-2')).toBe(true);
+
+            const queue1 = queues.get('task-1')!;
+            const queue2 = queues.get('task-2')!;
+
+            // Verify they are different queue instances
+            expect(queue1).not.toBe(queue2);
+        });
+    });
+
+    describe('metadata preservation in queued messages', () => {
+        it('should preserve relatedTask metadata in queued notification', async () => {
+            await protocol.connect(transport);
+
+            const relatedTask = { taskId: 'task-meta-123' };
+
+            await protocol.notification(
+                {
+                    method: 'test/notification',
+                    params: { data: 'test' }
+                },
+                { relatedTask }
+            );
+
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            const queue = queues.get('task-meta-123')!;
+            const queuedMessage = queue!.dequeue();
+
+            // Verify the metadata is preserved in the queued message
+            expect(queuedMessage!.message.params!._meta).toBeDefined();
+            expect(queuedMessage!.message.params!._meta![RELATED_TASK_META_KEY]).toEqual(relatedTask);
+        });
+
+        it('should preserve relatedTask metadata in queued request', async () => {
+            await protocol.connect(transport);
+
+            const relatedTask = { taskId: 'task-meta-456' };
+            const mockSchema = z.object({ result: z.string() });
+
+            const requestPromise = protocol.request(
+                {
+                    method: 'test/request',
+                    params: { data: 'test' }
+                },
+                mockSchema,
+                { relatedTask }
+            );
+
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            const queue = queues.get('task-meta-456')!;
+            const queuedMessage = queue!.dequeue();
+
+            // Verify the metadata is preserved in the queued message
+            expect(queuedMessage!.message.params!._meta).toBeDefined();
+            expect(queuedMessage!.message.params!._meta![RELATED_TASK_META_KEY]).toEqual(relatedTask);
+
+            // Clean up
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: (queuedMessage!.message as JSONRPCRequest).id,
+                result: { result: 'success' }
+            });
+            await requestPromise;
+        });
+
+        it('should preserve existing _meta fields when adding relatedTask', async () => {
+            await protocol.connect(transport);
+
+            await protocol.notification(
+                {
+                    method: 'test/notification',
+                    params: {
+                        data: 'test',
+                        _meta: {
+                            customField: 'customValue',
+                            anotherField: 123
+                        }
+                    }
+                },
+                {
+                    relatedTask: { taskId: 'task-preserve-meta' }
+                }
+            );
+
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            const queue = queues.get('task-preserve-meta')!;
+            const queuedMessage = queue!.dequeue();
+
+            // Verify both existing and new metadata are preserved
+            expect(queuedMessage!.message.params!._meta!.customField).toBe('customValue');
+            expect(queuedMessage!.message.params!._meta!.anotherField).toBe(123);
+            expect(queuedMessage!.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({
+                taskId: 'task-preserve-meta'
+            });
+        });
+    });
+});
+
+describe('Queue lifecycle management', () => {
+    let protocol: Protocol<Request, Notification, Result>;
+    let transport: MockTransport;
+    let mockTaskStore: TaskStore & { [K in keyof TaskStore]: MockInstance };
+
+    beforeEach(() => {
+        transport = new MockTransport();
+        mockTaskStore = createMockTaskStore();
+        protocol = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(): void {}
+            protected assertNotificationCapability(): void {}
+            protected assertRequestHandlerCapability(): void {}
+            protected assertTaskCapability(): void {}
+            protected assertTaskHandlerCapability(): void {}
+        })({ taskStore: mockTaskStore });
+    });
+
+    describe('queue cleanup on task completion', () => {
+        it('should clear queue when task reaches completed status', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await mockTaskStore.createTask({}, 1, { method: 'test', params: {} });
+            const taskId = task.taskId;
+
+            // Queue some messages for the task
+            await protocol.notification({ method: 'test/notification', params: { data: 'test1' } }, { relatedTask: { taskId } });
+            await protocol.notification({ method: 'test/notification', params: { data: 'test2' } }, { relatedTask: { taskId } });
+
+            // Verify messages are queued
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.has(taskId)).toBe(true);
+            expect(queues.get(taskId)!.size()).toBe(2);
+
+            // Directly call the cleanup method (simulating what happens when task reaches terminal status)
+            (protocol as unknown as TestProtocol)._clearTaskQueue(taskId);
+
+            // Verify queue is cleared
+            expect(queues.has(taskId)).toBe(false);
+        });
+
+        it('should clear queue after delivering messages on tasks/result for completed task', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await mockTaskStore.createTask({}, 1, { method: 'test', params: {} });
+            const taskId = task.taskId;
+
+            // Queue a message
+            await protocol.notification({ method: 'test/notification', params: { data: 'test' } }, { relatedTask: { taskId } });
+
+            // Mark task as completed
+            const completedTask = { ...task, status: 'completed' as const };
+            mockTaskStore.getTask.mockResolvedValue(completedTask);
+            mockTaskStore.getTaskResult.mockResolvedValue({ content: [{ type: 'text', text: 'done' }] });
+
+            // Simulate tasks/result request
+            const resultPromise = new Promise(resolve => {
+                transport.onmessage?.({
+                    jsonrpc: '2.0',
+                    id: 100,
+                    method: 'tasks/result',
+                    params: { taskId }
+                });
+                setTimeout(resolve, 50);
+            });
+
+            await resultPromise;
+
+            // Verify queue is cleared after delivery
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.has(taskId)).toBe(false);
+        });
+    });
+
+    describe('queue cleanup on task cancellation', () => {
+        it('should clear queue when task is cancelled', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await mockTaskStore.createTask({}, 1, { method: 'test', params: {} });
+            const taskId = task.taskId;
+
+            // Queue some messages
+            await protocol.notification({ method: 'test/notification', params: { data: 'test1' } }, { relatedTask: { taskId } });
+
+            // Verify message is queued
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.has(taskId)).toBe(true);
+            expect(queues.get(taskId)!.size()).toBe(1);
+
+            // Mock task as non-terminal
+            mockTaskStore.getTask.mockResolvedValue(task);
+
+            // Cancel the task
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 200,
+                method: 'tasks/cancel',
+                params: { taskId }
+            });
+
+            // Wait for cancellation to process
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Verify queue is cleared
+            expect(queues.has(taskId)).toBe(false);
+        });
+
+        it('should reject pending request resolvers when task is cancelled', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await mockTaskStore.createTask({}, 1, { method: 'test', params: {} });
+            const taskId = task.taskId;
+
+            // Queue a request (catch rejection to avoid unhandled promise rejection)
+            const requestPromise = protocol
+                .request({ method: 'test/request', params: { data: 'test' } }, z.object({ result: z.string() }), {
+                    relatedTask: { taskId }
+                })
+                .catch(err => err);
+
+            // Verify request is queued
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.has(taskId)).toBe(true);
+            expect(queues.get(taskId)!.size()).toBe(1);
+
+            // Mock task as non-terminal
+            mockTaskStore.getTask.mockResolvedValue(task);
+
+            // Cancel the task
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 201,
+                method: 'tasks/cancel',
+                params: { taskId }
+            });
+
+            // Wait for cancellation to process
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Verify the request promise is rejected
+            const result = await requestPromise;
+            expect(result).toBeInstanceOf(McpError);
+            expect(result.message).toContain('Task cancelled or completed');
+
+            // Verify queue is cleared
+            expect(queues.has(taskId)).toBe(false);
+        });
+    });
+
+    describe('queue cleanup on task failure', () => {
+        it('should clear queue when task reaches failed status', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await mockTaskStore.createTask({}, 1, { method: 'test', params: {} });
+            const taskId = task.taskId;
+
+            // Queue some messages
+            await protocol.notification({ method: 'test/notification', params: { data: 'test1' } }, { relatedTask: { taskId } });
+            await protocol.notification({ method: 'test/notification', params: { data: 'test2' } }, { relatedTask: { taskId } });
+
+            // Verify messages are queued
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.has(taskId)).toBe(true);
+            expect(queues.get(taskId)!.size()).toBe(2);
+
+            // Directly call the cleanup method (simulating what happens when task reaches terminal status)
+            (protocol as unknown as TestProtocol)._clearTaskQueue(taskId);
+
+            // Verify queue is cleared
+            expect(queues.has(taskId)).toBe(false);
+        });
+
+        it('should reject pending request resolvers when task fails', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await mockTaskStore.createTask({}, 1, { method: 'test', params: {} });
+            const taskId = task.taskId;
+
+            // Queue a request (catch the rejection to avoid unhandled promise rejection)
+            const requestPromise = protocol
+                .request({ method: 'test/request', params: { data: 'test' } }, z.object({ result: z.string() }), {
+                    relatedTask: { taskId }
+                })
+                .catch(err => err);
+
+            // Verify request is queued
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.has(taskId)).toBe(true);
+
+            // Directly call the cleanup method (simulating what happens when task reaches terminal status)
+            (protocol as unknown as TestProtocol)._clearTaskQueue(taskId);
+
+            // Verify the request promise is rejected
+            const result = await requestPromise;
+            expect(result).toBeInstanceOf(McpError);
+            expect(result.message).toContain('Task cancelled or completed');
+
+            // Verify queue is cleared
+            expect(queues.has(taskId)).toBe(false);
+        });
+    });
+
+    describe('resolver rejection on cleanup', () => {
+        it('should reject all pending request resolvers when queue is cleared', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await mockTaskStore.createTask({}, 1, { method: 'test', params: {} });
+            const taskId = task.taskId;
+
+            // Queue multiple requests (catch rejections to avoid unhandled promise rejections)
+            const request1Promise = protocol
+                .request({ method: 'test/request1', params: { data: 'test1' } }, z.object({ result: z.string() }), {
+                    relatedTask: { taskId }
+                })
+                .catch(err => err);
+
+            const request2Promise = protocol
+                .request({ method: 'test/request2', params: { data: 'test2' } }, z.object({ result: z.string() }), {
+                    relatedTask: { taskId }
+                })
+                .catch(err => err);
+
+            const request3Promise = protocol
+                .request({ method: 'test/request3', params: { data: 'test3' } }, z.object({ result: z.string() }), {
+                    relatedTask: { taskId }
+                })
+                .catch(err => err);
+
+            // Verify requests are queued
+            const queues = (protocol as unknown as TestProtocol)._taskMessageQueues as Map<string, TaskMessageQueue>;
+            expect(queues.has(taskId)).toBe(true);
+            expect(queues.get(taskId)!.size()).toBe(3);
+
+            // Directly call the cleanup method (simulating what happens when task reaches terminal status)
+            (protocol as unknown as TestProtocol)._clearTaskQueue(taskId);
+
+            // Verify all request promises are rejected
+            const result1 = await request1Promise;
+            const result2 = await request2Promise;
+            const result3 = await request3Promise;
+
+            expect(result1).toBeInstanceOf(McpError);
+            expect(result1.message).toContain('Task cancelled or completed');
+            expect(result2).toBeInstanceOf(McpError);
+            expect(result2.message).toContain('Task cancelled or completed');
+            expect(result3).toBeInstanceOf(McpError);
+            expect(result3.message).toContain('Task cancelled or completed');
+
+            // Verify queue is cleared
+            expect(queues.has(taskId)).toBe(false);
+        });
+
+        it('should clean up resolver mappings when rejecting requests', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await mockTaskStore.createTask({}, 1, { method: 'test', params: {} });
+            const taskId = task.taskId;
+
+            // Queue a request (catch rejection to avoid unhandled promise rejection)
+            const requestPromise = protocol
+                .request({ method: 'test/request', params: { data: 'test' } }, z.object({ result: z.string() }), {
+                    relatedTask: { taskId }
+                })
+                .catch(err => err);
+
+            // Get the request ID that was sent
+            const requestResolvers = (protocol as unknown as TestProtocol)._requestResolvers;
+            const initialResolverCount = requestResolvers.size;
+            expect(initialResolverCount).toBeGreaterThan(0);
+
+            // Complete the task (triggers cleanup)
+            const completedTask = { ...task, status: 'completed' as const };
+            mockTaskStore.getTask.mockResolvedValue(completedTask);
+
+            // Directly call the cleanup method (simulating what happens when task reaches terminal status)
+            (protocol as unknown as TestProtocol)._clearTaskQueue(taskId);
+
+            // Verify request promise is rejected
+            const result = await requestPromise;
+            expect(result).toBeInstanceOf(McpError);
+            expect(result.message).toContain('Task cancelled or completed');
+
+            // Verify resolver mapping is cleaned up
+            // The resolver should be removed from the map
+            expect(requestResolvers.size).toBeLessThan(initialResolverCount);
+        });
     });
 });

@@ -8,7 +8,7 @@ import { StreamableHTTPServerTransport } from '../server/streamableHttp.js';
 import { CallToolResultSchema, CreateTaskResultSchema, ElicitRequestSchema, ElicitResultSchema, TaskSchema } from '../types.js';
 import { z } from 'zod';
 import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
-import { InMemoryTransport } from '../inMemory.js';
+import type { TaskRequestOptions } from '../shared/protocol.js';
 
 describe('Task Lifecycle Integration Tests', () => {
     let server: Server;
@@ -66,15 +66,19 @@ describe('Task Lifecycle Integration Tests', () => {
                     (async () => {
                         await new Promise(resolve => setTimeout(resolve, duration));
 
-                        if (shouldFail) {
-                            await extra.taskStore.storeTaskResult(task.taskId, 'failed', {
-                                content: [{ type: 'text', text: 'Task failed as requested' }],
-                                isError: true
-                            });
-                        } else {
-                            await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
-                                content: [{ type: 'text', text: `Completed after ${duration}ms` }]
-                            });
+                        try {
+                            if (shouldFail) {
+                                await extra.taskStore.storeTaskResult(task.taskId, 'failed', {
+                                    content: [{ type: 'text', text: 'Task failed as requested' }],
+                                    isError: true
+                                });
+                            } else {
+                                await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                    content: [{ type: 'text', text: `Completed after ${duration}ms` }]
+                                });
+                            }
+                        } catch {
+                            // Task may have been cleaned up if test ended
                         }
                     })();
 
@@ -135,7 +139,8 @@ describe('Task Lifecycle Integration Tests', () => {
                                         }
                                     }
                                 },
-                                ElicitResultSchema
+                                ElicitResultSchema,
+                                { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
                             );
 
                             // Complete with the elicited name
@@ -143,14 +148,22 @@ describe('Task Lifecycle Integration Tests', () => {
                                 elicitationResult.action === 'accept' && elicitationResult.content
                                     ? elicitationResult.content.userName
                                     : 'Unknown';
-                            await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
-                                content: [{ type: 'text', text: `Hello, ${name}!` }]
-                            });
+                            try {
+                                await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                    content: [{ type: 'text', text: `Hello, ${name}!` }]
+                                });
+                            } catch {
+                                // Task may have been cleaned up if test ended
+                            }
                         } else {
                             // Complete immediately if userName was provided
-                            await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
-                                content: [{ type: 'text', text: `Hello, ${userName}!` }]
-                            });
+                            try {
+                                await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                    content: [{ type: 'text', text: `Hello, ${userName}!` }]
+                                });
+                            } catch {
+                                // Task may have been cleaned up if test ended
+                            }
                         }
                     })();
 
@@ -386,9 +399,181 @@ describe('Task Lifecycle Integration Tests', () => {
         });
     });
 
+    describe('Multiple Queued Messages', () => {
+        it('should deliver multiple queued messages in order', async () => {
+            // Register a tool that sends multiple server requests during execution
+            mcpServer.registerToolTask(
+                'multi-request-task',
+                {
+                    title: 'Multi Request Task',
+                    description: 'A tool that sends multiple server requests',
+                    inputSchema: {
+                        requestCount: z.number().describe('Number of requests to send').default(3)
+                    }
+                },
+                {
+                    async createTask({ requestCount }, extra) {
+                        const task = await extra.taskStore.createTask(
+                            {
+                                ttl: 60000,
+                                pollInterval: 100
+                            },
+                            0,
+                            { method: 'tools/call', params: { name: 'multi-request-task', arguments: { requestCount } } }
+                        );
+
+                        // Perform async work that sends multiple requests
+                        (async () => {
+                            await new Promise(resolve => setTimeout(resolve, 100));
+
+                            const responses: string[] = [];
+
+                            // Send multiple elicitation requests
+                            for (let i = 0; i < requestCount; i++) {
+                                const elicitationResult = await extra.sendRequest(
+                                    {
+                                        method: 'elicitation/create',
+                                        params: {
+                                            message: `Request ${i + 1} of ${requestCount}`,
+                                            requestedSchema: {
+                                                type: 'object',
+                                                properties: {
+                                                    response: { type: 'string' }
+                                                },
+                                                required: ['response']
+                                            }
+                                        }
+                                    },
+                                    ElicitResultSchema,
+                                    { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
+                                );
+
+                                if (elicitationResult.action === 'accept' && elicitationResult.content) {
+                                    responses.push(elicitationResult.content.response as string);
+                                }
+                            }
+
+                            // Complete with all responses
+                            try {
+                                await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                    content: [{ type: 'text', text: `Received responses: ${responses.join(', ')}` }]
+                                });
+                            } catch {
+                                // Task may have been cleaned up if test ended
+                            }
+                        })();
+
+                        return { task };
+                    },
+                    async getTask(_args, extra) {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) {
+                            throw new Error(`Task ${extra.taskId} not found`);
+                        }
+                        return task;
+                    },
+                    async getTaskResult(_args, extra) {
+                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        return result as { content: Array<{ type: 'text'; text: string }> };
+                    }
+                }
+            );
+
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {}
+                    }
+                }
+            );
+
+            const receivedMessages: Array<{ method: string; message: string }> = [];
+
+            // Set up elicitation handler on client to track message order
+            client.setRequestHandler(ElicitRequestSchema, async request => {
+                // Track the message
+                receivedMessages.push({
+                    method: request.method,
+                    message: request.params.message
+                });
+
+                // Extract the request number from the message
+                const match = request.params.message.match(/Request (\d+) of (\d+)/);
+                const requestNum = match ? match[1] : 'unknown';
+
+                // Respond with the request number
+                return {
+                    action: 'accept' as const,
+                    content: {
+                        response: `Response ${requestNum}`
+                    }
+                };
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create a task that will send 3 requests
+            const createResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'multi-request-task',
+                        arguments: {
+                            requestCount: 3
+                        },
+                        task: {
+                            ttl: 60000
+                        }
+                    }
+                },
+                CreateTaskResultSchema
+            );
+
+            const taskId = createResult.task.taskId;
+
+            // Wait for messages to be queued
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            // Call tasks/result to receive all queued messages
+            // This should deliver all 3 elicitation requests in order
+            const result = await client.request(
+                {
+                    method: 'tasks/result',
+                    params: { taskId }
+                },
+                CallToolResultSchema
+            );
+
+            // Verify all messages were delivered in order
+            expect(receivedMessages.length).toBe(3);
+            expect(receivedMessages[0].message).toBe('Request 1 of 3');
+            expect(receivedMessages[1].message).toBe('Request 2 of 3');
+            expect(receivedMessages[2].message).toBe('Request 3 of 3');
+
+            // Verify final result includes all responses
+            expect(result.content).toEqual([{ type: 'text', text: 'Received responses: Response 1, Response 2, Response 3' }]);
+
+            // Verify task is completed
+            const task = await client.request(
+                {
+                    method: 'tasks/get',
+                    params: { taskId }
+                },
+                TaskSchema
+            );
+            expect(task.status).toBe('completed');
+
+            await transport.close();
+        }, 10000);
+    });
+
     describe('Input Required Flow', () => {
         it('should handle elicitation during tool execution', async () => {
-            // Use InMemoryTransport for this test since elicitation requires bidirectional communication
             const elicitClient = new Client(
                 {
                     name: 'test-client',
@@ -408,16 +593,17 @@ describe('Task Lifecycle Integration Tests', () => {
                 expect(request.params.requestedSchema).toHaveProperty('properties');
 
                 // Respond with user input
-                return {
+                const response = {
                     action: 'accept' as const,
                     content: {
                         userName: 'Alice'
                     }
                 };
+                return response;
             });
 
-            const [elicitClientTransport, elicitServerTransport] = InMemoryTransport.createLinkedPair();
-            await Promise.all([elicitClient.connect(elicitClientTransport), mcpServer.connect(elicitServerTransport)]);
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await elicitClient.connect(transport);
 
             // Create a task without userName (will trigger elicitation)
             const createResult = await elicitClient.request(
@@ -436,43 +622,14 @@ describe('Task Lifecycle Integration Tests', () => {
 
             const taskId = createResult.task.taskId;
 
-            // Wait for elicitation to occur and task to transition to input_required
+            // Wait for elicitation to occur
             await new Promise(resolve => setTimeout(resolve, 200));
 
-            // Check task status - should be input_required during elicitation
-            let task = await elicitClient.request(
-                {
-                    method: 'tasks/get',
-                    params: { taskId }
-                },
-                TaskSchema
-            );
+            // Check if the elicitation request was queued
 
-            // Task should either be input_required or already completed (if elicitation was fast)
-            expect(['input_required', 'working', 'completed']).toContain(task.status);
-
-            // Wait for completion after elicitation response
-            // Poll until task completes or times out
-            let attempts = 0;
-            while (attempts < 20) {
-                task = await elicitClient.request(
-                    {
-                        method: 'tasks/get',
-                        params: { taskId }
-                    },
-                    TaskSchema
-                );
-                if (task.status === 'completed' || task.status === 'failed') {
-                    break;
-                }
-                await new Promise(resolve => setTimeout(resolve, 100));
-                attempts++;
-            }
-
-            // Verify task completed with elicited input
-            expect(task.status).toBe('completed');
-
-            // Get result
+            // Call tasks/result to receive the queued elicitation request
+            // This should deliver the elicitation request via the side-channel
+            // and then deliver the final result after the client responds
             const result = await elicitClient.request(
                 {
                     method: 'tasks/result',
@@ -481,11 +638,21 @@ describe('Task Lifecycle Integration Tests', () => {
                 CallToolResultSchema
             );
 
+            // Verify final result is delivered correctly
             expect(result.content).toEqual([{ type: 'text', text: 'Hello, Alice!' }]);
 
-            await elicitClientTransport.close();
-            await elicitServerTransport.close();
-        });
+            // Verify task is now completed
+            const task = await elicitClient.request(
+                {
+                    method: 'tasks/get',
+                    params: { taskId }
+                },
+                TaskSchema
+            );
+            expect(task.status).toBe('completed');
+
+            await transport.close();
+        }, 10000); // Increase timeout to 10 seconds for debugging
 
         it('should complete immediately when input is provided upfront', async () => {
             const client = new Client({
@@ -726,6 +893,622 @@ describe('Task Lifecycle Integration Tests', () => {
 
             await transport.close();
         });
+    });
+
+    describe('Task Cancellation with Queued Messages', () => {
+        it('should clear queue and deliver no messages when task is cancelled before tasks/result', async () => {
+            // Register a tool that queues messages but doesn't complete immediately
+            mcpServer.registerToolTask(
+                'cancellable-task',
+                {
+                    title: 'Cancellable Task',
+                    description: 'A tool that queues messages and can be cancelled',
+                    inputSchema: {
+                        messageCount: z.number().describe('Number of messages to queue').default(2)
+                    }
+                },
+                {
+                    async createTask({ messageCount }, extra) {
+                        const task = await extra.taskStore.createTask(
+                            {
+                                ttl: 60000,
+                                pollInterval: 100
+                            },
+                            0,
+                            { method: 'tools/call', params: { name: 'cancellable-task', arguments: { messageCount } } }
+                        );
+
+                        // Perform async work that queues messages
+                        (async () => {
+                            try {
+                                await new Promise(resolve => setTimeout(resolve, 100));
+
+                                // Queue multiple elicitation requests
+                                for (let i = 0; i < messageCount; i++) {
+                                    // Send request but don't await - let it queue
+                                    extra
+                                        .sendRequest(
+                                            {
+                                                method: 'elicitation/create',
+                                                params: {
+                                                    message: `Message ${i + 1} of ${messageCount}`,
+                                                    requestedSchema: {
+                                                        type: 'object',
+                                                        properties: {
+                                                            response: { type: 'string' }
+                                                        },
+                                                        required: ['response']
+                                                    }
+                                                }
+                                            },
+                                            ElicitResultSchema,
+                                            { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
+                                        )
+                                        .catch(() => {
+                                            // Ignore errors from cancelled requests
+                                        });
+                                }
+
+                                // Don't complete - let the task be cancelled
+                                // Wait indefinitely (or until cancelled)
+                                await new Promise(() => {});
+                            } catch {
+                                // Ignore errors - task was cancelled
+                            }
+                        })().catch(() => {
+                            // Catch any unhandled errors from the async execution
+                        });
+
+                        return { task };
+                    },
+                    async getTask(_args, extra) {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) {
+                            throw new Error(`Task ${extra.taskId} not found`);
+                        }
+                        return task;
+                    },
+                    async getTaskResult(_args, extra) {
+                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        return result as { content: Array<{ type: 'text'; text: string }> };
+                    }
+                }
+            );
+
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {}
+                    }
+                }
+            );
+
+            let elicitationCallCount = 0;
+
+            // Set up elicitation handler to track if any messages are delivered
+            client.setRequestHandler(ElicitRequestSchema, async () => {
+                elicitationCallCount++;
+                return {
+                    action: 'accept' as const,
+                    content: {
+                        response: 'Should not be called'
+                    }
+                };
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create a task that will queue messages
+            const createResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'cancellable-task',
+                        arguments: {
+                            messageCount: 2
+                        },
+                        task: {
+                            ttl: 60000
+                        }
+                    }
+                },
+                CreateTaskResultSchema
+            );
+
+            const taskId = createResult.task.taskId;
+
+            // Wait for messages to be queued
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            // Verify task is working and messages are queued
+            let task = await client.request(
+                {
+                    method: 'tasks/get',
+                    params: { taskId }
+                },
+                TaskSchema
+            );
+            expect(task.status).toBe('working');
+
+            // Cancel the task before calling tasks/result using the proper tasks/cancel request
+            // This will trigger queue cleanup via _clearTaskQueue in the handler
+            await client.request(
+                {
+                    method: 'tasks/cancel',
+                    params: { taskId }
+                },
+                z.object({ _meta: z.record(z.unknown()).optional() })
+            );
+
+            // Verify task is cancelled
+            task = await client.request(
+                {
+                    method: 'tasks/get',
+                    params: { taskId }
+                },
+                TaskSchema
+            );
+            expect(task.status).toBe('cancelled');
+
+            // Attempt to call tasks/result
+            // According to Requirement 4.2: "WHEN a task is cancelled THEN the system SHALL
+            // clear the message queue and reject any pending message delivery promises"
+            // This means NO messages should be delivered for a cancelled task
+            try {
+                await client.request(
+                    {
+                        method: 'tasks/result',
+                        params: { taskId }
+                    },
+                    CallToolResultSchema
+                );
+            } catch {
+                // tasks/result might throw an error for cancelled tasks without a result
+                // This is acceptable behavior
+            }
+
+            // Verify no elicitation messages were delivered
+            // This validates Property 12: queue should be cleared immediately on cancellation
+            expect(elicitationCallCount).toBe(0);
+
+            // Verify queue remains cleared on subsequent calls
+            try {
+                await client.request(
+                    {
+                        method: 'tasks/result',
+                        params: { taskId }
+                    },
+                    CallToolResultSchema
+                );
+            } catch {
+                // Expected - task is cancelled
+            }
+
+            // Still no messages should have been delivered
+            expect(elicitationCallCount).toBe(0);
+
+            await transport.close();
+        }, 10000);
+    });
+
+    describe('Continuous Message Delivery', () => {
+        it('should deliver messages immediately while tasks/result is blocking', async () => {
+            // Register a tool that queues messages over time
+            mcpServer.registerToolTask(
+                'streaming-task',
+                {
+                    title: 'Streaming Task',
+                    description: 'A tool that sends messages over time',
+                    inputSchema: {
+                        messageCount: z.number().describe('Number of messages to send').default(3),
+                        delayBetweenMessages: z.number().describe('Delay between messages in ms').default(200)
+                    }
+                },
+                {
+                    async createTask({ messageCount, delayBetweenMessages }, extra) {
+                        const task = await extra.taskStore.createTask(
+                            {
+                                ttl: 60000,
+                                pollInterval: 100
+                            },
+                            0,
+                            { method: 'tools/call', params: { name: 'streaming-task', arguments: { messageCount, delayBetweenMessages } } }
+                        );
+
+                        // Perform async work that sends messages over time
+                        (async () => {
+                            try {
+                                // Wait a bit before starting to send messages
+                                await new Promise(resolve => setTimeout(resolve, 100));
+
+                                const responses: string[] = [];
+
+                                // Send messages with delays between them
+                                for (let i = 0; i < messageCount; i++) {
+                                    const elicitationResult = await extra.sendRequest(
+                                        {
+                                            method: 'elicitation/create',
+                                            params: {
+                                                message: `Streaming message ${i + 1} of ${messageCount}`,
+                                                requestedSchema: {
+                                                    type: 'object',
+                                                    properties: {
+                                                        response: { type: 'string' }
+                                                    },
+                                                    required: ['response']
+                                                }
+                                            }
+                                        },
+                                        ElicitResultSchema,
+                                        { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
+                                    );
+
+                                    if (elicitationResult.action === 'accept' && elicitationResult.content) {
+                                        responses.push(elicitationResult.content.response as string);
+                                    }
+
+                                    // Wait before sending next message (if not the last one)
+                                    if (i < messageCount - 1) {
+                                        await new Promise(resolve => setTimeout(resolve, delayBetweenMessages));
+                                    }
+                                }
+
+                                // Complete with all responses
+                                try {
+                                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                        content: [{ type: 'text', text: `Received all responses: ${responses.join(', ')}` }]
+                                    });
+                                } catch {
+                                    // Task may have been cleaned up if test ended
+                                }
+                            } catch (error) {
+                                // Handle errors
+                                try {
+                                    await extra.taskStore.storeTaskResult(task.taskId, 'failed', {
+                                        content: [{ type: 'text', text: `Error: ${error}` }],
+                                        isError: true
+                                    });
+                                } catch {
+                                    // Task may have been cleaned up if test ended
+                                }
+                            }
+                        })();
+
+                        return { task };
+                    },
+                    async getTask(_args, extra) {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) {
+                            throw new Error(`Task ${extra.taskId} not found`);
+                        }
+                        return task;
+                    },
+                    async getTaskResult(_args, extra) {
+                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        return result as { content: Array<{ type: 'text'; text: string }> };
+                    }
+                }
+            );
+
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {}
+                    }
+                }
+            );
+
+            const receivedMessages: Array<{ message: string; timestamp: number }> = [];
+            let tasksResultStartTime = 0;
+
+            // Set up elicitation handler to track when messages arrive
+            client.setRequestHandler(ElicitRequestSchema, async request => {
+                const timestamp = Date.now();
+                receivedMessages.push({
+                    message: request.params.message,
+                    timestamp
+                });
+
+                // Extract the message number
+                const match = request.params.message.match(/Streaming message (\d+) of (\d+)/);
+                const messageNum = match ? match[1] : 'unknown';
+
+                // Respond immediately
+                return {
+                    action: 'accept' as const,
+                    content: {
+                        response: `Response ${messageNum}`
+                    }
+                };
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create a task that will send messages over time
+            const createResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'streaming-task',
+                        arguments: {
+                            messageCount: 3,
+                            delayBetweenMessages: 300
+                        },
+                        task: {
+                            ttl: 60000
+                        }
+                    }
+                },
+                CreateTaskResultSchema
+            );
+
+            const taskId = createResult.task.taskId;
+
+            // Verify task is in working status
+            let task = await client.request(
+                {
+                    method: 'tasks/get',
+                    params: { taskId }
+                },
+                TaskSchema
+            );
+            expect(task.status).toBe('working');
+
+            // Call tasks/result immediately (before messages are queued)
+            // This should block and deliver messages as they arrive
+            tasksResultStartTime = Date.now();
+            const resultPromise = client.request(
+                {
+                    method: 'tasks/result',
+                    params: { taskId }
+                },
+                CallToolResultSchema
+            );
+
+            // Wait for the task to complete and get the result
+            const result = await resultPromise;
+
+            // Verify all 3 messages were delivered
+            expect(receivedMessages.length).toBe(3);
+            expect(receivedMessages[0].message).toBe('Streaming message 1 of 3');
+            expect(receivedMessages[1].message).toBe('Streaming message 2 of 3');
+            expect(receivedMessages[2].message).toBe('Streaming message 3 of 3');
+
+            // Verify messages were delivered over time (not all at once)
+            // The delay between messages should be approximately 300ms
+            const timeBetweenFirstAndSecond = receivedMessages[1].timestamp - receivedMessages[0].timestamp;
+            const timeBetweenSecondAndThird = receivedMessages[2].timestamp - receivedMessages[1].timestamp;
+
+            // Allow some tolerance for timing (messages should be at least 200ms apart)
+            expect(timeBetweenFirstAndSecond).toBeGreaterThan(200);
+            expect(timeBetweenSecondAndThird).toBeGreaterThan(200);
+
+            // Verify messages were delivered while tasks/result was blocking
+            // (all messages should arrive after tasks/result was called)
+            for (const msg of receivedMessages) {
+                expect(msg.timestamp).toBeGreaterThanOrEqual(tasksResultStartTime);
+            }
+
+            // Verify final result is correct
+            expect(result.content).toEqual([{ type: 'text', text: 'Received all responses: Response 1, Response 2, Response 3' }]);
+
+            // Verify task is now completed
+            task = await client.request(
+                {
+                    method: 'tasks/get',
+                    params: { taskId }
+                },
+                TaskSchema
+            );
+            expect(task.status).toBe('completed');
+
+            await transport.close();
+        }, 15000); // Increase timeout to 15 seconds to allow for message delays
+    });
+
+    describe('Terminal Task with Queued Messages', () => {
+        it('should deliver queued messages followed by final result for terminal task', async () => {
+            // Register a tool that completes quickly and queues messages before completion
+            mcpServer.registerToolTask(
+                'quick-complete-task',
+                {
+                    title: 'Quick Complete Task',
+                    description: 'A tool that queues messages and completes quickly',
+                    inputSchema: {
+                        messageCount: z.number().describe('Number of messages to queue').default(2)
+                    }
+                },
+                {
+                    async createTask({ messageCount }, extra) {
+                        const task = await extra.taskStore.createTask(
+                            {
+                                ttl: 60000,
+                                pollInterval: 100
+                            },
+                            0,
+                            { method: 'tools/call', params: { name: 'quick-complete-task', arguments: { messageCount } } }
+                        );
+
+                        // Perform async work that queues messages and completes quickly
+                        (async () => {
+                            try {
+                                // Queue messages without waiting for responses
+                                const pendingRequests: Promise<unknown>[] = [];
+
+                                for (let i = 0; i < messageCount; i++) {
+                                    const requestPromise = extra.sendRequest(
+                                        {
+                                            method: 'elicitation/create',
+                                            params: {
+                                                message: `Quick message ${i + 1} of ${messageCount}`,
+                                                requestedSchema: {
+                                                    type: 'object',
+                                                    properties: {
+                                                        response: { type: 'string' }
+                                                    },
+                                                    required: ['response']
+                                                }
+                                            }
+                                        },
+                                        ElicitResultSchema,
+                                        { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
+                                    );
+                                    pendingRequests.push(requestPromise);
+                                }
+
+                                // Complete the task immediately (before responses are received)
+                                // This creates a terminal task with queued messages
+                                try {
+                                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                        content: [{ type: 'text', text: 'Task completed quickly' }]
+                                    });
+                                } catch {
+                                    // Task may have been cleaned up if test ended
+                                }
+
+                                // Wait for all responses in the background
+                                await Promise.all(pendingRequests.map(p => p.catch(() => {})));
+                            } catch (error) {
+                                // Handle errors
+                                try {
+                                    await extra.taskStore.storeTaskResult(task.taskId, 'failed', {
+                                        content: [{ type: 'text', text: `Error: ${error}` }],
+                                        isError: true
+                                    });
+                                } catch {
+                                    // Task may have been cleaned up if test ended
+                                }
+                            }
+                        })();
+
+                        return { task };
+                    },
+                    async getTask(_args, extra) {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) {
+                            throw new Error(`Task ${extra.taskId} not found`);
+                        }
+                        return task;
+                    },
+                    async getTaskResult(_args, extra) {
+                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        return result as { content: Array<{ type: 'text'; text: string }> };
+                    }
+                }
+            );
+
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {}
+                    }
+                }
+            );
+
+            const receivedMessages: Array<{ type: string; message?: string; content?: unknown }> = [];
+
+            // Set up elicitation handler to track message order
+            client.setRequestHandler(ElicitRequestSchema, async request => {
+                receivedMessages.push({
+                    type: 'elicitation',
+                    message: request.params.message
+                });
+
+                // Extract the message number
+                const match = request.params.message.match(/Quick message (\d+) of (\d+)/);
+                const messageNum = match ? match[1] : 'unknown';
+
+                return {
+                    action: 'accept' as const,
+                    content: {
+                        response: `Response ${messageNum}`
+                    }
+                };
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create a task that will complete quickly with queued messages
+            const createResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'quick-complete-task',
+                        arguments: {
+                            messageCount: 2
+                        },
+                        task: {
+                            ttl: 60000
+                        }
+                    }
+                },
+                CreateTaskResultSchema
+            );
+
+            const taskId = createResult.task.taskId;
+
+            // Wait for task to complete and messages to be queued
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            // Verify task is in terminal status (completed)
+            const task = await client.request(
+                {
+                    method: 'tasks/get',
+                    params: { taskId }
+                },
+                TaskSchema
+            );
+            expect(task.status).toBe('completed');
+
+            // Call tasks/result - should deliver queued messages followed by final result
+            const result = await client.request(
+                {
+                    method: 'tasks/result',
+                    params: { taskId }
+                },
+                CallToolResultSchema
+            );
+
+            // Verify all queued messages were delivered before the final result
+            expect(receivedMessages.length).toBe(2);
+            expect(receivedMessages[0].message).toBe('Quick message 1 of 2');
+            expect(receivedMessages[1].message).toBe('Quick message 2 of 2');
+
+            // Verify final result is correct
+            expect(result.content).toEqual([{ type: 'text', text: 'Task completed quickly' }]);
+
+            // Verify queue is cleaned up - calling tasks/result again should only return the result
+            receivedMessages.length = 0; // Clear the array
+
+            const result2 = await client.request(
+                {
+                    method: 'tasks/result',
+                    params: { taskId }
+                },
+                CallToolResultSchema
+            );
+
+            // No messages should be delivered on second call (queue was cleaned up)
+            expect(receivedMessages.length).toBe(0);
+            expect(result2.content).toEqual([{ type: 'text', text: 'Task completed quickly' }]);
+
+            await transport.close();
+        }, 10000);
     });
 
     describe('Concurrent Operations', () => {
