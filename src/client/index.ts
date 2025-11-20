@@ -42,7 +42,15 @@ import {
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
-import { ZodLiteral, ZodObject, z } from 'zod';
+import {
+    AnyObjectSchema,
+    SchemaOutput,
+    getObjectShape,
+    isZ4Schema,
+    safeParse,
+    type ZodV3Internal,
+    type ZodV4Internal
+} from '../server/zod-compat.js';
 import type { RequestHandlerExtra } from '../shared/protocol.js';
 
 /**
@@ -83,6 +91,34 @@ function applyElicitationDefaults(schema: JsonSchemaType | undefined, data: unkn
             applyElicitationDefaults(sub, data);
         }
     }
+}
+
+/**
+ * Determines which elicitation modes are supported based on declared client capabilities.
+ *
+ * According to the spec:
+ * - An empty elicitation capability object defaults to form mode support (backwards compatibility)
+ * - URL mode is only supported if explicitly declared
+ *
+ * @param capabilities - The client's elicitation capabilities
+ * @returns An object indicating which modes are supported
+ */
+export function getSupportedElicitationModes(capabilities: ClientCapabilities['elicitation']): {
+    supportsFormMode: boolean;
+    supportsUrlMode: boolean;
+} {
+    if (!capabilities) {
+        return { supportsFormMode: false, supportsUrlMode: false };
+    }
+
+    const hasFormCapability = capabilities.form !== undefined;
+    const hasUrlCapability = capabilities.url !== undefined;
+
+    // If neither form nor url are explicitly declared, form mode is supported (backwards compatibility)
+    const supportsFormMode = hasFormCapability || (!hasFormCapability && !hasUrlCapability);
+    const supportsUrlMode = hasUrlCapability;
+
+    return { supportsFormMode, supportsUrlMode };
 }
 
 export type ClientOptions = ProtocolOptions & {
@@ -188,47 +224,79 @@ export class Client<
     /**
      * Override request handler registration to enforce client-side validation for elicitation.
      */
-    public override setRequestHandler<
-        T extends ZodObject<{
-            method: ZodLiteral<string>;
-        }>
-    >(
+    public override setRequestHandler<T extends AnyObjectSchema>(
         requestSchema: T,
         handler: (
-            request: z.infer<T>,
+            request: SchemaOutput<T>,
             extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
         ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
     ): void {
-        const method = requestSchema.shape.method.value;
+        const shape = getObjectShape(requestSchema);
+        const methodSchema = shape?.method;
+        if (!methodSchema) {
+            throw new Error('Schema is missing a method literal');
+        }
+
+        // Extract literal value using type-safe property access
+        let methodValue: unknown;
+        if (isZ4Schema(methodSchema)) {
+            const v4Schema = methodSchema as unknown as ZodV4Internal;
+            const v4Def = v4Schema._zod?.def;
+            methodValue = v4Def?.value ?? v4Schema.value;
+        } else {
+            const v3Schema = methodSchema as unknown as ZodV3Internal;
+            const legacyDef = v3Schema._def;
+            methodValue = legacyDef?.value ?? v3Schema.value;
+        }
+
+        if (typeof methodValue !== 'string') {
+            throw new Error('Schema method literal must be a string');
+        }
+        const method = methodValue;
         if (method === 'elicitation/create') {
             const wrappedHandler = async (
-                request: z.infer<T>,
+                request: SchemaOutput<T>,
                 extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
             ): Promise<ClientResult | ResultT> => {
-                const validatedRequest = ElicitRequestSchema.safeParse(request);
+                const validatedRequest = safeParse(ElicitRequestSchema, request);
                 if (!validatedRequest.success) {
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation request: ${validatedRequest.error.message}`);
+                    // Type guard: if success is false, error is guaranteed to exist
+                    const errorMessage =
+                        validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation request: ${errorMessage}`);
+                }
+
+                const { params } = validatedRequest.data;
+                const { supportsFormMode, supportsUrlMode } = getSupportedElicitationModes(this._capabilities.elicitation);
+
+                if (params.mode === 'form' && !supportsFormMode) {
+                    throw new McpError(ErrorCode.InvalidParams, 'Client does not support form-mode elicitation requests');
+                }
+
+                if (params.mode === 'url' && !supportsUrlMode) {
+                    throw new McpError(ErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
                 }
 
                 const result = await Promise.resolve(handler(request, extra));
 
-                const validationResult = ElicitResultSchema.safeParse(result);
+                const validationResult = safeParse(ElicitResultSchema, result);
                 if (!validationResult.success) {
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation result: ${validationResult.error.message}`);
+                    // Type guard: if success is false, error is guaranteed to exist
+                    const errorMessage =
+                        validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation result: ${errorMessage}`);
                 }
 
                 const validatedResult = validationResult.data;
+                const requestedSchema = params.mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
 
-                if (
-                    this._capabilities.elicitation?.applyDefaults &&
-                    validatedResult.action === 'accept' &&
-                    validatedResult.content &&
-                    validatedRequest.data.params.requestedSchema
-                ) {
-                    try {
-                        applyElicitationDefaults(validatedRequest.data.params.requestedSchema, validatedResult.content);
-                    } catch {
-                        // gracefully ignore errors in default application
+                if (params.mode === 'form' && validatedResult.action === 'accept' && validatedResult.content && requestedSchema) {
+                    if (this._capabilities.elicitation?.form?.applyDefaults) {
+                        try {
+                            applyElicitationDefaults(requestedSchema, validatedResult.content);
+                        } catch {
+                            // gracefully ignore errors in default application
+                        }
                     }
                 }
 

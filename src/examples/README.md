@@ -7,11 +7,14 @@ This directory contains example implementations of MCP clients and servers using
 - [Client Implementations](#client-implementations)
     - [Streamable HTTP Client](#streamable-http-client)
     - [Backwards Compatible Client](#backwards-compatible-client)
+    - [URL Elicitation Example Client](#url-elicitation-example-client)
 - [Server Implementations](#server-implementations)
     - [Single Node Deployment](#single-node-deployment)
         - [Streamable HTTP Transport](#streamable-http-transport)
         - [Deprecated SSE Transport](#deprecated-sse-transport)
         - [Backwards Compatible Server](#streamable-http-backwards-compatible-server-with-sse)
+        - [Form Elicitation Example](#form-elicitation-example)
+        - [URL Elicitation Example](#url-elicitation-example)
     - [Multi-Node Deployment](#multi-node-deployment)
 - [Backwards Compatibility](#testing-streamable-http-backwards-compatibility-with-sse)
 
@@ -36,7 +39,7 @@ npx tsx src/examples/client/simpleStreamableHttp.ts
 Example client with OAuth:
 
 ```bash
-npx tsx src/examples/client/simpleOAuthClient.js
+npx tsx src/examples/client/simpleOAuthClient.ts <optional-server-url> <optional-client-metadata-url>
 ```
 
 ### Backwards Compatible Client
@@ -49,6 +52,19 @@ A client that implements backwards compatibility according to the [MCP specifica
 
 ```bash
 npx tsx src/examples/client/streamableHttpWithSseFallbackClient.ts
+```
+
+### URL Elicitation Example Client
+
+A client that demonstrates how to use URL elicitation to securely collect _sensitive_ user input or perform secure third-party flows.
+
+```bash
+# First, run the server:
+npx tsx src/examples/server/elicitationUrlExample.ts
+
+# Then, run the client:
+npx tsx src/examples/client/elicitationUrlExample.ts
+
 ```
 
 ## Server Implementations
@@ -103,6 +119,32 @@ A server that demonstrates server notifications using Streamable HTTP.
 
 ```bash
 npx tsx src/examples/server/standaloneSseWithGetStreamableHttp.ts
+```
+
+##### Form Elicitation Example
+
+A server that demonstrates using form elicitation to collect _non-sensitive_ user input.
+
+```bash
+npx tsx src/examples/server/elicitationFormExample.ts
+```
+
+##### URL Elicitation Example
+
+A comprehensive example demonstrating URL mode elicitation in a server protected by MCP authorization. This example shows:
+
+- SSE-driven URL elicitation of an API Key on session initialization: obtain sensitive user input at session init
+- Tools that require direct user interaction via URL elicitation (for payment confirmation and for third-party OAuth tokens)
+- Completion notifications for URL elicitation
+
+To run this example:
+
+```bash
+# Start the server
+npx tsx src/examples/server/elicitationUrlExample.ts
+
+# In a separate terminal, start the client
+npx tsx src/examples/client/elicitationUrlExample.ts
 ```
 
 #### Deprecated SSE Transport
