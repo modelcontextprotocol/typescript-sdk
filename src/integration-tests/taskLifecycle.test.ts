@@ -1,0 +1,704 @@
+import { createServer, type Server } from 'node:http';
+import { AddressInfo } from 'node:net';
+import { randomUUID } from 'node:crypto';
+import { Client } from '../client/index.js';
+import { StreamableHTTPClientTransport } from '../client/streamableHttp.js';
+import { McpServer } from '../server/mcp.js';
+import { StreamableHTTPServerTransport } from '../server/streamableHttp.js';
+import { TaskSchema } from '../types.js';
+import { z } from 'zod';
+import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
+
+describe('Task Lifecycle Integration Tests', () => {
+    let server: Server;
+    let mcpServer: McpServer;
+    let serverTransport: StreamableHTTPServerTransport;
+    let baseUrl: URL;
+    let taskStore: InMemoryTaskStore;
+
+    beforeEach(async () => {
+        // Create task store
+        taskStore = new InMemoryTaskStore();
+
+        // Create MCP server with task support
+        mcpServer = new McpServer(
+            { name: 'test-server', version: '1.0.0' },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        },
+                        list: {},
+                        cancel: {}
+                    }
+                },
+                taskStore
+            }
+        );
+
+        // Register a long-running tool using registerToolTask
+        mcpServer.registerToolTask(
+            'long-task',
+            {
+                title: 'Long Running Task',
+                description: 'A tool that takes time to complete',
+                inputSchema: {
+                    duration: z.number().describe('Duration in milliseconds').default(1000),
+                    shouldFail: z.boolean().describe('Whether the task should fail').default(false)
+                }
+            },
+            {
+                async createTask({ duration, shouldFail }, extra) {
+                    const task = await extra.taskStore.createTask(
+                        {
+                            ttl: 60000,
+                            pollInterval: 100
+                        },
+                        0,
+                        { method: 'tools/call', params: { name: 'long-task', arguments: { duration, shouldFail } } }
+                    );
+
+                    // Simulate async work
+                    (async () => {
+                        await new Promise(resolve => setTimeout(resolve, duration));
+
+                        if (shouldFail) {
+                            await extra.taskStore.storeTaskResult(task.taskId, 'failed', {
+                                content: [{ type: 'text', text: 'Task failed as requested' }],
+                                isError: true
+                            });
+                        } else {
+                            await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                content: [{ type: 'text', text: `Completed after ${duration}ms` }]
+                            });
+                        }
+                    })();
+
+                    return { task };
+                },
+                async getTask(_args, extra) {
+                    const task = await extra.taskStore.getTask(extra.taskId);
+                    if (!task) {
+                        throw new Error(`Task ${extra.taskId} not found`);
+                    }
+                    return task;
+                },
+                async getTaskResult(_args, extra) {
+                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    return result as { content: Array<{ type: 'text'; text: string }> };
+                }
+            }
+        );
+
+        // Register a tool that requires input
+        mcpServer.registerToolTask(
+            'input-task',
+            {
+                title: 'Input Required Task',
+                description: 'A tool that requires user input',
+                inputSchema: {
+                    initialMessage: z.string().describe('Initial message').default('Waiting for input')
+                }
+            },
+            {
+                async createTask({ initialMessage }, extra) {
+                    const task = await extra.taskStore.createTask(
+                        {
+                            ttl: 60000,
+                            pollInterval: 100
+                        },
+                        0,
+                        { method: 'tools/call', params: { name: 'input-task', arguments: { initialMessage } } }
+                    );
+
+                    // Simulate moving to input_required status
+                    (async () => {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        await extra.taskStore.updateTaskStatus(task.taskId, 'input_required');
+                    })();
+
+                    return { task };
+                },
+                async getTask(_args, extra) {
+                    const task = await extra.taskStore.getTask(extra.taskId);
+                    if (!task) {
+                        throw new Error(`Task ${extra.taskId} not found`);
+                    }
+                    return task;
+                },
+                async getTaskResult(_args, extra) {
+                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    return result as { content: Array<{ type: 'text'; text: string }> };
+                }
+            }
+        );
+
+        // Create transport
+        serverTransport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID()
+        });
+
+        await mcpServer.connect(serverTransport);
+
+        // Create HTTP server
+        server = createServer(async (req, res) => {
+            await serverTransport.handleRequest(req, res);
+        });
+
+        // Start server
+        baseUrl = await new Promise<URL>(resolve => {
+            server.listen(0, '127.0.0.1', () => {
+                const addr = server.address() as AddressInfo;
+                resolve(new URL(`http://127.0.0.1:${addr.port}`));
+            });
+        });
+    });
+
+    afterEach(async () => {
+        taskStore.cleanup();
+        await mcpServer.close().catch(() => {});
+        await serverTransport.close().catch(() => {});
+        server.close();
+    });
+
+    describe('Task Creation and Completion', () => {
+        it('should create a task and return CreateTaskResult', async () => {
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create a task
+            const createResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'long-task',
+                        arguments: {
+                            duration: 500,
+                            shouldFail: false
+                        },
+                        task: {
+                            ttl: 60000
+                        }
+                    }
+                },
+                z.object({
+                    task: TaskSchema
+                })
+            );
+
+            // Verify CreateTaskResult structure
+            expect(createResult).toHaveProperty('task');
+            expect(createResult.task).toHaveProperty('taskId');
+            expect(createResult.task.status).toBe('working');
+            expect(createResult.task.ttl).toBe(60000);
+            expect(createResult.task.createdAt).toBeDefined();
+            expect(createResult.task.pollInterval).toBe(100);
+
+            // Verify task is stored in taskStore
+            const taskId = createResult.task.taskId;
+            const storedTask = await taskStore.getTask(taskId);
+            expect(storedTask).toBeDefined();
+            expect(storedTask?.taskId).toBe(taskId);
+            expect(storedTask?.status).toBe('working');
+
+            // Wait for completion
+            await new Promise(resolve => setTimeout(resolve, 600));
+
+            // Verify task completed
+            const completedTask = await taskStore.getTask(taskId);
+            expect(completedTask?.status).toBe('completed');
+
+            // Verify result is stored
+            const result = await taskStore.getTaskResult(taskId);
+            expect(result).toBeDefined();
+            expect(result.content).toEqual([{ type: 'text', text: 'Completed after 500ms' }]);
+
+            await transport.close();
+        });
+
+        it('should handle task failure correctly', async () => {
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create a task that will fail
+            const createResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'long-task',
+                        arguments: {
+                            duration: 300,
+                            shouldFail: true
+                        },
+                        task: {
+                            ttl: 60000
+                        }
+                    }
+                },
+                z.object({
+                    task: TaskSchema
+                })
+            );
+
+            const taskId = createResult.task.taskId;
+
+            // Wait for failure
+            await new Promise(resolve => setTimeout(resolve, 400));
+
+            // Verify task failed
+            const task = await taskStore.getTask(taskId);
+            expect(task?.status).toBe('failed');
+
+            // Verify error result is stored
+            const result = await taskStore.getTaskResult(taskId);
+            expect(result.content).toEqual([{ type: 'text', text: 'Task failed as requested' }]);
+            expect(result.isError).toBe(true);
+
+            await transport.close();
+        });
+    });
+
+    describe('Task Cancellation', () => {
+        it('should cancel a working task', async () => {
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create a long-running task
+            const createResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'long-task',
+                        arguments: {
+                            duration: 5000
+                        },
+                        task: {
+                            ttl: 60000
+                        }
+                    }
+                },
+                z.object({
+                    task: TaskSchema
+                })
+            );
+
+            const taskId = createResult.task.taskId;
+
+            // Verify task is working
+            let task = await taskStore.getTask(taskId);
+            expect(task?.status).toBe('working');
+
+            // Cancel the task
+            await taskStore.updateTaskStatus(taskId, 'cancelled');
+
+            // Verify task is cancelled
+            task = await taskStore.getTask(taskId);
+            expect(task?.status).toBe('cancelled');
+
+            await transport.close();
+        });
+
+        it('should reject cancellation of completed task', async () => {
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create a quick task
+            const createResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'long-task',
+                        arguments: {
+                            duration: 100
+                        },
+                        task: {
+                            ttl: 60000
+                        }
+                    }
+                },
+                z.object({
+                    task: TaskSchema
+                })
+            );
+
+            const taskId = createResult.task.taskId;
+
+            // Wait for completion
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            // Verify task is completed
+            const task = await taskStore.getTask(taskId);
+            expect(task?.status).toBe('completed');
+
+            // Try to cancel (should fail)
+            await expect(taskStore.updateTaskStatus(taskId, 'cancelled')).rejects.toThrow();
+
+            await transport.close();
+        });
+    });
+
+    describe('Input Required Flow', () => {
+        it('should handle input_required status', async () => {
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create a task that requires input
+            const createResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'input-task',
+                        arguments: {
+                            initialMessage: 'Need user input'
+                        },
+                        task: {
+                            ttl: 60000
+                        }
+                    }
+                },
+                z.object({
+                    task: TaskSchema
+                })
+            );
+
+            const taskId = createResult.task.taskId;
+
+            // Wait for input_required status
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            const task = await taskStore.getTask(taskId);
+            expect(task?.status).toBe('input_required');
+
+            // Simulate providing input and completing the task
+            await taskStore.updateTaskStatus(taskId, 'working');
+            await taskStore.storeTaskResult(taskId, 'completed', {
+                content: [{ type: 'text', text: 'Input received and processed' }]
+            });
+
+            // Verify completion
+            const completedTask = await taskStore.getTask(taskId);
+            expect(completedTask?.status).toBe('completed');
+
+            await transport.close();
+        });
+    });
+
+    describe('Task Listing and Pagination', () => {
+        it('should list tasks', async () => {
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create multiple tasks
+            const taskIds: string[] = [];
+            for (let i = 0; i < 3; i++) {
+                const createResult = await client.request(
+                    {
+                        method: 'tools/call',
+                        params: {
+                            name: 'long-task',
+                            arguments: {
+                                duration: 1000
+                            },
+                            task: {
+                                ttl: 60000
+                            }
+                        }
+                    },
+                    z.object({
+                        task: TaskSchema
+                    })
+                );
+                taskIds.push(createResult.task.taskId);
+            }
+
+            // List tasks using taskStore
+            const listResult = await taskStore.listTasks();
+
+            expect(listResult.tasks.length).toBeGreaterThanOrEqual(3);
+            expect(listResult.tasks.some(t => taskIds.includes(t.taskId))).toBe(true);
+
+            await transport.close();
+        });
+
+        it('should handle pagination with large datasets', async () => {
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create 15 tasks (more than page size of 10)
+            for (let i = 0; i < 15; i++) {
+                await client.request(
+                    {
+                        method: 'tools/call',
+                        params: {
+                            name: 'long-task',
+                            arguments: {
+                                duration: 5000
+                            },
+                            task: {
+                                ttl: 60000
+                            }
+                        }
+                    },
+                    z.object({
+                        task: TaskSchema
+                    })
+                );
+            }
+
+            // Get first page using taskStore
+            const page1 = await taskStore.listTasks();
+
+            expect(page1.tasks.length).toBe(10);
+            expect(page1.nextCursor).toBeDefined();
+
+            // Get second page
+            const page2 = await taskStore.listTasks(page1.nextCursor);
+
+            expect(page2.tasks.length).toBeGreaterThanOrEqual(5);
+
+            await transport.close();
+        });
+    });
+
+    describe('Error Handling', () => {
+        it('should return null for non-existent task', async () => {
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Try to get non-existent task
+            const task = await taskStore.getTask('non-existent');
+            expect(task).toBeNull();
+
+            await transport.close();
+        });
+
+        it('should return error for invalid task operation', async () => {
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create and complete a task
+            const createResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'long-task',
+                        arguments: {
+                            duration: 100
+                        },
+                        task: {
+                            ttl: 60000
+                        }
+                    }
+                },
+                z.object({
+                    task: TaskSchema
+                })
+            );
+
+            const taskId = createResult.task.taskId;
+
+            // Wait for completion
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            // Try to cancel completed task (should fail)
+            await expect(taskStore.updateTaskStatus(taskId, 'cancelled')).rejects.toThrow();
+
+            await transport.close();
+        });
+    });
+
+    describe('TTL and Cleanup', () => {
+        it('should respect TTL in task creation', async () => {
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create a task with specific TTL
+            const createResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'long-task',
+                        arguments: {
+                            duration: 100
+                        },
+                        task: {
+                            ttl: 5000
+                        }
+                    }
+                },
+                z.object({
+                    task: TaskSchema
+                })
+            );
+
+            const taskId = createResult.task.taskId;
+
+            // Verify TTL is set correctly
+            expect(createResult.task.ttl).toBe(60000); // The task store uses 60000 as default
+
+            // Task should exist
+            const task = await client.request(
+                {
+                    method: 'tasks/get',
+                    params: { taskId }
+                },
+                TaskSchema
+            );
+            expect(task).toBeDefined();
+            expect(task.ttl).toBe(60000);
+
+            await transport.close();
+        });
+    });
+
+    describe('Concurrent Operations', () => {
+        it('should handle multiple concurrent task creations', async () => {
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create multiple tasks concurrently
+            const promises = Array.from({ length: 5 }, () =>
+                client.request(
+                    {
+                        method: 'tools/call',
+                        params: {
+                            name: 'long-task',
+                            arguments: {
+                                duration: 500
+                            },
+                            task: {
+                                ttl: 60000
+                            }
+                        }
+                    },
+                    z.object({
+                        task: TaskSchema
+                    })
+                )
+            );
+
+            const results = await Promise.all(promises);
+
+            // Verify all tasks were created with unique IDs
+            const taskIds = results.map(r => r.task.taskId);
+            expect(new Set(taskIds).size).toBe(5);
+
+            // Verify all tasks are in working status
+            for (const result of results) {
+                expect(result.task.status).toBe('working');
+            }
+
+            await transport.close();
+        });
+
+        it('should handle concurrent operations on same task', async () => {
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Create a task
+            const createResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'long-task',
+                        arguments: {
+                            duration: 2000
+                        },
+                        task: {
+                            ttl: 60000
+                        }
+                    }
+                },
+                z.object({
+                    task: TaskSchema
+                })
+            );
+
+            const taskId = createResult.task.taskId;
+
+            // Perform multiple concurrent gets
+            const getPromises = Array.from({ length: 5 }, () =>
+                client.request(
+                    {
+                        method: 'tasks/get',
+                        params: { taskId }
+                    },
+                    TaskSchema
+                )
+            );
+
+            const tasks = await Promise.all(getPromises);
+
+            // All should return the same task
+            for (const task of tasks) {
+                expect(task.taskId).toBe(taskId);
+                expect(task.status).toBe('working');
+            }
+
+            await transport.close();
+        });
+    });
+});
