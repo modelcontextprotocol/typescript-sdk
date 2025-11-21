@@ -45,80 +45,9 @@ import {
 } from '../types.js';
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
-import { isTerminal, TaskStore } from './task.js';
+import { isTerminal, TaskStore, TaskMessageQueue, QueuedMessage } from './task.js';
 import { getMethodLiteral, parseWithCompat } from '../server/zod-json-schema-compat.js';
 import { ResponseMessage } from './responseMessage.js';
-
-/**
- * Represents a message queued for side-channel delivery via tasks/result.
- */
-export interface QueuedMessage {
-    /** Type of message */
-    type: 'request' | 'notification';
-    /** The actual JSONRPC message */
-    message: JSONRPCRequest | JSONRPCNotification;
-    /** When it was queued */
-    timestamp: number;
-    /** For requests: resolver to call when response is received */
-    responseResolver?: (response: JSONRPCResponse | Error) => void;
-    /** For requests: the original request ID for response routing */
-    originalRequestId?: RequestId;
-}
-
-/**
- * A per-task FIFO queue for server-initiated messages that will be delivered
- * through the tasks/result response stream.
- */
-export class TaskMessageQueue {
-    private messages: QueuedMessage[] = [];
-
-    /**
-     * Adds a message to the end of the queue.
-     * @param message The message to enqueue
-     */
-    enqueue(message: QueuedMessage): void {
-        this.messages.push(message);
-    }
-
-    /**
-     * Removes and returns the first message from the queue.
-     * @returns The first message, or undefined if the queue is empty
-     */
-    dequeue(): QueuedMessage | undefined {
-        return this.messages.shift();
-    }
-
-    /**
-     * Removes and returns all messages from the queue.
-     * @returns Array of all messages that were in the queue
-     */
-    dequeueAll(): QueuedMessage[] {
-        const allMessages = this.messages;
-        this.messages = [];
-        return allMessages;
-    }
-
-    /**
-     * Removes all messages from the queue.
-     */
-    clear(): void {
-        this.messages = [];
-    }
-
-    /**
-     * Returns the number of messages in the queue.
-     */
-    size(): number {
-        return this.messages.length;
-    }
-
-    /**
-     * Checks if the queue is empty.
-     */
-    isEmpty(): boolean {
-        return this.messages.length === 0;
-    }
-}
 
 /**
  * Callback for progress notifications.
@@ -149,6 +78,11 @@ export type ProtocolOptions = {
      * and provides task storage capabilities to request handlers.
      */
     taskStore?: TaskStore;
+    /**
+     * Optional task message queue implementation for managing server-initiated messages
+     * that will be delivered through the tasks/result response stream.
+     */
+    taskMessageQueue?: TaskMessageQueue;
     /**
      * Default polling interval (in milliseconds) for task status checks when no pollInterval
      * is provided by the server. Defaults to 5000ms if not specified.
@@ -384,9 +318,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _taskProgressTokens: Map<string, number> = new Map();
 
     private _taskStore?: TaskStore;
+    private _taskMessageQueue?: TaskMessageQueue;
 
-    // Task message queues for side-channel delivery
-    private _taskMessageQueues: Map<string, TaskMessageQueue> = new Map();
+    // Task result waiters for side-channel delivery in tasks
     private _taskResultWaiters: Map<string, Array<() => void>> = new Map();
     private _requestResolvers: Map<RequestId, (response: JSONRPCResponse | Error) => void> = new Map();
 
@@ -431,6 +365,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         // Install task handlers if TaskStore is provided
         this._taskStore = _options?.taskStore;
+        this._taskMessageQueue = _options?.taskMessageQueue;
         if (this._taskStore) {
             this.setRequestHandler(GetTaskRequestSchema, async (request, extra) => {
                 const task = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
@@ -449,13 +384,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             this.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra) => {
                 const handleTaskResult = async (): Promise<SendResultT> => {
                     const taskId = request.params.taskId;
-                    const queue = this._taskMessageQueues.get(taskId);
 
                     // Deliver queued messages
-                    if (queue && !queue.isEmpty()) {
-                        while (!queue.isEmpty()) {
-                            const queuedMessage = queue.dequeue()!;
-
+                    if (this._taskMessageQueue) {
+                        let queuedMessage: QueuedMessage | undefined;
+                        while ((queuedMessage = await this._taskMessageQueue.dequeue(taskId, extra.sessionId))) {
                             // Strip relatedTask metadata when dequeuing for delivery
                             // The metadata was used for queuing, but shouldn't be sent to the client
                             const messageToSend = { ...queuedMessage.message };
@@ -468,15 +401,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                                 };
                             }
 
-                            // Send the message on the response stream by passing the relatedRequestId
-                            // This tells the transport to write the message to the tasks/result response stream
-                            await this._transport?.send(messageToSend, { relatedRequestId: extra.requestId });
-
-                            // If it was a request, wait for the response before delivering the next message
+                            // If it was a request, set up the wrapped resolver BEFORE sending
+                            // This prevents a race condition where the client responds before we set up the resolver
+                            let responsePromise: Promise<void> | undefined;
                             if (queuedMessage.type === 'request' && queuedMessage.responseResolver) {
-                                // Wait for response before continuing to next message
-                                await new Promise<void>((resolve, reject) => {
-                                    const originalResolver = queuedMessage.responseResolver!;
+                                // Capture in const to satisfy TypeScript's flow analysis
+                                const msg = queuedMessage;
+                                responsePromise = new Promise<void>((resolve, reject) => {
+                                    const originalResolver = msg.responseResolver!;
                                     const wrappedResolver = (response: JSONRPCResponse | Error) => {
                                         // First, deliver the response to the task handler
                                         originalResolver(response);
@@ -488,10 +420,19 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                                         }
                                     };
                                     // Replace the resolver so _onresponse calls our wrapped version
-                                    if (queuedMessage.originalRequestId !== undefined) {
-                                        this._requestResolvers.set(queuedMessage.originalRequestId, wrappedResolver);
+                                    if (msg.originalRequestId !== undefined) {
+                                        this._requestResolvers.set(msg.originalRequestId, wrappedResolver);
                                     }
                                 });
+                            }
+
+                            // Send the message on the response stream by passing the relatedRequestId
+                            // This tells the transport to write the message to the tasks/result response stream
+                            await this._transport?.send(messageToSend, { relatedRequestId: extra.requestId });
+
+                            // If it was a request, wait for the response before delivering the next message
+                            if (responsePromise) {
+                                await responsePromise;
                             }
                         }
                     }
@@ -502,8 +443,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
                     }
 
-                    // Block if task is not terminal and no messages to deliver
-                    if (!isTerminal(task.status) && (!queue || queue.isEmpty())) {
+                    // Block if task is not terminal (we've already delivered all queued messages above)
+                    if (!isTerminal(task.status)) {
                         // Wait for status change or new messages
                         await this._waitForTaskUpdate(taskId, extra.signal);
 
@@ -1184,22 +1125,21 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 };
                 this._requestResolvers.set(messageId, responseResolver);
 
-                try {
-                    this._enqueueTaskMessage(relatedTaskId, {
-                        type: 'request',
-                        message: jsonrpcRequest,
-                        timestamp: Date.now(),
-                        responseResolver: responseResolver,
-                        originalRequestId: messageId
+                this._enqueueTaskMessage(relatedTaskId, {
+                    type: 'request',
+                    message: jsonrpcRequest,
+                    timestamp: Date.now(),
+                    responseResolver: responseResolver,
+                    originalRequestId: messageId
+                })
+                    .then(() => {
+                        // Notify any waiting tasks/result calls
+                        this._notifyTaskResultWaiters(relatedTaskId);
+                    })
+                    .catch(error => {
+                        this._cleanupTimeout(messageId);
+                        reject(error);
                     });
-
-                    // Notify any waiting tasks/result calls
-                    this._notifyTaskResultWaiters(relatedTaskId);
-                } catch (error) {
-                    this._cleanupTimeout(messageId);
-                    reject(error);
-                    return;
-                }
 
                 // Don't send through transport - queued messages are delivered via tasks/result only
                 // This prevents duplicate delivery for bidirectional transports
@@ -1275,7 +1215,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
             };
 
-            this._enqueueTaskMessage(relatedTaskId, {
+            await this._enqueueTaskMessage(relatedTaskId, {
                 type: 'notification',
                 message: jsonrpcNotification,
                 timestamp: Date.now()
@@ -1441,47 +1381,45 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * Enqueues a task-related message for side-channel delivery via tasks/result.
      * @param taskId The task ID to associate the message with
      * @param message The message to enqueue
-     * @throws McpError if the queue size exceeds the configured maximum
+     * @param sessionId Optional session ID for binding the operation to a specific session
+     * @throws McpError if taskStore is not configured or if enqueue fails (e.g., queue overflow)
      */
-    private _enqueueTaskMessage(taskId: string, message: QueuedMessage): void {
-        let queue = this._taskMessageQueues.get(taskId);
-        if (!queue) {
-            queue = new TaskMessageQueue();
-            this._taskMessageQueues.set(taskId, queue);
+    private async _enqueueTaskMessage(taskId: string, message: QueuedMessage, sessionId?: string): Promise<void> {
+        // Task message queues are only used when taskStore is configured
+        if (!this._taskStore || !this._taskMessageQueue) {
+            throw new McpError(ErrorCode.InternalError, 'Cannot enqueue task message: taskStore and taskMessageQueue are not configured');
         }
 
         const maxQueueSize = this._options?.maxTaskQueueSize;
-        if (maxQueueSize !== undefined && queue.size() >= maxQueueSize) {
-            const errorMessage = `Task message queue overflow: queue size (${queue.size()}) exceeds maximum (${maxQueueSize})`;
 
-            // Log the error for debugging
-            this._onerror(new Error(errorMessage));
-
-            this._taskStore?.updateTaskStatus(taskId, 'failed', 'Task message queue overflow').catch(err => this._onerror(err));
-            this._clearTaskQueue(taskId);
-
-            throw new McpError(ErrorCode.InternalError, 'Task message queue overflow');
+        try {
+            await this._taskMessageQueue.enqueue(taskId, message, sessionId, maxQueueSize);
+        } catch (error) {
+            // Enqueue failed (e.g., queue overflow, storage error) - fail the task and clear the queue
+            this._onerror(error as Error);
+            const errorMessage = error instanceof Error ? error.message : 'Task message enqueue failed';
+            this._taskStore.updateTaskStatus(taskId, 'failed', errorMessage, sessionId).catch(err => this._onerror(err));
+            await this._clearTaskQueue(taskId, sessionId);
+            throw new McpError(ErrorCode.InternalError, `Failed to enqueue task message: ${errorMessage}`);
         }
-
-        queue.enqueue(message);
     }
 
     /**
      * Clears the message queue for a task and rejects any pending request resolvers.
      * @param taskId The task ID whose queue should be cleared
+     * @param sessionId Optional session ID for binding the operation to a specific session
      */
-    private _clearTaskQueue(taskId: string): void {
-        const queue = this._taskMessageQueues.get(taskId);
-        if (queue) {
+    private async _clearTaskQueue(taskId: string, sessionId?: string): Promise<void> {
+        if (this._taskMessageQueue) {
             // Reject any pending request resolvers
-            for (const message of queue.dequeueAll()) {
+            const messages = await this._taskMessageQueue.dequeueAll(taskId, sessionId);
+            for (const message of messages) {
                 if (message.type === 'request' && message.responseResolver && message.originalRequestId !== undefined) {
                     message.responseResolver(new McpError(ErrorCode.InternalError, 'Task cancelled or completed'));
                     // Clean up the resolver mapping
                     this._requestResolvers.delete(message.originalRequestId);
                 }
             }
-            this._taskMessageQueues.delete(taskId);
         }
     }
 
@@ -1544,13 +1482,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
             // Polling as a fallback mechanism for edge cases and race conditions
             // Most updates will be handled by event-driven notifications via _notifyTaskResultWaiters()
+            // We trigger notification on every poll - the handler will check if work is available
             const pollInterval = setInterval(async () => {
                 try {
-                    const task = await this._taskStore?.getTask(taskId);
-                    if (task && (isTerminal(task.status) || this._taskMessageQueues.get(taskId)?.size())) {
-                        clearInterval(pollInterval);
-                        this._notifyTaskResultWaiters(taskId);
-                    }
+                    this._notifyTaskResultWaiters(taskId);
                 } catch {
                     // Ignore errors during polling
                 }

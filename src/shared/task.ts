@@ -1,4 +1,68 @@
-import { Task, TaskCreationParams, Request, RequestId, Result } from '../types.js';
+import { Task, TaskCreationParams, Request, RequestId, Result, JSONRPCRequest, JSONRPCNotification, JSONRPCResponse } from '../types.js';
+
+/**
+ * Represents a message queued for side-channel delivery via tasks/result.
+ */
+export interface QueuedMessage {
+    /** Type of message */
+    type: 'request' | 'notification';
+    /** The actual JSONRPC message */
+    message: JSONRPCRequest | JSONRPCNotification;
+    /** When it was queued */
+    timestamp: number;
+    /** For requests: resolver to call when response is received */
+    responseResolver?: (response: JSONRPCResponse | Error) => void;
+    /** For requests: the original request ID for response routing */
+    originalRequestId?: RequestId;
+}
+
+/**
+ * Interface for managing per-task FIFO message queues.
+ *
+ * Similar to TaskStore, this allows pluggable queue implementations
+ * (in-memory, Redis, other distributed queues, etc.) for server-initiated
+ * messages that will be delivered through the tasks/result response stream.
+ *
+ * Each method accepts taskId and optional sessionId parameters to enable
+ * a single queue instance to manage messages for multiple tasks, with
+ * isolation based on task ID and session ID.
+ *
+ * All methods are async to support external storage implementations.
+ *
+ * Performance Notes:
+ * - enqueue() atomically enforces maxSize to prevent race conditions
+ * - dequeue() returns undefined when empty, eliminating need for isEmpty() checks
+ * - dequeueAll() is used when tasks are cancelled/failed to reject pending resolvers
+ */
+export interface TaskMessageQueue {
+    /**
+     * Adds a message to the end of the queue for a specific task.
+     * Atomically checks queue size and throws if maxSize would be exceeded.
+     * @param taskId The task identifier
+     * @param message The message to enqueue
+     * @param sessionId Optional session ID for binding the operation to a specific session
+     * @param maxSize Optional maximum queue size - if specified and queue is full, throws an error
+     * @throws Error if maxSize is specified and would be exceeded
+     */
+    enqueue(taskId: string, message: QueuedMessage, sessionId?: string, maxSize?: number): Promise<void>;
+
+    /**
+     * Removes and returns the first message from the queue for a specific task.
+     * @param taskId The task identifier
+     * @param sessionId Optional session ID for binding the query to a specific session
+     * @returns The first message, or undefined if the queue is empty
+     */
+    dequeue(taskId: string, sessionId?: string): Promise<QueuedMessage | undefined>;
+
+    /**
+     * Removes and returns all messages from the queue for a specific task.
+     * Used when tasks are cancelled or failed to reject any pending request resolvers.
+     * @param taskId The task identifier
+     * @param sessionId Optional session ID for binding the query to a specific session
+     * @returns Array of all messages that were in the queue
+     */
+    dequeueAll(taskId: string, sessionId?: string): Promise<QueuedMessage[]>;
+}
 
 /**
  * Interface for storing and retrieving task state and results.

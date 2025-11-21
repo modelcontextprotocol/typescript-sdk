@@ -1,5 +1,5 @@
 import { Task, TaskCreationParams, Request, RequestId, Result } from '../../types.js';
-import { TaskStore, isTerminal } from '../../shared/task.js';
+import { TaskStore, isTerminal, TaskMessageQueue, QueuedMessage } from '../../shared/task.js';
 import { randomBytes } from 'crypto';
 
 interface StoredTask {
@@ -196,5 +196,84 @@ export class InMemoryTaskStore implements TaskStore {
      */
     getAllTasks(): Task[] {
         return Array.from(this.tasks.values()).map(stored => ({ ...stored.task }));
+    }
+}
+
+/**
+ * A simple in-memory implementation of TaskMessageQueue for demonstration purposes.
+ *
+ * This implementation stores messages in memory, organized by task ID and optional session ID.
+ * Messages are stored in FIFO queues per task.
+ *
+ * Note: This is not suitable for production use in distributed systems.
+ * For production, consider implementing TaskMessageQueue with Redis or other distributed queues.
+ */
+export class InMemoryTaskMessageQueue implements TaskMessageQueue {
+    private queues = new Map<string, QueuedMessage[]>();
+
+    /**
+     * Generates a queue key from taskId.
+     * SessionId is intentionally ignored because taskIds are globally unique
+     * and tasks need to be accessible across HTTP requests/sessions.
+     */
+    private getQueueKey(taskId: string, _sessionId?: string): string {
+        return taskId;
+    }
+
+    /**
+     * Gets or creates a queue for the given task and session.
+     */
+    private getQueue(taskId: string, sessionId?: string): QueuedMessage[] {
+        const key = this.getQueueKey(taskId, sessionId);
+        let queue = this.queues.get(key);
+        if (!queue) {
+            queue = [];
+            this.queues.set(key, queue);
+        }
+        return queue;
+    }
+
+    /**
+     * Adds a message to the end of the queue for a specific task.
+     * Atomically checks queue size and throws if maxSize would be exceeded.
+     * @param taskId The task identifier
+     * @param message The message to enqueue
+     * @param sessionId Optional session ID for binding the operation to a specific session
+     * @param maxSize Optional maximum queue size - if specified and queue is full, throws an error
+     * @throws Error if maxSize is specified and would be exceeded
+     */
+    async enqueue(taskId: string, message: QueuedMessage, sessionId?: string, maxSize?: number): Promise<void> {
+        const queue = this.getQueue(taskId, sessionId);
+
+        // Atomically check size and enqueue
+        if (maxSize !== undefined && queue.length >= maxSize) {
+            throw new Error(`Task message queue overflow: queue size (${queue.length}) exceeds maximum (${maxSize})`);
+        }
+
+        queue.push(message);
+    }
+
+    /**
+     * Removes and returns the first message from the queue for a specific task.
+     * @param taskId The task identifier
+     * @param sessionId Optional session ID for binding the query to a specific session
+     * @returns The first message, or undefined if the queue is empty
+     */
+    async dequeue(taskId: string, sessionId?: string): Promise<QueuedMessage | undefined> {
+        const queue = this.getQueue(taskId, sessionId);
+        return queue.shift();
+    }
+
+    /**
+     * Removes and returns all messages from the queue for a specific task.
+     * @param taskId The task identifier
+     * @param sessionId Optional session ID for binding the query to a specific session
+     * @returns Array of all messages that were in the queue
+     */
+    async dequeueAll(taskId: string, sessionId?: string): Promise<QueuedMessage[]> {
+        const key = this.getQueueKey(taskId, sessionId);
+        const queue = this.queues.get(key) ?? [];
+        this.queues.delete(key);
+        return queue;
     }
 }

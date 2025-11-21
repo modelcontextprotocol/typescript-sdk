@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { InMemoryTransport } from '../inMemory.js';
 import { Client } from '../client/index.js';
 import { Server } from '../server/index.js';
-import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../examples/shared/inMemoryTaskStore.js';
 
 describe('Task Listing with Pagination', () => {
     let client: Client;
@@ -51,7 +51,8 @@ describe('Task Listing with Pagination', () => {
                         }
                     }
                 },
-                taskStore
+                taskStore,
+                taskMessageQueue: new InMemoryTaskMessageQueue()
             }
         );
 

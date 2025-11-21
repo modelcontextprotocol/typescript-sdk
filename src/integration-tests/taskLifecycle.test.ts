@@ -7,7 +7,7 @@ import { McpServer } from '../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../server/streamableHttp.js';
 import { CallToolResultSchema, CreateTaskResultSchema, ElicitRequestSchema, ElicitResultSchema, TaskSchema } from '../types.js';
 import { z } from 'zod';
-import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../examples/shared/inMemoryTaskStore.js';
 import type { TaskRequestOptions } from '../shared/protocol.js';
 
 describe('Task Lifecycle Integration Tests', () => {
@@ -36,7 +36,8 @@ describe('Task Lifecycle Integration Tests', () => {
                         cancel: {}
                     }
                 },
-                taskStore
+                taskStore,
+                taskMessageQueue: new InMemoryTaskMessageQueue()
             }
         );
 

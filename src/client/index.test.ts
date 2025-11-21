@@ -25,7 +25,7 @@ import { Transport } from '../shared/transport.js';
 import { Server } from '../server/index.js';
 import { McpServer } from '../server/mcp.js';
 import { InMemoryTransport } from '../inMemory.js';
-import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../examples/shared/inMemoryTaskStore.js';
 import * as z3 from 'zod/v3';
 import * as z4 from 'zod/v4';
 

@@ -23,7 +23,7 @@ import {
 } from '../types.js';
 import { Server } from './index.js';
 import { McpServer } from './mcp.js';
-import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../examples/shared/inMemoryTaskStore.js';
 import { CallToolRequestSchema, CallToolResultSchema } from '../types.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
 import type { AnyObjectSchema } from './zod-compat.js';

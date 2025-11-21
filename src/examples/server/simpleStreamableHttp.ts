@@ -15,7 +15,7 @@ import {
     ResourceLink
 } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
-import { InMemoryTaskStore } from '../shared/inMemoryTaskStore.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../shared/inMemoryTaskStore.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from '../../shared/auth.js';
 import { checkResourceAllowed } from '../../shared/auth-utils.js';
@@ -40,7 +40,8 @@ const getServer = () => {
         },
         {
             capabilities: { logging: {}, tasks: { requests: { tools: { call: {} } } } },
-            taskStore // Enable task support
+            taskStore, // Enable task support
+            taskMessageQueue: new InMemoryTaskMessageQueue()
         }
     );
 
