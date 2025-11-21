@@ -1513,6 +1513,17 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * @returns Promise that resolves when an update occurs or rejects if aborted
      */
     private async _waitForTaskUpdate(taskId: string, signal: AbortSignal): Promise<void> {
+        // Get the task's poll interval, falling back to default
+        let interval = this._options?.defaultTaskPollInterval ?? 1000;
+        try {
+            const task = await this._taskStore?.getTask(taskId);
+            if (task?.pollInterval) {
+                interval = task.pollInterval;
+            }
+        } catch {
+            // Use default interval if task lookup fails
+        }
+
         return new Promise((resolve, reject) => {
             if (signal.aborted) {
                 reject(new McpError(ErrorCode.InvalidRequest, 'Request cancelled'));
@@ -1543,7 +1554,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 } catch {
                     // Ignore errors during polling
                 }
-            }, 100);
+            }, interval);
 
             // Clean up the interval when the promise resolves or rejects
             const cleanup = () => clearInterval(pollInterval);
@@ -1598,7 +1609,6 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     if (isTerminal(task.status)) {
                         this._cleanupTaskProgressHandler(taskId);
                         // Don't clear queue here - it will be cleared after delivery via tasks/result
-                        // this._clearTaskQueue(taskId);
                     }
                 }
             },
@@ -1639,7 +1649,6 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         if (isTerminal(updatedTask.status)) {
                             this._cleanupTaskProgressHandler(taskId);
                             // Don't clear queue here - it will be cleared after delivery via tasks/result
-                            // this._clearTaskQueue(taskId);
                         }
                     }
                 } catch (error) {
