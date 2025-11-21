@@ -251,13 +251,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await client2.connect(transport2);
 
             // Resume GET SSE stream with Last-Event-ID to replay missed events
-            // Per spec, resumption uses GET with Last-Event-ID header, not POST
-            // When resumptionToken is provided, send() only triggers GET reconnection and returns early
-            // We use a notification (no id) so we don't expect a response
-            await transport2.send(
-                { jsonrpc: '2.0', method: 'notifications/ping' },
-                { resumptionToken: lastEventId, onresumptiontoken: onLastEventIdUpdate }
-            );
+            // Per spec, resumption uses GET with Last-Event-ID header
+            await transport2.resumeStream(lastEventId!, { onresumptiontoken: onLastEventIdUpdate });
 
             // Wait for replayed events to arrive via SSE
             await new Promise(resolve => setTimeout(resolve, 100));

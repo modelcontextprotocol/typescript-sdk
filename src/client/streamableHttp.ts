@@ -620,4 +620,18 @@ export class StreamableHTTPClientTransport implements Transport {
     get protocolVersion(): string | undefined {
         return this._protocolVersion;
     }
+
+    /**
+     * Resume an SSE stream from a previous event ID.
+     * Opens a GET SSE connection with Last-Event-ID header to replay missed events.
+     *
+     * @param lastEventId The event ID to resume from
+     * @param options Optional callback to receive new resumption tokens
+     */
+    async resumeStream(lastEventId: string, options?: { onresumptiontoken?: (token: string) => void }): Promise<void> {
+        await this._startOrAuthSse({
+            resumptionToken: lastEventId,
+            onresumptiontoken: options?.onresumptiontoken
+        });
+    }
 }
