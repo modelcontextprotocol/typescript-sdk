@@ -23,7 +23,6 @@ import { completable } from './completable.js';
 import { McpServer, ResourceTemplate } from './mcp.js';
 import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
 import { zodTestMatrix, type ZodMatrixEntry } from '../shared/zodTestMatrix.js';
-import * as z4 from 'zod/v4';
 
 function createLatch() {
     let latch = false;
@@ -5695,7 +5694,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     });
 
     describe('Tool-level task hints with automatic polling wrapper', () => {
-        test('should return error for tool with taskHint "always" called without task augmentation', async () => {
+        test('should return error for tool with taskSupport "required" called without task augmentation', async () => {
             const taskStore = new InMemoryTaskStore();
 
             const mcpServer = new McpServer(
@@ -5736,7 +5735,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             );
 
-            // Register a task-based tool with taskHint "always" BEFORE connecting
+            // Register a task-based tool with taskSupport "required"
             mcpServer.registerToolTask(
                 'long-running-task',
                 {
@@ -5744,8 +5743,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     inputSchema: {
                         input: z.string()
                     },
-                    annotations: {
-                        taskHint: 'always' as unknown as 'never' // override to allow violating build-time constraints
+                    execution: {
+                        taskSupport: 'required'
                     }
                 },
                 {
@@ -5802,7 +5801,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             taskStore.cleanup();
         });
 
-        test('should automatically poll and return CallToolResult for tool with taskHint "optional" called without task augmentation', async () => {
+        test('should automatically poll and return CallToolResult for tool with taskSupport "optional" called without task augmentation', async () => {
             const taskStore = new InMemoryTaskStore();
             const { releaseLatch, waitForLatch } = createLatch();
 
@@ -5844,7 +5843,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             );
 
-            // Register a task-based tool with taskHint "optional" BEFORE connecting
+            // Register a task-based tool with taskSupport "optional"
             mcpServer.registerToolTask(
                 'optional-task',
                 {
@@ -5852,8 +5851,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     inputSchema: {
                         value: z.number()
                     },
-                    annotations: {
-                        taskHint: 'optional' as unknown as 'never' // override to allow violating build-time constraints
+                    execution: {
+                        taskSupport: 'optional'
                     }
                 },
                 {
@@ -5913,7 +5912,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             taskStore.cleanup();
         });
 
-        test('should return CreateTaskResult when tool with taskHint "always" is called WITH task augmentation', async () => {
+        test('should return CreateTaskResult when tool with taskSupport "required" is called WITH task augmentation', async () => {
             const taskStore = new InMemoryTaskStore();
             const { releaseLatch, waitForLatch } = createLatch();
 
@@ -5955,7 +5954,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             );
 
-            // Register a task-based tool with taskHint "always" BEFORE connecting
+            // Register a task-based tool with taskSupport "required"
             mcpServer.registerToolTask(
                 'task-tool',
                 {
@@ -5963,8 +5962,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     inputSchema: {
                         data: z.string()
                     },
-                    annotations: {
-                        taskHint: 'always' as unknown as 'never' // override to allow violating build-time constraints
+                    execution: {
+                        taskSupport: 'required'
                     }
                 },
                 {
@@ -6036,177 +6035,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             taskStore.cleanup();
         });
 
-        test('should throw error if tool with taskHint "always" is not registered with registerToolTask', async () => {
-            const mcpServer = new McpServer({
-                name: 'test server',
-                version: '1.0'
-            });
-
-            const client = new Client({
-                name: 'test client',
-                version: '1.0'
-            });
-
-            // Register a regular tool with taskHint "always" (incorrect usage) BEFORE connecting
-            mcpServer.registerTool(
-                'bad-tool',
-                {
-                    description: 'A tool with incorrect taskHint',
-                    annotations: {
-                        taskHint: 'always'
-                    }
-                },
-                async () => ({
-                    content: [{ type: 'text' as const, text: 'Should not work' }]
-                })
-            );
-
-            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-
-            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
-
-            // Call the tool - should return error result
-            const result = await client.callTool(
-                {
-                    name: 'bad-tool',
-                    arguments: {}
-                },
-                CallToolResultSchema
-            );
-
-            expect(result.isError).toBe(true);
-            const content = result.content as TextContent[];
-            expect(content[0].text).toContain("has taskHint 'always' but was not registered with registerToolTask");
-        });
-
-        test('should throw error if tool with taskHint "optional" is not registered with registerToolTask', async () => {
-            const mcpServer = new McpServer({
-                name: 'test server',
-                version: '1.0'
-            });
-
-            const client = new Client({
-                name: 'test client',
-                version: '1.0'
-            });
-
-            // Register a regular tool with taskHint "optional" (incorrect usage) BEFORE connecting
-            mcpServer.registerTool(
-                'bad-optional-tool',
-                {
-                    description: 'A tool with incorrect taskHint',
-                    annotations: {
-                        taskHint: 'optional'
-                    }
-                },
-                async () => ({
-                    content: [{ type: 'text' as const, text: 'Should not work' }]
-                })
-            );
-
-            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-
-            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
-
-            // Call the tool - should return error result
-            const result = await client.callTool(
-                {
-                    name: 'bad-optional-tool',
-                    arguments: {}
-                },
-                CallToolResultSchema
-            );
-
-            expect(result.isError).toBe(true);
-            const content = result.content as TextContent[];
-            expect(content[0].text).toContain("has taskHint 'optional' but was not registered with registerToolTask");
-        });
-
-        test('should work normally for tool with taskHint "never"', async () => {
-            const mcpServer = new McpServer({
-                name: 'test server',
-                version: '1.0'
-            });
-
-            const client = new Client({
-                name: 'test client',
-                version: '1.0'
-            });
-
-            // Register a regular tool with taskHint "never" BEFORE connecting
-            mcpServer.registerTool(
-                'normal-tool',
-                {
-                    description: 'A normal tool',
-                    inputSchema: {
-                        message: z.string()
-                    },
-                    annotations: {
-                        taskHint: 'never'
-                    }
-                },
-                async ({ message }) => ({
-                    content: [{ type: 'text' as const, text: `Echo: ${message}` }]
-                })
-            );
-
-            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-
-            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
-
-            // Call the tool - should work normally
-            const result = await client.callTool(
-                {
-                    name: 'normal-tool',
-                    arguments: { message: 'hello' }
-                },
-                CallToolResultSchema
-            );
-
-            expect(result.content).toEqual([{ type: 'text' as const, text: 'Echo: hello' }]);
-        });
-
-        test('should work normally for tool without taskHint', async () => {
-            const mcpServer = new McpServer({
-                name: 'test server',
-                version: '1.0'
-            });
-
-            const client = new Client({
-                name: 'test client',
-                version: '1.0'
-            });
-
-            // Register a regular tool without taskHint BEFORE connecting
-            mcpServer.registerTool(
-                'simple-tool',
-                {
-                    description: 'A simple tool',
-                    inputSchema: {
-                        value: z4.number()
-                    }
-                },
-                async ({ value }) => ({
-                    content: [{ type: 'text' as const, text: `Value: ${value}` }]
-                })
-            );
-
-            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-
-            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
-
-            // Call the tool - should work normally
-            const result = await client.callTool(
-                {
-                    name: 'simple-tool',
-                    arguments: { value: 42 }
-                },
-                CallToolResultSchema
-            );
-
-            expect(result.content).toEqual([{ type: 'text' as const, text: 'Value: 42' }]);
-        });
-
         test('should handle task failures during automatic polling', async () => {
             const taskStore = new InMemoryTaskStore();
             const { releaseLatch, waitForLatch } = createLatch();
@@ -6249,13 +6077,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             );
 
-            // Register a task-based tool that fails BEFORE connecting
+            // Register a task-based tool that fails
             mcpServer.registerToolTask(
                 'failing-task',
                 {
                     description: 'A failing task',
-                    annotations: {
-                        taskHint: 'optional' as unknown as 'never' // override to allow violating build-time constraints
+                    execution: {
+                        taskSupport: 'optional'
                     }
                 },
                 {
@@ -6358,13 +6186,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             );
 
-            // Register a task-based tool that gets cancelled BEFORE connecting
+            // Register a task-based tool that gets cancelled
             mcpServer.registerToolTask(
                 'cancelled-task',
                 {
                     description: 'A task that gets cancelled',
-                    annotations: {
-                        taskHint: 'optional' as unknown as 'never' // override to allow violating build-time constraints
+                    execution: {
+                        taskSupport: 'optional'
                     }
                 },
                 {
@@ -6418,6 +6246,68 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Wait for async operations to complete
             await waitForLatch();
+            taskStore.cleanup();
+        });
+
+        test('should raise error when registerToolTask is called with taskSupport "forbidden"', () => {
+            const taskStore = new InMemoryTaskStore();
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore
+                }
+            );
+
+            // Attempt to register a task-based tool with taskSupport "forbidden" (cast to bypass type checking)
+            expect(() => {
+                mcpServer.registerToolTask(
+                    'invalid-task',
+                    {
+                        description: 'A task with forbidden support',
+                        inputSchema: {
+                            input: z.string()
+                        },
+                        execution: {
+                            taskSupport: 'forbidden' as unknown as 'required'
+                        }
+                    },
+                    {
+                        createTask: async ({ input }, extra) => {
+                            const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 }, extra.requestId, {
+                                method: 'tools/call',
+                                params: { name: 'invalid-task', arguments: { input } }
+                            });
+                            return { task };
+                        },
+                        getTask: async (_args, extra) => {
+                            const task = await extra.taskStore.getTask(extra.taskId);
+                            if (!task) {
+                                throw new Error('Task not found');
+                            }
+                            return task;
+                        },
+                        getTaskResult: async (_input, extra) => {
+                            const result = await extra.taskStore.getTaskResult(extra.taskId);
+                            return result as CallToolResult;
+                        }
+                    }
+                );
+            }).toThrow();
+
             taskStore.cleanup();
         });
     });

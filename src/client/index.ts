@@ -745,8 +745,8 @@ export class Client<
             }
 
             // If the tool supports task-based execution, cache that information
-            const taskHint = tool.annotations?.taskHint;
-            if (taskHint === 'always' || taskHint === 'optional') {
+            const taskSupport = tool.execution?.taskSupport;
+            if (taskSupport === 'required' || taskSupport === 'optional') {
                 this._cachedKnownTaskTools.add(tool.name);
             }
         }

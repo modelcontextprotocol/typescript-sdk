@@ -52,7 +52,8 @@ import {
     CompleteRequestResourceTemplate,
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
-    CallToolRequest
+    CallToolRequest,
+    ToolExecution
 } from '../types.js';
 import { isCompletable, getCompleter } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
@@ -164,27 +165,27 @@ export class McpServer {
                 }
 
                 const isTaskRequest = !!request.params.task;
-                const taskHint = tool.annotations?.taskHint;
+                const taskSupport = tool.execution?.taskSupport;
                 const isTaskHandler = 'createTask' in (tool.handler as AnyToolHandler<ZodRawShapeCompat>);
 
                 // Validate task hint configuration
-                if ((taskHint === 'always' || taskHint === 'optional') && !isTaskHandler) {
+                if ((taskSupport === 'required' || taskSupport === 'optional') && !isTaskHandler) {
                     throw new McpError(
                         ErrorCode.InternalError,
-                        `Tool ${request.params.name} has taskHint '${taskHint}' but was not registered with registerToolTask`
+                        `Tool ${request.params.name} has taskSupport '${taskSupport}' but was not registered with registerToolTask`
                     );
                 }
 
-                // Handle taskHint 'always' without task augmentation
-                if (taskHint === 'always' && !isTaskRequest) {
+                // Handle taskSupport 'required' without task augmentation
+                if (taskSupport === 'required' && !isTaskRequest) {
                     throw new McpError(
                         ErrorCode.MethodNotFound,
-                        `Tool ${request.params.name} requires task augmentation (taskHint: 'always')`
+                        `Tool ${request.params.name} requires task augmentation (taskSupport: 'required')`
                     );
                 }
 
-                // Handle taskHint 'optional' without task augmentation - automatic polling
-                if (taskHint === 'optional' && !isTaskRequest && isTaskHandler) {
+                // Handle taskSupport 'optional' without task augmentation - automatic polling
+                if (taskSupport === 'optional' && !isTaskRequest && isTaskHandler) {
                     return await this.handleAutomaticTaskPolling(tool, request, extra);
                 }
 
@@ -337,7 +338,7 @@ export class McpServer {
     }
 
     /**
-     * Handles automatic task polling for tools with taskHint 'optional'.
+     * Handles automatic task polling for tools with taskSupport 'optional'.
      */
     private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
         tool: RegisteredTool,
@@ -838,6 +839,7 @@ export class McpServer {
         inputSchema: ZodRawShapeCompat | AnySchema | undefined,
         outputSchema: ZodRawShapeCompat | AnySchema | undefined,
         annotations: ToolAnnotations | undefined,
+        execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<ZodRawShapeCompat | undefined>
     ): RegisteredTool {
@@ -850,6 +852,7 @@ export class McpServer {
             inputSchema: getZodSchemaObject(inputSchema),
             outputSchema: getZodSchemaObject(outputSchema),
             annotations,
+            execution,
             _meta,
             handler: handler,
             enabled: true,
@@ -992,7 +995,17 @@ export class McpServer {
         }
         const callback = rest[0] as ToolCallback<ZodRawShapeCompat | undefined>;
 
-        return this._createRegisteredTool(name, undefined, description, inputSchema, outputSchema, annotations, undefined, callback);
+        return this._createRegisteredTool(
+            name,
+            undefined,
+            description,
+            inputSchema,
+            outputSchema,
+            annotations,
+            { taskSupport: 'forbidden' },
+            undefined,
+            callback
+        );
     }
 
     /**
@@ -1023,6 +1036,7 @@ export class McpServer {
             inputSchema,
             outputSchema,
             annotations,
+            { taskSupport: 'forbidden' },
             _meta,
             cb as ToolCallback<ZodRawShapeCompat | undefined>
         );
@@ -1037,7 +1051,8 @@ export class McpServer {
             title?: string;
             description?: string;
             outputSchema?: OutputArgs;
-            annotations?: NoTaskToolAnnotations;
+            annotations?: ToolAnnotations;
+            execution?: TaskToolExecution;
             _meta?: Record<string, unknown>;
         },
         handler: ToolTaskHandler<undefined>
@@ -1053,7 +1068,8 @@ export class McpServer {
             description?: string;
             inputSchema: InputArgs;
             outputSchema?: OutputArgs;
-            annotations?: NoTaskToolAnnotations;
+            annotations?: ToolAnnotations;
+            execution?: TaskToolExecution;
             _meta?: Record<string, unknown>;
         },
         handler: ToolTaskHandler<InputArgs>
@@ -1069,18 +1085,26 @@ export class McpServer {
             description?: string;
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
-            annotations?: NoTaskToolAnnotations;
+            annotations?: ToolAnnotations;
+            execution?: TaskToolExecution;
             _meta?: Record<string, unknown>;
         },
         handler: ToolTaskHandler<InputArgs>
     ): RegisteredTool {
+        // Validate that taskSupport is not 'forbidden' for task-based tools
+        const execution: ToolExecution = { taskSupport: 'required', ...config.execution };
+        if (execution.taskSupport === 'forbidden') {
+            throw new Error(`Cannot register task-based tool '${name}' with taskSupport 'forbidden'. Use registerTool() instead.`);
+        }
+
         return this._createRegisteredTool(
             name,
             config.title,
             config.description,
             config.inputSchema,
             config.outputSchema,
-            { taskHint: 'always', ...config.annotations },
+            config.annotations,
+            execution,
             config._meta,
             handler
         );
@@ -1338,9 +1362,9 @@ export type AnyToolCallback<Args extends undefined | ZodRawShapeCompat | AnySche
  */
 export type AnyToolHandler<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
 
-export interface NoTaskToolAnnotations extends ToolAnnotations {
-    taskHint?: 'never';
-}
+export type TaskToolExecution<TaskSupport = ToolExecution['taskSupport']> = Omit<ToolExecution, 'taskSupport'> & {
+    taskSupport: TaskSupport extends 'forbidden' | undefined ? never : TaskSupport;
+};
 
 export type RegisteredTool = {
     title?: string;
@@ -1348,6 +1372,7 @@ export type RegisteredTool = {
     inputSchema?: AnySchema;
     outputSchema?: AnySchema;
     annotations?: ToolAnnotations;
+    execution?: ToolExecution;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<undefined | ZodRawShapeCompat>;
     enabled: boolean;

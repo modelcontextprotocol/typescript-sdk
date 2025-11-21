@@ -1224,17 +1224,22 @@ export const ToolAnnotationsSchema = z.object({
      *
      * Default: true
      */
-    openWorldHint: z.boolean().optional(),
+    openWorldHint: z.boolean().optional()
+});
 
+/**
+ * Execution-related properties for a tool.
+ */
+export const ToolExecutionSchema = z.object({
     /**
      * Indicates the tool's preference for task-augmented execution.
-     * - "always": Clients SHOULD invoke the tool as a task
+     * - "required": Clients MUST invoke the tool as a task
      * - "optional": Clients MAY invoke the tool as a task or normal request
-     * - "never": Clients SHALL NOT attempt to invoke the tool as a task
+     * - "forbidden": Clients MUST NOT attempt to invoke the tool as a task
      *
-     * If not present, defaults to "never".
+     * If not present, defaults to "forbidden".
      */
-    taskHint: z.enum(['always', 'optional', 'never']).optional()
+    taskSupport: z.enum(['required', 'optional', 'forbidden']).optional()
 });
 
 /**
@@ -1275,6 +1280,10 @@ export const ToolSchema = z.object({
      * Optional additional tool information.
      */
     annotations: z.optional(ToolAnnotationsSchema),
+    /**
+     * Execution-related properties for this tool.
+     */
+    execution: z.optional(ToolExecutionSchema),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -2235,6 +2244,7 @@ export type PromptListChangedNotification = Infer<typeof PromptListChangedNotifi
 
 /* Tools */
 export type ToolAnnotations = Infer<typeof ToolAnnotationsSchema>;
+export type ToolExecution = Infer<typeof ToolExecutionSchema>;
 export type Tool = Infer<typeof ToolSchema>;
 export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
