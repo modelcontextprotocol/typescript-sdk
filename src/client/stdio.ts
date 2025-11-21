@@ -37,6 +37,13 @@ export type StdioServerParameters = {
      * If not specified, the current working directory will be inherited.
      */
     cwd?: string;
+
+    /**
+     * Whether to hide Windows Terminal when spawning the process.
+     *
+     * If not specified, the result of isElectron() will be used.
+     */
+    windowsHide?: boolean;
 };
 
 /**
@@ -127,7 +134,7 @@ export class StdioClientTransport implements Transport {
                 stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
                 shell: false,
                 signal: this._abortController.signal,
-                windowsHide: process.platform === 'win32' && isElectron(),
+                windowsHide: this._serverParams.windowsHide ?? isElectron(),
                 cwd: this._serverParams.cwd
             });
 
@@ -232,5 +239,5 @@ export class StdioClientTransport implements Transport {
 }
 
 function isElectron() {
-    return 'type' in process;
+    return process.platform === 'win32' && 'type' in process;
 }

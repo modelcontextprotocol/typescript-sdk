@@ -150,4 +150,165 @@ describe('StdioClientTransport using cross-spawn', () => {
         // verify message is sent correctly
         expect(mockProcess.stdin.write).toHaveBeenCalled();
     });
+
+    describe('windowsHide parameter', () => {
+        const originalPlatform = process.platform;
+
+        afterEach(() => {
+            // restore original platform
+            Object.defineProperty(process, 'platform', {
+                value: originalPlatform,
+                writable: true
+            });
+        });
+
+        test('should use explicit windowsHide=true when provided', async () => {
+            const transport = new StdioClientTransport({
+                command: 'test-command',
+                windowsHide: true
+            });
+
+            await transport.start();
+
+            // verify windowsHide is set to true
+            expect(mockSpawn).toHaveBeenCalledWith(
+                'test-command',
+                [],
+                expect.objectContaining({
+                    windowsHide: true
+                })
+            );
+        });
+
+        test('should use explicit windowsHide=false when provided', async () => {
+            const transport = new StdioClientTransport({
+                command: 'test-command',
+                windowsHide: false
+            });
+
+            await transport.start();
+
+            // verify windowsHide is set to false
+            expect(mockSpawn).toHaveBeenCalledWith(
+                'test-command',
+                [],
+                expect.objectContaining({
+                    windowsHide: false
+                })
+            );
+        });
+
+        test('should default to true on Windows in Electron environment when windowsHide not specified', async () => {
+            // mock windows platform and electron environment
+            Object.defineProperty(process, 'platform', {
+                value: 'win32',
+                writable: true
+            });
+            Object.defineProperty(process, 'type', {
+                value: 'renderer',
+                configurable: true
+            });
+
+            const transport = new StdioClientTransport({
+                command: 'test-command'
+            });
+
+            await transport.start();
+
+            // verify windowsHide defaults to true
+            expect(mockSpawn).toHaveBeenCalledWith(
+                'test-command',
+                [],
+                expect.objectContaining({
+                    windowsHide: true
+                })
+            );
+
+            // cleanup
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            delete (process as any).type;
+        });
+
+        test('should default to false on Windows in non-Electron environment when windowsHide not specified', async () => {
+            // mock windows platform without electron
+            Object.defineProperty(process, 'platform', {
+                value: 'win32',
+                writable: true
+            });
+
+            // remove this property used to detect isElectron
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            delete (process as any).type;
+
+            const transport = new StdioClientTransport({
+                command: 'test-command'
+            });
+
+            await transport.start();
+
+            // verify windowsHide defaults to false
+            expect(mockSpawn).toHaveBeenCalledWith(
+                'test-command',
+                [],
+                expect.objectContaining({
+                    windowsHide: false
+                })
+            );
+        });
+
+        test('should default to false on non-Windows platforms when windowsHide not specified', async () => {
+            // mock non-windows platform
+            Object.defineProperty(process, 'platform', {
+                value: 'darwin',
+                writable: true
+            });
+
+            const transport = new StdioClientTransport({
+                command: 'test-command'
+            });
+
+            await transport.start();
+
+            // verify windowsHide defaults to false
+            expect(mockSpawn).toHaveBeenCalledWith(
+                'test-command',
+                [],
+                expect.objectContaining({
+                    windowsHide: false
+                })
+            );
+        });
+
+        test('should override default behavior when windowsHide is explicitly set on Windows', async () => {
+            // mock windows platform and electron environment
+            Object.defineProperty(process, 'platform', {
+                value: 'win32',
+                writable: true
+            });
+            Object.defineProperty(process, 'type', {
+                value: 'renderer',
+                configurable: true
+            });
+
+            const transport = new StdioClientTransport({
+                command: 'test-command',
+                windowsHide: false
+            });
+
+            await transport.start();
+
+            // verify explicit false overrides default true
+            expect(mockSpawn).toHaveBeenCalledWith(
+                'test-command',
+                [],
+                expect.objectContaining({
+                    windowsHide: false
+                })
+            );
+
+            // remove the mock electron property.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            delete (process as any).type;
+        });
+    });
 });
