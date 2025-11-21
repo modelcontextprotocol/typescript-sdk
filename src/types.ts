@@ -999,24 +999,28 @@ export const ToolSchema = z.object({
      */
     description: z.string().optional(),
     /**
-     * A JSON Schema object defining the expected parameters for the tool.
+     * A JSON Schema 2020-12 object defining the expected parameters for the tool.
+     * Must have type: 'object' at the root level per MCP spec.
      */
-    inputSchema: z.object({
-        type: z.literal('object'),
-        properties: z.record(z.string(), AssertObjectSchema).optional(),
-        required: z.optional(z.array(z.string()))
-    }),
+    inputSchema: z
+        .object({
+            type: z.literal('object'),
+            properties: z.record(z.string(), AssertObjectSchema).optional(),
+            required: z.array(z.string()).optional()
+        })
+        .catchall(z.unknown()),
     /**
-     * An optional JSON Schema object defining the structure of the tool's output returned in
-     * the structuredContent field of a CallToolResult.
+     * An optional JSON Schema 2020-12 object defining the structure of the tool's output
+     * returned in the structuredContent field of a CallToolResult.
+     * Must have type: 'object' at the root level per MCP spec.
      */
     outputSchema: z
         .object({
             type: z.literal('object'),
             properties: z.record(z.string(), AssertObjectSchema).optional(),
-            required: z.optional(z.array(z.string())),
-            additionalProperties: z.optional(z.boolean())
+            required: z.array(z.string()).optional()
         })
+        .catchall(z.unknown())
         .optional(),
     /**
      * Optional additional tool information.

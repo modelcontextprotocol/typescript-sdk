@@ -6,6 +6,7 @@ import {
     PromptMessageSchema,
     CallToolResultSchema,
     CompleteRequestSchema,
+    ToolSchema,
     ToolUseContentSchema,
     ToolResultContentSchema,
     ToolChoiceSchema,
@@ -316,6 +317,132 @@ describe('Types', () => {
                     '{resource}': 'users'
                 });
             }
+        });
+    });
+
+    describe('ToolSchema - JSON Schema 2020-12 support', () => {
+        test('should accept inputSchema with $schema field', () => {
+            const tool = {
+                name: 'test',
+                inputSchema: {
+                    $schema: 'https://json-schema.org/draft/2020-12/schema',
+                    type: 'object',
+                    properties: { name: { type: 'string' } }
+                }
+            };
+            const result = ToolSchema.safeParse(tool);
+            expect(result.success).toBe(true);
+        });
+
+        test('should accept inputSchema with additionalProperties', () => {
+            const tool = {
+                name: 'test',
+                inputSchema: {
+                    type: 'object',
+                    properties: { name: { type: 'string' } },
+                    additionalProperties: false
+                }
+            };
+            const result = ToolSchema.safeParse(tool);
+            expect(result.success).toBe(true);
+        });
+
+        test('should accept inputSchema with composition keywords', () => {
+            const tool = {
+                name: 'test',
+                inputSchema: {
+                    type: 'object',
+                    allOf: [{ properties: { a: { type: 'string' } } }, { properties: { b: { type: 'number' } } }]
+                }
+            };
+            const result = ToolSchema.safeParse(tool);
+            expect(result.success).toBe(true);
+        });
+
+        test('should accept inputSchema with $ref and $defs', () => {
+            const tool = {
+                name: 'test',
+                inputSchema: {
+                    type: 'object',
+                    properties: { user: { $ref: '#/$defs/User' } },
+                    $defs: {
+                        User: { type: 'object', properties: { name: { type: 'string' } } }
+                    }
+                }
+            };
+            const result = ToolSchema.safeParse(tool);
+            expect(result.success).toBe(true);
+        });
+
+        test('should accept inputSchema with metadata keywords', () => {
+            const tool = {
+                name: 'test',
+                inputSchema: {
+                    type: 'object',
+                    title: 'User Input',
+                    description: 'Input parameters for user creation',
+                    deprecated: false,
+                    examples: [{ name: 'John' }],
+                    properties: { name: { type: 'string' } }
+                }
+            };
+            const result = ToolSchema.safeParse(tool);
+            expect(result.success).toBe(true);
+        });
+
+        test('should accept outputSchema with full JSON Schema features', () => {
+            const tool = {
+                name: 'test',
+                inputSchema: { type: 'object' },
+                outputSchema: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string' },
+                        tags: { type: 'array' }
+                    },
+                    required: ['id'],
+                    additionalProperties: false,
+                    minProperties: 1
+                }
+            };
+            const result = ToolSchema.safeParse(tool);
+            expect(result.success).toBe(true);
+        });
+
+        test('should still require type: object at root for inputSchema', () => {
+            const tool = {
+                name: 'test',
+                inputSchema: {
+                    type: 'string'
+                }
+            };
+            const result = ToolSchema.safeParse(tool);
+            expect(result.success).toBe(false);
+        });
+
+        test('should still require type: object at root for outputSchema', () => {
+            const tool = {
+                name: 'test',
+                inputSchema: { type: 'object' },
+                outputSchema: {
+                    type: 'array'
+                }
+            };
+            const result = ToolSchema.safeParse(tool);
+            expect(result.success).toBe(false);
+        });
+
+        test('should accept simple minimal schema (backward compatibility)', () => {
+            const tool = {
+                name: 'test',
+                inputSchema: {
+                    type: 'object',
+                    properties: { name: { type: 'string' } },
+                    required: ['name']
+                }
+            };
+            const result = ToolSchema.safeParse(tool);
+            expect(result.success).toBe(true);
         });
     });
 
