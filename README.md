@@ -1579,6 +1579,7 @@ app.listen(3000);
 
 ## Documentation
 
+- [SDK API documentation](https://modelcontextprotocol.github.io/typescript-sdk/)
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
 - [MCP Specification](https://spec.modelcontextprotocol.io)
 - [Example Servers](https://github.com/modelcontextprotocol/servers)
