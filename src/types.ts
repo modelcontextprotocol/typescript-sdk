@@ -1479,8 +1479,10 @@ export const PrimitiveSchemaDefinitionSchema = z.union([EnumSchemaSchema, Boolea
 export const ElicitRequestFormParamsSchema = BaseRequestParamsSchema.extend({
     /**
      * The elicitation mode.
+     *
+     * Optional for backward compatibility. Clients MUST treat missing mode as "form".
      */
-    mode: z.literal('form'),
+    mode: z.literal('form').optional(),
     /**
      * The message to present to the user describing what information is being requested.
      */
