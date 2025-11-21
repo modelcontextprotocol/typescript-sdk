@@ -1,4 +1,4 @@
-import { ZodLiteral, ZodObject, ZodType, z } from 'zod';
+import { AnySchema, AnyObjectSchema, SchemaOutput, safeParse } from '../server/zod-compat.js';
 import {
     CancelledNotificationSchema,
     ClientCapabilities,
@@ -46,6 +46,7 @@ import {
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
 import { isTerminal, TaskStore } from './task.js';
+import { getMethodLiteral, parseWithCompat } from '../server/zod-json-schema-compat.js';
 import { ResponseMessage } from './responseMessage.js';
 
 /**
@@ -346,7 +347,7 @@ export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT 
      *
      * This is used by certain transports to correctly associate related messages.
      */
-    sendRequest: <U extends ZodType<Result>>(request: SendRequestT, resultSchema: U, options?: TaskRequestOptions) => Promise<z.infer<U>>;
+    sendRequest: <U extends AnySchema>(request: SendRequestT, resultSchema: U, options?: TaskRequestOptions) => Promise<SchemaOutput<U>>;
 };
 
 /**
@@ -620,7 +621,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const totalElapsed = Date.now() - info.startTime;
         if (info.maxTotalTimeout && totalElapsed >= info.maxTotalTimeout) {
             this._timeoutInfo.delete(messageId);
-            throw new McpError(ErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
+            throw McpError.fromError(ErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
                 maxTotalTimeout: info.maxTotalTimeout,
                 totalElapsed
             });
@@ -682,7 +683,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._taskProgressTokens.clear();
         this._pendingDebouncedNotifications.clear();
 
-        const error = new McpError(ErrorCode.ConnectionClosed, 'Connection closed');
+        const error = McpError.fromError(ErrorCode.ConnectionClosed, 'Connection closed');
 
         this._transport = undefined;
         this.onclose?.();
@@ -802,7 +803,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         id: request.id,
                         error: {
                             code: Number.isSafeInteger(error['code']) ? error['code'] : ErrorCode.InternalError,
-                            message: error.message ?? 'Internal error'
+                            message: error.message ?? 'Internal error',
+                            ...(error['data'] !== undefined && { data: error['data'] })
                         }
                     });
                 }
@@ -887,7 +889,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         if (isJSONRPCResponse(response)) {
             handler(response);
         } else {
-            const error = new McpError(response.error.code, response.error.message, response.error.data);
+            const error = McpError.fromError(response.error.code, response.error.message, response.error.data);
             handler(error);
         }
     }
@@ -963,11 +965,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * }
      * ```
      */
-    async *requestStream<T extends ZodType<Result>>(
+    async *requestStream<T extends AnySchema>(
         request: SendRequestT,
         resultSchema: T,
         options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<z.infer<T>>, void, void> {
+    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
         const { task } = options ?? {};
 
         // For non-task requests, just yield the result
@@ -1045,11 +1047,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Do not use this method to emit notifications! Use notification() instead.
      */
-    request<T extends ZodType<Result>>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<z.infer<T>> {
+    request<T extends AnySchema>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
 
         // Send the request
-        return new Promise<z.infer<T>>((resolve, reject) => {
+        return new Promise<SchemaOutput<T>>((resolve, reject) => {
             const earlyReject = (error: unknown) => {
                 reject(error);
             };
@@ -1146,8 +1148,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
 
                 try {
-                    const result = resultSchema.parse(response.result);
-                    resolve(result);
+                    const parseResult = safeParse(resultSchema, response.result);
+                    if (!parseResult.success) {
+                        // Type guard: if success is false, error is guaranteed to exist
+                        reject(parseResult.error);
+                    } else {
+                        resolve(parseResult.data as SchemaOutput<T>);
+                    }
                 } catch (error) {
                     reject(error);
                 }
@@ -1158,7 +1165,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
-            const timeoutHandler = () => cancel(new McpError(ErrorCode.RequestTimeout, 'Request timed out', { timeout }));
+            const timeoutHandler = () => cancel(McpError.fromError(ErrorCode.RequestTimeout, 'Request timed out', { timeout }));
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
@@ -1217,11 +1224,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * Retrieves the result of a completed task.
      */
-    async getTaskResult<T extends ZodType<Result>>(
+    async getTaskResult<T extends AnySchema>(
         params: GetTaskPayloadRequest['params'],
         resultSchema: T,
         options?: RequestOptions
-    ): Promise<z.infer<T>> {
+    ): Promise<SchemaOutput<T>> {
         // @ts-expect-error SendRequestT cannot directly contain GetTaskPayloadRequest, but we ensure all type instantiations contain it anyways
         return this.request({ method: 'tasks/result', params }, resultSchema, options);
     }
@@ -1229,7 +1236,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * Lists tasks, optionally starting from a pagination cursor.
      */
-    async listTasks(params?: { cursor?: string }, options?: RequestOptions): Promise<z.infer<typeof ListTasksResultSchema>> {
+    async listTasks(params?: { cursor?: string }, options?: RequestOptions): Promise<SchemaOutput<typeof ListTasksResultSchema>> {
         // @ts-expect-error SendRequestT cannot directly contain ListTasksRequest, but we ensure all type instantiations contain it anyways
         return this.request({ method: 'tasks/list', params }, ListTasksResultSchema, options);
     }
@@ -1237,7 +1244,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * Cancels a specific task.
      */
-    async cancelTask(params: { taskId: string }, options?: RequestOptions): Promise<z.infer<typeof CancelTaskResultSchema>> {
+    async cancelTask(params: { taskId: string }, options?: RequestOptions): Promise<SchemaOutput<typeof CancelTaskResultSchema>> {
         // @ts-expect-error SendRequestT cannot directly contain CancelTaskRequest, but we ensure all type instantiations contain it anyways
         return this.request({ method: 'tasks/cancel', params }, CancelTaskResultSchema, options);
     }
@@ -1363,19 +1370,19 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Note that this will replace any previous request handler for the same method.
      */
-    setRequestHandler<
-        T extends ZodObject<{
-            method: ZodLiteral<string>;
-        }>
-    >(
+    setRequestHandler<T extends AnyObjectSchema>(
         requestSchema: T,
-        handler: (request: z.infer<T>, extra: RequestHandlerExtra<SendRequestT, SendNotificationT>) => SendResultT | Promise<SendResultT>
+        handler: (
+            request: SchemaOutput<T>,
+            extra: RequestHandlerExtra<SendRequestT, SendNotificationT>
+        ) => SendResultT | Promise<SendResultT>
     ): void {
-        const method = requestSchema.shape.method.value;
+        const method = getMethodLiteral(requestSchema);
         this.assertRequestHandlerCapability(method);
 
         this._requestHandlers.set(method, (request, extra) => {
-            return Promise.resolve(handler(requestSchema.parse(request), extra));
+            const parsed = parseWithCompat(requestSchema, request) as SchemaOutput<T>;
+            return Promise.resolve(handler(parsed, extra));
         });
     }
 
@@ -1400,14 +1407,15 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Note that this will replace any previous notification handler for the same method.
      */
-    setNotificationHandler<
-        T extends ZodObject<{
-            method: ZodLiteral<string>;
-        }>
-    >(notificationSchema: T, handler: (notification: z.infer<T>) => void | Promise<void>): void {
-        this._notificationHandlers.set(notificationSchema.shape.method.value, notification =>
-            Promise.resolve(handler(notificationSchema.parse(notification)))
-        );
+    setNotificationHandler<T extends AnyObjectSchema>(
+        notificationSchema: T,
+        handler: (notification: SchemaOutput<T>) => void | Promise<void>
+    ): void {
+        const method = getMethodLiteral(notificationSchema);
+        this._notificationHandlers.set(method, notification => {
+            const parsed = parseWithCompat(notificationSchema, notification) as SchemaOutput<T>;
+            return Promise.resolve(handler(parsed));
+        });
     }
 
     /**

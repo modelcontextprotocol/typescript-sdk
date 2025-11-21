@@ -11,9 +11,10 @@ import {
     extractWWWAuthenticateParams,
     auth,
     type OAuthClientProvider,
-    selectClientAuthMethod
+    selectClientAuthMethod,
+    isHttpsUrl
 } from './auth.js';
-import { ServerError } from '../server/auth/errors.js';
+import { InvalidClientMetadataError, ServerError } from '../server/auth/errors.js';
 import { AuthorizationServerMetadata } from '../shared/auth.js';
 import { expect, vi, type Mock } from 'vitest';
 
@@ -93,6 +94,16 @@ describe('OAuth Authorization', () => {
             } as unknown as Response;
 
             expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ scope: scope });
+        });
+
+        it('returns error when present', async () => {
+            const mockResponse = {
+                headers: {
+                    get: vi.fn(name => (name === 'WWW-Authenticate' ? `Bearer error="insufficient_scope", scope="admin"` : null))
+                }
+            } as unknown as Response;
+
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ error: 'insufficient_scope', scope: 'admin' });
         });
     });
 
@@ -2174,6 +2185,135 @@ describe('OAuth Authorization', () => {
             expect(body.get('refresh_token')).toBe('refresh123');
         });
 
+        it('uses scopes_supported from PRM when scope is not provided', async () => {
+            // Mock PRM with scopes_supported
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/',
+                            authorization_servers: ['https://auth.example.com'],
+                            scopes_supported: ['mcp:read', 'mcp:write', 'mcp:admin']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            registration_endpoint: 'https://auth.example.com/register',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/register')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            client_id: 'test-client-id',
+                            client_secret: 'test-client-secret',
+                            redirect_uris: ['http://localhost:3000/callback'],
+                            client_name: 'Test Client'
+                        })
+                    });
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            // Mock provider methods - no scope in clientMetadata
+            (mockProvider.clientInformation as Mock).mockResolvedValue(undefined);
+            (mockProvider.tokens as Mock).mockResolvedValue(undefined);
+            mockProvider.saveClientInformation = vi.fn();
+            (mockProvider.saveCodeVerifier as Mock).mockResolvedValue(undefined);
+            (mockProvider.redirectToAuthorization as Mock).mockResolvedValue(undefined);
+
+            // Call auth without scope parameter
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/'
+            });
+
+            expect(result).toBe('REDIRECT');
+
+            // Verify the authorization URL includes the scopes from PRM
+            const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0];
+            const authUrl: URL = redirectCall[0];
+            expect(authUrl.searchParams.get('scope')).toBe('mcp:read mcp:write mcp:admin');
+        });
+
+        it('prefers explicit scope parameter over scopes_supported from PRM', async () => {
+            // Mock PRM with scopes_supported
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/',
+                            authorization_servers: ['https://auth.example.com'],
+                            scopes_supported: ['mcp:read', 'mcp:write', 'mcp:admin']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            registration_endpoint: 'https://auth.example.com/register',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/register')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            client_id: 'test-client-id',
+                            client_secret: 'test-client-secret',
+                            redirect_uris: ['http://localhost:3000/callback'],
+                            client_name: 'Test Client'
+                        })
+                    });
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            // Mock provider methods
+            (mockProvider.clientInformation as Mock).mockResolvedValue(undefined);
+            (mockProvider.tokens as Mock).mockResolvedValue(undefined);
+            mockProvider.saveClientInformation = vi.fn();
+            (mockProvider.saveCodeVerifier as Mock).mockResolvedValue(undefined);
+            (mockProvider.redirectToAuthorization as Mock).mockResolvedValue(undefined);
+
+            // Call auth with explicit scope parameter
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/',
+                scope: 'mcp:read'
+            });
+
+            expect(result).toBe('REDIRECT');
+
+            // Verify the authorization URL uses the explicit scope, not scopes_supported
+            const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0];
+            const authUrl: URL = redirectCall[0];
+            expect(authUrl.searchParams.get('scope')).toBe('mcp:read');
+        });
+
         it('fetches AS metadata with path from serverUrl when PRM returns external AS', async () => {
             // Mock PRM discovery that returns an external AS
             mockFetch.mockImplementation(url => {
@@ -2664,6 +2804,308 @@ describe('OAuth Authorization', () => {
             expect(options.cache).toBe('no-cache');
             expect(options.headers).toMatchObject({
                 'user-agent': 'MyApp/1.0'
+            });
+        });
+    });
+
+    describe('isHttpsUrl', () => {
+        it('returns true for valid HTTPS URL with path', () => {
+            expect(isHttpsUrl('https://example.com/client-metadata.json')).toBe(true);
+        });
+
+        it('returns true for HTTPS URL with query params', () => {
+            expect(isHttpsUrl('https://example.com/metadata?version=1')).toBe(true);
+        });
+
+        it('returns false for HTTPS URL without path', () => {
+            expect(isHttpsUrl('https://example.com')).toBe(false);
+            expect(isHttpsUrl('https://example.com/')).toBe(false);
+        });
+
+        it('returns false for HTTP URL', () => {
+            expect(isHttpsUrl('http://example.com/metadata')).toBe(false);
+        });
+
+        it('returns false for non-URL strings', () => {
+            expect(isHttpsUrl('not a url')).toBe(false);
+        });
+
+        it('returns false for undefined', () => {
+            expect(isHttpsUrl(undefined)).toBe(false);
+        });
+
+        it('returns false for empty string', () => {
+            expect(isHttpsUrl('')).toBe(false);
+        });
+
+        it('returns false for javascript: scheme', () => {
+            expect(isHttpsUrl('javascript:alert(1)')).toBe(false);
+        });
+
+        it('returns false for data: scheme', () => {
+            expect(isHttpsUrl('data:text/html,<script>alert(1)</script>')).toBe(false);
+        });
+    });
+
+    describe('SEP-991: URL-based Client ID fallback logic', () => {
+        const validClientMetadata = {
+            redirect_uris: ['http://localhost:3000/callback'],
+            client_name: 'Test Client',
+            client_uri: 'https://example.com/client-metadata.json'
+        };
+
+        const mockProvider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            clientMetadataUrl: 'https://example.com/client-metadata.json',
+            get clientMetadata() {
+                return validClientMetadata;
+            },
+            clientInformation: vi.fn().mockResolvedValue(undefined),
+            saveClientInformation: vi.fn().mockResolvedValue(undefined),
+            tokens: vi.fn().mockResolvedValue(undefined),
+            saveTokens: vi.fn().mockResolvedValue(undefined),
+            redirectToAuthorization: vi.fn().mockResolvedValue(undefined),
+            saveCodeVerifier: vi.fn().mockResolvedValue(undefined),
+            codeVerifier: vi.fn().mockResolvedValue('verifier123')
+        };
+
+        beforeEach(() => {
+            vi.clearAllMocks();
+        });
+
+        it('uses URL-based client ID when server supports it', async () => {
+            // Mock protected resource metadata discovery (404 to skip)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                json: async () => ({})
+            });
+
+            // Mock authorization server metadata discovery to return support for URL-based client IDs
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    issuer: 'https://server.example.com',
+                    authorization_endpoint: 'https://server.example.com/authorize',
+                    token_endpoint: 'https://server.example.com/token',
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['S256'],
+                    client_id_metadata_document_supported: true // SEP-991 support
+                })
+            });
+
+            await auth(mockProvider, {
+                serverUrl: 'https://server.example.com'
+            });
+
+            // Should save URL-based client info
+            expect(mockProvider.saveClientInformation).toHaveBeenCalledWith({
+                client_id: 'https://example.com/client-metadata.json'
+            });
+        });
+
+        it('falls back to DCR when server does not support URL-based client IDs', async () => {
+            // Mock protected resource metadata discovery (404 to skip)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                json: async () => ({})
+            });
+
+            // Mock authorization server metadata discovery without SEP-991 support
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    issuer: 'https://server.example.com',
+                    authorization_endpoint: 'https://server.example.com/authorize',
+                    token_endpoint: 'https://server.example.com/token',
+                    registration_endpoint: 'https://server.example.com/register',
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['S256']
+                    // No client_id_metadata_document_supported
+                })
+            });
+
+            // Mock DCR response
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 201,
+                json: async () => ({
+                    client_id: 'generated-uuid',
+                    client_secret: 'generated-secret',
+                    redirect_uris: ['http://localhost:3000/callback']
+                })
+            });
+
+            await auth(mockProvider, {
+                serverUrl: 'https://server.example.com'
+            });
+
+            // Should save DCR client info
+            expect(mockProvider.saveClientInformation).toHaveBeenCalledWith({
+                client_id: 'generated-uuid',
+                client_secret: 'generated-secret',
+                redirect_uris: ['http://localhost:3000/callback']
+            });
+        });
+
+        it('throws an error when clientMetadataUrl is not an HTTPS URL', async () => {
+            const providerWithInvalidUri = {
+                ...mockProvider,
+                clientMetadataUrl: 'http://example.com/metadata'
+            };
+
+            // Mock protected resource metadata discovery (404 to skip)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                json: async () => ({})
+            });
+
+            // Mock authorization server metadata discovery with SEP-991 support
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    issuer: 'https://server.example.com',
+                    authorization_endpoint: 'https://server.example.com/authorize',
+                    token_endpoint: 'https://server.example.com/token',
+                    registration_endpoint: 'https://server.example.com/register',
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['S256'],
+                    client_id_metadata_document_supported: true
+                })
+            });
+
+            await expect(
+                auth(providerWithInvalidUri, {
+                    serverUrl: 'https://server.example.com'
+                })
+            ).rejects.toThrow(InvalidClientMetadataError);
+        });
+
+        it('throws an error when clientMetadataUrl has root pathname', async () => {
+            const providerWithRootPathname = {
+                ...mockProvider,
+                clientMetadataUrl: 'https://example.com/'
+            };
+
+            // Mock protected resource metadata discovery (404 to skip)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                json: async () => ({})
+            });
+
+            // Mock authorization server metadata discovery with SEP-991 support
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    issuer: 'https://server.example.com',
+                    authorization_endpoint: 'https://server.example.com/authorize',
+                    token_endpoint: 'https://server.example.com/token',
+                    registration_endpoint: 'https://server.example.com/register',
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['S256'],
+                    client_id_metadata_document_supported: true
+                })
+            });
+
+            await expect(
+                auth(providerWithRootPathname, {
+                    serverUrl: 'https://server.example.com'
+                })
+            ).rejects.toThrow(InvalidClientMetadataError);
+        });
+
+        it('throws an error when clientMetadataUrl is not a valid URL', async () => {
+            const providerWithInvalidUrl = {
+                ...mockProvider,
+                clientMetadataUrl: 'not-a-valid-url'
+            };
+
+            // Mock protected resource metadata discovery (404 to skip)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                json: async () => ({})
+            });
+
+            // Mock authorization server metadata discovery with SEP-991 support
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    issuer: 'https://server.example.com',
+                    authorization_endpoint: 'https://server.example.com/authorize',
+                    token_endpoint: 'https://server.example.com/token',
+                    registration_endpoint: 'https://server.example.com/register',
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['S256'],
+                    client_id_metadata_document_supported: true
+                })
+            });
+
+            await expect(
+                auth(providerWithInvalidUrl, {
+                    serverUrl: 'https://server.example.com'
+                })
+            ).rejects.toThrow(InvalidClientMetadataError);
+        });
+
+        it('falls back to DCR when client_uri is missing', async () => {
+            const providerWithoutUri = {
+                ...mockProvider,
+                clientMetadataUrl: undefined
+            };
+
+            // Mock protected resource metadata discovery (404 to skip)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                json: async () => ({})
+            });
+
+            // Mock authorization server metadata discovery with SEP-991 support
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    issuer: 'https://server.example.com',
+                    authorization_endpoint: 'https://server.example.com/authorize',
+                    token_endpoint: 'https://server.example.com/token',
+                    registration_endpoint: 'https://server.example.com/register',
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['S256'],
+                    client_id_metadata_document_supported: true
+                })
+            });
+
+            // Mock DCR response
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 201,
+                json: async () => ({
+                    client_id: 'generated-uuid',
+                    client_secret: 'generated-secret',
+                    redirect_uris: ['http://localhost:3000/callback']
+                })
+            });
+
+            await auth(providerWithoutUri, {
+                serverUrl: 'https://server.example.com'
+            });
+
+            // Should fall back to DCR
+            expect(mockProvider.saveClientInformation).toHaveBeenCalledWith({
+                client_id: 'generated-uuid',
+                client_secret: 'generated-secret',
+                redirect_uris: ['http://localhost:3000/callback']
             });
         });
     });

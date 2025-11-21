@@ -129,6 +129,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                 {
                                     method: 'elicitation/create',
                                     params: {
+                                        mode: 'form',
                                         message: 'What is your name?',
                                         requestedSchema: {
                                             type: 'object',
@@ -434,6 +435,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                     {
                                         method: 'elicitation/create',
                                         params: {
+                                            mode: 'form',
                                             message: `Request ${i + 1} of ${requestCount}`,
                                             requestedSchema: {
                                                 type: 'object',
@@ -931,6 +933,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                             {
                                                 method: 'elicitation/create',
                                                 params: {
+                                                    mode: 'form',
                                                     message: `Message ${i + 1} of ${messageCount}`,
                                                     requestedSchema: {
                                                         type: 'object',
@@ -1133,6 +1136,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                         {
                                             method: 'elicitation/create',
                                             params: {
+                                                mode: 'form',
                                                 message: `Streaming message ${i + 1} of ${messageCount}`,
                                                 requestedSchema: {
                                                     type: 'object',
@@ -1349,6 +1353,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                         {
                                             method: 'elicitation/create',
                                             params: {
+                                                mode: 'form',
                                                 message: `Quick message ${i + 1} of ${messageCount}`,
                                                 requestedSchema: {
                                                     type: 'object',
