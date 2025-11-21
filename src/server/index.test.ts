@@ -5,7 +5,6 @@ import type { Transport } from '../shared/transport.js';
 import {
     CreateMessageRequestSchema,
     ElicitRequestSchema,
-    ElicitationCompleteNotificationSchema,
     ErrorCode,
     LATEST_PROTOCOL_VERSION,
     ListPromptsRequestSchema,
@@ -18,6 +17,7 @@ import {
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types.js';
+import { ElicitationCompleteNotificationSchema } from '../experimental/index.js';
 import { Server } from './index.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
 import type { AnyObjectSchema } from './zod-compat.js';
@@ -925,7 +925,7 @@ test('should forward notification options when using elicitation completion noti
         }
     );
 
-    client.setNotificationHandler(ElicitationCompleteNotificationSchema, () => {});
+    client.experimental.setElicitationCompleteHandler(() => {});
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -933,7 +933,7 @@ test('should forward notification options when using elicitation completion noti
 
     const notificationSpy = vi.spyOn(server, 'notification');
 
-    const notifier = server.createElicitationCompletionNotifier('elicitation-789', { relatedRequestId: 42 });
+    const notifier = server.experimental.createElicitationCompleteNotifier('elicitation-789', { relatedRequestId: 42 });
     await notifier();
 
     expect(notificationSpy).toHaveBeenCalledWith(
@@ -973,7 +973,7 @@ test('should create notifier that emits elicitation completion notification', as
     );
 
     const receivedIds: string[] = [];
-    client.setNotificationHandler(ElicitationCompleteNotificationSchema, notification => {
+    client.experimental.setElicitationCompleteHandler(notification => {
         receivedIds.push(notification.params.elicitationId);
     });
 
@@ -981,7 +981,7 @@ test('should create notifier that emits elicitation completion notification', as
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    const notifier = server.createElicitationCompletionNotifier('elicitation-123');
+    const notifier = server.experimental.createElicitationCompleteNotifier('elicitation-123');
     await notifier();
 
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -1018,7 +1018,7 @@ test('should throw when creating notifier if client lacks URL elicitation suppor
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    expect(() => server.createElicitationCompletionNotifier('elicitation-123')).toThrow(
+    expect(() => server.experimental.createElicitationCompleteNotifier('elicitation-123')).toThrow(
         'Client does not support URL elicitation (required for notifications/elicitation/complete)'
     );
 });

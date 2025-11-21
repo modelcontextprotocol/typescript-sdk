@@ -1,4 +1,5 @@
 import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
+import { ExperimentalClientFeatures } from './experimental.js';
 import type { Transport } from '../shared/transport.js';
 import {
     type CallToolRequest,
@@ -197,6 +198,13 @@ export class Client<
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
 
     /**
+     * Experimental client features.
+     *
+     * WARNING: These APIs are experimental and may change without notice.
+     */
+    public readonly experimental: ExperimentalClientFeatures;
+
+    /**
      * Initializes this client with the given name and version information.
      */
     constructor(
@@ -206,6 +214,7 @@ export class Client<
         super(options);
         this._capabilities = options?.capabilities ?? {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
+        this.experimental = new ExperimentalClientFeatures(this);
     }
 
     /**

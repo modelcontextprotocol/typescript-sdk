@@ -43,6 +43,10 @@
             "import": "./dist/esm/validation/cfworker-provider.js",
             "require": "./dist/cjs/validation/cfworker-provider.js"
         },
+        "./experimental": {
+            "import": "./dist/esm/experimental/index.js",
+            "require": "./dist/cjs/experimental/index.js"
+        },
         "./*": {
             "import": "./dist/esm/*",
             "require": "./dist/cjs/*"

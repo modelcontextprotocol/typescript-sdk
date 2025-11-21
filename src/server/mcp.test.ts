@@ -15,9 +15,9 @@ import {
     type Notification,
     ReadResourceResultSchema,
     type TextContent,
-    UrlElicitationRequiredError,
     ErrorCode
 } from '../types.js';
+import { UrlElicitationRequiredError } from '../experimental/index.js';
 import { completable } from './completable.js';
 import { McpServer, ResourceTemplate } from './mcp.js';
 import { zodTestMatrix, type ZodMatrixEntry } from '../shared/zodTestMatrix.js';

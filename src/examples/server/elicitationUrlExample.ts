@@ -14,7 +14,8 @@ import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';
 import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
-import { CallToolResult, UrlElicitationRequiredError, ElicitRequestURLParams, ElicitResult, isInitializeRequest } from '../../types.js';
+import { CallToolResult, ElicitResult, isInitializeRequest } from '../../types.js';
+import { UrlElicitationRequiredError, ElicitRequestURLParams } from '../../experimental/index.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from '../../shared/auth.js';
@@ -54,7 +55,7 @@ const getServer = () => {
 
             // Create and track the elicitation
             const elicitationId = generateTrackedElicitation(sessionId, elicitationId =>
-                mcpServer.server.createElicitationCompletionNotifier(elicitationId)
+                mcpServer.server.experimental.createElicitationCompleteNotifier(elicitationId)
             );
             throw new UrlElicitationRequiredError([
                 {
@@ -90,7 +91,7 @@ const getServer = () => {
 
             // Create and track the elicitation
             const elicitationId = generateTrackedElicitation(sessionId, elicitationId =>
-                mcpServer.server.createElicitationCompletionNotifier(elicitationId)
+                mcpServer.server.experimental.createElicitationCompleteNotifier(elicitationId)
             );
 
             // Simulate OAuth callback and token exchange after 5 seconds
@@ -623,8 +624,9 @@ const mcpPostHandler = async (req: Request, res: Response) => {
                     console.log(`Session initialized with ID: ${sessionId}`);
                     transports[sessionId] = transport;
                     sessionsNeedingElicitation[sessionId] = {
-                        elicitationSender: params => server.server.elicitInput(params),
-                        createCompletionNotifier: elicitationId => server.server.createElicitationCompletionNotifier(elicitationId)
+                        elicitationSender: params => server.server.experimental.elicitUrl(params),
+                        createCompletionNotifier: elicitationId =>
+                            server.server.experimental.createElicitationCompleteNotifier(elicitationId)
                     };
                 }
             });

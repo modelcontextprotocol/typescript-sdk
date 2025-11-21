@@ -1,4 +1,5 @@
 import { mergeCapabilities, Protocol, type NotificationOptions, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
+import { ExperimentalServerFeatures } from './experimental.js';
 import {
     type ClientCapabilities,
     type CreateMessageRequest,
@@ -118,6 +119,13 @@ export class Server<
     private _jsonSchemaValidator: jsonSchemaValidator;
 
     /**
+     * Experimental server features.
+     *
+     * WARNING: These APIs are experimental and may change without notice.
+     */
+    public readonly experimental: ExperimentalServerFeatures;
+
+    /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
      */
     oninitialized?: () => void;
@@ -133,6 +141,7 @@ export class Server<
         this._capabilities = options?.capabilities ?? {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
+        this.experimental = new ExperimentalServerFeatures(this);
 
         this.setRequestHandler(InitializeRequestSchema, request => this._oninitialize(request));
         this.setNotificationHandler(InitializedNotificationSchema, () => this.oninitialized?.());
