@@ -1431,6 +1431,78 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(reconnectText).toContain('Second notification from MCP server');
             expect(reconnectText).toContain('id: ');
         });
+
+        it('should store and replay multiple notifications sent while client is disconnected', async () => {
+            // Establish a standalone SSE stream
+            const sseResponse = await fetch(baseUrl, {
+                method: 'GET',
+                headers: {
+                    Accept: 'text/event-stream',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-03-26'
+                }
+            });
+            expect(sseResponse.status).toBe(200);
+
+            const reader = sseResponse.body?.getReader();
+
+            // Send a notification to get an event ID
+            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Initial notification' });
+
+            // Read the notification from the SSE stream
+            const { value } = await reader!.read();
+            const text = new TextDecoder().decode(value);
+
+            // Extract the event ID
+            const idMatch = text.match(/id: ([^\n]+)/);
+            expect(idMatch).toBeTruthy();
+            const lastEventId = idMatch![1];
+
+            // Close the SSE stream to simulate a disconnect
+            await reader!.cancel();
+
+            // Send MULTIPLE notifications while the client is disconnected
+            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Missed notification 1' });
+            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Missed notification 2' });
+            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Missed notification 3' });
+
+            // Reconnect with the Last-Event-ID to get all missed messages
+            const reconnectResponse = await fetch(baseUrl, {
+                method: 'GET',
+                headers: {
+                    Accept: 'text/event-stream',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-03-26',
+                    'last-event-id': lastEventId
+                }
+            });
+
+            expect(reconnectResponse.status).toBe(200);
+
+            // Read replayed notifications with a timeout
+            const reconnectReader = reconnectResponse.body?.getReader();
+            let allText = '';
+
+            // Read chunks until we have all 3 notifications or timeout
+            const readWithTimeout = async () => {
+                const timeout = setTimeout(() => reconnectReader!.cancel(), 2000);
+                try {
+                    while (!allText.includes('Missed notification 3')) {
+                        const { value, done } = await reconnectReader!.read();
+                        if (done) break;
+                        allText += new TextDecoder().decode(value);
+                    }
+                } finally {
+                    clearTimeout(timeout);
+                }
+            };
+            await readWithTimeout();
+
+            // Verify we received ALL notifications that were sent while disconnected
+            expect(allText).toContain('Missed notification 1');
+            expect(allText).toContain('Missed notification 2');
+            expect(allText).toContain('Missed notification 3');
+        });
     });
 
     // Test stateless mode
