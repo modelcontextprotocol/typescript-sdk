@@ -2508,7 +2508,9 @@ describe('Task-based execution', () => {
             'test-tool',
             {
                 description: 'A test tool',
-                inputSchema: {}
+                inputSchema: {
+                    id: z4.string()
+                }
             },
             {
                 async createTask({ id }, extra) {
