@@ -389,6 +389,42 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     if (this._taskMessageQueue) {
                         let queuedMessage: QueuedMessage | undefined;
                         while ((queuedMessage = await this._taskMessageQueue.dequeue(taskId, extra.sessionId))) {
+                            // Handle response and error messages by routing them to the appropriate resolver
+                            if (queuedMessage.type === 'response' || queuedMessage.type === 'error') {
+                                const message = queuedMessage.message;
+                                const requestId = message.id;
+
+                                // Lookup resolver in _requestResolvers map
+                                const resolver = this._requestResolvers.get(requestId);
+
+                                if (resolver) {
+                                    // Remove resolver from map after invocation
+                                    this._requestResolvers.delete(requestId);
+
+                                    // Invoke resolver with response or error
+                                    if (queuedMessage.type === 'response') {
+                                        resolver(message as JSONRPCResponse);
+                                    } else {
+                                        // Convert JSONRPCError to McpError
+                                        const errorMessage = message as JSONRPCError;
+                                        const error = new McpError(
+                                            errorMessage.error.code,
+                                            errorMessage.error.message,
+                                            errorMessage.error.data
+                                        );
+                                        resolver(error);
+                                    }
+                                } else {
+                                    // Handle missing resolver gracefully with error logging
+                                    const messageType = queuedMessage.type === 'response' ? 'Response' : 'Error';
+                                    this._onerror(new Error(`${messageType} handler missing for request ${requestId}`));
+                                }
+
+                                // Continue to next message
+                                continue;
+                            }
+
+                            // At this point, message must be a request or notification (not a response)
                             // Strip relatedTask metadata when dequeuing for delivery
                             // The metadata was used for queuing, but shouldn't be sent to the client
                             const messageToSend = { ...queuedMessage.message };
@@ -401,39 +437,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                                 };
                             }
 
-                            // If it was a request, set up the wrapped resolver BEFORE sending
-                            // This prevents a race condition where the client responds before we set up the resolver
-                            let responsePromise: Promise<void> | undefined;
-                            if (queuedMessage.type === 'request' && queuedMessage.responseResolver) {
-                                // Capture in const to satisfy TypeScript's flow analysis
-                                const msg = queuedMessage;
-                                responsePromise = new Promise<void>((resolve, reject) => {
-                                    const originalResolver = msg.responseResolver!;
-                                    const wrappedResolver = (response: JSONRPCResponse | Error) => {
-                                        // First, deliver the response to the task handler
-                                        originalResolver(response);
-                                        // Then, signal that we can continue delivering messages
-                                        if (response instanceof Error) {
-                                            reject(response);
-                                        } else {
-                                            resolve();
-                                        }
-                                    };
-                                    // Replace the resolver so _onresponse calls our wrapped version
-                                    if (msg.originalRequestId !== undefined) {
-                                        this._requestResolvers.set(msg.originalRequestId, wrappedResolver);
-                                    }
-                                });
-                            }
-
                             // Send the message on the response stream by passing the relatedRequestId
                             // This tells the transport to write the message to the tasks/result response stream
                             await this._transport?.send(messageToSend, { relatedRequestId: extra.requestId });
-
-                            // If it was a request, wait for the response before delivering the next message
-                            if (responsePromise) {
-                                await responsePromise;
-                            }
                         }
                     }
 
@@ -1128,9 +1134,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 this._enqueueTaskMessage(relatedTaskId, {
                     type: 'request',
                     message: jsonrpcRequest,
-                    timestamp: Date.now(),
-                    responseResolver: responseResolver,
-                    originalRequestId: messageId
+                    timestamp: Date.now()
                 })
                     .then(() => {
                         // Notify any waiting tasks/result calls
@@ -1414,10 +1418,17 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             // Reject any pending request resolvers
             const messages = await this._taskMessageQueue.dequeueAll(taskId, sessionId);
             for (const message of messages) {
-                if (message.type === 'request' && message.responseResolver && message.originalRequestId !== undefined) {
-                    message.responseResolver(new McpError(ErrorCode.InternalError, 'Task cancelled or completed'));
-                    // Clean up the resolver mapping
-                    this._requestResolvers.delete(message.originalRequestId);
+                if (message.type === 'request' && isJSONRPCRequest(message.message)) {
+                    // Extract request ID from the message
+                    const requestId = message.message.id as RequestId;
+                    const resolver = this._requestResolvers.get(requestId);
+                    if (resolver) {
+                        resolver(new McpError(ErrorCode.InternalError, 'Task cancelled or completed'));
+                        this._requestResolvers.delete(requestId);
+                    } else {
+                        // Log error when resolver is missing during cleanup for better observability
+                        this._onerror(new Error(`Resolver missing for request ${requestId} during task ${taskId} cleanup`));
+                    }
                 }
             }
         }

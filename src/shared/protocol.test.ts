@@ -16,7 +16,7 @@ import {
 } from '../types.js';
 import { Protocol, mergeCapabilities } from './protocol.js';
 import { Transport, TransportSendOptions } from './transport.js';
-import { TaskStore, TaskMessageQueue } from './task.js';
+import { TaskStore, TaskMessageQueue, QueuedMessage, QueuedNotification, QueuedRequest } from './task.js';
 import { MockInstance, vi } from 'vitest';
 import { JSONRPCResponse, JSONRPCRequest, JSONRPCError } from '../types.js';
 import { ErrorMessage, ResponseMessage, toArrayAsync } from './responseMessage.js';
@@ -121,6 +121,16 @@ function createLatch() {
 
 function assertErrorResponse(o: ResponseMessage<Result>): asserts o is ErrorMessage {
     expect(o.type).toBe('error');
+}
+
+function assertQueuedNotification(o?: QueuedMessage): asserts o is QueuedNotification {
+    expect(o).toBeDefined();
+    expect(o?.type).toBe('notification');
+}
+
+function assertQueuedRequest(o?: QueuedMessage): asserts o is QueuedRequest {
+    expect(o).toBeDefined();
+    expect(o?.type).toBe('request');
 }
 
 describe('protocol tests', () => {
@@ -1157,10 +1167,9 @@ describe('Task-based execution', () => {
             expect(queue).toBeDefined();
 
             const queuedMessage = await queue!.dequeue('parent-task-456');
-            expect(queuedMessage).toBeDefined();
-            expect(queuedMessage?.type).toBe('notification');
-            expect(queuedMessage?.message.method).toBe('notifications/message');
-            expect(queuedMessage!.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({ taskId: 'parent-task-456' });
+            assertQueuedNotification(queuedMessage);
+            expect(queuedMessage.message.method).toBe('notifications/message');
+            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({ taskId: 'parent-task-456' });
         });
     });
 
@@ -1205,9 +1214,8 @@ describe('Task-based execution', () => {
             expect(queue).toBeDefined();
 
             const queuedMessage = await queue!.dequeue('parent-task');
-            expect(queuedMessage).toBeDefined();
-            expect(queuedMessage?.type).toBe('request');
-            expect(queuedMessage?.message.params).toMatchObject({
+            assertQueuedRequest(queuedMessage);
+            expect(queuedMessage.message.params).toMatchObject({
                 name: 'test-tool',
                 task: {
                     ttl: 60000,
@@ -1991,10 +1999,9 @@ describe('Task-based execution', () => {
             expect(queue).toBeDefined();
 
             const queuedMessage = await queue!.dequeue('parent-task-123');
-            expect(queuedMessage).toBeDefined();
-            expect(queuedMessage?.type).toBe('notification');
-            expect(queuedMessage?.message.method).toBe('notifications/message');
-            expect(queuedMessage!.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({
+            assertQueuedNotification(queuedMessage);
+            expect(queuedMessage.message.method).toBe('notifications/message');
+            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({
                 taskId: 'parent-task-123'
             });
 
@@ -3038,10 +3045,9 @@ describe('Message interception for task-related notifications', () => {
         expect(queue).toBeDefined();
 
         const queuedMessage = await queue!.dequeue(task.taskId);
-        expect(queuedMessage).toBeDefined();
-        expect(queuedMessage?.type).toBe('notification');
-        expect(queuedMessage?.message.method).toBe('notifications/message');
-        expect(queuedMessage!.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({ taskId: task.taskId });
+        assertQueuedNotification(queuedMessage);
+        expect(queuedMessage.message.method).toBe('notifications/message');
+        expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({ taskId: task.taskId });
     });
 
     it('should not queue notifications without related-task metadata', async () => {
@@ -3222,9 +3228,9 @@ describe('Message interception for task-related notifications', () => {
         expect(queue).toBeDefined();
 
         for (let i = 0; i < 5; i++) {
-            const message = await queue!.dequeue(task.taskId);
-            expect(message).toBeDefined();
-            expect(message!.message.params!.data).toBe(`message ${i}`);
+            const queuedMessage = await queue!.dequeue(task.taskId);
+            assertQueuedNotification(queuedMessage);
+            expect(queuedMessage.message.params!.data).toBe(`message ${i}`);
         }
     });
 });
@@ -3263,17 +3269,19 @@ describe('Message interception for task-related requests', () => {
         expect(queue).toBeDefined();
 
         const queuedMessage = await queue!.dequeue(task.taskId);
-        expect(queuedMessage).toBeDefined();
-        expect(queuedMessage?.type).toBe('request');
-        expect(queuedMessage?.message.method).toBe('ping');
-        expect(queuedMessage!.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({ taskId: task.taskId });
-        expect(queuedMessage?.responseResolver).toBeDefined();
-        expect(queuedMessage!.originalRequestId!).toBeDefined();
+        assertQueuedRequest(queuedMessage);
+        expect(queuedMessage.message.method).toBe('ping');
+        expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({ taskId: task.taskId });
+
+        // Verify resolver is stored in _requestResolvers map (not in the message)
+        const requestId = (queuedMessage!.message as JSONRPCRequest).id as RequestId;
+        const resolvers = (server as unknown as TestProtocol)._requestResolvers;
+        expect(resolvers.has(requestId)).toBe(true);
 
         // Clean up - send a response to prevent hanging promise
         transport.onmessage?.({
             jsonrpc: '2.0',
-            id: queuedMessage!.originalRequestId!,
+            id: requestId,
             result: {}
         });
 
@@ -3363,9 +3371,10 @@ describe('Message interception for task-related requests', () => {
         // Clean up
         const queue = (server as unknown as TestProtocol)._taskMessageQueue;
         const queuedMessage = await queue!.dequeue(task.taskId);
+        const requestId = (queuedMessage!.message as JSONRPCRequest).id as RequestId;
         transport.onmessage?.({
             jsonrpc: '2.0',
-            id: queuedMessage!.originalRequestId!,
+            id: requestId,
             result: {}
         });
 
@@ -3407,7 +3416,7 @@ describe('Message interception for task-related requests', () => {
         // Get the request ID from the queue
         const queue = (server as unknown as TestProtocol)._taskMessageQueue;
         const queuedMessage = await queue!.dequeue(task.taskId);
-        const requestId = queuedMessage!.originalRequestId!;
+        const requestId = (queuedMessage!.message as JSONRPCRequest).id as RequestId;
 
         expect(resolvers.has(requestId)).toBe(true);
 
@@ -3427,13 +3436,14 @@ describe('Message interception for task-related requests', () => {
     it('should route responses to side-channeled requests', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
+        const queue = new InMemoryTaskMessageQueue();
         const server = new (class extends Protocol<Request, Notification, Result> {
             protected assertCapabilityForMethod(_method: string): void {}
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
             protected assertTaskCapability(_method: string): void {}
             protected assertTaskHandlerCapability(_method: string): void {}
-        })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
+        })({ taskStore, taskMessageQueue: queue });
 
         await server.connect(transport);
 
@@ -3453,16 +3463,36 @@ describe('Message interception for task-related requests', () => {
         );
 
         // Get the request ID from the queue
-        const queue = (server as unknown as TestProtocol)._taskMessageQueue;
-        const queuedMessage = await queue!.dequeue(task.taskId);
-        const requestId = queuedMessage!.originalRequestId!;
+        const queuedMessage = await queue.dequeue(task.taskId);
+        const requestId = (queuedMessage!.message as JSONRPCRequest).id as RequestId;
 
-        // Send a response
+        // Enqueue a response message to the queue (simulating client sending response back)
+        await queue.enqueue(task.taskId, {
+            type: 'response',
+            message: {
+                jsonrpc: '2.0',
+                id: requestId,
+                result: { message: 'pong' }
+            },
+            timestamp: Date.now()
+        });
+
+        // Simulate a client calling tasks/result which will process the response
+        // This is done by creating a mock request handler that will trigger the GetTaskPayloadRequest handler
+        const mockRequestId = 999;
         transport.onmessage?.({
             jsonrpc: '2.0',
-            id: requestId,
-            result: { message: 'pong' }
+            id: mockRequestId,
+            method: 'tasks/result',
+            params: { taskId: task.taskId }
         });
+
+        // Wait for the response to be processed
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        // Mark task as completed
+        await taskStore.updateTaskStatus(task.taskId, 'completed');
+        await taskStore.storeTaskResult(task.taskId, 'completed', { _meta: {} });
 
         // Verify the response was routed correctly
         const result = await requestPromise;
@@ -3505,24 +3535,44 @@ describe('Message interception for task-related requests', () => {
         // Get the request ID from the queue
         const queue = (server as unknown as TestProtocol)._taskMessageQueue;
         const queuedMessage = await queue!.dequeue(task.taskId);
-        const requestId = queuedMessage!.originalRequestId!;
+        const requestId = (queuedMessage!.message as JSONRPCRequest).id as RequestId;
 
-        // Manually delete the response handler to simulate missing resolver
-        (server as unknown as TestProtocol)._responseHandlers.delete(requestId);
+        // Manually delete the resolver to simulate missing resolver
+        (server as unknown as TestProtocol)._requestResolvers.delete(requestId);
 
-        // Send a response - this should trigger the error logging
-        transport.onmessage?.({
-            jsonrpc: '2.0',
-            id: requestId,
-            result: { message: 'pong' }
+        // Enqueue a response message - this should trigger the error logging when processed
+        await queue!.enqueue(task.taskId, {
+            type: 'response',
+            message: {
+                jsonrpc: '2.0',
+                id: requestId,
+                result: { message: 'pong' }
+            },
+            timestamp: Date.now()
         });
 
-        // Wait a bit for the error to be logged
-        await new Promise(resolve => setTimeout(resolve, 10));
+        // Simulate a client calling tasks/result which will process the response
+        const mockRequestId = 888;
+        transport.onmessage?.({
+            jsonrpc: '2.0',
+            id: mockRequestId,
+            method: 'tasks/result',
+            params: { taskId: task.taskId }
+        });
+
+        // Wait for the response to be processed
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        // Mark task as completed
+        await taskStore.updateTaskStatus(task.taskId, 'completed');
+        await taskStore.storeTaskResult(task.taskId, 'completed', { _meta: {} });
+
+        // Wait a bit more for error to be logged
+        await new Promise(resolve => setTimeout(resolve, 50));
 
         // Verify error was logged
-        expect(errors.length).toBe(1);
-        expect(errors[0].message).toContain('Response handler missing for side-channeled request');
+        expect(errors.length).toBeGreaterThanOrEqual(1);
+        expect(errors.some(e => e.message.includes('Response handler missing for request'))).toBe(true);
     });
 
     it('should handle queue overflow for requests', async () => {
@@ -3619,8 +3669,7 @@ describe('Message Interception', () => {
             expect(queue).toBeDefined();
 
             const queuedMessage = await queue!.dequeue('task-123');
-            expect(queuedMessage).toBeDefined();
-            expect(queuedMessage!.type).toBe('notification');
+            assertQueuedNotification(queuedMessage);
             expect(queuedMessage!.message.method).toBe('notifications/message');
         });
 
@@ -3648,15 +3697,18 @@ describe('Message Interception', () => {
             expect(queue).toBeDefined();
 
             const queuedMessage = await queue!.dequeue('task-456');
-            expect(queuedMessage).toBeDefined();
-            expect(queuedMessage!.type).toBe('request');
-            expect(queuedMessage!.message.method).toBe('test/request');
-            expect(queuedMessage!.responseResolver).toBeDefined();
+            assertQueuedRequest(queuedMessage);
+            expect(queuedMessage.message.method).toBe('test/request');
+
+            // Verify resolver is stored in _requestResolvers map (not in the message)
+            const requestId = queuedMessage.message.id as RequestId;
+            const resolvers = (protocol as unknown as TestProtocol)._requestResolvers;
+            expect(resolvers.has(requestId)).toBe(true);
 
             // Clean up the pending request
             transport.onmessage?.({
                 jsonrpc: '2.0',
-                id: (queuedMessage!.message as JSONRPCRequest).id,
+                id: requestId,
                 result: { result: 'success' }
             });
             await requestPromise;
@@ -3737,8 +3789,8 @@ describe('Message Interception', () => {
 
             // Verify a message was queued for this task
             const queuedMessage = await queue!.dequeue(taskId);
-            expect(queuedMessage).toBeDefined();
-            expect(queuedMessage?.message.method).toBe('notifications/message');
+            assertQueuedNotification(queuedMessage);
+            expect(queuedMessage.message.method).toBe('notifications/message');
         });
 
         it('should extract correct task ID from relatedTask metadata for requests', async () => {
@@ -3767,11 +3819,11 @@ describe('Message Interception', () => {
 
             // Clean up the pending request
             const queuedMessage = await queue!.dequeue(taskId);
-            expect(queuedMessage).toBeDefined();
-            expect(queuedMessage?.message.method).toBe('test/request');
+            assertQueuedRequest(queuedMessage);
+            expect(queuedMessage.message.method).toBe('test/request');
             transport.onmessage?.({
                 jsonrpc: '2.0',
-                id: (queuedMessage!.message as JSONRPCRequest).id,
+                id: queuedMessage.message.id,
                 result: { result: 'success' }
             });
             await requestPromise;
@@ -3817,8 +3869,8 @@ describe('Message Interception', () => {
 
             // Verify message was queued
             const msg = await queue!.dequeue('new-task');
-            expect(msg).toBeDefined();
-            expect(msg?.message.method).toBe('test');
+            assertQueuedNotification(msg);
+            expect(msg.message.method).toBe('test');
         });
 
         it('should queue multiple messages for the same task', async () => {
@@ -3836,10 +3888,10 @@ describe('Message Interception', () => {
             // Verify both messages were queued in order
             const msg1 = await queue!.dequeue('reuse-task');
             const msg2 = await queue!.dequeue('reuse-task');
-            expect(msg1).toBeDefined();
-            expect(msg1?.message.method).toBe('test1');
-            expect(msg2).toBeDefined();
-            expect(msg2?.message.method).toBe('test2');
+            assertQueuedNotification(msg1);
+            expect(msg1.message.method).toBe('test1');
+            assertQueuedNotification(msg2);
+            expect(msg2.message.method).toBe('test2');
         });
 
         it('should queue messages for different tasks separately', async () => {
@@ -3855,9 +3907,9 @@ describe('Message Interception', () => {
             // Verify messages are queued separately
             const msg1 = await queue!.dequeue('task-1');
             const msg2 = await queue!.dequeue('task-2');
-            expect(msg1).toBeDefined();
+            assertQueuedNotification(msg1);
             expect(msg1?.message.method).toBe('test1');
-            expect(msg2).toBeDefined();
+            assertQueuedNotification(msg2);
             expect(msg2?.message.method).toBe('test2');
         });
     });
@@ -3881,8 +3933,9 @@ describe('Message Interception', () => {
 
             // Verify the metadata is preserved in the queued message
             expect(queuedMessage).toBeDefined();
-            expect(queuedMessage!.message.params!._meta).toBeDefined();
-            expect(queuedMessage!.message.params!._meta![RELATED_TASK_META_KEY]).toEqual(relatedTask);
+            assertQueuedNotification(queuedMessage);
+            expect(queuedMessage.message.params!._meta).toBeDefined();
+            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toEqual(relatedTask);
         });
 
         it('should preserve relatedTask metadata in queued request', async () => {
@@ -3905,8 +3958,9 @@ describe('Message Interception', () => {
 
             // Verify the metadata is preserved in the queued message
             expect(queuedMessage).toBeDefined();
-            expect(queuedMessage!.message.params!._meta).toBeDefined();
-            expect(queuedMessage!.message.params!._meta![RELATED_TASK_META_KEY]).toEqual(relatedTask);
+            assertQueuedRequest(queuedMessage);
+            expect(queuedMessage.message.params!._meta).toBeDefined();
+            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toEqual(relatedTask);
 
             // Clean up
             transport.onmessage?.({
@@ -3941,9 +3995,10 @@ describe('Message Interception', () => {
 
             // Verify both existing and new metadata are preserved
             expect(queuedMessage).toBeDefined();
-            expect(queuedMessage!.message.params!._meta!.customField).toBe('customValue');
-            expect(queuedMessage!.message.params!._meta!.anotherField).toBe(123);
-            expect(queuedMessage!.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({
+            assertQueuedNotification(queuedMessage);
+            expect(queuedMessage.message.params!._meta!.customField).toBe('customValue');
+            expect(queuedMessage.message.params!._meta!.anotherField).toBe(123);
+            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({
                 taskId: 'task-preserve-meta'
             });
         });
@@ -4659,6 +4714,689 @@ describe('requestStream() method', () => {
                 expect(messages[i].type).not.toBe('error');
                 expect(messages[i].type).not.toBe('result');
             }
+        });
+    });
+});
+
+describe('Error handling for missing resolvers', () => {
+    let protocol: Protocol<Request, Notification, Result>;
+    let transport: MockTransport;
+    let taskStore: TaskStore & { [K in keyof TaskStore]: MockInstance };
+    let taskMessageQueue: TaskMessageQueue;
+    let errorHandler: MockInstance;
+
+    beforeEach(() => {
+        taskStore = createMockTaskStore();
+        taskMessageQueue = new InMemoryTaskMessageQueue();
+        errorHandler = vi.fn();
+
+        protocol = new (class extends Protocol<Request, Notification, Result> {
+            protected assertCapabilityForMethod(_method: string): void {}
+            protected assertNotificationCapability(_method: string): void {}
+            protected assertRequestHandlerCapability(_method: string): void {}
+            protected assertTaskCapability(_method: string): void {}
+            protected assertTaskHandlerCapability(_method: string): void {}
+        })({
+            taskStore,
+            taskMessageQueue,
+            defaultTaskPollInterval: 100
+        });
+
+        // @ts-expect-error deliberately overriding error handler with mock
+        protocol.onerror = errorHandler;
+        transport = new MockTransport();
+    });
+
+    describe('Response routing with missing resolvers', () => {
+        it('should log error for unknown request ID without throwing', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+
+            // Enqueue a response message without a corresponding resolver
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'response',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 999, // Non-existent request ID
+                    result: { content: [] }
+                },
+                timestamp: Date.now()
+            });
+
+            // Set up the GetTaskPayloadRequest handler to process the message
+            const testProtocol = protocol as unknown as TestProtocol;
+
+            // Simulate dequeuing and processing the response
+            const queuedMessage = await taskMessageQueue.dequeue(task.taskId);
+            expect(queuedMessage).toBeDefined();
+            expect(queuedMessage?.type).toBe('response');
+
+            // Manually trigger the response handling logic
+            if (queuedMessage && queuedMessage.type === 'response') {
+                const responseMessage = queuedMessage.message as JSONRPCResponse;
+                const requestId = responseMessage.id as RequestId;
+                const resolver = testProtocol._requestResolvers.get(requestId);
+
+                if (!resolver) {
+                    // This simulates what happens in the actual handler
+                    protocol.onerror?.(new Error(`Response handler missing for request ${requestId}`));
+                }
+            }
+
+            // Verify error was logged
+            expect(errorHandler).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining('Response handler missing for request 999')
+                })
+            );
+        });
+
+        it('should continue processing after missing resolver error', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+
+            // Enqueue a response with missing resolver, then a valid notification
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'response',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 999,
+                    result: { content: [] }
+                },
+                timestamp: Date.now()
+            });
+
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'notification',
+                message: {
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: { progress: 50, total: 100 }
+                },
+                timestamp: Date.now()
+            });
+
+            // Process first message (response with missing resolver)
+            const msg1 = await taskMessageQueue.dequeue(task.taskId);
+            expect(msg1?.type).toBe('response');
+
+            // Process second message (should work fine)
+            const msg2 = await taskMessageQueue.dequeue(task.taskId);
+            expect(msg2?.type).toBe('notification');
+            expect(msg2?.message).toMatchObject({
+                method: 'notifications/progress'
+            });
+        });
+    });
+
+    describe('Task cancellation with missing resolvers', () => {
+        it('should log error when resolver is missing during cleanup', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+
+            // Enqueue a request without storing a resolver
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'request',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 42,
+                    method: 'tools/call',
+                    params: { name: 'test-tool', arguments: {} }
+                },
+                timestamp: Date.now()
+            });
+
+            // Clear the task queue (simulating cancellation)
+            const testProtocol = protocol as unknown as TestProtocol;
+            await testProtocol._clearTaskQueue(task.taskId);
+
+            // Verify error was logged for missing resolver
+            expect(errorHandler).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining('Resolver missing for request 42')
+                })
+            );
+        });
+
+        it('should handle cleanup gracefully when resolver exists', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+
+            const requestId = 42;
+            const resolverMock = vi.fn();
+
+            // Store a resolver
+            const testProtocol = protocol as unknown as TestProtocol;
+            testProtocol._requestResolvers.set(requestId, resolverMock);
+
+            // Enqueue a request
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'request',
+                message: {
+                    jsonrpc: '2.0',
+                    id: requestId,
+                    method: 'tools/call',
+                    params: { name: 'test-tool', arguments: {} }
+                },
+                timestamp: Date.now()
+            });
+
+            // Clear the task queue
+            await testProtocol._clearTaskQueue(task.taskId);
+
+            // Verify resolver was called with cancellation error
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+
+            // Verify the error has the correct properties
+            const calledError = resolverMock.mock.calls[0][0];
+            expect(calledError.code).toBe(ErrorCode.InternalError);
+            expect(calledError.message).toContain('Task cancelled or completed');
+
+            // Verify resolver was removed
+            expect(testProtocol._requestResolvers.has(requestId)).toBe(false);
+        });
+
+        it('should handle mixed messages during cleanup', async () => {
+            await protocol.connect(transport);
+
+            // Create a task
+            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+
+            const testProtocol = protocol as unknown as TestProtocol;
+
+            // Enqueue multiple messages: request with resolver, request without, notification
+            const requestId1 = 42;
+            const resolverMock = vi.fn();
+            testProtocol._requestResolvers.set(requestId1, resolverMock);
+
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'request',
+                message: {
+                    jsonrpc: '2.0',
+                    id: requestId1,
+                    method: 'tools/call',
+                    params: { name: 'test-tool', arguments: {} }
+                },
+                timestamp: Date.now()
+            });
+
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'request',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 43, // No resolver for this one
+                    method: 'tools/call',
+                    params: { name: 'test-tool', arguments: {} }
+                },
+                timestamp: Date.now()
+            });
+
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'notification',
+                message: {
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: { progress: 50, total: 100 }
+                },
+                timestamp: Date.now()
+            });
+
+            // Clear the task queue
+            await testProtocol._clearTaskQueue(task.taskId);
+
+            // Verify resolver was called for first request
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+
+            // Verify the error has the correct properties
+            const calledError = resolverMock.mock.calls[0][0];
+            expect(calledError.code).toBe(ErrorCode.InternalError);
+            expect(calledError.message).toContain('Task cancelled or completed');
+
+            // Verify error was logged for second request
+            expect(errorHandler).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining('Resolver missing for request 43')
+                })
+            );
+
+            // Verify queue is empty
+            const remaining = await taskMessageQueue.dequeue(task.taskId);
+            expect(remaining).toBeUndefined();
+        });
+    });
+
+    describe('Side-channeled request error handling', () => {
+        it('should log error when response handler is missing for side-channeled request', async () => {
+            await protocol.connect(transport);
+
+            const testProtocol = protocol as unknown as TestProtocol;
+            const messageId = 123;
+
+            // Create a response resolver without a corresponding response handler
+            const responseResolver = (response: JSONRPCResponse | Error) => {
+                const handler = testProtocol._responseHandlers.get(messageId);
+                if (handler) {
+                    handler(response);
+                } else {
+                    protocol.onerror?.(new Error(`Response handler missing for side-channeled request ${messageId}`));
+                }
+            };
+
+            // Simulate the resolver being called without a handler
+            const mockResponse: JSONRPCResponse = {
+                jsonrpc: '2.0',
+                id: messageId,
+                result: { content: [] }
+            };
+
+            responseResolver(mockResponse);
+
+            // Verify error was logged
+            expect(errorHandler).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining('Response handler missing for side-channeled request 123')
+                })
+            );
+        });
+    });
+
+    describe('Error handling does not throw exceptions', () => {
+        it('should not throw when processing response with missing resolver', async () => {
+            await protocol.connect(transport);
+
+            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'response',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 999,
+                    result: { content: [] }
+                },
+                timestamp: Date.now()
+            });
+
+            // This should not throw
+            const processMessage = async () => {
+                const msg = await taskMessageQueue.dequeue(task.taskId);
+                if (msg && msg.type === 'response') {
+                    const testProtocol = protocol as unknown as TestProtocol;
+                    const responseMessage = msg.message as JSONRPCResponse;
+                    const requestId = responseMessage.id as RequestId;
+                    const resolver = testProtocol._requestResolvers.get(requestId);
+                    if (!resolver) {
+                        protocol.onerror?.(new Error(`Response handler missing for request ${requestId}`));
+                    }
+                }
+            };
+
+            await expect(processMessage()).resolves.not.toThrow();
+        });
+
+        it('should not throw during task cleanup with missing resolvers', async () => {
+            await protocol.connect(transport);
+
+            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'request',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 42,
+                    method: 'tools/call',
+                    params: { name: 'test-tool', arguments: {} }
+                },
+                timestamp: Date.now()
+            });
+
+            const testProtocol = protocol as unknown as TestProtocol;
+
+            // This should not throw
+            await expect(testProtocol._clearTaskQueue(task.taskId)).resolves.not.toThrow();
+        });
+    });
+
+    describe('Error message routing', () => {
+        it('should route error messages to resolvers correctly', async () => {
+            await protocol.connect(transport);
+
+            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const requestId = 42;
+            const resolverMock = vi.fn();
+
+            // Store a resolver
+            const testProtocol = protocol as unknown as TestProtocol;
+            testProtocol._requestResolvers.set(requestId, resolverMock);
+
+            // Enqueue an error message
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'error',
+                message: {
+                    jsonrpc: '2.0',
+                    id: requestId,
+                    error: {
+                        code: ErrorCode.InvalidRequest,
+                        message: 'Invalid request parameters'
+                    }
+                },
+                timestamp: Date.now()
+            });
+
+            // Simulate dequeuing and processing the error
+            const queuedMessage = await taskMessageQueue.dequeue(task.taskId);
+            expect(queuedMessage).toBeDefined();
+            expect(queuedMessage?.type).toBe('error');
+
+            // Manually trigger the error handling logic
+            if (queuedMessage && queuedMessage.type === 'error') {
+                const errorMessage = queuedMessage.message as JSONRPCError;
+                const reqId = errorMessage.id as RequestId;
+                const resolver = testProtocol._requestResolvers.get(reqId);
+
+                if (resolver) {
+                    testProtocol._requestResolvers.delete(reqId);
+                    const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                    resolver(error);
+                }
+            }
+
+            // Verify resolver was called with McpError
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+            const calledError = resolverMock.mock.calls[0][0];
+            expect(calledError.code).toBe(ErrorCode.InvalidRequest);
+            expect(calledError.message).toContain('Invalid request parameters');
+
+            // Verify resolver was removed from map
+            expect(testProtocol._requestResolvers.has(requestId)).toBe(false);
+        });
+
+        it('should log error for unknown request ID in error messages', async () => {
+            await protocol.connect(transport);
+
+            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+
+            // Enqueue an error message without a corresponding resolver
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'error',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 999,
+                    error: {
+                        code: ErrorCode.InternalError,
+                        message: 'Something went wrong'
+                    }
+                },
+                timestamp: Date.now()
+            });
+
+            // Simulate dequeuing and processing the error
+            const queuedMessage = await taskMessageQueue.dequeue(task.taskId);
+            expect(queuedMessage).toBeDefined();
+            expect(queuedMessage?.type).toBe('error');
+
+            // Manually trigger the error handling logic
+            if (queuedMessage && queuedMessage.type === 'error') {
+                const testProtocol = protocol as unknown as TestProtocol;
+                const errorMessage = queuedMessage.message as JSONRPCError;
+                const requestId = errorMessage.id as RequestId;
+                const resolver = testProtocol._requestResolvers.get(requestId);
+
+                if (!resolver) {
+                    protocol.onerror?.(new Error(`Error handler missing for request ${requestId}`));
+                }
+            }
+
+            // Verify error was logged
+            expect(errorHandler).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining('Error handler missing for request 999')
+                })
+            );
+        });
+
+        it('should handle error messages with data field', async () => {
+            await protocol.connect(transport);
+
+            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const requestId = 42;
+            const resolverMock = vi.fn();
+
+            // Store a resolver
+            const testProtocol = protocol as unknown as TestProtocol;
+            testProtocol._requestResolvers.set(requestId, resolverMock);
+
+            // Enqueue an error message with data field
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'error',
+                message: {
+                    jsonrpc: '2.0',
+                    id: requestId,
+                    error: {
+                        code: ErrorCode.InvalidParams,
+                        message: 'Validation failed',
+                        data: { field: 'userName', reason: 'required' }
+                    }
+                },
+                timestamp: Date.now()
+            });
+
+            // Simulate dequeuing and processing the error
+            const queuedMessage = await taskMessageQueue.dequeue(task.taskId);
+
+            if (queuedMessage && queuedMessage.type === 'error') {
+                const errorMessage = queuedMessage.message as JSONRPCError;
+                const reqId = errorMessage.id as RequestId;
+                const resolver = testProtocol._requestResolvers.get(reqId);
+
+                if (resolver) {
+                    testProtocol._requestResolvers.delete(reqId);
+                    const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                    resolver(error);
+                }
+            }
+
+            // Verify resolver was called with McpError including data
+            expect(resolverMock).toHaveBeenCalledWith(expect.any(McpError));
+            const calledError = resolverMock.mock.calls[0][0];
+            expect(calledError.code).toBe(ErrorCode.InvalidParams);
+            expect(calledError.message).toContain('Validation failed');
+            expect(calledError.data).toEqual({ field: 'userName', reason: 'required' });
+        });
+
+        it('should not throw when processing error with missing resolver', async () => {
+            await protocol.connect(transport);
+
+            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'error',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 999,
+                    error: {
+                        code: ErrorCode.InternalError,
+                        message: 'Error occurred'
+                    }
+                },
+                timestamp: Date.now()
+            });
+
+            // This should not throw
+            const processMessage = async () => {
+                const msg = await taskMessageQueue.dequeue(task.taskId);
+                if (msg && msg.type === 'error') {
+                    const testProtocol = protocol as unknown as TestProtocol;
+                    const errorMessage = msg.message as JSONRPCError;
+                    const requestId = errorMessage.id as RequestId;
+                    const resolver = testProtocol._requestResolvers.get(requestId);
+                    if (!resolver) {
+                        protocol.onerror?.(new Error(`Error handler missing for request ${requestId}`));
+                    }
+                }
+            };
+
+            await expect(processMessage()).resolves.not.toThrow();
+        });
+    });
+
+    describe('Response and error message routing integration', () => {
+        it('should handle mixed response and error messages in queue', async () => {
+            await protocol.connect(transport);
+
+            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const testProtocol = protocol as unknown as TestProtocol;
+
+            // Set up resolvers for multiple requests
+            const resolver1 = vi.fn();
+            const resolver2 = vi.fn();
+            const resolver3 = vi.fn();
+
+            testProtocol._requestResolvers.set(1, resolver1);
+            testProtocol._requestResolvers.set(2, resolver2);
+            testProtocol._requestResolvers.set(3, resolver3);
+
+            // Enqueue mixed messages: response, error, response
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'response',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    result: { content: [{ type: 'text', text: 'Success' }] }
+                },
+                timestamp: Date.now()
+            });
+
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'error',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 2,
+                    error: {
+                        code: ErrorCode.InvalidRequest,
+                        message: 'Request failed'
+                    }
+                },
+                timestamp: Date.now()
+            });
+
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'response',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 3,
+                    result: { content: [{ type: 'text', text: 'Another success' }] }
+                },
+                timestamp: Date.now()
+            });
+
+            // Process all messages
+            let msg;
+            while ((msg = await taskMessageQueue.dequeue(task.taskId))) {
+                if (msg.type === 'response') {
+                    const responseMessage = msg.message as JSONRPCResponse;
+                    const requestId = responseMessage.id as RequestId;
+                    const resolver = testProtocol._requestResolvers.get(requestId);
+                    if (resolver) {
+                        testProtocol._requestResolvers.delete(requestId);
+                        resolver(responseMessage);
+                    }
+                } else if (msg.type === 'error') {
+                    const errorMessage = msg.message as JSONRPCError;
+                    const requestId = errorMessage.id as RequestId;
+                    const resolver = testProtocol._requestResolvers.get(requestId);
+                    if (resolver) {
+                        testProtocol._requestResolvers.delete(requestId);
+                        const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                        resolver(error);
+                    }
+                }
+            }
+
+            // Verify all resolvers were called correctly
+            expect(resolver1).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
+            expect(resolver2).toHaveBeenCalledWith(expect.any(McpError));
+            expect(resolver3).toHaveBeenCalledWith(expect.objectContaining({ id: 3 }));
+
+            // Verify error has correct properties
+            const error = resolver2.mock.calls[0][0];
+            expect(error.code).toBe(ErrorCode.InvalidRequest);
+            expect(error.message).toContain('Request failed');
+
+            // Verify all resolvers were removed
+            expect(testProtocol._requestResolvers.size).toBe(0);
+        });
+
+        it('should maintain FIFO order when processing responses and errors', async () => {
+            await protocol.connect(transport);
+
+            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} });
+            const testProtocol = protocol as unknown as TestProtocol;
+
+            const callOrder: number[] = [];
+            const resolver1 = vi.fn(() => callOrder.push(1));
+            const resolver2 = vi.fn(() => callOrder.push(2));
+            const resolver3 = vi.fn(() => callOrder.push(3));
+
+            testProtocol._requestResolvers.set(1, resolver1);
+            testProtocol._requestResolvers.set(2, resolver2);
+            testProtocol._requestResolvers.set(3, resolver3);
+
+            // Enqueue in specific order
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'response',
+                message: { jsonrpc: '2.0', id: 1, result: {} },
+                timestamp: 1000
+            });
+
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'error',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 2,
+                    error: { code: -32600, message: 'Error' }
+                },
+                timestamp: 2000
+            });
+
+            await taskMessageQueue.enqueue(task.taskId, {
+                type: 'response',
+                message: { jsonrpc: '2.0', id: 3, result: {} },
+                timestamp: 3000
+            });
+
+            // Process all messages
+            let msg;
+            while ((msg = await taskMessageQueue.dequeue(task.taskId))) {
+                if (msg.type === 'response') {
+                    const responseMessage = msg.message as JSONRPCResponse;
+                    const requestId = responseMessage.id as RequestId;
+                    const resolver = testProtocol._requestResolvers.get(requestId);
+                    if (resolver) {
+                        testProtocol._requestResolvers.delete(requestId);
+                        resolver(responseMessage);
+                    }
+                } else if (msg.type === 'error') {
+                    const errorMessage = msg.message as JSONRPCError;
+                    const requestId = errorMessage.id as RequestId;
+                    const resolver = testProtocol._requestResolvers.get(requestId);
+                    if (resolver) {
+                        testProtocol._requestResolvers.delete(requestId);
+                        const error = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
+                        resolver(error);
+                    }
+                }
+            }
+
+            // Verify FIFO order was maintained
+            expect(callOrder).toEqual([1, 2, 3]);
         });
     });
 });

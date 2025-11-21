@@ -1,38 +1,66 @@
-import { Task, TaskCreationParams, Request, RequestId, Result, JSONRPCRequest, JSONRPCNotification, JSONRPCResponse } from '../types.js';
+import {
+    Task,
+    TaskCreationParams,
+    Request,
+    RequestId,
+    Result,
+    JSONRPCRequest,
+    JSONRPCNotification,
+    JSONRPCResponse,
+    JSONRPCError
+} from '../types.js';
 
 /**
  * Represents a message queued for side-channel delivery via tasks/result.
+ *
+ * This is a serializable data structure that can be stored in external systems.
+ * All fields are JSON-serializable.
  */
-export interface QueuedMessage {
+export type QueuedMessage = QueuedRequest | QueuedNotification | QueuedResponse | QueuedError;
+
+export interface BaseQueuedMessage {
     /** Type of message */
-    type: 'request' | 'notification';
-    /** The actual JSONRPC message */
-    message: JSONRPCRequest | JSONRPCNotification;
-    /** When it was queued */
+    type: string;
+    /** When the message was queued (milliseconds since epoch) */
     timestamp: number;
-    /** For requests: resolver to call when response is received */
-    responseResolver?: (response: JSONRPCResponse | Error) => void;
-    /** For requests: the original request ID for response routing */
-    originalRequestId?: RequestId;
+}
+
+export interface QueuedRequest extends BaseQueuedMessage {
+    type: 'request';
+    /** The actual JSONRPC request */
+    message: JSONRPCRequest;
+}
+
+export interface QueuedNotification extends BaseQueuedMessage {
+    type: 'notification';
+    /** The actual JSONRPC notification */
+    message: JSONRPCNotification;
+}
+
+export interface QueuedResponse extends BaseQueuedMessage {
+    type: 'response';
+    /** The actual JSONRPC response */
+    message: JSONRPCResponse;
+}
+
+export interface QueuedError extends BaseQueuedMessage {
+    type: 'error';
+    /** The actual JSONRPC error */
+    message: JSONRPCError;
 }
 
 /**
  * Interface for managing per-task FIFO message queues.
  *
  * Similar to TaskStore, this allows pluggable queue implementations
- * (in-memory, Redis, other distributed queues, etc.) for server-initiated
- * messages that will be delivered through the tasks/result response stream.
+ * (in-memory, Redis, other distributed queues, etc.).
  *
  * Each method accepts taskId and optional sessionId parameters to enable
  * a single queue instance to manage messages for multiple tasks, with
  * isolation based on task ID and session ID.
  *
  * All methods are async to support external storage implementations.
- *
- * Performance Notes:
- * - enqueue() atomically enforces maxSize to prevent race conditions
- * - dequeue() returns undefined when empty, eliminating need for isEmpty() checks
- * - dequeueAll() is used when tasks are cancelled/failed to reject pending resolvers
+ * All data in QueuedMessage must be JSON-serializable.
  */
 export interface TaskMessageQueue {
     /**
@@ -56,7 +84,7 @@ export interface TaskMessageQueue {
 
     /**
      * Removes and returns all messages from the queue for a specific task.
-     * Used when tasks are cancelled or failed to reject any pending request resolvers.
+     * Used when tasks are cancelled or failed to clean up pending messages.
      * @param taskId The task identifier
      * @param sessionId Optional session ID for binding the query to a specific session
      * @returns Array of all messages that were in the queue

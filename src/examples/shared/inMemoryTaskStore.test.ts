@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { InMemoryTaskStore } from './inMemoryTaskStore.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from './inMemoryTaskStore.js';
 import { TaskCreationParams, Request } from '../../types.js';
+import { QueuedMessage } from '../../shared/task.js';
 
 describe('InMemoryTaskStore', () => {
     let store: InMemoryTaskStore;
@@ -661,6 +662,275 @@ describe('InMemoryTaskStore', () => {
             store.cleanup();
 
             expect(store.getAllTasks()).toHaveLength(0);
+        });
+    });
+});
+
+describe('InMemoryTaskMessageQueue', () => {
+    let queue: InMemoryTaskMessageQueue;
+
+    beforeEach(() => {
+        queue = new InMemoryTaskMessageQueue();
+    });
+
+    describe('enqueue and dequeue', () => {
+        it('should enqueue and dequeue request messages', async () => {
+            const requestMessage: QueuedMessage = {
+                type: 'request',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'tools/call',
+                    params: { name: 'test-tool', arguments: {} }
+                },
+                timestamp: Date.now()
+            };
+
+            await queue.enqueue('task-1', requestMessage);
+            const dequeued = await queue.dequeue('task-1');
+
+            expect(dequeued).toEqual(requestMessage);
+        });
+
+        it('should enqueue and dequeue notification messages', async () => {
+            const notificationMessage: QueuedMessage = {
+                type: 'notification',
+                message: {
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: { progress: 50, total: 100 }
+                },
+                timestamp: Date.now()
+            };
+
+            await queue.enqueue('task-2', notificationMessage);
+            const dequeued = await queue.dequeue('task-2');
+
+            expect(dequeued).toEqual(notificationMessage);
+        });
+
+        it('should enqueue and dequeue response messages', async () => {
+            const responseMessage: QueuedMessage = {
+                type: 'response',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 42,
+                    result: { content: [{ type: 'text', text: 'Success' }] }
+                },
+                timestamp: Date.now()
+            };
+
+            await queue.enqueue('task-3', responseMessage);
+            const dequeued = await queue.dequeue('task-3');
+
+            expect(dequeued).toEqual(responseMessage);
+        });
+
+        it('should return undefined when dequeuing from empty queue', async () => {
+            const dequeued = await queue.dequeue('task-empty');
+            expect(dequeued).toBeUndefined();
+        });
+
+        it('should maintain FIFO order for mixed message types', async () => {
+            const request: QueuedMessage = {
+                type: 'request',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'tools/call',
+                    params: {}
+                },
+                timestamp: 1000
+            };
+
+            const notification: QueuedMessage = {
+                type: 'notification',
+                message: {
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {}
+                },
+                timestamp: 2000
+            };
+
+            const response: QueuedMessage = {
+                type: 'response',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    result: {}
+                },
+                timestamp: 3000
+            };
+
+            await queue.enqueue('task-fifo', request);
+            await queue.enqueue('task-fifo', notification);
+            await queue.enqueue('task-fifo', response);
+
+            expect(await queue.dequeue('task-fifo')).toEqual(request);
+            expect(await queue.dequeue('task-fifo')).toEqual(notification);
+            expect(await queue.dequeue('task-fifo')).toEqual(response);
+            expect(await queue.dequeue('task-fifo')).toBeUndefined();
+        });
+    });
+
+    describe('dequeueAll', () => {
+        it('should dequeue all messages including responses', async () => {
+            const request: QueuedMessage = {
+                type: 'request',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'tools/call',
+                    params: {}
+                },
+                timestamp: 1000
+            };
+
+            const response: QueuedMessage = {
+                type: 'response',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    result: {}
+                },
+                timestamp: 2000
+            };
+
+            const notification: QueuedMessage = {
+                type: 'notification',
+                message: {
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {}
+                },
+                timestamp: 3000
+            };
+
+            await queue.enqueue('task-all', request);
+            await queue.enqueue('task-all', response);
+            await queue.enqueue('task-all', notification);
+
+            const all = await queue.dequeueAll('task-all');
+
+            expect(all).toHaveLength(3);
+            expect(all[0]).toEqual(request);
+            expect(all[1]).toEqual(response);
+            expect(all[2]).toEqual(notification);
+        });
+
+        it('should return empty array for non-existent task', async () => {
+            const all = await queue.dequeueAll('non-existent');
+            expect(all).toEqual([]);
+        });
+
+        it('should clear the queue after dequeueAll', async () => {
+            const message: QueuedMessage = {
+                type: 'request',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'test',
+                    params: {}
+                },
+                timestamp: Date.now()
+            };
+
+            await queue.enqueue('task-clear', message);
+            await queue.dequeueAll('task-clear');
+
+            const dequeued = await queue.dequeue('task-clear');
+            expect(dequeued).toBeUndefined();
+        });
+    });
+
+    describe('queue size limits', () => {
+        it('should throw when maxSize is exceeded', async () => {
+            const message: QueuedMessage = {
+                type: 'request',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'test',
+                    params: {}
+                },
+                timestamp: Date.now()
+            };
+
+            await queue.enqueue('task-limit', message, undefined, 2);
+            await queue.enqueue('task-limit', message, undefined, 2);
+
+            await expect(queue.enqueue('task-limit', message, undefined, 2)).rejects.toThrow('Task message queue overflow');
+        });
+
+        it('should allow enqueue when under maxSize', async () => {
+            const message: QueuedMessage = {
+                type: 'response',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    result: {}
+                },
+                timestamp: Date.now()
+            };
+
+            await expect(queue.enqueue('task-ok', message, undefined, 5)).resolves.toBeUndefined();
+        });
+    });
+
+    describe('task isolation', () => {
+        it('should isolate messages between different tasks', async () => {
+            const message1: QueuedMessage = {
+                type: 'request',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'test1',
+                    params: {}
+                },
+                timestamp: 1000
+            };
+
+            const message2: QueuedMessage = {
+                type: 'response',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 2,
+                    result: {}
+                },
+                timestamp: 2000
+            };
+
+            await queue.enqueue('task-a', message1);
+            await queue.enqueue('task-b', message2);
+
+            expect(await queue.dequeue('task-a')).toEqual(message1);
+            expect(await queue.dequeue('task-b')).toEqual(message2);
+            expect(await queue.dequeue('task-a')).toBeUndefined();
+            expect(await queue.dequeue('task-b')).toBeUndefined();
+        });
+    });
+
+    describe('response message error handling', () => {
+        it('should handle response messages with errors', async () => {
+            const errorResponse: QueuedMessage = {
+                type: 'error',
+                message: {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    error: {
+                        code: -32600,
+                        message: 'Invalid Request'
+                    }
+                },
+                timestamp: Date.now()
+            };
+
+            await queue.enqueue('task-error', errorResponse);
+            const dequeued = await queue.dequeue('task-error');
+
+            expect(dequeued).toEqual(errorResponse);
+            expect(dequeued?.type).toBe('error');
         });
     });
 });
