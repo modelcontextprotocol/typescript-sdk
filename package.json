@@ -75,7 +75,8 @@
         "test:watch": "vitest",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",
-        "client": "tsx scripts/cli.ts client"
+        "client": "tsx scripts/cli.ts client",
+        "code-mode": "tsx scripts/code-mode.ts"
     },
     "dependencies": {
         "ajv": "^8.17.1",
