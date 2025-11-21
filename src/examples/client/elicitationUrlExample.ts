@@ -17,12 +17,10 @@ import {
     ElicitRequest,
     ElicitResult,
     ResourceLink,
-    ElicitRequestURLParams,
     McpError,
-    ErrorCode,
-    UrlElicitationRequiredError,
-    ElicitationCompleteNotificationSchema
+    ErrorCode
 } from '../../types.js';
+import { ElicitRequestURLParams, UrlElicitationRequiredError } from '../../experimental/index.js';
 import { getDisplayName } from '../../shared/metadataUtils.js';
 import { OAuthClientMetadata } from '../../shared/auth.js';
 import { exec } from 'node:child_process';
@@ -548,7 +546,7 @@ async function connect(url?: string): Promise<void> {
     client.setRequestHandler(ElicitRequestSchema, elicitationRequestHandler);
 
     // Set up notification handler for elicitation completion
-    client.setNotificationHandler(ElicitationCompleteNotificationSchema, notification => {
+    client.experimental.setElicitationCompleteHandler(notification => {
         const { elicitationId } = notification.params;
         const pending = pendingURLElicitations.get(elicitationId);
         if (pending) {
