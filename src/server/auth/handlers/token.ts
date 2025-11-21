@@ -22,6 +22,11 @@ export type TokenHandlerOptions = {
      * Set to false to disable rate limiting for this endpoint.
      */
     rateLimit?: Partial<RateLimitOptions> | false;
+
+    /**
+     * Set to true to throw errors to the express error handler
+     */
+    throwErrors?: boolean;
 };
 
 const TokenRequestSchema = z.object({
@@ -41,7 +46,7 @@ const RefreshTokenGrantSchema = z.object({
     resource: z.string().url().optional()
 });
 
-export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHandlerOptions): RequestHandler {
+export function tokenHandler({ provider, rateLimit: rateLimitConfig, throwErrors }: TokenHandlerOptions): RequestHandler {
     // Nested router so we can configure middleware and restrict HTTP method
     const router = express.Router();
 
@@ -66,7 +71,7 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
     }
 
     // Authenticate and extract client details
-    router.use(authenticateClient({ clientsStore: provider.clientsStore }));
+    router.use(authenticateClient({ clientsStore: provider.clientsStore, throwErrors }));
 
     router.post('/', async (req, res) => {
         res.setHeader('Cache-Control', 'no-store');
@@ -140,7 +145,7 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
                 //case "client_credentials":
 
                 default:
-                    throw new UnsupportedGrantTypeError('The grant type is not supported by this authorization server.');
+                    throw new UnsupportedGrantTypeError(`The grant type '${grant_type}' is not supported by this authorization server.`);
             }
         } catch (error) {
             if (error instanceof OAuthError) {
@@ -149,6 +154,10 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
             } else {
                 const serverError = new ServerError('Internal Server Error');
                 res.status(500).json(serverError.toResponseObject());
+            }
+
+            if (throwErrors) {
+                throw error;
             }
         }
     });

@@ -14,9 +14,11 @@ export type RevocationHandlerOptions = {
      * Set to false to disable rate limiting for this endpoint.
      */
     rateLimit?: Partial<RateLimitOptions> | false;
+
+    throwErrors?: boolean;
 };
 
-export function revocationHandler({ provider, rateLimit: rateLimitConfig }: RevocationHandlerOptions): RequestHandler {
+export function revocationHandler({ provider, rateLimit: rateLimitConfig, throwErrors }: RevocationHandlerOptions): RequestHandler {
     if (!provider.revokeToken) {
         throw new Error('Auth provider does not support revoking tokens');
     }
@@ -71,6 +73,10 @@ export function revocationHandler({ provider, rateLimit: rateLimitConfig }: Revo
             } else {
                 const serverError = new ServerError('Internal Server Error');
                 res.status(500).json(serverError.toResponseObject());
+            }
+
+            if (throwErrors) {
+                throw error;
             }
         }
     });
