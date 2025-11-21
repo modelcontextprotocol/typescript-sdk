@@ -700,7 +700,7 @@ test('should include form mode when sending elicitation form requests', async ()
 
     const receivedModes: string[] = [];
     client.setRequestHandler(ElicitRequestSchema, request => {
-        receivedModes.push(request.params.mode);
+        receivedModes.push(request.params.mode ?? '');
         return {
             action: 'accept',
             content: {
@@ -764,7 +764,7 @@ test('should include url mode when sending elicitation URL requests', async () =
     const receivedModes: string[] = [];
     const receivedIds: string[] = [];
     client.setRequestHandler(ElicitRequestSchema, request => {
-        receivedModes.push(request.params.mode);
+        receivedModes.push(request.params.mode ?? '');
         if (request.params.mode === 'url') {
             receivedIds.push(request.params.elicitationId);
         }
