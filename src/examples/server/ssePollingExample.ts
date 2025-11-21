@@ -108,13 +108,12 @@ server.tool(
 // Set up Express app
 const app = express();
 app.use(cors());
-app.use(express.json());
 
 // Create event store for resumability
 const eventStore = new InMemoryEventStore();
 
-// Handle all MCP requests
-app.all('/mcp', async (req: Request, res: Response) => {
+// Handle all MCP requests - use express.json() only for this route
+app.all('/mcp', express.json(), async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     // Reuse existing transport or create new one
@@ -135,7 +134,7 @@ app.all('/mcp', async (req: Request, res: Response) => {
         await server.connect(transport);
     }
 
-    await transport.handleRequest(req, res);
+    await transport.handleRequest(req, res, req.body);
 });
 
 // Start the server
