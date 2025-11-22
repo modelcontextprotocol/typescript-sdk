@@ -6,5 +6,3 @@ if (typeof globalThis.crypto === 'undefined') {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (globalThis as any).crypto = webcrypto as unknown as Crypto;
 }
-
-
