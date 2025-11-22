@@ -143,11 +143,7 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
         throw new Error('Not implemented for example demo');
     }
 
-    async issueClientCredentialsToken(
-        client: OAuthClientInformationFull,
-        scopes?: string[],
-        resource?: URL
-    ): Promise<OAuthTokens> {
+    async issueClientCredentialsToken(client: OAuthClientInformationFull, scopes?: string[], resource?: URL): Promise<OAuthTokens> {
         if (this.validateResource && !this.validateResource(resource)) {
             throw new Error(`Invalid resource: ${resource}`);
         }

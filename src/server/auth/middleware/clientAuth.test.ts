@@ -80,14 +80,11 @@ describe('clientAuth middleware', () => {
             .setExpirationTime(now + 300)
             .sign(secret);
 
-        const response = await supertest(app)
-            .post('/protected')
-            .set('Host', 'auth.example.com')
-            .send({
-                client_id: 'hs-client',
-                client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
-                client_assertion: assertion
-            });
+        const response = await supertest(app).post('/protected').set('Host', 'auth.example.com').send({
+            client_id: 'hs-client',
+            client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+            client_assertion: assertion
+        });
 
         expect(response.status).toBe(200);
         expect(response.body.success).toBe(true);

@@ -10,7 +10,9 @@ import {
     OAuthProtectedResourceMetadata,
     OAuthErrorResponseSchema,
     AuthorizationServerMetadata,
-    OpenIdProviderDiscoveryMetadataSchema
+    OpenIdProviderDiscoveryMetadataSchema,
+    JwtAssertionOptions,
+    isJwtPrebuiltAssertion
 } from '../shared/auth.js';
 import {
     OAuthClientInformationFullSchema,
@@ -318,6 +320,14 @@ export async function auth(
         scope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
+        /**
+         * Optional JWT assertion options for performing an RFC 7523 JWT-bearer grant.
+         *
+         * When provided, and no valid/refreshable tokens are available, auth() will
+         * attempt a JWT-bearer grant before falling back to client_credentials or
+         * interactive authorization_code flows.
+         */
+        jwtBearerOptions?: JwtAssertionOptions;
     }
 ): Promise<AuthResult> {
     try {
@@ -344,13 +354,15 @@ async function authInternal(
         authorizationCode,
         scope,
         resourceMetadataUrl,
-        fetchFn
+        fetchFn,
+        jwtBearerOptions
     }: {
         serverUrl: string | URL;
         authorizationCode?: string;
         scope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
+        jwtBearerOptions?: JwtAssertionOptions;
     }
 ): Promise<AuthResult> {
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
@@ -464,6 +476,21 @@ async function authInternal(
                 throw error;
             }
         }
+    }
+
+    // Attempt JWT-bearer grant for M2M if explicitly configured
+    if (jwtBearerOptions) {
+        const jwtTokens = await exchangeJwtBearer(authorizationServerUrl, {
+            metadata,
+            clientInformation,
+            jwtOptions: jwtBearerOptions,
+            scope: scope || provider.clientMetadata.scope,
+            resource,
+            addClientAuthentication: provider.addClientAuthentication,
+            fetchFn
+        });
+        await provider.saveTokens(jwtTokens);
+        return 'AUTHORIZED';
     }
 
     // Attempt client_credentials grant for M2M if supported by client configuration
@@ -1209,6 +1236,147 @@ export async function exchangeClientCredentials(
         headers,
         body: params
     });
+    if (!response.ok) {
+        throw await parseErrorResponse(response);
+    }
+
+    return OAuthTokensSchema.parse(await response.json());
+}
+
+/**
+ * Creates a JWT assertion suitable for RFC 7523 JWT-bearer grant or private_key_jwt
+ * client authentication.
+ *
+ * If `options.assertion` is provided, it is returned as-is without signing.
+ */
+export async function createJwtBearerAssertion(
+    authorizationServerUrl: string | URL,
+    metadata: AuthorizationServerMetadata | undefined,
+    options: JwtAssertionOptions
+): Promise<string> {
+    if (isJwtPrebuiltAssertion(options)) {
+        return options.assertion;
+    }
+
+    // Lazy import to avoid heavy dependency unless used
+    const jose = await import('jose');
+
+    const audience = String(options.audience ?? metadata?.issuer ?? authorizationServerUrl);
+    const lifetimeSeconds = options.lifetimeSeconds ?? 300;
+
+    const now = Math.floor(Date.now() / 1000);
+    const jti = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    const baseClaims = {
+        iss: options.issuer,
+        sub: options.subject,
+        aud: audience,
+        exp: now + lifetimeSeconds,
+        iat: now,
+        jti
+    };
+    const claims = options.claims ? { ...baseClaims, ...options.claims } : baseClaims;
+
+    const alg = options.alg;
+    let key: unknown;
+    if (typeof options.privateKey === 'string') {
+        if (alg.startsWith('RS') || alg.startsWith('ES') || alg.startsWith('PS')) {
+            key = await jose.importPKCS8(options.privateKey, alg);
+        } else if (alg.startsWith('HS')) {
+            key = new TextEncoder().encode(options.privateKey);
+        } else {
+            throw new Error(`Unsupported algorithm ${alg}`);
+        }
+    } else if (options.privateKey instanceof Uint8Array) {
+        if (alg.startsWith('HS')) {
+            key = options.privateKey;
+        } else {
+            // Assume PKCS#8 DER in Uint8Array for asymmetric algorithms
+            key = await jose.importPKCS8(new TextDecoder().decode(options.privateKey), alg);
+        }
+    } else {
+        // Treat as JWK
+        key = await jose.importJWK(options.privateKey as JWK, alg);
+    }
+
+    return await new jose.SignJWT(claims)
+        .setProtectedHeader({ alg, typ: 'JWT' })
+        .setIssuer(options.issuer)
+        .setSubject(options.subject)
+        .setAudience(audience)
+        .setIssuedAt(now)
+        .setExpirationTime(now + lifetimeSeconds)
+        .setJti(jti)
+        .sign(key as unknown as Uint8Array | CryptoKey);
+}
+
+/**
+ * Exchange a JWT assertion for an access token using the RFC 7523 JWT-bearer grant.
+ *
+ * This is a lower-level helper that can be used by higher-level clients for M2M
+ * scenarios where no interactive user authorization is required.
+ */
+export async function exchangeJwtBearer(
+    authorizationServerUrl: string | URL,
+    {
+        metadata,
+        clientInformation,
+        jwtOptions,
+        scope,
+        resource,
+        addClientAuthentication,
+        fetchFn
+    }: {
+        metadata?: AuthorizationServerMetadata;
+        clientInformation: OAuthClientInformationMixed;
+        jwtOptions: JwtAssertionOptions;
+        scope?: string;
+        resource?: URL;
+        addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
+        fetchFn?: FetchLike;
+    }
+): Promise<OAuthTokens> {
+    const grantType = 'urn:ietf:params:oauth:grant-type:jwt-bearer';
+
+    const tokenUrl = metadata?.token_endpoint ? new URL(metadata.token_endpoint) : new URL('/token', authorizationServerUrl);
+
+    if (metadata?.grant_types_supported && !metadata.grant_types_supported.includes(grantType)) {
+        throw new Error(`Incompatible auth server: does not support grant type ${grantType}`);
+    }
+
+    const headers = new Headers({
+        'Content-Type': 'application/x-www-form-urlencoded'
+    });
+
+    const assertion = await createJwtBearerAssertion(authorizationServerUrl, metadata, jwtOptions);
+
+    const params = new URLSearchParams({
+        grant_type: grantType,
+        assertion
+    });
+
+    if (scope) {
+        params.set('scope', scope);
+    }
+
+    if (resource) {
+        params.set('resource', resource.href);
+    }
+
+    if (addClientAuthentication) {
+        await addClientAuthentication(headers, params, tokenUrl, metadata);
+    } else {
+        const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
+        const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
+        applyClientAuthentication(authMethod, clientInformation as OAuthClientInformation, headers, params);
+    }
+
+    const response = await (fetchFn ?? fetch)(tokenUrl, {
+        method: 'POST',
+        headers,
+        body: params
+    });
+
     if (!response.ok) {
         throw await parseErrorResponse(response);
     }

@@ -148,11 +148,7 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
                     }
                     const { scope, resource } = parseResult.data;
                     const scopes = scope?.split(' ');
-                    const tokens = await provider.issueClientCredentialsToken(
-                        client,
-                        scopes,
-                        resource ? new URL(resource) : undefined
-                    );
+                    const tokens = await provider.issueClientCredentialsToken(client, scopes, resource ? new URL(resource) : undefined);
                     res.status(200).json(tokens);
                     break;
                 }

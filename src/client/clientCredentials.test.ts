@@ -3,7 +3,7 @@ import type { AuthorizationServerMetadata, OAuthClientInformation } from '../sha
 
 describe('exchangeClientCredentials', () => {
     it('posts client_credentials with client_secret_post and scope/resource', async () => {
-        const mockFetch = jest.fn().mockResolvedValue({
+        const mockFetch = vi.fn().mockResolvedValue({
             ok: true,
             json: async () => ({
                 access_token: 'cc_token',
@@ -39,14 +39,14 @@ describe('exchangeClientCredentials', () => {
         const body = String((init as RequestInit).body);
         expect(body).toContain('grant_type=client_credentials');
         expect(body).toContain('scope=read+write');
-        expect(body).toContain(encodeURIComponent('resource=https://api.example.com/mcp'));
+        expect(body).toContain('resource=' + encodeURIComponent('https://api.example.com/mcp'));
         // client_secret_post default when no methods specified by AS
         expect(body).toContain('client_id=c1');
         expect(body).toContain('client_secret=s1');
     });
 
     it('uses addClientAuthentication for private_key_jwt', async () => {
-        const mockFetch = jest.fn().mockResolvedValue({
+        const mockFetch = vi.fn().mockResolvedValue({
             ok: true,
             json: async () => ({
                 access_token: 'cc_token',
@@ -84,10 +84,6 @@ describe('exchangeClientCredentials', () => {
         const body = String((init as RequestInit).body);
         expect(body).toContain('grant_type=client_credentials');
         expect(body).toContain('client_assertion=fake.jwt.value');
-        expect(body).toContain(
-            encodeURIComponent('client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer')
-        );
+        expect(body).toContain('client_assertion_type=' + encodeURIComponent('urn:ietf:params:oauth:client-assertion-type:jwt-bearer'));
     });
 });
-
-

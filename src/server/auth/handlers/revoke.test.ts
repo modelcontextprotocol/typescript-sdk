@@ -70,6 +70,14 @@ describe('Revocation Handler', () => {
 
         async revokeToken(_client: OAuthClientInformationFull, _request: OAuthTokenRevocationRequest): Promise<void> {
             // Success - do nothing in mock
+        },
+
+        async issueClientCredentialsToken(): Promise<OAuthTokens> {
+            return {
+                access_token: 'cc_access',
+                token_type: 'bearer',
+                expires_in: 3600
+            };
         }
     };
 
@@ -113,6 +121,14 @@ describe('Revocation Handler', () => {
                 };
             }
             throw new InvalidTokenError('Token is invalid or expired');
+        },
+
+        async issueClientCredentialsToken(): Promise<OAuthTokens> {
+            return {
+                access_token: 'cc_access',
+                token_type: 'bearer',
+                expires_in: 3600
+            };
         }
         // No revokeToken method
     };

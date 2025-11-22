@@ -1199,7 +1199,7 @@ describe('OAuth Authorization', () => {
             expect(body.get('code_verifier')).toBe('verifier123');
             expect(body.get('client_id')).toBeNull();
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
-            expect(body.get('example_url')).toBe('https://auth.example.com');
+            expect(body.get('example_url')).toBe('https://auth.example.com/token');
             expect(body.get('example_metadata')).toBe('https://auth.example.com/authorize');
             expect(body.get('example_param')).toBe('example_value');
             expect(body.get('client_secret')).toBeNull();
@@ -1379,7 +1379,7 @@ describe('OAuth Authorization', () => {
             expect(body.get('grant_type')).toBe('refresh_token');
             expect(body.get('refresh_token')).toBe('refresh123');
             expect(body.get('client_id')).toBeNull();
-            expect(body.get('example_url')).toBe('https://auth.example.com');
+            expect(body.get('example_url')).toBe('https://auth.example.com/token');
             expect(body.get('example_metadata')).toBe('https://auth.example.com/authorize');
             expect(body.get('example_param')).toBe('example_value');
             expect(body.get('client_secret')).toBeNull();

@@ -231,4 +231,38 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
     async verifyAccessToken(token: string): Promise<AuthInfo> {
         return this._verifyAccessToken(token);
     }
+
+    async issueClientCredentialsToken(client: OAuthClientInformationFull, scopes?: string[], resource?: URL): Promise<OAuthTokens> {
+        const params = new URLSearchParams({
+            grant_type: 'client_credentials',
+            client_id: client.client_id
+        });
+
+        if (client.client_secret) {
+            params.set('client_secret', client.client_secret);
+        }
+
+        if (scopes?.length) {
+            params.set('scope', scopes.join(' '));
+        }
+
+        if (resource) {
+            params.set('resource', resource.href);
+        }
+
+        const response = await (this._fetch ?? fetch)(this._endpoints.tokenUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: params.toString()
+        });
+
+        if (!response.ok) {
+            throw new ServerError(`Token issue (client_credentials) failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return OAuthTokensSchema.parse(data);
+    }
 }

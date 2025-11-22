@@ -3,12 +3,15 @@
 import { Client } from '../../client/index.js';
 import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
 import { OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from '../../shared/auth.js';
-import { OAuthClientProvider, createPrivateKeyJwtAuth } from '../../client/auth.js';
+import { OAuthClientProvider } from '../../client/auth.js';
 
 const DEFAULT_SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3000/mcp';
 
 class InMemoryOAuthClientProvider implements OAuthClientProvider {
-    constructor(private readonly _clientMetadata: OAuthClientMetadata, private readonly addAuth?: OAuthClientProvider['addClientAuthentication']) {}
+    constructor(
+        private readonly _clientMetadata: OAuthClientMetadata,
+        private readonly addAuth?: OAuthClientProvider['addClientAuthentication']
+    ) {}
 
     private _tokens?: OAuthTokens;
     private _client?: OAuthClientInformationMixed;
@@ -73,5 +76,3 @@ main().catch(err => {
     console.error(err);
     process.exit(1);
 });
-
-

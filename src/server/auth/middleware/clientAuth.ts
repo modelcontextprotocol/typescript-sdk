@@ -3,7 +3,7 @@ import { RequestHandler } from 'express';
 import { OAuthRegisteredClientsStore } from '../clients.js';
 import { OAuthClientInformationFull } from '../../../shared/auth.js';
 import { InvalidRequestError, InvalidClientError, ServerError, OAuthError } from '../errors.js';
-import { createLocalJWKSet, createRemoteJWKSet, decodeProtectedHeader, jwtVerify } from 'jose';
+import { createLocalJWKSet, createRemoteJWKSet, decodeProtectedHeader, jwtVerify, JWTVerifyGetKey } from 'jose';
 
 export type ClientAuthenticationMiddlewareOptions = {
     /**
@@ -70,7 +70,7 @@ export function authenticateClient({ clientsStore }: ClientAuthenticationMiddlew
                 // Verify using JWKS (embedded or remote), or HMAC secret for HS* algorithms
                 // First, parse without verification to extract sub/iss would require more deps; instead verify
                 // against all potential keys we can derive from request client_id if provided, otherwise defer to failure
-                let candidateClientId = typeof req.body?.client_id === 'string' ? (req.body.client_id as string) : undefined;
+                const candidateClientId = typeof req.body?.client_id === 'string' ? (req.body.client_id as string) : undefined;
 
                 // If no client_id provided in body, attempt to verify against all known clients is not feasible.
                 // Require client_id in body for now, or rely on iss/sub matching after verification.
@@ -86,11 +86,7 @@ export function authenticateClient({ clientsStore }: ClientAuthenticationMiddlew
                 }
 
                 // Build key for verification
-                let keyOrGetKey:
-                    | ReturnType<typeof createLocalJWKSet>
-                    | ReturnType<typeof createRemoteJWKSet>
-                    | Uint8Array
-                    | undefined;
+                let keyOrGetKey: ReturnType<typeof createLocalJWKSet> | ReturnType<typeof createRemoteJWKSet> | Uint8Array | undefined;
 
                 if (client.jwks) {
                     keyOrGetKey = createLocalJWKSet({ keys: client.jwks.keys ?? client.jwks });
@@ -107,7 +103,7 @@ export function authenticateClient({ clientsStore }: ClientAuthenticationMiddlew
                     throw new InvalidClientError('No verification key available for private_key_jwt');
                 }
 
-                const { payload } = await jwtVerify(assertion, keyOrGetKey as any, {
+                const { payload } = await jwtVerify(assertion, keyOrGetKey as JWTVerifyGetKey, {
                     audience: expectedAudience,
                     issuer: client.client_id
                 });
