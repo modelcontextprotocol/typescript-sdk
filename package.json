@@ -59,6 +59,7 @@
         "dist"
     ],
     "scripts": {
+        "prepare": "npm run build",
         "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
         "typecheck": "tsgo --noEmit",
         "build": "npm run build:esm && npm run build:cjs",
