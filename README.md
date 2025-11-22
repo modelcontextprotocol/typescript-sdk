@@ -47,10 +47,12 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 ## Installation
 
 ```bash
-npm install @modelcontextprotocol/sdk zod
+npm install @modelcontextprotocol/sdk
+# plus your preferred Standard Schema library, e.g.
+npm install zod            # if you follow the Zod examples below
 ```
 
-This SDK has a **required peer dependency** on `zod` for schema validation. The SDK internally imports from `zod/v4`, but maintains backwards compatibility with projects using Zod v3.25 or later. You can use either API in your code by importing from `zod/v3` or `zod/v4`:
+The SDK speaks [Standard Schema](https://standardschema.dev/) for validation. Bring any Standard Schema-compatible library (Zod, Valibot, ArkType, etc). Examples below use Zod, and the SDK still supports both Zod v3.25+ and v4.
 
 ## Quick Start
 
@@ -160,6 +162,8 @@ const server = new McpServer({
 
 [Tools](https://modelcontextprotocol.io/specification/latest/server/tools) let LLMs take actions through your server. Tools can perform computation, fetch data and have side effects. Tools should be designed to be model-controlled - i.e. AI models will decide which tools to call,
 and the arguments.
+
+Tool schemas accept any Standard Schema validator. The SDK converts Standard Schemas to JSON Schema for clients (Zod, Valibot, ArkType, etc).
 
 ```typescript
 // Simple tool with parameters

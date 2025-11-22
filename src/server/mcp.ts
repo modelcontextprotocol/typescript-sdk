@@ -110,43 +110,42 @@ export class McpServer {
             }
         });
 
-        this.server.setRequestHandler(
-            ListToolsRequestSchema,
-            (): ListToolsResult => ({
-                tools: Object.entries(this._registeredTools)
+        this.server.setRequestHandler(ListToolsRequestSchema, async (): Promise<ListToolsResult> => {
+            const tools = await Promise.all(
+                Object.entries(this._registeredTools)
                     .filter(([, tool]) => tool.enabled)
-                    .map(([name, tool]): Tool => {
+                    .map(async ([name, tool]): Promise<Tool> => {
+                        const inputObj = normalizeObjectSchema(tool.inputSchema);
                         const toolDefinition: Tool = {
                             name,
                             title: tool.title,
                             description: tool.description,
-                            inputSchema: (() => {
-                                const obj = normalizeObjectSchema(tool.inputSchema);
-                                return obj
-                                    ? (toJsonSchemaCompat(obj, {
-                                          strictUnions: true,
-                                          pipeStrategy: 'input'
-                                      }) as Tool['inputSchema'])
-                                    : EMPTY_OBJECT_JSON_SCHEMA;
-                            })(),
+                            inputSchema: inputObj
+                                ? ((await toJsonSchemaCompat(inputObj, {
+                                      strictUnions: true,
+                                      pipeStrategy: 'input'
+                                  })) as Tool['inputSchema'])
+                                : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             _meta: tool._meta
                         };
 
                         if (tool.outputSchema) {
-                            const obj = normalizeObjectSchema(tool.outputSchema);
-                            if (obj) {
-                                toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
+                            const outputObj = normalizeObjectSchema(tool.outputSchema);
+                            if (outputObj) {
+                                toolDefinition.outputSchema = (await toJsonSchemaCompat(outputObj, {
                                     strictUnions: true,
                                     pipeStrategy: 'output'
-                                }) as Tool['outputSchema'];
+                                })) as Tool['outputSchema'];
                             }
                         }
 
                         return toolDefinition;
                     })
-            })
-        );
+            );
+
+            return { tools };
+        });
 
         this.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
             const tool = this._registeredTools[request.params.name];
@@ -703,11 +702,14 @@ export class McpServer {
         // Validate tool name according to SEP specification
         validateAndWarnToolName(name);
 
+        const normalizedInputSchema = getZodSchemaObject(inputSchema);
+        const normalizedOutputSchema = getZodSchemaObject(outputSchema);
+
         const registeredTool: RegisteredTool = {
             title,
             description,
-            inputSchema: getZodSchemaObject(inputSchema),
-            outputSchema: getZodSchemaObject(outputSchema),
+            inputSchema: normalizedInputSchema,
+            outputSchema: normalizedOutputSchema,
             annotations,
             _meta,
             callback,
@@ -726,6 +728,7 @@ export class McpServer {
                 if (typeof updates.title !== 'undefined') registeredTool.title = updates.title;
                 if (typeof updates.description !== 'undefined') registeredTool.description = updates.description;
                 if (typeof updates.paramsSchema !== 'undefined') registeredTool.inputSchema = objectFromShape(updates.paramsSchema);
+                if (typeof updates.outputSchema !== 'undefined') registeredTool.outputSchema = objectFromShape(updates.outputSchema);
                 if (typeof updates.callback !== 'undefined') registeredTool.callback = updates.callback;
                 if (typeof updates.annotations !== 'undefined') registeredTool.annotations = updates.annotations;
                 if (typeof updates._meta !== 'undefined') registeredTool._meta = updates._meta;
