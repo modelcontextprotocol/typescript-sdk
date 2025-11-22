@@ -1630,7 +1630,7 @@ describe('createMessage validation', () => {
             server.createMessage({
                 messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
                 maxTokens: 100,
-                toolChoice: { type: 'auto' }
+                toolChoice: { mode: 'auto' }
             })
         ).rejects.toThrow('Client does not support sampling tools capability.');
     });
