@@ -37,6 +37,8 @@ describe('Protocol transport handling bug', () => {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
+            protected assertTaskCapability(): void {}
+            protected assertTaskHandlerCapability(): void {}
         })();
 
         transportA = new MockTransport('A');

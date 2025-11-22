@@ -67,6 +67,11 @@ type FixSpecClientCapabilities<T> = T extends { elicitation?: object }
     ? Omit<T, 'elicitation'> & { elicitation?: Record<string, unknown> }
     : T;
 
+// Targeted fix: in spec, ServerCapabilities needs index signature to match SDK's passthrough
+type FixSpecServerCapabilities<T> = T & { [x: string]: unknown };
+
+type FixSpecInitializeResult<T> = T extends { capabilities: infer C } ? T & { capabilities: FixSpecServerCapabilities<C> } : T;
+
 type FixSpecInitializeRequestParams<T> = T extends { capabilities: infer C }
     ? Omit<T, 'capabilities'> & { capabilities: FixSpecClientCapabilities<C> }
     : T;
@@ -558,7 +563,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    InitializeResult: (sdk: SDKTypes.InitializeResult, spec: SpecTypes.InitializeResult) => {
+    InitializeResult: (sdk: SDKTypes.InitializeResult, spec: FixSpecInitializeResult<SpecTypes.InitializeResult>) => {
         sdk = spec;
         spec = sdk;
     },
@@ -566,7 +571,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ServerCapabilities: (sdk: SDKTypes.ServerCapabilities, spec: SpecTypes.ServerCapabilities) => {
+    ServerCapabilities: (sdk: SDKTypes.ServerCapabilities, spec: FixSpecServerCapabilities<SpecTypes.ServerCapabilities>) => {
         sdk = spec;
         spec = sdk;
     },

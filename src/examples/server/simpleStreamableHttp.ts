@@ -7,6 +7,7 @@ import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../
 import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
 import {
     CallToolResult,
+    ElicitResultSchema,
     GetPromptResult,
     isInitializeRequest,
     PrimitiveSchemaDefinition,
@@ -14,6 +15,7 @@ import {
     ResourceLink
 } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../shared/inMemoryTaskStore.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from '../../shared/auth.js';
 import { checkResourceAllowed } from '../../shared/auth-utils.js';
@@ -24,6 +26,9 @@ import cors from 'cors';
 const useOAuth = process.argv.includes('--oauth');
 const strictOAuth = process.argv.includes('--oauth-strict');
 
+// Create shared task store for demonstration
+const taskStore = new InMemoryTaskStore();
+
 // Create an MCP server with implementation details
 const getServer = () => {
     const server = new McpServer(
@@ -33,7 +38,11 @@ const getServer = () => {
             icons: [{ src: './mcp.svg', sizes: ['512x512'], mimeType: 'image/svg+xml' }],
             websiteUrl: 'https://github.com/modelcontextprotocol/typescript-sdk'
         },
-        { capabilities: { logging: {} } }
+        {
+            capabilities: { logging: {}, tasks: { requests: { tools: { call: {} } } } },
+            taskStore, // Enable task support
+            taskMessageQueue: new InMemoryTaskMessageQueue()
+        }
     );
 
     // Register a simple tool that returns a greeting
@@ -119,7 +128,7 @@ const getServer = () => {
         {
             infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect')
         },
-        async ({ infoType }): Promise<CallToolResult> => {
+        async ({ infoType }, extra): Promise<CallToolResult> => {
             let message: string;
             let requestedSchema: {
                 type: 'object';
@@ -214,12 +223,18 @@ const getServer = () => {
             }
 
             try {
-                // Use the underlying server instance to elicit input from the client
-                const result = await server.server.elicitInput({
-                    mode: 'form',
-                    message,
-                    requestedSchema
-                });
+                // Use sendRequest through the extra parameter to elicit input
+                const result = await extra.sendRequest(
+                    {
+                        method: 'elicitation/create',
+                        params: {
+                            mode: 'form',
+                            message,
+                            requestedSchema
+                        }
+                    },
+                    ElicitResultSchema
+                );
 
                 if (result.action === 'accept') {
                     return {
@@ -437,6 +452,65 @@ const getServer = () => {
                     }
                 ]
             };
+        }
+    );
+
+    // Register a long-running tool that demonstrates task execution
+    server.registerToolTask(
+        'delay',
+        {
+            title: 'Delay',
+            description: 'A simple tool that delays for a specified duration, useful for testing task execution',
+            inputSchema: {
+                duration: z.number().describe('Duration in milliseconds').default(5000)
+            }
+        },
+        {
+            async createTask({ duration }, { taskStore, taskRequestedTtl }) {
+                // Generate a simple task ID (in production, use a more secure method)
+                const taskId = `task-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+                // Create the task
+                const task = await taskStore.createTask(
+                    {
+                        taskId,
+                        ttl: taskRequestedTtl,
+                        pollInterval: 100
+                    },
+                    0,
+                    { method: 'tools/call', params: { name: 'createTask', arguments: { duration } } }
+                );
+
+                // Simulate out-of-band work
+                (async () => {
+                    await new Promise(resolve => setTimeout(resolve, duration));
+                    await taskStore.storeTaskResult(taskId, 'completed', {
+                        content: [
+                            {
+                                type: 'text',
+                                text: `Completed ${duration}ms delay`
+                            }
+                        ]
+                    });
+                })();
+
+                // Return CreateTaskResult with the created task
+                return {
+                    task
+                };
+            },
+            async getTask(_args, { taskId, taskStore }) {
+                const task = await taskStore.getTask(taskId);
+                if (!task) {
+                    throw new Error(`Task ${taskId} not found`);
+                }
+
+                return task;
+            },
+            async getTaskResult(_args, { taskId, taskStore }) {
+                const result = await taskStore.getTaskResult(taskId);
+                return result as CallToolResult;
+            }
         }
     );
 

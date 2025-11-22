@@ -4,7 +4,9 @@ import { InMemoryTransport } from '../inMemory.js';
 import type { Transport } from '../shared/transport.js';
 import {
     CreateMessageRequestSchema,
+    CreateMessageResultSchema,
     ElicitRequestSchema,
+    ElicitResultSchema,
     ElicitationCompleteNotificationSchema,
     ErrorCode,
     LATEST_PROTOCOL_VERSION,
@@ -12,6 +14,7 @@ import {
     ListResourcesRequestSchema,
     ListToolsRequestSchema,
     type LoggingMessageNotification,
+    McpError,
     NotificationSchema,
     RequestSchema,
     ResultSchema,
@@ -19,6 +22,9 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types.js';
 import { Server } from './index.js';
+import { McpServer } from './mcp.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../examples/shared/inMemoryTaskStore.js';
+import { CallToolRequestSchema, CallToolResultSchema } from '../types.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
 import type { AnyObjectSchema } from './zod-compat.js';
 import * as z3 from 'zod/v3';
@@ -411,7 +417,7 @@ test('should respect client capabilities', async () => {
     ).resolves.not.toThrow();
 
     // This should still throw because roots are not supported by the client
-    await expect(server.listRoots()).rejects.toThrow(/^Client does not support/);
+    await expect(server.listRoots()).rejects.toThrow(/Client does not support/);
 });
 
 test('should respect client elicitation capabilities', async () => {
@@ -578,7 +584,7 @@ test('should use elicitInput with mode: "form" by default for backwards compatib
             messages: [],
             maxTokens: 10
         })
-    ).rejects.toThrow(/^Client does not support/);
+    ).rejects.toThrow(/Client does not support/);
 });
 
 test('should throw when elicitInput is called without client form capability', async () => {
@@ -1451,8 +1457,8 @@ test('should handle server cancelling a request', async () => {
     );
     controller.abort('Cancelled by test');
 
-    // Request should be rejected
-    await expect(createMessagePromise).rejects.toBe('Cancelled by test');
+    // Request should be rejected with an McpError
+    await expect(createMessagePromise).rejects.toThrow(McpError);
 });
 
 test('should handle request timeout', async () => {
@@ -1649,4 +1655,1096 @@ test('should respect log level for transport with sessionId', async () => {
     // This one will, triggering the above test in clientTransport.onmessage
     await server.sendLoggingMessage(warningParams, SESSION_ID);
     expect(clientTransport.onmessage).toHaveBeenCalled();
+});
+
+describe('Task-based execution', () => {
+    test('server with TaskStore should handle task-based tool execution', async () => {
+        const taskStore = new InMemoryTaskStore();
+
+        const server = new McpServer(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                },
+                taskStore
+            }
+        );
+
+        // Register a tool using registerToolTask
+        server.registerToolTask(
+            'test-tool',
+            {
+                description: 'A test tool',
+                inputSchema: {}
+            },
+            {
+                async createTask(_args, extra) {
+                    const task = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        { method: 'tools/call', params: { name: 'test-tool', arguments: {} } }
+                    );
+
+                    // Simulate some async work
+                    (async () => {
+                        await new Promise(resolve => setTimeout(resolve, 10));
+                        const result = {
+                            content: [{ type: 'text', text: 'Tool executed successfully!' }]
+                        };
+                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    })();
+
+                    return { task };
+                },
+                async getTask(_args, extra) {
+                    const task = await extra.taskStore.getTask(extra.taskId);
+                    if (!task) {
+                        throw new Error(`Task ${extra.taskId} not found`);
+                    }
+                    return task;
+                },
+                async getTaskResult(_args, extra) {
+                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    return result as { content: Array<{ type: 'text'; text: string }> };
+                }
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test-client',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                }
+            }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Use callTool to create a task
+        await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+            task: {
+                ttl: 60000
+            }
+        });
+
+        // Wait for the task to complete
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        // Get the task ID from the task list since it's generated automatically
+        const taskList = await client.listTasks();
+        expect(taskList.tasks.length).toBeGreaterThan(0);
+        const taskId = taskList.tasks[0].taskId;
+
+        // Verify we can retrieve the task
+        const task = await client.getTask({ taskId });
+        expect(task).toBeDefined();
+        expect(task.status).toBe('completed');
+
+        // Verify we can retrieve the result
+        const result = await client.getTaskResult({ taskId }, CallToolResultSchema);
+        expect(result.content).toEqual([{ type: 'text', text: 'Tool executed successfully!' }]);
+
+        // Cleanup
+        taskStore.cleanup();
+    });
+
+    test('server without TaskStore should reject task-based requests', async () => {
+        const server = new Server(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tools: {}
+                }
+                // No taskStore configured
+            }
+        );
+
+        server.setRequestHandler(CallToolRequestSchema, async request => {
+            if (request.params.name === 'test-tool') {
+                return {
+                    content: [{ type: 'text', text: 'Success!' }]
+                };
+            }
+            throw new Error('Unknown tool');
+        });
+
+        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+            tools: [
+                {
+                    name: 'test-tool',
+                    description: 'A test tool',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {}
+                    }
+                }
+            ]
+        }));
+
+        const client = new Client(
+            {
+                name: 'test-client',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                }
+            }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Try to get a task when server doesn't have TaskStore
+        // The server will return a "Method not found" error
+        await expect(client.getTask({ taskId: 'non-existent' })).rejects.toThrow('Method not found');
+    });
+
+    test('should automatically attach related-task metadata to nested requests during tool execution', async () => {
+        const taskStore = new InMemoryTaskStore();
+
+        const server = new McpServer(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                },
+                taskStore
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test-client',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    elicitation: {},
+                    tasks: {
+                        requests: {
+                            elicitation: {
+                                create: {}
+                            }
+                        }
+                    }
+                }
+            }
+        );
+
+        // Track the elicitation request to verify related-task metadata
+        let capturedElicitRequest: z4.infer<typeof ElicitRequestSchema> | null = null;
+
+        // Set up client elicitation handler
+        client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+            let taskId: string | undefined;
+
+            // Check if task creation is requested
+            if (request.params.task && extra.taskStore) {
+                const createdTask = await extra.taskStore.createTask(
+                    {
+                        ttl: extra.taskRequestedTtl
+                    },
+                    extra.requestId,
+                    request
+                );
+                taskId = createdTask.taskId;
+            }
+
+            // Capture the request to verify metadata later
+            capturedElicitRequest = request;
+
+            return {
+                action: 'accept',
+                content: {
+                    username: 'test-user'
+                }
+            };
+        });
+
+        // Register a tool using registerToolTask that makes a nested elicitation request
+        server.registerToolTask(
+            'collect-info',
+            {
+                description: 'Collects user info via elicitation',
+                inputSchema: {}
+            },
+            {
+                async createTask(_args, extra) {
+                    const task = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        { method: 'tools/call', params: { name: 'collect-info', arguments: {} } }
+                    );
+
+                    // Perform async work that makes a nested request
+                    (async () => {
+                        // During tool execution, make a nested request to the client using extra.sendRequest
+                        const elicitResult = await extra.sendRequest(
+                            {
+                                method: 'elicitation/create',
+                                params: {
+                                    mode: 'form',
+                                    message: 'Please provide your username',
+                                    requestedSchema: {
+                                        type: 'object',
+                                        properties: {
+                                            username: { type: 'string' }
+                                        },
+                                        required: ['username']
+                                    }
+                                }
+                            },
+                            ElicitResultSchema
+                        );
+
+                        const result = {
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: `Collected username: ${elicitResult.action === 'accept' && elicitResult.content ? (elicitResult.content as Record<string, unknown>).username : 'none'}`
+                                }
+                            ]
+                        };
+                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    })();
+
+                    return { task };
+                },
+                async getTask(_args, extra) {
+                    const task = await extra.taskStore.getTask(extra.taskId);
+                    if (!task) {
+                        throw new Error(`Task ${extra.taskId} not found`);
+                    }
+                    return task;
+                },
+                async getTaskResult(_args, extra) {
+                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    return result as { content: Array<{ type: 'text'; text: string }> };
+                }
+            }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Call tool WITH task creation
+        await client.callTool({ name: 'collect-info', arguments: {} }, CallToolResultSchema, {
+            task: {
+                ttl: 60000
+            }
+        });
+
+        // Wait for completion
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        // Verify the nested elicitation request was made (related-task metadata is no longer automatically attached)
+        expect(capturedElicitRequest).toBeDefined();
+
+        // Get the task ID from the task list since it's generated automatically
+        const taskList = await client.listTasks();
+        expect(taskList.tasks.length).toBeGreaterThan(0);
+        const taskId = taskList.tasks[0].taskId;
+
+        // Verify tool result was correct
+        const result = await client.getTaskResult({ taskId }, CallToolResultSchema);
+        expect(result.content).toEqual([
+            {
+                type: 'text',
+                text: 'Collected username: test-user'
+            }
+        ]);
+
+        // Cleanup
+        taskStore.cleanup();
+    });
+
+    describe('Server calling client via elicitation', () => {
+        let clientTaskStore: InMemoryTaskStore;
+
+        beforeEach(() => {
+            clientTaskStore = new InMemoryTaskStore();
+        });
+
+        afterEach(() => {
+            clientTaskStore?.cleanup();
+        });
+
+        test('should create task on client via elicitation', async () => {
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {},
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore: clientTaskStore
+                }
+            );
+
+            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+                let taskId: string | undefined;
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    const createdTask = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
+                    taskId = createdTask.taskId;
+                }
+                const result = {
+                    action: 'accept',
+                    content: { username: 'server-test-user', confirmed: true }
+                };
+                if (taskId && extra.taskStore) {
+                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
+                }
+                return result;
+            });
+
+            const server = new Server({
+                name: 'test-server',
+                version: '1.0.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Server creates task on client via elicitation
+            await server.request(
+                {
+                    method: 'elicitation/create',
+                    params: {
+                        mode: 'form',
+                        message: 'Please provide your username',
+                        requestedSchema: {
+                            type: 'object',
+                            properties: {
+                                username: { type: 'string' },
+                                confirmed: { type: 'boolean' }
+                            },
+                            required: ['username']
+                        }
+                    }
+                },
+                ElicitResultSchema,
+                { task: { ttl: 60000 } }
+            );
+
+            // Get the task ID from the task list since it's generated automatically
+            const taskList = await server.listTasks();
+            expect(taskList.tasks.length).toBeGreaterThan(0);
+            const taskId = taskList.tasks[0].taskId;
+
+            // Verify task was created
+            const task = await server.getTask({ taskId });
+            expect(task.status).toBe('completed');
+        });
+
+        test('should query task from client using getTask', async () => {
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {},
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore: clientTaskStore
+                }
+            );
+
+            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+                let taskId: string | undefined;
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    const createdTask = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
+                    taskId = createdTask.taskId;
+                }
+                const result = {
+                    action: 'accept',
+                    content: { username: 'list-user' }
+                };
+                if (taskId && extra.taskStore) {
+                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
+                }
+                return result;
+            });
+
+            const server = new Server({
+                name: 'test-server',
+                version: '1.0.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Create task
+            await server.request(
+                {
+                    method: 'elicitation/create',
+                    params: {
+                        mode: 'form',
+                        message: 'Provide info',
+                        requestedSchema: {
+                            type: 'object',
+                            properties: { username: { type: 'string' } }
+                        }
+                    }
+                },
+                ElicitResultSchema,
+                { task: { ttl: 60000 } }
+            );
+
+            // Get the task ID from the task list since it's generated automatically
+            const taskList = await server.listTasks();
+            expect(taskList.tasks.length).toBeGreaterThan(0);
+            const taskId = taskList.tasks[0].taskId;
+
+            // Query task
+            const task = await server.getTask({ taskId });
+            expect(task).toBeDefined();
+            expect(task.taskId).toBe(taskId);
+            expect(task.status).toBe('completed');
+        });
+
+        test('should query task result from client using getTaskResult', async () => {
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {},
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore: clientTaskStore
+                }
+            );
+
+            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+                let taskId: string | undefined;
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    const createdTask = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
+                    taskId = createdTask.taskId;
+                }
+                const result = {
+                    action: 'accept',
+                    content: { username: 'result-user', confirmed: true }
+                };
+                if (taskId && extra.taskStore) {
+                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
+                }
+                return result;
+            });
+
+            const server = new Server({
+                name: 'test-server',
+                version: '1.0.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Create task
+            await server.request(
+                {
+                    method: 'elicitation/create',
+                    params: {
+                        mode: 'form',
+                        message: 'Provide info',
+                        requestedSchema: {
+                            type: 'object',
+                            properties: {
+                                username: { type: 'string' },
+                                confirmed: { type: 'boolean' }
+                            }
+                        }
+                    }
+                },
+                ElicitResultSchema,
+                { task: { ttl: 60000 } }
+            );
+
+            // Get the task ID from the task list since it's generated automatically
+            const taskList = await server.listTasks();
+            expect(taskList.tasks.length).toBeGreaterThan(0);
+            const taskId = taskList.tasks[0].taskId;
+
+            // Query result
+            const result = await server.getTaskResult({ taskId }, ElicitResultSchema);
+            expect(result.action).toBe('accept');
+            expect(result.content).toEqual({ username: 'result-user', confirmed: true });
+        });
+
+        test('should query task list from client using listTasks', async () => {
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {},
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore: clientTaskStore
+                }
+            );
+
+            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+                let taskId: string | undefined;
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    const createdTask = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        request
+                    );
+                    taskId = createdTask.taskId;
+                }
+                const result = {
+                    action: 'accept',
+                    content: { username: 'list-user' }
+                };
+                if (taskId && extra.taskStore) {
+                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
+                }
+                return result;
+            });
+
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: {}
+                                }
+                            }
+                        }
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Create multiple tasks
+            const createdTaskIds: string[] = [];
+            for (let i = 0; i < 2; i++) {
+                await server.request(
+                    {
+                        method: 'elicitation/create',
+                        params: {
+                            mode: 'form',
+                            message: 'Provide info',
+                            requestedSchema: {
+                                type: 'object',
+                                properties: { username: { type: 'string' } }
+                            }
+                        }
+                    },
+                    ElicitResultSchema,
+                    { task: { ttl: 60000 } }
+                );
+
+                // Get the task ID from the task list
+                const taskList = await server.listTasks();
+                const newTask = taskList.tasks.find(t => !createdTaskIds.includes(t.taskId));
+                if (newTask) {
+                    createdTaskIds.push(newTask.taskId);
+                }
+            }
+
+            // Query task list
+            const taskList = await server.listTasks();
+            expect(taskList.tasks.length).toBeGreaterThanOrEqual(2);
+            for (const taskId of createdTaskIds) {
+                expect(taskList.tasks).toContainEqual(
+                    expect.objectContaining({
+                        taskId,
+                        status: 'completed'
+                    })
+                );
+            }
+        });
+    });
+
+    test('should handle multiple concurrent task-based tool calls', async () => {
+        const taskStore = new InMemoryTaskStore();
+
+        const server = new McpServer(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                },
+                taskStore
+            }
+        );
+
+        // Register a tool using registerToolTask with variable delay
+        server.registerToolTask(
+            'async-tool',
+            {
+                description: 'An async test tool',
+                inputSchema: {
+                    delay: z4.number().optional().default(10),
+                    taskNum: z4.number().optional()
+                }
+            },
+            {
+                async createTask({ delay, taskNum }, extra) {
+                    const task = await extra.taskStore.createTask(
+                        {
+                            ttl: extra.taskRequestedTtl
+                        },
+                        extra.requestId,
+                        { method: 'tools/call', params: { name: 'async-tool', arguments: { delay, taskNum } } }
+                    );
+
+                    // Simulate async work
+                    (async () => {
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        const result = {
+                            content: [{ type: 'text', text: `Completed task ${taskNum || 'unknown'}` }]
+                        };
+                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    })();
+
+                    return { task };
+                },
+                async getTask(_args, extra) {
+                    const task = await extra.taskStore.getTask(extra.taskId);
+                    if (!task) {
+                        throw new Error(`Task ${extra.taskId} not found`);
+                    }
+                    return task;
+                },
+                async getTaskResult(_args, extra) {
+                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    return result as { content: Array<{ type: 'text'; text: string }> };
+                }
+            }
+        );
+
+        const client = new Client(
+            {
+                name: 'test-client',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tasks: {
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
+                        }
+                    }
+                }
+            }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Create multiple tasks concurrently
+        const pendingRequests = Array.from({ length: 4 }, (_, index) =>
+            client.callTool({ name: 'async-tool', arguments: { delay: 10 + index * 5, taskNum: index + 1 } }, CallToolResultSchema, {
+                task: { ttl: 60000 }
+            })
+        );
+
+        // Wait for all tasks to complete
+        await Promise.all(pendingRequests);
+
+        // Wait a bit more to ensure all tasks are completed
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        // Get all task IDs from the task list
+        const taskList = await client.listTasks();
+        expect(taskList.tasks.length).toBeGreaterThanOrEqual(4);
+        const taskIds = taskList.tasks.map(t => t.taskId);
+
+        // Verify all tasks completed successfully
+        for (let i = 0; i < taskIds.length; i++) {
+            const task = await client.getTask({ taskId: taskIds[i] });
+            expect(task.status).toBe('completed');
+            expect(task.taskId).toBe(taskIds[i]);
+
+            const result = await client.getTaskResult({ taskId: taskIds[i] }, CallToolResultSchema);
+            expect(result.content).toEqual([{ type: 'text', text: `Completed task ${i + 1}` }]);
+        }
+
+        // Verify listTasks returns all tasks
+        const finalTaskList = await client.listTasks();
+        for (const taskId of taskIds) {
+            expect(finalTaskList.tasks).toContainEqual(expect.objectContaining({ taskId }));
+        }
+
+        // Cleanup
+        taskStore.cleanup();
+    });
+
+    describe('Error scenarios', () => {
+        let taskStore: InMemoryTaskStore;
+        let clientTaskStore: InMemoryTaskStore;
+
+        beforeEach(() => {
+            taskStore = new InMemoryTaskStore();
+            clientTaskStore = new InMemoryTaskStore();
+        });
+
+        afterEach(() => {
+            taskStore?.cleanup();
+            clientTaskStore?.cleanup();
+        });
+
+        test('should throw error when client queries non-existent task from server', async () => {
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore
+                }
+            );
+
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Try to query a task that doesn't exist
+            await expect(client.getTask({ taskId: 'non-existent-task' })).rejects.toThrow();
+        });
+
+        test('should throw error when server queries non-existent task from client', async () => {
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {},
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore: clientTaskStore
+                }
+            );
+
+            client.setRequestHandler(ElicitRequestSchema, async () => ({
+                action: 'accept',
+                content: { username: 'test' }
+            }));
+
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                elicitation: {
+                                    create: {}
+                                }
+                            }
+                        }
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            // Try to query a task that doesn't exist on client
+            await expect(server.getTask({ taskId: 'non-existent-task' })).rejects.toThrow();
+        });
+    });
+});
+
+test('should respect client task capabilities', async () => {
+    const clientTaskStore = new InMemoryTaskStore();
+
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                sampling: {},
+                elicitation: {},
+                tasks: {
+                    requests: {
+                        elicitation: {
+                            create: {}
+                        }
+                    }
+                }
+            },
+            taskStore: clientTaskStore
+        }
+    );
+
+    client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+        let taskId: string | undefined;
+
+        // Check if task creation is requested
+        if (request.params.task && extra.taskStore) {
+            const createdTask = await extra.taskStore.createTask(
+                {
+                    ttl: extra.taskRequestedTtl
+                },
+                extra.requestId,
+                request
+            );
+            taskId = createdTask.taskId;
+        }
+        const result = {
+            action: 'accept',
+            content: { username: 'test-user' }
+        };
+        if (taskId && extra.taskStore) {
+            await extra.taskStore.storeTaskResult(taskId, 'completed', result);
+        }
+        return result;
+    });
+
+    const server = new Server(
+        {
+            name: 'test-server',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                tasks: {
+                    requests: {
+                        elicitation: {
+                            create: {}
+                        }
+                    }
+                }
+            },
+            enforceStrictCapabilities: true
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Client supports task creation for elicitation/create and task methods
+    expect(server.getClientCapabilities()).toEqual({
+        sampling: {},
+        elicitation: {
+            form: {}
+        },
+        tasks: {
+            requests: {
+                elicitation: {
+                    create: {}
+                }
+            }
+        }
+    });
+
+    // These should work because client supports tasks
+    await expect(
+        server.request(
+            {
+                method: 'elicitation/create',
+                params: {
+                    mode: 'form',
+                    message: 'Test',
+                    requestedSchema: {
+                        type: 'object',
+                        properties: { username: { type: 'string' } }
+                    }
+                }
+            },
+            ElicitResultSchema,
+            { task: { ttl: 60000 } }
+        )
+    ).resolves.not.toThrow();
+    await expect(server.listTasks()).resolves.not.toThrow();
+
+    // Get the task ID from the task list since it's generated automatically
+    const taskList = await server.listTasks();
+    expect(taskList.tasks.length).toBeGreaterThan(0);
+    const taskId = taskList.tasks[0].taskId;
+    await expect(server.getTask({ taskId })).resolves.not.toThrow();
+
+    // This should throw because client doesn't support task creation for sampling/createMessage
+    await expect(
+        server.request(
+            {
+                method: 'sampling/createMessage',
+                params: {
+                    messages: [],
+                    maxTokens: 10
+                }
+            },
+            CreateMessageResultSchema,
+            { task: { taskId: 'test-task-2', keepAlive: 60000 } }
+        )
+    ).rejects.toThrow('Client does not support task creation for sampling/createMessage');
+
+    clientTaskStore.cleanup();
 });
