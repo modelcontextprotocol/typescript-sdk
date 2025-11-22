@@ -1668,3 +1668,321 @@ describe('getSupportedElicitationModes', () => {
         expect(result.supportsUrlMode).toBe(false);
     });
 });
+
+// SEP-1577: Sampling tools capability validation tests
+test('should reject sampling/createMessage with tools when client lacks sampling.tools capability', async () => {
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                sampling: {} // No tools sub-capability
+            }
+        }
+    );
+
+    const handler = vi.fn().mockResolvedValue({
+        model: 'test-model',
+        role: 'assistant',
+        content: { type: 'text', text: 'Response' }
+    });
+    client.setRequestHandler(CreateMessageRequestSchema, handler);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    let resolveResponse: ((message: unknown) => void) | undefined;
+    const responsePromise = new Promise<unknown>(resolve => {
+        resolveResponse = resolve;
+    });
+
+    serverTransport.onmessage = async message => {
+        if ('method' in message) {
+            if (message.method === 'initialize') {
+                if (!('id' in message) || message.id === undefined) {
+                    throw new Error('Expected initialize request to include an id');
+                }
+                const messageId = message.id;
+                await serverTransport.send({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: {},
+                        serverInfo: {
+                            name: 'test-server',
+                            version: '1.0.0'
+                        }
+                    }
+                });
+            } else if (message.method === 'notifications/initialized') {
+                // ignore
+            }
+        } else {
+            resolveResponse?.(message);
+        }
+    };
+
+    await client.connect(clientTransport);
+
+    // Server sends request with tools despite client not advertising sampling.tools
+    const requestId = 1;
+    await serverTransport.send({
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'sampling/createMessage',
+        params: {
+            messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
+            maxTokens: 100,
+            tools: [{ name: 'test_tool', inputSchema: { type: 'object', properties: {} } }]
+        }
+    });
+
+    const response = (await responsePromise) as { id: number; error: { code: number; message: string } };
+
+    expect(response.id).toBe(requestId);
+    expect(response.error.code).toBe(ErrorCode.InvalidParams);
+    expect(response.error.message).toContain('Client does not support sampling with tools');
+    expect(response.error.message).toContain('tools');
+    expect(handler).not.toHaveBeenCalled();
+
+    await client.close();
+});
+
+test('should reject sampling/createMessage with toolChoice when client lacks sampling.tools capability', async () => {
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                sampling: {} // No tools sub-capability
+            }
+        }
+    );
+
+    const handler = vi.fn().mockResolvedValue({
+        model: 'test-model',
+        role: 'assistant',
+        content: { type: 'text', text: 'Response' }
+    });
+    client.setRequestHandler(CreateMessageRequestSchema, handler);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    let resolveResponse: ((message: unknown) => void) | undefined;
+    const responsePromise = new Promise<unknown>(resolve => {
+        resolveResponse = resolve;
+    });
+
+    serverTransport.onmessage = async message => {
+        if ('method' in message) {
+            if (message.method === 'initialize') {
+                if (!('id' in message) || message.id === undefined) {
+                    throw new Error('Expected initialize request to include an id');
+                }
+                const messageId = message.id;
+                await serverTransport.send({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: {},
+                        serverInfo: {
+                            name: 'test-server',
+                            version: '1.0.0'
+                        }
+                    }
+                });
+            } else if (message.method === 'notifications/initialized') {
+                // ignore
+            }
+        } else {
+            resolveResponse?.(message);
+        }
+    };
+
+    await client.connect(clientTransport);
+
+    // Server sends request with toolChoice despite client not advertising sampling.tools
+    const requestId = 2;
+    await serverTransport.send({
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'sampling/createMessage',
+        params: {
+            messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
+            maxTokens: 100,
+            toolChoice: { mode: 'required' }
+        }
+    });
+
+    const response = (await responsePromise) as { id: number; error: { code: number; message: string } };
+
+    expect(response.id).toBe(requestId);
+    expect(response.error.code).toBe(ErrorCode.InvalidParams);
+    expect(response.error.message).toContain('Client does not support sampling with tools');
+    expect(response.error.message).toContain('toolChoice');
+    expect(handler).not.toHaveBeenCalled();
+
+    await client.close();
+});
+
+test('should accept sampling/createMessage with tools when client has sampling.tools capability', async () => {
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                sampling: {
+                    tools: {} // Has tools capability
+                }
+            }
+        }
+    );
+
+    const handler = vi.fn().mockResolvedValue({
+        model: 'test-model',
+        role: 'assistant',
+        content: { type: 'tool_use', name: 'test_tool', id: 'call_1', input: {} },
+        stopReason: 'toolUse'
+    });
+    client.setRequestHandler(CreateMessageRequestSchema, handler);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    let resolveResponse: ((message: unknown) => void) | undefined;
+    const responsePromise = new Promise<unknown>(resolve => {
+        resolveResponse = resolve;
+    });
+
+    serverTransport.onmessage = async message => {
+        if ('method' in message) {
+            if (message.method === 'initialize') {
+                if (!('id' in message) || message.id === undefined) {
+                    throw new Error('Expected initialize request to include an id');
+                }
+                const messageId = message.id;
+                await serverTransport.send({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: {},
+                        serverInfo: {
+                            name: 'test-server',
+                            version: '1.0.0'
+                        }
+                    }
+                });
+            } else if (message.method === 'notifications/initialized') {
+                // ignore
+            }
+        } else {
+            resolveResponse?.(message);
+        }
+    };
+
+    await client.connect(clientTransport);
+
+    const requestId = 3;
+    await serverTransport.send({
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'sampling/createMessage',
+        params: {
+            messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
+            maxTokens: 100,
+            tools: [{ name: 'test_tool', inputSchema: { type: 'object', properties: {} } }]
+        }
+    });
+
+    const response = (await responsePromise) as { id: number; result: unknown };
+
+    expect(response.id).toBe(requestId);
+    expect(response.result).toBeDefined();
+    expect(handler).toHaveBeenCalled();
+
+    await client.close();
+});
+
+test('should accept sampling/createMessage without tools when client lacks sampling.tools capability', async () => {
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                sampling: {} // No tools sub-capability, but not needed for this request
+            }
+        }
+    );
+
+    const handler = vi.fn().mockResolvedValue({
+        model: 'test-model',
+        role: 'assistant',
+        content: { type: 'text', text: 'Response' }
+    });
+    client.setRequestHandler(CreateMessageRequestSchema, handler);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    let resolveResponse: ((message: unknown) => void) | undefined;
+    const responsePromise = new Promise<unknown>(resolve => {
+        resolveResponse = resolve;
+    });
+
+    serverTransport.onmessage = async message => {
+        if ('method' in message) {
+            if (message.method === 'initialize') {
+                if (!('id' in message) || message.id === undefined) {
+                    throw new Error('Expected initialize request to include an id');
+                }
+                const messageId = message.id;
+                await serverTransport.send({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: {},
+                        serverInfo: {
+                            name: 'test-server',
+                            version: '1.0.0'
+                        }
+                    }
+                });
+            } else if (message.method === 'notifications/initialized') {
+                // ignore
+            }
+        } else {
+            resolveResponse?.(message);
+        }
+    };
+
+    await client.connect(clientTransport);
+
+    // Request without tools/toolChoice should succeed
+    const requestId = 4;
+    await serverTransport.send({
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'sampling/createMessage',
+        params: {
+            messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }],
+            maxTokens: 100
+        }
+    });
+
+    const response = (await responsePromise) as { id: number; result: unknown };
+
+    expect(response.id).toBe(requestId);
+    expect(response.result).toBeDefined();
+    expect(handler).toHaveBeenCalled();
+
+    await client.close();
+});

@@ -38,7 +38,8 @@ import {
     type Tool,
     type UnsubscribeRequest,
     ElicitResultSchema,
-    ElicitRequestSchema
+    ElicitRequestSchema,
+    CreateMessageRequestSchema
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
@@ -304,6 +305,37 @@ export class Client<
             };
 
             // Install the wrapped handler
+            return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
+        }
+
+        // SEP-1577: Validate tools/toolChoice require sampling.tools capability
+        if (method === 'sampling/createMessage') {
+            const wrappedHandler = async (
+                request: SchemaOutput<T>,
+                extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+            ): Promise<ClientResult | ResultT> => {
+                const validatedRequest = safeParse(CreateMessageRequestSchema, request);
+                if (!validatedRequest.success) {
+                    const errorMessage =
+                        validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid sampling request: ${errorMessage}`);
+                }
+
+                const { params } = validatedRequest.data;
+
+                // Check if tools or toolChoice are provided but capability not declared
+                if ((params.tools !== undefined || params.toolChoice !== undefined) && !this._capabilities.sampling?.tools) {
+                    throw new McpError(
+                        ErrorCode.InvalidParams,
+                        'Client does not support sampling with tools but request contains ' +
+                            (params.tools !== undefined ? 'tools' : 'toolChoice') +
+                            ' parameter'
+                    );
+                }
+
+                return await Promise.resolve(handler(request, extra));
+            };
+
             return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
         }
 
