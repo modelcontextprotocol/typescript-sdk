@@ -1582,6 +1582,197 @@ test('should respect log level for transport without sessionId', async () => {
     expect(clientTransport.onmessage).toHaveBeenCalled();
 });
 
+describe('createMessage validation', () => {
+    test('should throw when tools are provided without sampling.tools capability', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client(
+            { name: 'test client', version: '1.0' },
+            { capabilities: { sampling: {} } } // No tools capability
+        );
+
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'Response' }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await expect(
+            server.createMessage({
+                messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+                maxTokens: 100,
+                tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
+            })
+        ).rejects.toThrow('Client does not support sampling tools capability.');
+    });
+
+    test('should throw when toolChoice is provided without sampling.tools capability', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client(
+            { name: 'test client', version: '1.0' },
+            { capabilities: { sampling: {} } } // No tools capability
+        );
+
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'Response' }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await expect(
+            server.createMessage({
+                messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+                maxTokens: 100,
+                toolChoice: { type: 'auto' }
+            })
+        ).rejects.toThrow('Client does not support sampling tools capability.');
+    });
+
+    test('should throw when tool_result is mixed with other content', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'Response' }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await expect(
+            server.createMessage({
+                messages: [
+                    { role: 'user', content: { type: 'text', text: 'hello' } },
+                    { role: 'assistant', content: { type: 'tool_use', id: 'call_1', name: 'test_tool', input: {} } },
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'tool_result', toolUseId: 'call_1', content: [] },
+                            { type: 'text', text: 'mixed content' } // Mixed!
+                        ]
+                    }
+                ],
+                maxTokens: 100,
+                tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
+            })
+        ).rejects.toThrow('The last message must contain only tool_result content if any is present');
+    });
+
+    test('should throw when tool_result has no matching tool_use in previous message', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'Response' }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // tool_result without previous tool_use
+        await expect(
+            server.createMessage({
+                messages: [
+                    { role: 'user', content: { type: 'text', text: 'hello' } },
+                    { role: 'user', content: { type: 'tool_result', toolUseId: 'call_1', content: [] } }
+                ],
+                maxTokens: 100,
+                tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
+            })
+        ).rejects.toThrow('tool_result blocks are not matching any tool_use from the previous message');
+    });
+
+    test('should throw when tool_result IDs do not match tool_use IDs', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'Response' }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await expect(
+            server.createMessage({
+                messages: [
+                    { role: 'user', content: { type: 'text', text: 'hello' } },
+                    { role: 'assistant', content: { type: 'tool_use', id: 'call_1', name: 'test_tool', input: {} } },
+                    { role: 'user', content: { type: 'tool_result', toolUseId: 'wrong_id', content: [] } }
+                ],
+                maxTokens: 100,
+                tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
+            })
+        ).rejects.toThrow('ids of tool_result blocks and tool_use blocks from previous message do not match');
+    });
+
+    test('should allow text-only messages with tools (no tool_results)', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'Response' }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await expect(
+            server.createMessage({
+                messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+                maxTokens: 100,
+                tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
+            })
+        ).resolves.toMatchObject({ model: 'test-model' });
+    });
+
+    test('should allow valid matching tool_result/tool_use IDs', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'Response' }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await expect(
+            server.createMessage({
+                messages: [
+                    { role: 'user', content: { type: 'text', text: 'hello' } },
+                    { role: 'assistant', content: { type: 'tool_use', id: 'call_1', name: 'test_tool', input: {} } },
+                    { role: 'user', content: { type: 'tool_result', toolUseId: 'call_1', content: [] } }
+                ],
+                maxTokens: 100,
+                tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
+            })
+        ).resolves.toMatchObject({ model: 'test-model' });
+    });
+});
+
 test('should respect log level for transport with sessionId', async () => {
     const server = new Server(
         {
