@@ -91,19 +91,28 @@ function isZodSchema(schema: AnySchema): schema is z3.ZodTypeAny | z4.$ZodType {
         return true;
     }
     const internal = schema as unknown as ZodV3Internal | ZodV4Internal;
-    return !!(internal._def || internal._zod);
+    if ('_def' in (internal as object)) {
+        return !!(internal as ZodV3Internal)._def;
+    }
+    if ('_zod' in (internal as object)) {
+        return !!(internal as ZodV4Internal)._zod;
+    }
+    return false;
 }
 
 function toIssues(error: unknown): StandardSchemaV1.Issue[] | undefined {
     if (error instanceof SchemaError) {
-        return error.issues;
+        return Array.from(error.issues);
     }
-    if (Array.isArray(error) && error.every(issue => issue && typeof issue === 'object' && 'message' in issue)) {
-        return error as StandardSchemaV1.Issue[];
+    if (Array.isArray(error)) {
+        const typed = error as unknown[];
+        if (typed.every(issue => issue && typeof issue === 'object' && 'message' in (issue as { message?: unknown }))) {
+            return typed as StandardSchemaV1.Issue[];
+        }
     }
     if (error && typeof error === 'object' && 'issues' in error && Array.isArray((error as { issues: unknown }).issues)) {
-        const issues = (error as { issues: unknown }).issues;
-        if (issues.every(issue => issue && typeof issue === 'object' && 'message' in issue)) {
+        const issues = (error as { issues: unknown[] }).issues;
+        if (issues.every(issue => issue && typeof issue === 'object' && 'message' in (issue as { message?: unknown }))) {
             return issues as StandardSchemaV1.Issue[];
         }
     }
@@ -111,7 +120,7 @@ function toIssues(error: unknown): StandardSchemaV1.Issue[] | undefined {
 }
 
 // --- Schema construction ---
-function createStandardObjectFromShape<Shape extends ZodRawShapeCompat>(shape: Shape): AnyObjectSchema {
+function createStandardObjectFromShape<Shape extends Record<string, AnySchema>>(shape: Shape): AnyObjectSchema {
     const standardSchema: StandardSchemaV1<ShapeInput<Shape>, ShapeOutput<Shape>> & { _shape: Shape } = {
         _shape: shape,
         '~standard': {
@@ -141,13 +150,12 @@ function createStandardObjectFromShape<Shape extends ZodRawShapeCompat>(shape: S
                     const result = await safeParseAsync(propSchema, propValue);
 
                     if (!result.success) {
-                        const propIssues = toIssues(result.error);
-                        if (propIssues?.length) {
-                            for (const issue of propIssues) {
-                                const path = issue.path ? [key, ...issue.path] : [key];
-                                issues.push({ ...issue, path });
-                            }
-                        } else {
+                        const propIssues = toIssues(result.error) ?? [];
+                        for (const issue of propIssues as StandardSchemaV1.Issue[]) {
+                            const path = issue.path ? [key, ...issue.path] : [key];
+                            issues.push({ ...issue, path });
+                        }
+                        if (propIssues.length === 0) {
                             issues.push({
                                 message: getParseErrorMessage(result.error),
                                 path: [key]
@@ -170,7 +178,7 @@ function createStandardObjectFromShape<Shape extends ZodRawShapeCompat>(shape: S
     return standardSchema as unknown as AnyObjectSchema;
 }
 
-export function objectFromShape(shape: ZodRawShapeCompat): AnyObjectSchema {
+export function objectFromShape(shape: Record<string, AnySchema>): AnyObjectSchema {
     const values = Object.values(shape);
     if (values.length === 0) return z4mini.object({}); // default to v4 Mini
 
@@ -278,6 +286,14 @@ export function getObjectShape(schema: AnyObjectSchema | undefined): Record<stri
     return rawShape;
 }
 
+function isRawShapeCompat(value: unknown): value is ZodRawShapeCompat {
+    if (typeof value !== 'object' || value === null) return false;
+    if (isStandardSchema(value as AnySchema)) return false;
+    const asV3 = value as ZodV3Internal;
+    const asV4 = value as ZodV4Internal;
+    return !asV3._def && !asV4._zod;
+}
+
 // --- Schema normalization ---
 /**
  * Normalizes a schema to an object schema. Handles both:
@@ -292,48 +308,25 @@ export function normalizeObjectSchema(schema: AnySchema | ZodRawShapeCompat | un
     }
 
     // First check if it's a raw shape (Record<string, AnySchema>)
-    // Raw shapes don't have _def or _zod properties and aren't schemas themselves
-    if (typeof schema === 'object') {
-        // Check if it's actually a ZodRawShapeCompat (not a schema instance)
-        // by checking if it lacks schema-like internal properties
-        const asV3 = schema as unknown as ZodV3Internal;
-        const asV4 = schema as unknown as ZodV4Internal;
-
-        // If it's not a schema instance (no _def or _zod), it might be a raw shape
-        if (!asV3._def && !asV4._zod) {
-            // Check if all values are schemas (heuristic to confirm it's a raw shape)
-            const values = Object.values(schema);
-            if (
-                values.length > 0 &&
-                values.every(
-                    v =>
-                        typeof v === 'object' &&
-                        v !== null &&
-                        ((v as unknown as ZodV3Internal)._def !== undefined ||
-                            (v as unknown as ZodV4Internal)._zod !== undefined ||
-                            (isStandardSchema(v as AnySchema) && !!(v as AnySchema)['~standard']) ||
-                            typeof (v as { parse?: unknown }).parse === 'function')
-                )
-            ) {
-                return objectFromShape(schema as ZodRawShapeCompat);
-            }
-        }
+    if (isRawShapeCompat(schema)) {
+        return objectFromShape(schema);
     }
 
     // If we get here, it should be an AnySchema (not a raw shape)
     // Check if it's already an object schema
-    if (isZ4Schema(schema as AnySchema)) {
+    const maybeSchema = schema as AnySchema;
+    if (isZ4Schema(maybeSchema)) {
         // Check if it's a v4 object
-        const v4Schema = schema as unknown as ZodV4Internal;
+        const v4Schema = maybeSchema as unknown as ZodV4Internal;
         const def = v4Schema._zod?.def;
         if (def && (def.typeName === 'object' || def.shape !== undefined)) {
-            return schema as AnyObjectSchema;
+            return maybeSchema as unknown as AnyObjectSchema;
         }
-    } else if (isZodSchema(schema as AnySchema)) {
+    } else if (isZodSchema(maybeSchema)) {
         // Check if it's a v3 object
-        const v3Schema = schema as unknown as ZodV3Internal;
+        const v3Schema = maybeSchema as unknown as ZodV3Internal;
         if (v3Schema.shape !== undefined) {
-            return schema as AnyObjectSchema;
+            return maybeSchema as unknown as AnyObjectSchema;
         }
     }
 

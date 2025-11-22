@@ -162,7 +162,10 @@ export class McpServer {
                 }
 
                 if (tool.inputSchema) {
-                    const cb = tool.callback as ToolCallback<ZodRawShapeCompat>;
+                    const cb = tool.callback as (
+                        args: unknown,
+                        extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+                    ) => Promise<CallToolResult> | CallToolResult;
                     // Try to normalize to object schema first (for raw shapes and object schemas)
                     // If that fails, use the schema directly (for union/intersection/etc)
                     const inputObj = normalizeObjectSchema(tool.inputSchema);
