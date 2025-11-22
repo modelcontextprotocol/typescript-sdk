@@ -91,7 +91,9 @@ export type ProtocolOptions = {
     /**
      * Maximum number of messages that can be queued per task for side-channel delivery.
      * If undefined, the queue size is unbounded.
-     * When the limit is exceeded, the task will be transitioned to failed status.
+     * When the limit is exceeded, the TaskMessageQueue implementation's enqueue() method
+     * will throw an error. It's the implementation's responsibility to handle overflow
+     * appropriately (e.g., by failing the task, dropping messages, etc.).
      */
     maxTaskQueueSize?: number;
 };
@@ -1376,26 +1378,20 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * @param taskId The task ID to associate the message with
      * @param message The message to enqueue
      * @param sessionId Optional session ID for binding the operation to a specific session
-     * @throws McpError if taskStore is not configured or if enqueue fails (e.g., queue overflow)
+     * @throws Error if taskStore is not configured or if enqueue fails (e.g., queue overflow)
+     *
+     * Note: If enqueue fails, it's the TaskMessageQueue implementation's responsibility to handle
+     * the error appropriately (e.g., by failing the task, logging, etc.). The Protocol layer
+     * simply propagates the error.
      */
     private async _enqueueTaskMessage(taskId: string, message: QueuedMessage, sessionId?: string): Promise<void> {
         // Task message queues are only used when taskStore is configured
         if (!this._taskStore || !this._taskMessageQueue) {
-            throw new McpError(ErrorCode.InternalError, 'Cannot enqueue task message: taskStore and taskMessageQueue are not configured');
+            throw new Error('Cannot enqueue task message: taskStore and taskMessageQueue are not configured');
         }
 
         const maxQueueSize = this._options?.maxTaskQueueSize;
-
-        try {
-            await this._taskMessageQueue.enqueue(taskId, message, sessionId, maxQueueSize);
-        } catch (error) {
-            // Enqueue failed (e.g., queue overflow, storage error) - fail the task and clear the queue
-            this._onerror(error as Error);
-            const errorMessage = error instanceof Error ? error.message : 'Task message enqueue failed';
-            this._taskStore.updateTaskStatus(taskId, 'failed', errorMessage, sessionId).catch(err => this._onerror(err));
-            await this._clearTaskQueue(taskId, sessionId);
-            throw new McpError(ErrorCode.InternalError, `Failed to enqueue task message: ${errorMessage}`);
-        }
+        await this._taskMessageQueue.enqueue(taskId, message, sessionId, maxQueueSize);
     }
 
     /**

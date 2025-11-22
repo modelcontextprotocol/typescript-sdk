@@ -3076,7 +3076,7 @@ describe('Message interception for task-related notifications', () => {
     // Test removed: _taskResultWaiters was removed in favor of polling-based task updates
     // The functionality is still tested through integration tests that verify message queuing works
 
-    it('should handle queue overflow by failing the task', async () => {
+    it('should propagate queue overflow errors without failing the task', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
         const server = new (class extends Protocol<Request, Notification, Result> {
@@ -3105,7 +3105,7 @@ describe('Message interception for task-related notifications', () => {
             );
         }
 
-        // Try to add one more message - should throw and fail the task
+        // Try to add one more message - should throw an error
         await expect(
             server.notification(
                 {
@@ -3116,10 +3116,11 @@ describe('Message interception for task-related notifications', () => {
                     relatedTask: { taskId: task.taskId }
                 }
             )
-        ).rejects.toThrow(McpError);
+        ).rejects.toThrow('overflow');
 
-        // Verify the task was failed with overflow error
-        expect(taskStore.updateTaskStatus).toHaveBeenCalledWith(task.taskId, 'failed', expect.stringContaining('overflow'), undefined);
+        // Verify the task was NOT automatically failed by the Protocol
+        // (implementations can choose to fail tasks on overflow if they want)
+        expect(taskStore.updateTaskStatus).not.toHaveBeenCalledWith(task.taskId, 'failed', expect.anything(), expect.anything());
     });
 
     it('should extract task ID correctly from metadata', async () => {
@@ -3482,7 +3483,7 @@ describe('Message interception for task-related requests', () => {
         expect(errors.some(e => e.message.includes('Response handler missing for request'))).toBe(true);
     });
 
-    it('should handle queue overflow for requests', async () => {
+    it('should propagate queue overflow errors for requests without failing the task', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
         const server = new (class extends Protocol<Request, Notification, Result> {
@@ -3513,12 +3514,12 @@ describe('Message interception for task-related requests', () => {
                     }
                 )
                 .catch(() => {
-                    // Expected to reject when queue is cleared
+                    // Requests will remain pending until task completes or fails
                 });
             promises.push(promise);
         }
 
-        // Try to add one more request - should throw and fail the task
+        // Try to add one more request - should throw an error
         await expect(
             server.request(
                 {
@@ -3530,10 +3531,11 @@ describe('Message interception for task-related requests', () => {
                     relatedTask: { taskId: task.taskId }
                 }
             )
-        ).rejects.toThrow(McpError);
+        ).rejects.toThrow('overflow');
 
-        // Verify the task was failed with overflow error
-        expect(taskStore.updateTaskStatus).toHaveBeenCalledWith(task.taskId, 'failed', expect.stringContaining('overflow'), undefined);
+        // Verify the task was NOT automatically failed by the Protocol
+        // (implementations can choose to fail tasks on overflow if they want)
+        expect(taskStore.updateTaskStatus).not.toHaveBeenCalledWith(task.taskId, 'failed', expect.anything(), expect.anything());
     });
 });
 
