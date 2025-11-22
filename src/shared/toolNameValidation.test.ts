@@ -1,14 +1,15 @@
 import { validateToolName, validateAndWarnToolName, issueToolNameWarning } from './toolNameValidation.js';
+import { vi, MockInstance } from 'vitest';
 
 // Spy on console.warn to capture output
-let warnSpy: jest.SpyInstance;
+let warnSpy: MockInstance;
 
 beforeEach(() => {
-    warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
 afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
 });
 
 describe('validateToolName', () => {

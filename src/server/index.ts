@@ -1,9 +1,10 @@
-import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
+import { mergeCapabilities, Protocol, type NotificationOptions, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
 import {
     type ClientCapabilities,
     type CreateMessageRequest,
     CreateMessageResultSchema,
-    type ElicitRequest,
+    type ElicitRequestFormParams,
+    type ElicitRequestURLParams,
     type ElicitResult,
     ElicitResultSchema,
     EmptyResultSchema,
@@ -33,6 +34,8 @@ import {
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
+
+type LegacyElicitRequestFormParams = Omit<ElicitRequestFormParams, 'mode'>;
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -225,6 +228,12 @@ export class Server<
                 }
                 break;
 
+            case 'notifications/elicitation/complete':
+                if (!this._clientCapabilities?.elicitation?.url) {
+                    throw new Error(`Client does not support URL elicitation (required for ${method})`);
+                }
+                break;
+
             case 'notifications/cancelled':
                 // Cancellation notifications are always allowed
                 break;
@@ -320,33 +329,105 @@ export class Server<
         return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
-    async elicitInput(params: ElicitRequest['params'], options?: RequestOptions): Promise<ElicitResult> {
-        const result = await this.request({ method: 'elicitation/create', params }, ElicitResultSchema, options);
+    /**
+     * Creates an elicitation request for the given parameters.
+     * @param params The parameters for the form elicitation request (explicit mode: 'form').
+     * @param options Optional request options.
+     * @returns The result of the elicitation request.
+     */
+    async elicitInput(params: ElicitRequestFormParams, options?: RequestOptions): Promise<ElicitResult>;
+    /**
+     * Creates an elicitation request for the given parameters.
+     * @param params The parameters for the URL elicitation request (with url and elicitationId).
+     * @param options Optional request options.
+     * @returns The result of the elicitation request.
+     */
+    async elicitInput(params: ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult>;
+    /**
+     * Creates an elicitation request for the given parameters.
+     * @deprecated Use the overloads with explicit `mode: 'form' | 'url'` instead.
+     * @param params The parameters for the form elicitation request (legacy signature without mode).
+     * @param options Optional request options.
+     * @returns The result of the elicitation request.
+     */
+    async elicitInput(params: LegacyElicitRequestFormParams, options?: RequestOptions): Promise<ElicitResult>;
 
-        // Validate the response content against the requested schema if action is "accept"
-        if (result.action === 'accept' && result.content && params.requestedSchema) {
-            try {
-                const validator = this._jsonSchemaValidator.getValidator(params.requestedSchema as JsonSchemaType);
-                const validationResult = validator(result.content);
+    // Implementation (not visible to callers)
+    async elicitInput(
+        params: LegacyElicitRequestFormParams | ElicitRequestFormParams | ElicitRequestURLParams,
+        options?: RequestOptions
+    ): Promise<ElicitResult> {
+        const mode = ('mode' in params ? params.mode : 'form') as 'form' | 'url';
 
-                if (!validationResult.valid) {
-                    throw new McpError(
-                        ErrorCode.InvalidParams,
-                        `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`
-                    );
+        switch (mode) {
+            case 'url': {
+                if (!this._clientCapabilities?.elicitation?.url) {
+                    throw new Error('Client does not support url elicitation.');
                 }
-            } catch (error) {
-                if (error instanceof McpError) {
-                    throw error;
+
+                const urlParams = params as ElicitRequestURLParams;
+                return this.request({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
+            }
+            case 'form': {
+                if (!this._clientCapabilities?.elicitation?.form) {
+                    throw new Error('Client does not support form elicitation.');
                 }
-                throw new McpError(
-                    ErrorCode.InternalError,
-                    `Error validating elicitation response: ${error instanceof Error ? error.message : String(error)}`
-                );
+                const formParams: ElicitRequestFormParams =
+                    'mode' in params
+                        ? (params as ElicitRequestFormParams)
+                        : ({ ...(params as LegacyElicitRequestFormParams), mode: 'form' } as ElicitRequestFormParams);
+
+                const result = await this.request({ method: 'elicitation/create', params: formParams }, ElicitResultSchema, options);
+
+                if (result.action === 'accept' && result.content && formParams.requestedSchema) {
+                    try {
+                        const validator = this._jsonSchemaValidator.getValidator(formParams.requestedSchema as JsonSchemaType);
+                        const validationResult = validator(result.content);
+
+                        if (!validationResult.valid) {
+                            throw new McpError(
+                                ErrorCode.InvalidParams,
+                                `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`
+                            );
+                        }
+                    } catch (error) {
+                        if (error instanceof McpError) {
+                            throw error;
+                        }
+                        throw new McpError(
+                            ErrorCode.InternalError,
+                            `Error validating elicitation response: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                    }
+                }
+                return result;
             }
         }
+    }
 
-        return result;
+    /**
+     * Creates a reusable callback that, when invoked, will send a `notifications/elicitation/complete`
+     * notification for the specified elicitation ID.
+     *
+     * @param elicitationId The ID of the elicitation to mark as complete.
+     * @param options Optional notification options. Useful when the completion notification should be related to a prior request.
+     * @returns A function that emits the completion notification when awaited.
+     */
+    createElicitationCompletionNotifier(elicitationId: string, options?: NotificationOptions): () => Promise<void> {
+        if (!this._clientCapabilities?.elicitation?.url) {
+            throw new Error('Client does not support URL elicitation (required for notifications/elicitation/complete)');
+        }
+
+        return () =>
+            this.notification(
+                {
+                    method: 'notifications/elicitation/complete',
+                    params: {
+                        elicitationId
+                    }
+                },
+                options
+            );
     }
 
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {

@@ -1,8 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable no-constant-binary-expression */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
-import { Client } from './index.js';
-import { z } from 'zod';
+import { Client, getSupportedElicitationModes } from './index.js';
 import {
     RequestSchema,
     NotificationSchema,
@@ -21,15 +20,174 @@ import {
 import { Transport } from '../shared/transport.js';
 import { Server } from '../server/index.js';
 import { InMemoryTransport } from '../inMemory.js';
+import * as z3 from 'zod/v3';
+import * as z4 from 'zod/v4';
+
+describe('Zod v4', () => {
+    /***
+     * Test: Type Checking
+     * Test that custom request/notification/result schemas can be used with the Client class.
+     */
+    test('should typecheck', () => {
+        const GetWeatherRequestSchema = RequestSchema.extend({
+            method: z4.literal('weather/get'),
+            params: z4.object({
+                city: z4.string()
+            })
+        });
+
+        const GetForecastRequestSchema = RequestSchema.extend({
+            method: z4.literal('weather/forecast'),
+            params: z4.object({
+                city: z4.string(),
+                days: z4.number()
+            })
+        });
+
+        const WeatherForecastNotificationSchema = NotificationSchema.extend({
+            method: z4.literal('weather/alert'),
+            params: z4.object({
+                severity: z4.enum(['warning', 'watch']),
+                message: z4.string()
+            })
+        });
+
+        const WeatherRequestSchema = GetWeatherRequestSchema.or(GetForecastRequestSchema);
+        const WeatherNotificationSchema = WeatherForecastNotificationSchema;
+        const WeatherResultSchema = ResultSchema.extend({
+            temperature: z4.number(),
+            conditions: z4.string()
+        });
+
+        type WeatherRequest = z4.infer<typeof WeatherRequestSchema>;
+        type WeatherNotification = z4.infer<typeof WeatherNotificationSchema>;
+        type WeatherResult = z4.infer<typeof WeatherResultSchema>;
+
+        // Create a typed Client for weather data
+        const weatherClient = new Client<WeatherRequest, WeatherNotification, WeatherResult>(
+            {
+                name: 'WeatherClient',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    sampling: {}
+                }
+            }
+        );
+
+        // Typecheck that only valid weather requests/notifications/results are allowed
+        false &&
+            weatherClient.request(
+                {
+                    method: 'weather/get',
+                    params: {
+                        city: 'Seattle'
+                    }
+                },
+                WeatherResultSchema
+            );
+
+        false &&
+            weatherClient.notification({
+                method: 'weather/alert',
+                params: {
+                    severity: 'warning',
+                    message: 'Storm approaching'
+                }
+            });
+    });
+});
+
+describe('Zod v3', () => {
+    /***
+     * Test: Type Checking
+     * Test that custom request/notification/result schemas can be used with the Client class.
+     */
+    test('should typecheck', () => {
+        const GetWeatherRequestSchema = z3.object({
+            ...RequestSchema.shape,
+            method: z3.literal('weather/get'),
+            params: z3.object({
+                city: z3.string()
+            })
+        });
+
+        const GetForecastRequestSchema = z3.object({
+            ...RequestSchema.shape,
+            method: z3.literal('weather/forecast'),
+            params: z3.object({
+                city: z3.string(),
+                days: z3.number()
+            })
+        });
+
+        const WeatherForecastNotificationSchema = z3.object({
+            ...NotificationSchema.shape,
+            method: z3.literal('weather/alert'),
+            params: z3.object({
+                severity: z3.enum(['warning', 'watch']),
+                message: z3.string()
+            })
+        });
+
+        const WeatherRequestSchema = GetWeatherRequestSchema.or(GetForecastRequestSchema);
+        const WeatherNotificationSchema = WeatherForecastNotificationSchema;
+        const WeatherResultSchema = z3.object({
+            ...ResultSchema.shape,
+            _meta: z3.record(z3.string(), z3.unknown()).optional(),
+            temperature: z3.number(),
+            conditions: z3.string()
+        });
+
+        type WeatherRequest = z3.infer<typeof WeatherRequestSchema>;
+        type WeatherNotification = z3.infer<typeof WeatherNotificationSchema>;
+        type WeatherResult = z3.infer<typeof WeatherResultSchema>;
+
+        // Create a typed Client for weather data
+        const weatherClient = new Client<WeatherRequest, WeatherNotification, WeatherResult>(
+            {
+                name: 'WeatherClient',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    sampling: {}
+                }
+            }
+        );
+
+        // Typecheck that only valid weather requests/notifications/results are allowed
+        false &&
+            weatherClient.request(
+                {
+                    method: 'weather/get',
+                    params: {
+                        city: 'Seattle'
+                    }
+                },
+                WeatherResultSchema
+            );
+
+        false &&
+            weatherClient.notification({
+                method: 'weather/alert',
+                params: {
+                    severity: 'warning',
+                    message: 'Storm approaching'
+                }
+            });
+    });
+});
 
 /***
  * Test: Initialize with Matching Protocol Version
  */
 test('should initialize with matching protocol version', async () => {
     const clientTransport: Transport = {
-        start: jest.fn().mockResolvedValue(undefined),
-        close: jest.fn().mockResolvedValue(undefined),
-        send: jest.fn().mockImplementation(message => {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockImplementation(message => {
             if (message.method === 'initialize') {
                 clientTransport.onmessage?.({
                     jsonrpc: '2.0',
@@ -86,9 +244,9 @@ test('should initialize with matching protocol version', async () => {
 test('should initialize with supported older protocol version', async () => {
     const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
     const clientTransport: Transport = {
-        start: jest.fn().mockResolvedValue(undefined),
-        close: jest.fn().mockResolvedValue(undefined),
-        send: jest.fn().mockImplementation(message => {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockImplementation(message => {
             if (message.method === 'initialize') {
                 clientTransport.onmessage?.({
                     jsonrpc: '2.0',
@@ -136,9 +294,9 @@ test('should initialize with supported older protocol version', async () => {
  */
 test('should reject unsupported protocol version', async () => {
     const clientTransport: Transport = {
-        start: jest.fn().mockResolvedValue(undefined),
-        close: jest.fn().mockResolvedValue(undefined),
-        send: jest.fn().mockImplementation(message => {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockImplementation(message => {
             if (message.method === 'initialize') {
                 clientTransport.onmessage?.({
                     jsonrpc: '2.0',
@@ -596,78 +754,314 @@ test('should allow setRequestHandler for declared elicitation capability', () =>
     }).toThrow('Client does not support sampling capability');
 });
 
-/***
- * Test: Type Checking
- * Test that custom request/notification/result schemas can be used with the Client class.
- */
-test('should typecheck', () => {
-    const GetWeatherRequestSchema = RequestSchema.extend({
-        method: z.literal('weather/get'),
-        params: z.object({
-            city: z.string()
-        })
-    });
-
-    const GetForecastRequestSchema = RequestSchema.extend({
-        method: z.literal('weather/forecast'),
-        params: z.object({
-            city: z.string(),
-            days: z.number()
-        })
-    });
-
-    const WeatherForecastNotificationSchema = NotificationSchema.extend({
-        method: z.literal('weather/alert'),
-        params: z.object({
-            severity: z.enum(['warning', 'watch']),
-            message: z.string()
-        })
-    });
-
-    const WeatherRequestSchema = GetWeatherRequestSchema.or(GetForecastRequestSchema);
-    const WeatherNotificationSchema = WeatherForecastNotificationSchema;
-    const WeatherResultSchema = ResultSchema.extend({
-        temperature: z.number(),
-        conditions: z.string()
-    });
-
-    type WeatherRequest = z.infer<typeof WeatherRequestSchema>;
-    type WeatherNotification = z.infer<typeof WeatherNotificationSchema>;
-    type WeatherResult = z.infer<typeof WeatherResultSchema>;
-
-    // Create a typed Client for weather data
-    const weatherClient = new Client<WeatherRequest, WeatherNotification, WeatherResult>(
+test('should accept form-mode elicitation request when client advertises empty elicitation object (back-compat)', async () => {
+    const server = new Server(
         {
-            name: 'WeatherClient',
-            version: '1.0.0'
+            name: 'test server',
+            version: '1.0'
         },
         {
             capabilities: {
-                sampling: {}
+                prompts: {},
+                resources: {},
+                tools: {},
+                logging: {}
             }
         }
     );
 
-    // Typecheck that only valid weather requests/notifications/results are allowed
-    false &&
-        weatherClient.request(
-            {
-                method: 'weather/get',
-                params: {
-                    city: 'Seattle'
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {}
+            }
+        }
+    );
+
+    // Set up client handler for form-mode elicitation
+    client.setRequestHandler(ElicitRequestSchema, request => {
+        expect(request.params.mode).toBe('form');
+        return {
+            action: 'accept',
+            content: {
+                username: 'test-user',
+                confirmed: true
+            }
+        };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Server should be able to send form-mode elicitation request
+    // This works because getSupportedElicitationModes defaults to form mode
+    // when neither form nor url are explicitly declared
+    const result = await server.elicitInput({
+        mode: 'form',
+        message: 'Please provide your username',
+        requestedSchema: {
+            type: 'object',
+            properties: {
+                username: {
+                    type: 'string',
+                    title: 'Username',
+                    description: 'Your username'
+                },
+                confirmed: {
+                    type: 'boolean',
+                    title: 'Confirm',
+                    description: 'Please confirm',
+                    default: false
                 }
             },
-            WeatherResultSchema
-        );
+            required: ['username']
+        }
+    });
 
-    false &&
-        weatherClient.notification({
-            method: 'weather/alert',
-            params: {
-                severity: 'warning',
-                message: 'Storm approaching'
+    expect(result.action).toBe('accept');
+    expect(result.content).toEqual({
+        username: 'test-user',
+        confirmed: true
+    });
+});
+
+test('should reject form-mode elicitation when client only supports URL mode', async () => {
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    url: {}
+                }
             }
-        });
+        }
+    );
+
+    const handler = vi.fn().mockResolvedValue({
+        action: 'cancel'
+    });
+    client.setRequestHandler(ElicitRequestSchema, handler);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    let resolveResponse: ((message: unknown) => void) | undefined;
+    const responsePromise = new Promise<unknown>(resolve => {
+        resolveResponse = resolve;
+    });
+
+    serverTransport.onmessage = async message => {
+        if ('method' in message) {
+            if (message.method === 'initialize') {
+                if (!('id' in message) || message.id === undefined) {
+                    throw new Error('Expected initialize request to include an id');
+                }
+                const messageId = message.id;
+                await serverTransport.send({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: {},
+                        serverInfo: {
+                            name: 'test-server',
+                            version: '1.0.0'
+                        }
+                    }
+                });
+            } else if (message.method === 'notifications/initialized') {
+                // ignore
+            }
+        } else {
+            resolveResponse?.(message);
+        }
+    };
+
+    await client.connect(clientTransport);
+
+    // Server shouldn't send this, because the client capabilities
+    // only advertised URL mode. Test that it's rejected by the client:
+    const requestId = 1;
+    await serverTransport.send({
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'elicitation/create',
+        params: {
+            mode: 'form',
+            message: 'Provide your username',
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    username: {
+                        type: 'string'
+                    }
+                }
+            }
+        }
+    });
+
+    const response = (await responsePromise) as { id: number; error: { code: number; message: string } };
+
+    expect(response.id).toBe(requestId);
+    expect(response.error.code).toBe(ErrorCode.InvalidParams);
+    expect(response.error.message).toContain('Client does not support form-mode elicitation requests');
+    expect(handler).not.toHaveBeenCalled();
+
+    await client.close();
+});
+
+test('should reject URL-mode elicitation when client only supports form mode', async () => {
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    form: {}
+                }
+            }
+        }
+    );
+
+    const handler = vi.fn().mockResolvedValue({
+        action: 'cancel'
+    });
+    client.setRequestHandler(ElicitRequestSchema, handler);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    let resolveResponse: ((message: unknown) => void) | undefined;
+    const responsePromise = new Promise<unknown>(resolve => {
+        resolveResponse = resolve;
+    });
+
+    serverTransport.onmessage = async message => {
+        if ('method' in message) {
+            if (message.method === 'initialize') {
+                if (!('id' in message) || message.id === undefined) {
+                    throw new Error('Expected initialize request to include an id');
+                }
+                const messageId = message.id;
+                await serverTransport.send({
+                    jsonrpc: '2.0',
+                    id: messageId,
+                    result: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: {},
+                        serverInfo: {
+                            name: 'test-server',
+                            version: '1.0.0'
+                        }
+                    }
+                });
+            } else if (message.method === 'notifications/initialized') {
+                // ignore
+            }
+        } else {
+            resolveResponse?.(message);
+        }
+    };
+
+    await client.connect(clientTransport);
+
+    // Server shouldn't send this, because the client capabilities
+    // only advertised form mode. Test that it's rejected by the client:
+    const requestId = 2;
+    await serverTransport.send({
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'elicitation/create',
+        params: {
+            mode: 'url',
+            message: 'Open the authorization page',
+            elicitationId: 'elicitation-123',
+            url: 'https://example.com/authorize'
+        }
+    });
+
+    const response = (await responsePromise) as { id: number; error: { code: number; message: string } };
+
+    expect(response.id).toBe(requestId);
+    expect(response.error.code).toBe(ErrorCode.InvalidParams);
+    expect(response.error.message).toContain('Client does not support URL-mode elicitation requests');
+    expect(handler).not.toHaveBeenCalled();
+
+    await client.close();
+});
+
+test('should apply defaults for form-mode elicitation when applyDefaults is enabled', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                prompts: {},
+                resources: {},
+                tools: {},
+                logging: {}
+            }
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    form: {
+                        applyDefaults: true
+                    }
+                }
+            }
+        }
+    );
+
+    client.setRequestHandler(ElicitRequestSchema, request => {
+        expect(request.params.mode).toBe('form');
+        return {
+            action: 'accept',
+            content: {}
+        };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    const result = await server.elicitInput({
+        mode: 'form',
+        message: 'Please confirm your preferences',
+        requestedSchema: {
+            type: 'object',
+            properties: {
+                confirmed: {
+                    type: 'boolean',
+                    default: true
+                }
+            }
+        }
+    });
+
+    expect(result.action).toBe('accept');
+    expect(result.content).toEqual({
+        confirmed: true
+    });
+
+    await client.close();
 });
 
 /***
@@ -1234,5 +1628,43 @@ describe('outputSchema validation', () => {
         await expect(client.callTool({ name: 'strict-tool' })).rejects.toThrow(
             /Structured content does not match the tool's output schema/
         );
+    });
+});
+
+describe('getSupportedElicitationModes', () => {
+    test('should support nothing when capabilities are undefined', () => {
+        const result = getSupportedElicitationModes(undefined);
+        expect(result.supportsFormMode).toBe(false);
+        expect(result.supportsUrlMode).toBe(false);
+    });
+
+    test('should default to form mode when capabilities are an empty object', () => {
+        const result = getSupportedElicitationModes({});
+        expect(result.supportsFormMode).toBe(true);
+        expect(result.supportsUrlMode).toBe(false);
+    });
+
+    test('should support form mode when form is explicitly declared', () => {
+        const result = getSupportedElicitationModes({ form: {} });
+        expect(result.supportsFormMode).toBe(true);
+        expect(result.supportsUrlMode).toBe(false);
+    });
+
+    test('should support url mode when url is explicitly declared', () => {
+        const result = getSupportedElicitationModes({ url: {} });
+        expect(result.supportsFormMode).toBe(false);
+        expect(result.supportsUrlMode).toBe(true);
+    });
+
+    test('should support both modes when both are explicitly declared', () => {
+        const result = getSupportedElicitationModes({ form: {}, url: {} });
+        expect(result.supportsFormMode).toBe(true);
+        expect(result.supportsUrlMode).toBe(true);
+    });
+
+    test('should support form mode when form declares applyDefaults', () => {
+        const result = getSupportedElicitationModes({ form: { applyDefaults: true } });
+        expect(result.supportsFormMode).toBe(true);
+        expect(result.supportsUrlMode).toBe(false);
     });
 });

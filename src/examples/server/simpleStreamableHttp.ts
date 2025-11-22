@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';
@@ -111,11 +111,11 @@ const getServer = () => {
             };
         }
     );
-    // Register a tool that demonstrates elicitation (user input collection)
+    // Register a tool that demonstrates form elicitation (user input collection with a schema)
     // This creates a closure that captures the server instance
     server.tool(
         'collect-user-info',
-        'A tool that collects user information through elicitation',
+        'A tool that collects user information through form elicitation',
         {
             infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect')
         },
@@ -216,6 +216,7 @@ const getServer = () => {
             try {
                 // Use the underlying server instance to elicit input from the client
                 const result = await server.server.elicitInput({
+                    mode: 'form',
                     message,
                     requestedSchema
                 });

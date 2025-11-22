@@ -57,6 +57,23 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
             params
         });
 
+        // Simulate a user login
+        // Set a secure HTTP-only session cookie with authorization info
+        if (res.cookie) {
+            const authCookieData = {
+                userId: 'demo_user',
+                name: 'Demo User',
+                timestamp: Date.now()
+            };
+            res.cookie('demo_session', JSON.stringify(authCookieData), {
+                httpOnly: true,
+                secure: false, // In production, this should be true
+                sameSite: 'lax',
+                maxAge: 24 * 60 * 60 * 1000, // 24 hours - for demo purposes
+                path: '/' // Available to all routes
+            });
+        }
+
         if (!client.redirect_uris.includes(params.redirectUri)) {
             throw new InvalidRequestError('Unregistered redirect_uri');
         }

@@ -3,5 +3,5 @@
     "compilerOptions": {
         "outDir": "./dist/esm"
     },
-    "exclude": ["**/*.test.ts", "src/__mocks__/**/*"]
+    "exclude": ["**/*.test.ts", "src/__mocks__/**/*", "src/server/zodTestMatrix.ts"]
 }
