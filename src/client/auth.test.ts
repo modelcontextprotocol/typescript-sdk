@@ -95,6 +95,16 @@ describe('OAuth Authorization', () => {
 
             expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ scope: scope });
         });
+
+        it('returns error when present', async () => {
+            const mockResponse = {
+                headers: {
+                    get: vi.fn(name => (name === 'WWW-Authenticate' ? `Bearer error="insufficient_scope", scope="admin"` : null))
+                }
+            } as unknown as Response;
+
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ error: 'insufficient_scope', scope: 'admin' });
+        });
     });
 
     describe('discoverOAuthProtectedResourceMetadata', () => {

@@ -63,6 +63,16 @@ jobs:
 
             - run: npm ci
 
-            - run: npm publish --provenance --access public
+            - name: Determine npm tag
+              id: npm-tag
+              run: |
+                  VERSION=$(node -p "require('./package.json').version")
+                  if [[ "$VERSION" == *"-beta"* ]]; then
+                    echo "tag=--tag beta" >> $GITHUB_OUTPUT
+                  else
+                    echo "tag=" >> $GITHUB_OUTPUT
+                  fi
+
+            - run: npm publish --provenance --access public ${{ steps.npm-tag.outputs.tag }}
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
