@@ -25,7 +25,6 @@ import { InMemoryTaskMessageQueue } from '../examples/shared/inMemoryTaskStore.j
 // Type helper for accessing private Protocol properties in tests
 interface TestProtocol {
     _taskMessageQueue?: TaskMessageQueue;
-    _taskResultWaiters: Map<string, Array<() => void>>;
     _requestResolvers: Map<RequestId, (response: JSONRPCResponse | Error) => void>;
     _responseHandlers: Map<RequestId, (response: JSONRPCResponse | Error) => void>;
     _taskProgressTokens: Map<string, number>;
@@ -3074,46 +3073,8 @@ describe('Message interception for task-related notifications', () => {
         // notifications without relatedTask metadata are sent via transport, not queued
     });
 
-    it('should notify task result waiters after queuing', async () => {
-        const taskStore = createMockTaskStore();
-        const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(_method: string): void {}
-            protected assertNotificationCapability(_method: string): void {}
-            protected assertRequestHandlerCapability(_method: string): void {}
-            protected assertTaskCapability(_method: string): void {}
-            protected assertTaskHandlerCapability(_method: string): void {}
-        })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
-
-        await server.connect(transport);
-
-        // Create a task
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
-
-        // Set up a waiter
-        let waiterCalled = false;
-        const waiters = (server as unknown as TestProtocol)._taskResultWaiters;
-        waiters.set(task.taskId, [
-            () => {
-                waiterCalled = true;
-            }
-        ]);
-
-        // Send a notification with related task metadata
-        await server.notification(
-            {
-                method: 'notifications/message',
-                params: { level: 'info', data: 'test message' }
-            },
-            {
-                relatedTask: { taskId: task.taskId }
-            }
-        );
-
-        // Verify the waiter was called
-        expect(waiterCalled).toBe(true);
-        expect(waiters.has(task.taskId)).toBe(false); // Waiters should be cleared
-    });
+    // Test removed: _taskResultWaiters was removed in favor of polling-based task updates
+    // The functionality is still tested through integration tests that verify message queuing works
 
     it('should handle queue overflow by failing the task', async () => {
         const taskStore = createMockTaskStore();
@@ -3324,62 +3285,8 @@ describe('Message interception for task-related requests', () => {
         await requestPromise;
     });
 
-    it('should notify task result waiters after queuing request', async () => {
-        const taskStore = createMockTaskStore();
-        const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
-            protected assertCapabilityForMethod(_method: string): void {}
-            protected assertNotificationCapability(_method: string): void {}
-            protected assertRequestHandlerCapability(_method: string): void {}
-            protected assertTaskCapability(_method: string): void {}
-            protected assertTaskHandlerCapability(_method: string): void {}
-        })({ taskStore, taskMessageQueue: new InMemoryTaskMessageQueue() });
-
-        await server.connect(transport);
-
-        // Create a task
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: {} });
-
-        // Set up a waiter
-        let waiterCalled = false;
-        const waiters = (server as unknown as TestProtocol)._taskResultWaiters;
-        waiters.set(task.taskId, [
-            () => {
-                waiterCalled = true;
-            }
-        ]);
-
-        // Send a request with related task metadata
-        const requestPromise = server.request(
-            {
-                method: 'ping',
-                params: {}
-            },
-            z.object({}),
-            {
-                relatedTask: { taskId: task.taskId }
-            }
-        );
-
-        // Wait for the request to be queued and waiter to be called
-        await new Promise(resolve => setTimeout(resolve, 10));
-
-        // Verify the waiter was called
-        expect(waiterCalled).toBe(true);
-        expect(waiters.has(task.taskId)).toBe(false); // Waiters should be cleared
-
-        // Clean up
-        const queue = (server as unknown as TestProtocol)._taskMessageQueue;
-        const queuedMessage = await queue!.dequeue(task.taskId);
-        const requestId = (queuedMessage!.message as JSONRPCRequest).id as RequestId;
-        transport.onmessage?.({
-            jsonrpc: '2.0',
-            id: requestId,
-            result: {}
-        });
-
-        await requestPromise;
-    });
+    // Test removed: _taskResultWaiters was removed in favor of polling-based task updates
+    // The functionality is still tested through integration tests that verify message queuing works
 
     it('should store request resolver for response routing', async () => {
         const taskStore = createMockTaskStore();

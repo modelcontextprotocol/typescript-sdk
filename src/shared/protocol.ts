@@ -320,8 +320,6 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _taskStore?: TaskStore;
     private _taskMessageQueue?: TaskMessageQueue;
 
-    // Task result waiters for side-channel delivery in tasks
-    private _taskResultWaiters: Map<string, Array<() => void>> = new Map();
     private _requestResolvers: Map<RequestId, (response: JSONRPCResponse | Error) => void> = new Map();
 
     /**
@@ -1135,15 +1133,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     type: 'request',
                     message: jsonrpcRequest,
                     timestamp: Date.now()
-                })
-                    .then(() => {
-                        // Notify any waiting tasks/result calls
-                        this._notifyTaskResultWaiters(relatedTaskId);
-                    })
-                    .catch(error => {
-                        this._cleanupTimeout(messageId);
-                        reject(error);
-                    });
+                }).catch(error => {
+                    this._cleanupTimeout(messageId);
+                    reject(error);
+                });
 
                 // Don't send through transport - queued messages are delivered via tasks/result only
                 // This prevents duplicate delivery for bidirectional transports
@@ -1224,9 +1217,6 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 message: jsonrpcNotification,
                 timestamp: Date.now()
             });
-
-            // Notify any waiting tasks/result calls
-            this._notifyTaskResultWaiters(relatedTaskId);
 
             // Don't send through transport - queued messages are delivered via tasks/result only
             // This prevents duplicate delivery for bidirectional transports
@@ -1435,28 +1425,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     }
 
     /**
-     * Notifies any waiting tasks/result calls that new messages are available or task status changed.
-     * @param taskId The task ID to notify waiters for
-     */
-    private _notifyTaskResultWaiters(taskId: string): void {
-        const waiters = this._taskResultWaiters.get(taskId);
-        if (waiters) {
-            for (const waiter of waiters) {
-                waiter();
-            }
-            this._taskResultWaiters.delete(taskId);
-        }
-    }
-
-    /**
      * Waits for a task update (new messages or status change) with abort signal support.
-     * This method uses a hybrid approach:
-     * 1. Primary: Event-driven notifications via _notifyTaskResultWaiters() when messages
-     *    are queued or task status changes
-     * 2. Fallback: Lightweight polling (every 100ms) to handle edge cases and race conditions
-     *
-     * The polling serves as a safety net for scenarios where notifications might be missed
-     * due to timing issues, but the event-driven approach handles the majority of cases.
+     * Uses polling to check for updates at the task's configured poll interval.
      * @param taskId The task ID to wait for
      * @param signal Abort signal to cancel the wait
      * @returns Promise that resolves when an update occurs or rejects if aborted
@@ -1479,32 +1449,18 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 return;
             }
 
-            const waiters = this._taskResultWaiters.get(taskId) || [];
-            waiters.push(resolve);
-            this._taskResultWaiters.set(taskId, waiters);
+            // Wait for the poll interval, then resolve so caller can check for updates
+            const timeoutId = setTimeout(resolve, interval);
 
+            // Clean up timeout and reject if aborted
             signal.addEventListener(
                 'abort',
                 () => {
+                    clearTimeout(timeoutId);
                     reject(new McpError(ErrorCode.InvalidRequest, 'Request cancelled'));
                 },
                 { once: true }
             );
-
-            // Polling as a fallback mechanism for edge cases and race conditions
-            // Most updates will be handled by event-driven notifications via _notifyTaskResultWaiters()
-            // We trigger notification on every poll - the handler will check if work is available
-            const pollInterval = setInterval(async () => {
-                try {
-                    this._notifyTaskResultWaiters(taskId);
-                } catch {
-                    // Ignore errors during polling
-                }
-            }, interval);
-
-            // Clean up the interval when the promise resolves or rejects
-            const cleanup = () => clearInterval(pollInterval);
-            signal.addEventListener('abort', cleanup, { once: true });
         });
     }
 
