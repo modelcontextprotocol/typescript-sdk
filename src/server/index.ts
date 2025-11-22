@@ -30,7 +30,9 @@ import {
     type ServerRequest,
     type ServerResult,
     SetLevelRequestSchema,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_PROTOCOL_VERSIONS,
+    type ToolResultContent,
+    type ToolUseContent
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
@@ -326,6 +328,41 @@ export class Server<
     }
 
     async createMessage(params: CreateMessageRequest['params'], options?: RequestOptions) {
+        if (params.tools || params.toolChoice) {
+            if (!this._clientCapabilities?.sampling?.tools) {
+                throw new Error('Client does not support sampling tools capability.');
+            }
+
+            const lastMessage = params.messages[params.messages.length - 1];
+            const lastContent = Array.isArray(lastMessage.content) ? lastMessage.content : [lastMessage.content];
+            const hasToolResults = lastContent.some(c => c.type === 'tool_result');
+
+            const previousMessage = params.messages[params.messages.length - 2];
+            const previousContent = previousMessage
+                ? Array.isArray(previousMessage.content)
+                    ? previousMessage.content
+                    : [previousMessage.content]
+                : [];
+            const hasPreviousToolUse = previousContent.some(c => c.type === 'tool_use');
+
+            if (hasToolResults) {
+                if (lastContent.some(c => c.type !== 'tool_result')) {
+                    throw new Error('The last message must contain only tool_result content if any is present');
+                }
+                if (!hasPreviousToolUse) {
+                    throw new Error('tool_result blocks are not matching any tool_use from the previous message');
+                }
+            }
+            if (hasPreviousToolUse) {
+                const toolUseIds = new Set(previousContent.filter(c => c.type === 'tool_use').map(c => (c as ToolUseContent).id));
+                const toolResultIds = new Set(
+                    lastContent.filter(c => c.type === 'tool_result').map(c => (c as ToolResultContent).toolUseId)
+                );
+                if (toolUseIds.size !== toolResultIds.size || ![...toolUseIds].every(id => toolResultIds.has(id))) {
+                    throw new Error('ids of tool_result blocks and tool_use blocks from previous message do not match');
+                }
+            }
+        }
         return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
