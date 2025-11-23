@@ -546,9 +546,9 @@ export class StreamableHTTPClientTransport implements Transport {
             if (hasRequests) {
                 if (contentType?.includes('text/event-stream')) {
                     // Handle SSE stream responses for requests
-                    // We use the same handler as standalone streams, which now supports
-                    // reconnection with the last event ID
-                    this._handleSseStream(response.body, { onresumptiontoken }, false);
+                    // Enable auto-reconnection for POST SSE streams per SEP-1699:
+                    // Server may close connection and client should poll via GET with Last-Event-ID
+                    this._handleSseStream(response.body, { onresumptiontoken }, true);
                 } else if (contentType?.includes('application/json')) {
                     // For non-streaming servers, we might get direct JSON responses
                     const data = await response.json();
