@@ -1341,8 +1341,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(sseResponse.status).toBe(200);
             expect(sseResponse.headers.get('content-type')).toBe('text/event-stream');
 
-            const reader = sseResponse.body?.getReader();
-
             // Send a notification that should be stored with an event ID
             const notification: JSONRPCMessage = {
                 jsonrpc: '2.0',
@@ -1354,6 +1352,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await transport.send(notification);
 
             // Read from the stream and verify we got the notification with an event ID
+            const reader = sseResponse.body?.getReader();
             const { value } = await reader!.read();
             const text = new TextDecoder().decode(value);
 
@@ -1385,12 +1384,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
             expect(sseResponse.status).toBe(200);
 
-            const reader = sseResponse.body?.getReader();
-
             // Send a server notification through the MCP server
             await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'First notification from MCP server' });
 
             // Read the notification from the SSE stream
+            const reader = sseResponse.body?.getReader();
             const { value } = await reader!.read();
             const text = new TextDecoder().decode(value);
 
