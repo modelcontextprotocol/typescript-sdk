@@ -746,10 +746,8 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock.mock.calls[1][1]?.method).toBe('GET');
         });
 
-        it('should reconnect a POST-initiated stream that fails (SEP-1699)', async () => {
+        it('should NOT reconnect a POST-initiated stream that fails', async () => {
             // ARRANGE
-            // Per SEP-1699, POST-initiated SSE streams should support reconnection
-            // so clients can poll for results after server-initiated disconnection
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
                     initialReconnectionDelay: 10,
@@ -777,19 +775,6 @@ describe('StreamableHTTPClientTransport', () => {
                 body: failingStream
             });
 
-            // Mock the GET reconnection attempts - each graceful close triggers another reconnect
-            // until maxRetries is reached
-            fetchMock.mockResolvedValue({
-                ok: true,
-                status: 200,
-                headers: new Headers({ 'content-type': 'text/event-stream' }),
-                body: new ReadableStream({
-                    start(controller) {
-                        controller.close(); // End the stream cleanly - triggers reconnect
-                    }
-                })
-            });
-
             // A dummy request message to trigger the `send` logic.
             const requestMessage: JSONRPCRequest = {
                 jsonrpc: '2.0',
@@ -802,7 +787,7 @@ describe('StreamableHTTPClientTransport', () => {
             await transport.start();
             // Use the public `send` method to initiate a POST that gets a stream response.
             await transport.send(requestMessage);
-            await vi.advanceTimersByTimeAsync(20); // Advance time to trigger reconnection
+            await vi.advanceTimersByTimeAsync(20); // Advance time to check for reconnections
 
             // ASSERT
             expect(errorSpy).toHaveBeenCalledWith(
@@ -810,11 +795,9 @@ describe('StreamableHTTPClientTransport', () => {
                     message: expect.stringContaining('SSE stream disconnected: Error: Network failure')
                 })
             );
-            // THE KEY ASSERTION: With SEP-1699, POST streams now reconnect via GET
-            // First call is POST, subsequent calls are GET reconnection attempts
-            expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+            // THE KEY ASSERTION: Fetch was only called ONCE. No reconnection was attempted.
+            expect(fetchMock).toHaveBeenCalledTimes(1);
             expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
-            expect(fetchMock.mock.calls[1][1]?.method).toBe('GET'); // Reconnection via GET
         });
     });
 
