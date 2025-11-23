@@ -799,6 +799,70 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock).toHaveBeenCalledTimes(1);
             expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
         });
+
+        it('should reconnect a POST-initiated stream after receiving a priming event', async () => {
+            // ARRANGE
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 1,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            // Create a stream that sends a priming event (with ID) then closes
+            const streamWithPrimingEvent = new ReadableStream({
+                start(controller) {
+                    // Send a priming event with an ID - this enables reconnection
+                    controller.enqueue(
+                        new TextEncoder().encode('id: event-123\ndata: {"jsonrpc":"2.0","method":"notifications/message","params":{}}\n\n')
+                    );
+                    // Then close the stream (simulating server disconnect)
+                    controller.close();
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            // First call: POST returns streaming response with priming event
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: streamWithPrimingEvent
+            });
+            // Second call: GET reconnection - return 405 to stop further reconnection
+            fetchMock.mockResolvedValueOnce({
+                ok: false,
+                status: 405,
+                headers: new Headers()
+            });
+
+            const requestMessage: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'long_running_tool',
+                id: 'request-1',
+                params: {}
+            };
+
+            // ACT
+            await transport.start();
+            await transport.send(requestMessage);
+            // Wait for stream to process and reconnection to be scheduled
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT
+            // THE KEY ASSERTION: Fetch was called TWICE - POST then GET reconnection
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
+            expect(fetchMock.mock.calls[1][1]?.method).toBe('GET');
+            // Verify Last-Event-ID header was sent for reconnection
+            const reconnectHeaders = fetchMock.mock.calls[1][1]?.headers as Headers;
+            expect(reconnectHeaders.get('last-event-id')).toBe('event-123');
+        });
     });
 
     it('invalidates all credentials on InvalidClientError during auth', async () => {

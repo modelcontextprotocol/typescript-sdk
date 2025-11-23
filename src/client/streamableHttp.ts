@@ -302,6 +302,9 @@ export class StreamableHTTPClientTransport implements Transport {
         const { onresumptiontoken, replayMessageId } = options;
 
         let lastEventId: string | undefined;
+        // Track whether we've received a priming event (event with ID)
+        // Per spec, server SHOULD send a priming event with ID before closing
+        let hasPrimingEvent = false;
         const processStream = async () => {
             // this is the closest we can get to trying to catch network errors
             // if something happens reader will throw
@@ -328,6 +331,8 @@ export class StreamableHTTPClientTransport implements Transport {
                     // Update last event ID if provided
                     if (event.id) {
                         lastEventId = event.id;
+                        // Mark that we've received a priming event - stream is now resumable
+                        hasPrimingEvent = true;
                         onresumptiontoken?.(event.id);
                     }
 
@@ -346,7 +351,9 @@ export class StreamableHTTPClientTransport implements Transport {
 
                 // Handle graceful server-side disconnect
                 // Server may close connection after sending event ID and retry field
-                if (isReconnectable && this._abortController && !this._abortController.signal.aborted) {
+                // Reconnect if: already reconnectable (GET stream) OR received a priming event (POST stream with event ID)
+                const canResume = isReconnectable || hasPrimingEvent;
+                if (canResume && this._abortController && !this._abortController.signal.aborted) {
                     this._scheduleReconnection(
                         {
                             resumptionToken: lastEventId,
@@ -361,7 +368,9 @@ export class StreamableHTTPClientTransport implements Transport {
                 this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
 
                 // Attempt to reconnect if the stream disconnects unexpectedly and we aren't closing
-                if (isReconnectable && this._abortController && !this._abortController.signal.aborted) {
+                // Reconnect if: already reconnectable (GET stream) OR received a priming event (POST stream with event ID)
+                const canResume = isReconnectable || hasPrimingEvent;
+                if (canResume && this._abortController && !this._abortController.signal.aborted) {
                     // Use the exponential backoff reconnection strategy
                     try {
                         this._scheduleReconnection(
