@@ -471,7 +471,6 @@ const getServer = () => {
                 // Create the task
                 const task = await taskStore.createTask(
                     {
-                        taskId,
                         ttl: taskRequestedTtl,
                         pollInterval: 100
                     },
