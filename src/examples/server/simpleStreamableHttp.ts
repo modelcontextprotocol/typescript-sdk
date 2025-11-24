@@ -478,13 +478,13 @@ const getServer = () => {
                         pollInterval: 100
                     },
                     0,
-                    { method: 'tools/call', params: { name: 'createTask', arguments: { duration } } }
+                    { method: 'tools/call', params: { name: 'delay', arguments: { duration } } }
                 );
 
                 // Simulate out-of-band work
                 (async () => {
                     await new Promise(resolve => setTimeout(resolve, duration));
-                    await taskStore.storeTaskResult(taskId, 'completed', {
+                    await taskStore.storeTaskResult(task.taskId, 'completed', {
                         content: [
                             {
                                 type: 'text',
