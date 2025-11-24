@@ -266,7 +266,7 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     /**
-     * Schedule a reconnection attempt with exponential backoff
+     * Schedule a reconnection attempt using server-provided retry interval or backoff
      *
      * @param lastEventId The ID of the last received event for resumability
      * @param attemptCount Current reconnection attempt count for this specific stream

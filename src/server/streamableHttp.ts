@@ -40,9 +40,8 @@ export interface EventStore {
      * @param eventId The event ID to look up
      * @returns The stream ID, or undefined if not found
      *
-     * Optional: If not provided, the SDK will attempt to parse the streamId
-     * from the eventId assuming format "streamId::...". Implementations should
-     * provide this method for more reliable stream ID resolution.
+     * Optional: If not provided, the SDK will use the streamId returned by
+     * replayEventsAfter for stream mapping.
      */
     getStreamIdForEventId?(eventId: EventId): Promise<StreamId | undefined>;
 
