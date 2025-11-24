@@ -54,14 +54,10 @@ describe('Task Lifecycle Integration Tests', () => {
             },
             {
                 async createTask({ duration, shouldFail }, extra) {
-                    const task = await extra.taskStore.createTask(
-                        {
-                            ttl: 60000,
-                            pollInterval: 100
-                        },
-                        0,
-                        { method: 'tools/call', params: { name: 'long-task', arguments: { duration, shouldFail } } }
-                    );
+                    const task = await extra.taskStore.createTask({
+                        ttl: 60000,
+                        pollInterval: 100
+                    });
 
                     // Simulate async work
                     (async () => {
@@ -111,14 +107,10 @@ describe('Task Lifecycle Integration Tests', () => {
             },
             {
                 async createTask({ userName }, extra) {
-                    const task = await extra.taskStore.createTask(
-                        {
-                            ttl: 60000,
-                            pollInterval: 100
-                        },
-                        0,
-                        { method: 'tools/call', params: { name: 'input-task', arguments: { userName } } }
-                    );
+                    const task = await extra.taskStore.createTask({
+                        ttl: 60000,
+                        pollInterval: 100
+                    });
 
                     // Perform async work that requires elicitation
                     (async () => {
@@ -415,14 +407,10 @@ describe('Task Lifecycle Integration Tests', () => {
                 },
                 {
                     async createTask({ requestCount }, extra) {
-                        const task = await extra.taskStore.createTask(
-                            {
-                                ttl: 60000,
-                                pollInterval: 100
-                            },
-                            0,
-                            { method: 'tools/call', params: { name: 'multi-request-task', arguments: { requestCount } } }
-                        );
+                        const task = await extra.taskStore.createTask({
+                            ttl: 60000,
+                            pollInterval: 100
+                        });
 
                         // Perform async work that sends multiple requests
                         (async () => {
@@ -912,14 +900,10 @@ describe('Task Lifecycle Integration Tests', () => {
                 },
                 {
                     async createTask({ messageCount }, extra) {
-                        const task = await extra.taskStore.createTask(
-                            {
-                                ttl: 60000,
-                                pollInterval: 100
-                            },
-                            0,
-                            { method: 'tools/call', params: { name: 'cancellable-task', arguments: { messageCount } } }
-                        );
+                        const task = await extra.taskStore.createTask({
+                            ttl: 60000,
+                            pollInterval: 100
+                        });
 
                         // Perform async work that queues messages
                         (async () => {
@@ -1114,14 +1098,10 @@ describe('Task Lifecycle Integration Tests', () => {
                 },
                 {
                     async createTask({ messageCount, delayBetweenMessages }, extra) {
-                        const task = await extra.taskStore.createTask(
-                            {
-                                ttl: 60000,
-                                pollInterval: 100
-                            },
-                            0,
-                            { method: 'tools/call', params: { name: 'streaming-task', arguments: { messageCount, delayBetweenMessages } } }
-                        );
+                        const task = await extra.taskStore.createTask({
+                            ttl: 60000,
+                            pollInterval: 100
+                        });
 
                         // Perform async work that sends messages over time
                         (async () => {
@@ -1334,14 +1314,10 @@ describe('Task Lifecycle Integration Tests', () => {
                 },
                 {
                     async createTask({ messageCount }, extra) {
-                        const task = await extra.taskStore.createTask(
-                            {
-                                ttl: 60000,
-                                pollInterval: 100
-                            },
-                            0,
-                            { method: 'tools/call', params: { name: 'quick-complete-task', arguments: { messageCount } } }
-                        );
+                        const task = await extra.taskStore.createTask({
+                            ttl: 60000,
+                            pollInterval: 100
+                        });
 
                         // Perform async work that queues messages and completes quickly
                         (async () => {
