@@ -1405,29 +1405,29 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 
 // Implement TaskStore backed by your database (e.g., PostgreSQL, Redis, etc.)
 class MyTaskStore implements TaskStore {
-    async createTask(taskParams, requestId, request) {
-        // Generate unique taskId and createdAt timestamp
-        // Store task in your database
-        // Return Task object with generated taskId
+    async createTask(taskParams, requestId, request, sessionId?): Promise<Task> {
+        // Generate unique taskId and lastUpdatedAt/createdAt timestamps
+        // Store task in your database, using the session ID as a proxy to restrict unauthorized access
+        // Return final Task object
     }
 
-    async getTask(taskId) {
+    async getTask(taskId): Promise<Task | null> {
         // Retrieve task from your database
     }
 
-    async updateTaskStatus(taskId, status, statusMessage?) {
+    async updateTaskStatus(taskId, status, statusMessage?): Promise<void> {
         // Update task status in your database
     }
 
-    async storeTaskResult(taskId, result) {
+    async storeTaskResult(taskId, result): Promise<void> {
         // Store task result in your database
     }
 
-    async getTaskResult(taskId) {
+    async getTaskResult(taskId): Promise<Result> {
         // Retrieve task result from your database
     }
 
-    async listTasks(cursor?, sessionId?) {
+    async listTasks(cursor?, sessionId?): Promise<{ tasks: Task[]; nextCursor?: string }> {
         // List tasks with pagination support
     }
 }
@@ -1441,51 +1441,74 @@ const server = new Server(
     },
     {
         capabilities: {
-            tools: {}
+            tools: {},
+            // Declare capabilities
+            tasks: {
+                list: {},
+                cancel: {},
+                requests: {
+                    tools: {
+                        // Declares support for tasks on tools/call
+                        call: {}
+                    }
+                }
+            }
         },
         taskStore // Enable task support
     }
 );
 
-// Set up a long-running tool handler as usual
-server.setRequestHandler(CallToolRequestSchema, async request => {
-    if (request.params.name === 'analyze-data') {
-        // Simulate long-running analysis
-        await new Promise(resolve => setTimeout(resolve, 30000));
-
-        return {
-            content: [
-                {
-                    type: 'text',
-                    text: 'Analysis complete!'
-                }
-            ]
-        };
-    }
-    throw new Error('Unknown tool');
-});
-
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
-        {
-            name: 'analyze-data',
-            description: 'Perform data analysis (long-running)',
-            inputSchema: {
-                type: 'object',
-                properties: {
-                    dataset: { type: 'string' }
-                }
-            }
+// Register a tool that supports tasks
+server.registerToolTask(
+    'my-echo-tool',
+    {
+        title: 'My Echo Tool',
+        description: 'A simple task-based echo tool.',
+        inputSchema: {
+            message: z.string().describe('Message to send')
         }
-    ]
-}));
+    },
+    {
+        async createTask({ message }, { taskStore, taskRequestedTtl, requestId }) {
+            // Create the task
+            const task = await taskStore.createTask({
+                ttl: taskRequestedTtl
+            });
+
+            // Simulate out-of-band work
+            (async () => {
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                await taskStore.storeTaskResult(task.taskId, 'completed', {
+                    content: [
+                        {
+                            type: 'text',
+                            text: message
+                        }
+                    ]
+                });
+            })();
+
+            // Return CreateTaskResult with the created task
+            return { task };
+        },
+        async getTask(_args, { taskId, taskStore }) {
+            // Retrieve the task
+            return await taskStore.getTask(taskId);
+        },
+        async getTaskResult(_args, { taskId, taskStore }) {
+            // Retrieve the result of the task
+            const result = await taskStore.getTaskResult(taskId);
+            return result as CallToolResult;
+        }
+    }
+);
 ```
 
-**Note**: See `src/examples/shared/inMemoryTaskStore.ts` in the SDK source for a reference implementation suitable for development and testing.
+**Note**: See `src/examples/shared/inMemoryTaskStore.ts` in the SDK source for a reference task store implementation suitable for development and testing.
 
 #### Client-Side: Using Task-Based Execution
 
-Clients use `beginCallTool()` to initiate task-based operations. The returned `PendingRequest` object provides automatic polling and status tracking:
+Clients use `callToolStream()` to initiate task-augmented tool calls. The returned `AsyncGenerator` abstracts automatic polling and status updates:
 
 ```typescript
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -1498,35 +1521,40 @@ const client = new Client({
 
 // ... connect to server ...
 
-// Initiate a task-based tool call
-const taskId = 'analysis-task-123';
-const pendingRequest = client.beginCallTool(
+// Call the tool with task metadata using streaming API
+const stream = client.callToolStream(
     {
-        name: 'analyze-data',
-        arguments: { dataset: 'user-data.csv' }
+        name: 'my-echo-tool',
+        arguments: { message: 'Hello, world!' }
     },
-    CallToolResultSchema,
-    {
-        task: {
-            taskId,
-            keepAlive: 300000 // Keep results for 5 minutes after completion
-        }
-    }
+    CallToolResultSchema
 );
 
-// Option 1: Wait for completion with status callbacks
-const result = await pendingRequest.result({
-    onTaskCreated: () => {
-        console.log('Task created successfully');
-    },
-    onTaskStatus: task => {
-        console.log(`Task status: ${task.status}`);
-        // Status can be: 'submitted', 'working', 'input_required', 'completed', 'failed', or 'cancelled'
+// Iterate the stream and handle stream events
+let taskId = '';
+for await (const message of stream) {
+    switch (message.type) {
+        case 'taskCreated':
+            console.log('Task created successfully with ID:', message.task.taskId);
+            taskId = message.task.taskId;
+            break;
+        case 'taskStatus':
+            console.log(`  ${message.task.status}${message.task.statusMessage ?? ''}`);
+            break;
+        case 'result':
+            console.log('Task completed! Tool result:');
+            message.result.content.forEach(item => {
+                if (item.type === 'text') {
+                    console.log(`  ${item.text}`);
+                }
+            });
+            break;
+        case 'error':
+            throw message.error;
     }
-});
-console.log('Task completed:', result);
+}
 
-// Option 2: Fire and forget - disconnect and reconnect later
+// Optional: Fire and forget - disconnect and reconnect later
 // (useful when you don't want to wait for long-running tasks)
 // Later, after disconnecting and reconnecting to the server:
 const taskStatus = await client.getTask({ taskId });
@@ -1538,19 +1566,20 @@ if (taskStatus.status === 'completed') {
 }
 ```
 
+The `callToolStream()` method also works with non-task tools, making it a drop-in replacement for `callTool()` in applications that support it. When used to invoke a tool that doesn't support tasks, the `taskCreated` and `taskStatus` events will not be emitted.
+
 #### Task Status Lifecycle
 
 Tasks transition through the following states:
 
-- **submitted**: Task has been created and queued
 - **working**: Task is actively being processed
 - **input_required**: Task is waiting for additional input (e.g., from elicitation)
 - **completed**: Task finished successfully
 - **failed**: Task encountered an error
 - **cancelled**: Task was cancelled by the client
-- **unknown**: Task status could not be determined (terminal state, rarely occurs)
 
-The `keepAlive` parameter determines how long the server retains task results after completion. This allows clients to retrieve results even after disconnecting and reconnecting.
+The `ttl` parameter suggests how long the server will manage the task for. If the task duration exceeds this, the server may delete the task prematurely. The client's suggested value may be overridden by the server, and the final TTL will be provided in `Task.ttl` in
+`taskCreated` and `taskStatus` events.
 
 ### Writing MCP Clients
 

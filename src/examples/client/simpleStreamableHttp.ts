@@ -837,7 +837,7 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
         for await (const message of stream) {
             switch (message.type) {
                 case 'taskCreated':
-                    console.log('Task created successfully');
+                    console.log('Task created successfully with ID:', message.task.taskId);
                     break;
                 case 'taskStatus':
                     if (lastStatus !== message.task.status) {
