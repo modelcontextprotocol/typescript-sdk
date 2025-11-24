@@ -41,12 +41,14 @@ export class InMemoryTaskStore implements TaskStore {
 
         const actualTtl = taskParams.ttl ?? null;
 
-        // Create task with generated ID and timestamp
+        // Create task with generated ID and timestamps
+        const createdAt = new Date().toISOString();
         const task: Task = {
             taskId,
             status: 'working',
             ttl: actualTtl,
-            createdAt: new Date().toISOString(),
+            createdAt,
+            lastUpdatedAt: createdAt,
             pollInterval: taskParams.pollInterval ?? 1000
         };
 
@@ -90,6 +92,7 @@ export class InMemoryTaskStore implements TaskStore {
 
         stored.result = result;
         stored.task.status = status;
+        stored.task.lastUpdatedAt = new Date().toISOString();
 
         // Reset cleanup timer to start from now (if ttl is set)
         if (stored.task.ttl) {
@@ -137,6 +140,8 @@ export class InMemoryTaskStore implements TaskStore {
         if (statusMessage) {
             stored.task.statusMessage = statusMessage;
         }
+
+        stored.task.lastUpdatedAt = new Date().toISOString();
 
         // If task is in a terminal state and has ttl, start cleanup timer
         if (isTerminal(status) && stored.task.ttl) {

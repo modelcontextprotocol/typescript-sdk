@@ -652,6 +652,10 @@ export const TaskSchema = z.object({
      * ISO 8601 timestamp when the task was created.
      */
     createdAt: z.string(),
+    /**
+     * ISO 8601 timestamp when the task was last updated.
+     */
+    lastUpdatedAt: z.string(),
     pollInterval: z.optional(z.number()),
     /**
      * Optional diagnostic message for failed tasks or other status information.

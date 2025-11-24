@@ -54,11 +54,13 @@ function createMockTaskStore(options?: {
         createTask: vi.fn((taskParams: TaskCreationParams, _1: RequestId, _2: Request) => {
             // Generate a unique task ID
             const taskId = `test-task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const createdAt = new Date().toISOString();
             const task = (tasks[taskId] = {
                 taskId,
                 status: 'working',
                 ttl: taskParams.ttl ?? null,
-                createdAt: new Date().toISOString(),
+                createdAt,
+                lastUpdatedAt: createdAt,
                 pollInterval: taskParams.pollInterval ?? 1000
             });
             options?.onStatus?.('working');
@@ -1335,8 +1337,22 @@ describe('Task-based execution', () => {
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(3);
             expect(sentMessage.result.tasks).toEqual([
-                { taskId: task1.taskId, status: 'completed', ttl: null, createdAt: expect.any(String), pollInterval: 500 },
-                { taskId: task2.taskId, status: 'working', ttl: 60000, createdAt: expect.any(String), pollInterval: 1000 }
+                {
+                    taskId: task1.taskId,
+                    status: 'completed',
+                    ttl: null,
+                    createdAt: expect.any(String),
+                    lastUpdatedAt: expect.any(String),
+                    pollInterval: 500
+                },
+                {
+                    taskId: task2.taskId,
+                    status: 'working',
+                    ttl: 60000,
+                    createdAt: expect.any(String),
+                    lastUpdatedAt: expect.any(String),
+                    pollInterval: 1000
+                }
             ]);
             expect(sentMessage.result._meta).toEqual({});
         });
@@ -1384,7 +1400,14 @@ describe('Task-based execution', () => {
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(2);
             expect(sentMessage.result.tasks).toEqual([
-                { taskId: task3.taskId, status: 'working', ttl: null, createdAt: expect.any(String), pollInterval: 500 }
+                {
+                    taskId: task3.taskId,
+                    status: 'working',
+                    ttl: null,
+                    createdAt: expect.any(String),
+                    lastUpdatedAt: expect.any(String),
+                    pollInterval: 500
+                }
             ]);
             expect(sentMessage.result.nextCursor).toBeUndefined();
             expect(sentMessage.result._meta).toEqual({});
@@ -1472,7 +1495,16 @@ describe('Task-based execution', () => {
                     jsonrpc: '2.0',
                     id: sendSpy.mock.calls[0][0].id,
                     result: {
-                        tasks: [{ taskId: 'task-1', status: 'completed', ttl: null, createdAt: '2024-01-01T00:00:00Z', pollInterval: 500 }],
+                        tasks: [
+                            {
+                                taskId: 'task-1',
+                                status: 'completed',
+                                ttl: null,
+                                createdAt: '2024-01-01T00:00:00Z',
+                                lastUpdatedAt: '2024-01-01T00:00:00Z',
+                                pollInterval: 500
+                            }
+                        ],
                         nextCursor: undefined,
                         _meta: {}
                     }
@@ -1504,7 +1536,14 @@ describe('Task-based execution', () => {
                     id: sendSpy.mock.calls[0][0].id,
                     result: {
                         tasks: [
-                            { taskId: 'task-11', status: 'working', ttl: 30000, createdAt: '2024-01-01T00:00:00Z', pollInterval: 1000 }
+                            {
+                                taskId: 'task-11',
+                                status: 'working',
+                                ttl: 30000,
+                                createdAt: '2024-01-01T00:00:00Z',
+                                lastUpdatedAt: '2024-01-01T00:00:00Z',
+                                pollInterval: 1000
+                            }
                         ],
                         nextCursor: 'task-11',
                         _meta: {}
