@@ -625,6 +625,11 @@ app.post('/mcp', async (req, res) => {
     }
 });
 
+// Handle GET requests when session management is not supported - the server must return an HTTP 405 status code in this case
+app.get('/mcp', (req, res) => {
+    res.status(405).end();
+});
+
 const port = parseInt(process.env.PORT || '3000');
 app.listen(port, () => {
     console.log(`MCP Server running on http://localhost:${port}/mcp`);
