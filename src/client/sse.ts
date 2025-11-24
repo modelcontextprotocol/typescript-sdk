@@ -1,7 +1,7 @@
 import { EventSource, type ErrorEvent, type EventSourceInit } from 'eventsource';
-import { Transport, FetchLike } from '../shared/transport.js';
+import { Transport, FetchLike, createFetchWithInit } from '../shared/transport.js';
 import { JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
-import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from './auth.js';
+import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { createUserAgentProvider, UserAgentProvider } from '../shared/userAgent.js';
 
 export class SseError extends Error {
@@ -63,6 +63,7 @@ export type SSEClientTransportOptions = {
 /**
  * Client transport for SSE: this will connect to a server using Server-Sent Events for receiving
  * messages and make separate POST requests for sending messages.
+ * @deprecated SSEClientTransport is deprecated. Prefer to use StreamableHTTPClientTransport where possible instead. Note that because some servers are still using SSE, clients may need to support both transports during the migration period.
  */
 export class SSEClientTransport implements Transport {
     private _eventSource?: EventSource;
@@ -70,10 +71,12 @@ export class SSEClientTransport implements Transport {
     private _abortController?: AbortController;
     private _url: URL;
     private _resourceMetadataUrl?: URL;
+    private _scope?: string;
     private _eventSourceInit?: EventSourceInit;
     private _requestInit?: RequestInit;
     private _authProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
+    private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
     private _userAgentProvider: UserAgentProvider;
 
@@ -84,10 +87,12 @@ export class SSEClientTransport implements Transport {
     constructor(url: URL, opts?: SSEClientTransportOptions) {
         this._url = url;
         this._resourceMetadataUrl = undefined;
+        this._scope = undefined;
         this._eventSourceInit = opts?.eventSourceInit;
         this._requestInit = opts?.requestInit;
         this._authProvider = opts?.authProvider;
         this._fetch = opts?.fetch;
+        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._userAgentProvider = opts?.userAgentProvider ?? createUserAgentProvider();
     }
 
@@ -101,7 +106,8 @@ export class SSEClientTransport implements Transport {
             result = await auth(this._authProvider, {
                 serverUrl: this._url,
                 resourceMetadataUrl: this._resourceMetadataUrl,
-                fetchFn: this._fetch,
+                scope: this._scope,
+                fetchFn: this._fetchWithInit,
                 userAgentProvider: this._userAgentProvider
             });
         } catch (error) {
@@ -147,7 +153,9 @@ export class SSEClientTransport implements Transport {
                     });
 
                     if (response.status === 401 && response.headers.has('www-authenticate')) {
-                        this._resourceMetadataUrl = extractResourceMetadataUrl(response);
+                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        this._scope = scope;
                     }
 
                     return response;
@@ -224,7 +232,8 @@ export class SSEClientTransport implements Transport {
             serverUrl: this._url,
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
-            fetchFn: this._fetch,
+            scope: this._scope,
+            fetchFn: this._fetchWithInit,
             userAgentProvider: this._userAgentProvider
         });
         if (result !== 'AUTHORIZED') {
@@ -257,12 +266,15 @@ export class SSEClientTransport implements Transport {
             const response = await (this._fetch ?? fetch)(this._endpoint, init);
             if (!response.ok) {
                 if (response.status === 401 && this._authProvider) {
-                    this._resourceMetadataUrl = extractResourceMetadataUrl(response);
+                    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                    this._resourceMetadataUrl = resourceMetadataUrl;
+                    this._scope = scope;
 
                     const result = await auth(this._authProvider, {
                         serverUrl: this._url,
                         resourceMetadataUrl: this._resourceMetadataUrl,
-                        fetchFn: this._fetch,
+                        scope: this._scope,
+                        fetchFn: this._fetchWithInit,
                         userAgentProvider: this._userAgentProvider
                     });
                     if (result !== 'AUTHORIZED') {

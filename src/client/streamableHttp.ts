@@ -1,7 +1,7 @@
 import { createUserAgentProvider, UserAgentProvider } from '../shared/userAgent.js';
-import { Transport, FetchLike } from '../shared/transport.js';
+import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../shared/transport.js';
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
-import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from './auth.js';
+import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
 // Default reconnection options for StreamableHTTP connections
@@ -131,13 +131,16 @@ export class StreamableHTTPClientTransport implements Transport {
     private _abortController?: AbortController;
     private _url: URL;
     private _resourceMetadataUrl?: URL;
+    private _scope?: string;
     private _requestInit?: RequestInit;
     private _authProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
+    private _fetchWithInit: FetchLike;
     private _sessionId?: string;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
     private _hasCompletedAuthFlow = false; // Circuit breaker: detect auth success followed by immediate 401
+    private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
     private _userAgentProvider: UserAgentProvider;
 
     onclose?: () => void;
@@ -147,9 +150,11 @@ export class StreamableHTTPClientTransport implements Transport {
     constructor(url: URL, opts?: StreamableHTTPClientTransportOptions) {
         this._url = url;
         this._resourceMetadataUrl = undefined;
+        this._scope = undefined;
         this._requestInit = opts?.requestInit;
         this._authProvider = opts?.authProvider;
         this._fetch = opts?.fetch;
+        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
         this._userAgentProvider = opts?.userAgentProvider ?? createUserAgentProvider();
@@ -165,7 +170,8 @@ export class StreamableHTTPClientTransport implements Transport {
             result = await auth(this._authProvider, {
                 serverUrl: this._url,
                 resourceMetadataUrl: this._resourceMetadataUrl,
-                fetchFn: this._fetch,
+                scope: this._scope,
+                fetchFn: this._fetchWithInit,
                 userAgentProvider: this._userAgentProvider
             });
         } catch (error) {
@@ -198,7 +204,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
         headers['user-agent'] = await this._userAgentProvider();
 
-        const extraHeaders = this._normalizeHeaders(this._requestInit?.headers);
+        const extraHeaders = normalizeHeaders(this._requestInit?.headers);
 
         return new Headers({
             ...headers,
@@ -263,20 +269,6 @@ export class StreamableHTTPClientTransport implements Transport {
         return Math.min(initialDelay * Math.pow(growFactor, attempt), maxDelay);
     }
 
-    private _normalizeHeaders(headers: HeadersInit | undefined): Record<string, string> {
-        if (!headers) return {};
-
-        if (headers instanceof Headers) {
-            return Object.fromEntries(headers.entries());
-        }
-
-        if (Array.isArray(headers)) {
-            return Object.fromEntries(headers);
-        }
-
-        return { ...(headers as Record<string, string>) };
-    }
-
     /**
      * Schedule a reconnection attempt with exponential backoff
      *
@@ -319,7 +311,10 @@ export class StreamableHTTPClientTransport implements Transport {
             // if something happens reader will throw
             try {
                 // Create a pipeline: binary stream -> text decoder -> SSE parser
-                const reader = stream.pipeThrough(new TextDecoderStream()).pipeThrough(new EventSourceParserStream()).getReader();
+                const reader = stream
+                    .pipeThrough(new TextDecoderStream() as ReadableWritablePair<string, Uint8Array>)
+                    .pipeThrough(new EventSourceParserStream())
+                    .getReader();
 
                 while (true) {
                     const { value: event, done } = await reader.read();
@@ -392,7 +387,8 @@ export class StreamableHTTPClientTransport implements Transport {
             serverUrl: this._url,
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
-            fetchFn: this._fetch,
+            scope: this._scope,
+            fetchFn: this._fetchWithInit,
             userAgentProvider: this._userAgentProvider
         });
         if (result !== 'AUTHORIZED') {
@@ -449,12 +445,15 @@ export class StreamableHTTPClientTransport implements Transport {
                         throw new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
                     }
 
-                    this._resourceMetadataUrl = extractResourceMetadataUrl(response);
+                    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                    this._resourceMetadataUrl = resourceMetadataUrl;
+                    this._scope = scope;
 
                     const result = await auth(this._authProvider, {
                         serverUrl: this._url,
                         resourceMetadataUrl: this._resourceMetadataUrl,
-                        fetchFn: this._fetch,
+                        scope: this._scope,
+                        fetchFn: this._fetchWithInit,
                         userAgentProvider: this._userAgentProvider
                     });
                     if (result !== 'AUTHORIZED') {
@@ -467,12 +466,50 @@ export class StreamableHTTPClientTransport implements Transport {
                     return this.send(message);
                 }
 
+                if (response.status === 403 && this._authProvider) {
+                    const { resourceMetadataUrl, scope, error } = extractWWWAuthenticateParams(response);
+
+                    if (error === 'insufficient_scope') {
+                        const wwwAuthHeader = response.headers.get('WWW-Authenticate');
+
+                        // Check if we've already tried upscoping with this header to prevent infinite loops.
+                        if (this._lastUpscopingHeader === wwwAuthHeader) {
+                            throw new StreamableHTTPError(403, 'Server returned 403 after trying upscoping');
+                        }
+
+                        if (scope) {
+                            this._scope = scope;
+                        }
+
+                        if (resourceMetadataUrl) {
+                            this._resourceMetadataUrl = resourceMetadataUrl;
+                        }
+
+                        // Mark that upscoping was tried.
+                        this._lastUpscopingHeader = wwwAuthHeader ?? undefined;
+                        const result = await auth(this._authProvider, {
+                            serverUrl: this._url,
+                            resourceMetadataUrl: this._resourceMetadataUrl,
+                            scope: this._scope,
+                            fetchFn: this._fetchWithInit,
+                            userAgentProvider: this._userAgentProvider
+                        });
+
+                        if (result !== 'AUTHORIZED') {
+                            throw new UnauthorizedError();
+                        }
+
+                        return this.send(message);
+                    }
+                }
+
                 const text = await response.text().catch(() => null);
                 throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
             }
 
             // Reset auth loop flag on successful response
             this._hasCompletedAuthFlow = false;
+            this._lastUpscopingHeader = undefined;
 
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {

@@ -1,4 +1,4 @@
-import { auth, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from './auth.js';
+import { auth, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { FetchLike } from '../shared/transport.js';
 import { createUserAgentProvider, UserAgentProvider } from '../shared/userAgent.js';
 
@@ -57,7 +57,7 @@ export const withOAuth =
             // Handle 401 responses by attempting re-authentication
             if (response.status === 401) {
                 try {
-                    const resourceMetadataUrl = extractResourceMetadataUrl(response);
+                    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
 
                     // Use provided baseUrl or extract from request URL
                     const serverUrl = baseUrl || (typeof input === 'string' ? new URL(input).origin : input.origin);
@@ -65,6 +65,7 @@ export const withOAuth =
                     const result = await auth(provider, {
                         serverUrl,
                         resourceMetadataUrl,
+                        scope,
                         fetchFn: next,
                         userAgentProvider: uaProvider
                     });

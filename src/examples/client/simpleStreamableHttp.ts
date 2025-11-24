@@ -17,7 +17,9 @@ import {
     ElicitRequestSchema,
     ResourceLink,
     ReadResourceRequest,
-    ReadResourceResultSchema
+    ReadResourceResultSchema,
+    ErrorCode,
+    McpError
 } from '../../types.js';
 import { getDisplayName } from '../../shared/metadataUtils.js';
 import { Ajv } from 'ajv';
@@ -60,7 +62,7 @@ function printHelp(): void {
     console.log('  call-tool <name> [args]    - Call a tool with optional JSON arguments');
     console.log('  greet [name]               - Call the greet tool');
     console.log('  multi-greet [name]         - Call the multi-greet tool with notifications');
-    console.log('  collect-info [type]        - Test elicitation with collect-user-info tool (contact/preferences/feedback)');
+    console.log('  collect-info [type]        - Test form elicitation with collect-user-info tool (contact/preferences/feedback)');
     console.log('  start-notifications [interval] [count] - Start periodic notifications');
     console.log('  run-notifications-tool-with-resumability [interval] [count] - Run notification tool with resumability');
     console.log('  list-prompts               - List available prompts');
@@ -211,7 +213,7 @@ async function connect(url?: string): Promise<void> {
     console.log(`Connecting to ${serverUrl}...`);
 
     try {
-        // Create a new client with elicitation capability
+        // Create a new client with form elicitation capability
         client = new Client(
             {
                 name: 'example-client',
@@ -219,7 +221,9 @@ async function connect(url?: string): Promise<void> {
             },
             {
                 capabilities: {
-                    elicitation: {}
+                    elicitation: {
+                        form: {}
+                    }
                 }
             }
         );
@@ -229,7 +233,10 @@ async function connect(url?: string): Promise<void> {
 
         // Set up elicitation request handler with proper validation
         client.setRequestHandler(ElicitRequestSchema, async request => {
-            console.log('\n🔔 Elicitation Request Received:');
+            if (request.params.mode !== 'form') {
+                throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
+            }
+            console.log('\n🔔 Elicitation (form) Request Received:');
             console.log(`Message: ${request.params.message}`);
             console.log('Requested Schema:');
             console.log(JSON.stringify(request.params.requestedSchema, null, 2));
@@ -610,7 +617,7 @@ async function callMultiGreetTool(name: string): Promise<void> {
 }
 
 async function callCollectInfoTool(infoType: string): Promise<void> {
-    console.log(`Testing elicitation with collect-user-info tool (${infoType})...`);
+    console.log(`Testing form elicitation with collect-user-info tool (${infoType})...`);
     await callTool('collect-user-info', { infoType });
 }
 
@@ -703,7 +710,7 @@ async function getPrompt(name: string, args: Record<string, unknown>): Promise<v
         const promptResult = await client.request(promptRequest, GetPromptResultSchema);
         console.log('Prompt template:');
         promptResult.messages.forEach((msg, index) => {
-            console.log(`  [${index + 1}] ${msg.role}: ${msg.content.text}`);
+            console.log(`  [${index + 1}] ${msg.role}: ${msg.content.type === 'text' ? msg.content.text : JSON.stringify(msg.content)}`);
         });
     } catch (error) {
         console.log(`Error getting prompt ${name}: ${error}`);

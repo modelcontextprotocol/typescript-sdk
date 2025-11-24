@@ -1,9 +1,11 @@
-// Run with: npx tsx src/examples/server/elicitationExample.ts
+// Run with: npx tsx src/examples/server/elicitationFormExample.ts
 //
-// This example demonstrates how to use elicitation to collect structured user input
+// This example demonstrates how to use form elicitation to collect structured user input
 // with JSON Schema validation via a local HTTP server with SSE streaming.
-// Elicitation allows servers to request user input through the client interface
+// Form elicitation allows servers to request *non-sensitive* user input through the client
 // with schema-based validation.
+// Note: See also elicitationUrlExample.ts for an example of using URL elicitation
+// to collect *sensitive* user input via a browser.
 
 import { randomUUID } from 'node:crypto';
 import cors from 'cors';
@@ -16,7 +18,7 @@ import { isInitializeRequest } from '../../types.js';
 // The validator supports format validation (email, date, etc.) if ajv-formats is installed
 const mcpServer = new McpServer(
     {
-        name: 'elicitation-example-server',
+        name: 'form-elicitation-example-server',
         version: '1.0.0'
     },
     {
@@ -36,8 +38,9 @@ mcpServer.registerTool(
     },
     async () => {
         try {
-            // Request user information through elicitation
+            // Request user information through form elicitation
             const result = await mcpServer.server.elicitInput({
+                mode: 'form',
                 message: 'Please provide your registration information:',
                 requestedSchema: {
                     type: 'object',
@@ -123,7 +126,7 @@ mcpServer.registerTool(
 );
 
 /**
- * Example 2: Multi-step workflow with multiple elicitation requests
+ * Example 2: Multi-step workflow with multiple form elicitation requests
  * Demonstrates how to collect information in multiple steps
  */
 mcpServer.registerTool(
@@ -136,6 +139,7 @@ mcpServer.registerTool(
         try {
             // Step 1: Collect basic event information
             const basicInfo = await mcpServer.server.elicitInput({
+                mode: 'form',
                 message: 'Step 1: Enter basic event information',
                 requestedSchema: {
                     type: 'object',
@@ -164,6 +168,7 @@ mcpServer.registerTool(
 
             // Step 2: Collect date and time
             const dateTime = await mcpServer.server.elicitInput({
+                mode: 'form',
                 message: 'Step 2: Enter date and time',
                 requestedSchema: {
                     type: 'object',
@@ -177,8 +182,7 @@ mcpServer.registerTool(
                         startTime: {
                             type: 'string',
                             title: 'Start Time',
-                            description: 'Event start time (HH:MM)',
-                            pattern: '^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'
+                            description: 'Event start time (HH:MM)'
                         },
                         duration: {
                             type: 'integer',
@@ -239,6 +243,7 @@ mcpServer.registerTool(
     async () => {
         try {
             const result = await mcpServer.server.elicitInput({
+                mode: 'form',
                 message: 'Please provide your shipping address:',
                 requestedSchema: {
                     type: 'object',
@@ -268,8 +273,7 @@ mcpServer.registerTool(
                         zipCode: {
                             type: 'string',
                             title: 'ZIP/Postal Code',
-                            description: '5-digit ZIP code',
-                            pattern: '^[0-9]{5}$'
+                            description: '5-digit ZIP code'
                         },
                         phone: {
                             type: 'string',
@@ -443,7 +447,7 @@ async function main() {
             console.error('Failed to start server:', error);
             process.exit(1);
         }
-        console.log(`Elicitation example server is running on http://localhost:${PORT}/mcp`);
+        console.log(`Form elicitation example server is running on http://localhost:${PORT}/mcp`);
         console.log('Available tools:');
         console.log('  - register_user: Collect user registration information');
         console.log('  - create_event: Multi-step event creation');
