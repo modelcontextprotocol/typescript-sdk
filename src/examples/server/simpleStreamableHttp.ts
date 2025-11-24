@@ -467,7 +467,6 @@ const getServer = () => {
         },
         {
             async createTask({ duration }, { taskStore, taskRequestedTtl }) {
-                // Generate a simple task ID (in production, use a more secure method)
 
                 // Create the task
                 const task = await taskStore.createTask(
