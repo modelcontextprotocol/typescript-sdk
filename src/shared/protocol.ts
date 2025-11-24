@@ -181,11 +181,9 @@ export interface RequestTaskStore {
      * The implementation generates a unique taskId and createdAt timestamp.
      *
      * @param taskParams - The task creation parameters from the request
-     * @param requestId - The JSON-RPC request ID
-     * @param request - The original request that triggered task creation
      * @returns The created task object
      */
-    createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request): Promise<Task>;
+    createTask(taskParams: CreateTaskOptions): Promise<Task>;
 
     /**
      * Gets the current status of a task.

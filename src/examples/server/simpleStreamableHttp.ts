@@ -466,15 +466,11 @@ const getServer = () => {
             }
         },
         {
-            async createTask({ duration }, { taskStore, taskRequestedTtl, requestId }) {
+            async createTask({ duration }, { taskStore, taskRequestedTtl }) {
                 // Create the task
-                const task = await taskStore.createTask(
-                    {
-                        ttl: taskRequestedTtl
-                    },
-                    requestId,
-                    { method: 'tools/call', params: { name: 'delay', arguments: { duration } } }
-                );
+                const task = await taskStore.createTask({
+                    ttl: taskRequestedTtl
+                });
 
                 // Simulate out-of-band work
                 (async () => {
@@ -495,12 +491,7 @@ const getServer = () => {
                 };
             },
             async getTask(_args, { taskId, taskStore }) {
-                const task = await taskStore.getTask(taskId);
-                if (!task) {
-                    throw new Error(`Task ${taskId} not found`);
-                }
-
-                return task;
+                return await taskStore.getTask(taskId);
             },
             async getTaskResult(_args, { taskId, taskStore }) {
                 const result = await taskStore.getTaskResult(taskId);
