@@ -45,7 +45,7 @@ import {
 } from '../types.js';
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
-import { isTerminal, TaskStore, TaskMessageQueue, QueuedMessage } from './task.js';
+import { isTerminal, TaskStore, TaskMessageQueue, QueuedMessage, CreateTaskOptions } from './task.js';
 import { getMethodLiteral, parseWithCompat } from '../server/zod-json-schema-compat.js';
 import { ResponseMessage } from './responseMessage.js';
 
@@ -180,18 +180,19 @@ export interface RequestTaskStore {
      * Creates a new task with the given creation parameters.
      * The implementation generates a unique taskId and createdAt timestamp.
      *
-     * @param taskParams - The task creation parameters from the request (ttl, pollInterval)
+     * @param taskParams - The task creation parameters from the request
      * @param requestId - The JSON-RPC request ID
      * @param request - The original request that triggered task creation
-     * @returns The task state including generated taskId, createdAt timestamp, status, ttl, pollInterval, and optional statusMessage
+     * @returns The created task object
      */
-    createTask(taskParams: TaskCreationParams, requestId: RequestId, request: Request): Promise<Task>;
+    createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request): Promise<Task>;
 
     /**
      * Gets the current status of a task.
      *
      * @param taskId - The task identifier
-     * @returns The task state including status, ttl, pollInterval, and optional statusMessage
+     * @returns The task object
+     * @throws If the task does not exist
      */
     getTask(taskId: string): Promise<Task>;
 

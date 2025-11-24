@@ -466,15 +466,13 @@ const getServer = () => {
             }
         },
         {
-            async createTask({ duration }, { taskStore, taskRequestedTtl }) {
-
+            async createTask({ duration }, { taskStore, taskRequestedTtl, requestId }) {
                 // Create the task
                 const task = await taskStore.createTask(
                     {
-                        ttl: taskRequestedTtl,
-                        pollInterval: 100
+                        ttl: taskRequestedTtl
                     },
-                    0,
+                    requestId,
                     { method: 'tools/call', params: { name: 'delay', arguments: { duration } } }
                 );
 

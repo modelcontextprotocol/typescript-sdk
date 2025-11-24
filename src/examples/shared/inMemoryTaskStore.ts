@@ -1,5 +1,5 @@
-import { Task, TaskCreationParams, Request, RequestId, Result } from '../../types.js';
-import { TaskStore, isTerminal, TaskMessageQueue, QueuedMessage } from '../../shared/task.js';
+import { Task, Request, RequestId, Result } from '../../types.js';
+import { TaskStore, isTerminal, TaskMessageQueue, QueuedMessage, CreateTaskOptions } from '../../shared/task.js';
 import { randomBytes } from 'crypto';
 
 interface StoredTask {
@@ -30,7 +30,7 @@ export class InMemoryTaskStore implements TaskStore {
         return randomBytes(16).toString('hex');
     }
 
-    async createTask(taskParams: TaskCreationParams, requestId: RequestId, request: Request, _sessionId?: string): Promise<Task> {
+    async createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request, _sessionId?: string): Promise<Task> {
         // Generate a unique task ID
         const taskId = this.generateTaskId();
 
@@ -47,7 +47,7 @@ export class InMemoryTaskStore implements TaskStore {
             status: 'working',
             ttl: actualTtl,
             createdAt: new Date().toISOString(),
-            pollInterval: taskParams.pollInterval ?? 500
+            pollInterval: taskParams.pollInterval ?? 1000
         };
 
         this.tasks.set(taskId, {

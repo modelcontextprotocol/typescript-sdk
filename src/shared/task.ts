@@ -1,14 +1,4 @@
-import {
-    Task,
-    TaskCreationParams,
-    Request,
-    RequestId,
-    Result,
-    JSONRPCRequest,
-    JSONRPCNotification,
-    JSONRPCResponse,
-    JSONRPCError
-} from '../types.js';
+import { Task, Request, RequestId, Result, JSONRPCRequest, JSONRPCNotification, JSONRPCResponse, JSONRPCError } from '../types.js';
 
 /**
  * Represents a message queued for side-channel delivery via tasks/result.
@@ -93,6 +83,27 @@ export interface TaskMessageQueue {
 }
 
 /**
+ * Task creation options.
+ */
+export interface CreateTaskOptions {
+    /**
+     * Time in milliseconds to keep task results available after completion.
+     * If null, the task has unlimited lifetime until manually cleaned up.
+     */
+    ttl?: number | null;
+
+    /**
+     * Time in milliseconds to wait between task status requests.
+     */
+    pollInterval?: number;
+
+    /**
+     * Additional context to pass to the task store.
+     */
+    context?: Record<string, unknown>;
+}
+
+/**
  * Interface for storing and retrieving task state and results.
  *
  * Similar to Transport, this allows pluggable task storage implementations
@@ -114,16 +125,16 @@ export interface TaskStore {
      * @param requestId - The JSON-RPC request ID
      * @param request - The original request that triggered task creation
      * @param sessionId - Optional session ID for binding the task to a specific session
-     * @returns The task state including generated taskId, createdAt timestamp, status, ttl, pollInterval, and optional statusMessage
+     * @returns The created task object
      */
-    createTask(taskParams: TaskCreationParams, requestId: RequestId, request: Request, sessionId?: string): Promise<Task>;
+    createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request, sessionId?: string): Promise<Task>;
 
     /**
      * Gets the current status of a task.
      *
      * @param taskId - The task identifier
      * @param sessionId - Optional session ID for binding the query to a specific session
-     * @returns The task state including status, ttl, pollInterval, and optional statusMessage
+     * @returns The task object, or null if it does not exist
      */
     getTask(taskId: string, sessionId?: string): Promise<Task | null>;
 
