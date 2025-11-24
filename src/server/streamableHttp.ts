@@ -435,13 +435,11 @@ export class StreamableHTTPServerTransport implements Transport {
                 }
             });
 
-            // Use streamId from getStreamIdForEventId if available, otherwise from replay
-            const finalStreamId = streamId ?? replayedStreamId;
-            this._streamMapping.set(finalStreamId, res);
+            this._streamMapping.set(replayedStreamId, res);
 
             // Set up close handler for client disconnects
             res.on('close', () => {
-                this._streamMapping.delete(finalStreamId);
+                this._streamMapping.delete(replayedStreamId);
             });
 
             // Add error handler for replay stream
