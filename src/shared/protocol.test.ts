@@ -2657,13 +2657,12 @@ describe('Progress notification support for tasks', () => {
                 jsonrpc: '2.0',
                 method: 'notifications/tasks/status',
                 params: {
-                    task: {
-                        taskId,
-                        status: 'failed',
-                        ttl: 60000,
-                        createdAt: new Date().toISOString(),
-                        statusMessage: 'Task failed'
-                    }
+                    taskId,
+                    status: 'failed',
+                    ttl: 60000,
+                    createdAt: new Date().toISOString(),
+                    lastUpdatedAt: new Date().toISOString(),
+                    statusMessage: 'Task failed'
                 }
             });
         }
@@ -2753,13 +2752,12 @@ describe('Progress notification support for tasks', () => {
                 jsonrpc: '2.0',
                 method: 'notifications/tasks/status',
                 params: {
-                    task: {
-                        taskId,
-                        status: 'cancelled',
-                        ttl: 60000,
-                        createdAt: new Date().toISOString(),
-                        statusMessage: 'User cancelled'
-                    }
+                    taskId,
+                    status: 'cancelled',
+                    ttl: 60000,
+                    createdAt: new Date().toISOString(),
+                    lastUpdatedAt: new Date().toISOString(),
+                    statusMessage: 'User cancelled'
                 }
             });
         }
