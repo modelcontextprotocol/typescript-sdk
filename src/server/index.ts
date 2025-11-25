@@ -30,12 +30,12 @@ import {
     type ServerRequest,
     type ServerResult,
     SetLevelRequestSchema,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_PROTOCOL_VERSIONS,
+    type ToolResultContent,
+    type ToolUseContent
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
-
-type LegacyElicitRequestFormParams = Omit<ElicitRequestFormParams, 'mode'>;
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -326,38 +326,60 @@ export class Server<
     }
 
     async createMessage(params: CreateMessageRequest['params'], options?: RequestOptions) {
+        // Capability check - only required when tools/toolChoice are provided
+        if (params.tools || params.toolChoice) {
+            if (!this._clientCapabilities?.sampling?.tools) {
+                throw new Error('Client does not support sampling tools capability.');
+            }
+        }
+
+        // Message structure validation - always validate tool_use/tool_result pairs.
+        // These may appear even without tools/toolChoice in the current request when
+        // a previous sampling request returned tool_use and this is a follow-up with results.
+        if (params.messages.length > 0) {
+            const lastMessage = params.messages[params.messages.length - 1];
+            const lastContent = Array.isArray(lastMessage.content) ? lastMessage.content : [lastMessage.content];
+            const hasToolResults = lastContent.some(c => c.type === 'tool_result');
+
+            const previousMessage = params.messages.length > 1 ? params.messages[params.messages.length - 2] : undefined;
+            const previousContent = previousMessage
+                ? Array.isArray(previousMessage.content)
+                    ? previousMessage.content
+                    : [previousMessage.content]
+                : [];
+            const hasPreviousToolUse = previousContent.some(c => c.type === 'tool_use');
+
+            if (hasToolResults) {
+                if (lastContent.some(c => c.type !== 'tool_result')) {
+                    throw new Error('The last message must contain only tool_result content if any is present');
+                }
+                if (!hasPreviousToolUse) {
+                    throw new Error('tool_result blocks are not matching any tool_use from the previous message');
+                }
+            }
+            if (hasPreviousToolUse) {
+                const toolUseIds = new Set(previousContent.filter(c => c.type === 'tool_use').map(c => (c as ToolUseContent).id));
+                const toolResultIds = new Set(
+                    lastContent.filter(c => c.type === 'tool_result').map(c => (c as ToolResultContent).toolUseId)
+                );
+                if (toolUseIds.size !== toolResultIds.size || ![...toolUseIds].every(id => toolResultIds.has(id))) {
+                    throw new Error('ids of tool_result blocks and tool_use blocks from previous message do not match');
+                }
+            }
+        }
+
         return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
     /**
      * Creates an elicitation request for the given parameters.
-     * @param params The parameters for the form elicitation request (explicit mode: 'form').
+     * For backwards compatibility, `mode` may be omitted for form requests and will default to `'form'`.
+     * @param params The parameters for the elicitation request.
      * @param options Optional request options.
      * @returns The result of the elicitation request.
      */
-    async elicitInput(params: ElicitRequestFormParams, options?: RequestOptions): Promise<ElicitResult>;
-    /**
-     * Creates an elicitation request for the given parameters.
-     * @param params The parameters for the URL elicitation request (with url and elicitationId).
-     * @param options Optional request options.
-     * @returns The result of the elicitation request.
-     */
-    async elicitInput(params: ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult>;
-    /**
-     * Creates an elicitation request for the given parameters.
-     * @deprecated Use the overloads with explicit `mode: 'form' | 'url'` instead.
-     * @param params The parameters for the form elicitation request (legacy signature without mode).
-     * @param options Optional request options.
-     * @returns The result of the elicitation request.
-     */
-    async elicitInput(params: LegacyElicitRequestFormParams, options?: RequestOptions): Promise<ElicitResult>;
-
-    // Implementation (not visible to callers)
-    async elicitInput(
-        params: LegacyElicitRequestFormParams | ElicitRequestFormParams | ElicitRequestURLParams,
-        options?: RequestOptions
-    ): Promise<ElicitResult> {
-        const mode = ('mode' in params ? params.mode : 'form') as 'form' | 'url';
+    async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
+        const mode = (params.mode ?? 'form') as 'form' | 'url';
 
         switch (mode) {
             case 'url': {
@@ -372,10 +394,9 @@ export class Server<
                 if (!this._clientCapabilities?.elicitation?.form) {
                     throw new Error('Client does not support form elicitation.');
                 }
+
                 const formParams: ElicitRequestFormParams =
-                    'mode' in params
-                        ? (params as ElicitRequestFormParams)
-                        : ({ ...(params as LegacyElicitRequestFormParams), mode: 'form' } as ElicitRequestFormParams);
+                    params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
 
                 const result = await this.request({ method: 'elicitation/create', params: formParams }, ElicitResultSchema, options);
 

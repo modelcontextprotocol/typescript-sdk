@@ -14,6 +14,7 @@ import {
     CallToolRequestSchema,
     CreateMessageRequestSchema,
     ElicitRequestSchema,
+    ElicitResultSchema,
     ListRootsRequestSchema,
     ErrorCode
 } from '../types.js';
@@ -915,6 +916,64 @@ test('should reject form-mode elicitation when client only supports URL mode', a
     expect(handler).not.toHaveBeenCalled();
 
     await client.close();
+});
+
+test('should reject missing-mode elicitation when client only supports URL mode', async () => {
+    const server = new Server(
+        {
+            name: 'test server',
+            version: '1.0'
+        },
+        {
+            capabilities: {}
+        }
+    );
+
+    const client = new Client(
+        {
+            name: 'test client',
+            version: '1.0'
+        },
+        {
+            capabilities: {
+                elicitation: {
+                    url: {}
+                }
+            }
+        }
+    );
+
+    const handler = vi.fn().mockResolvedValue({
+        action: 'cancel'
+    });
+    client.setRequestHandler(ElicitRequestSchema, handler);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await expect(
+        server.request(
+            {
+                method: 'elicitation/create',
+                params: {
+                    message: 'Please provide data',
+                    requestedSchema: {
+                        type: 'object',
+                        properties: {
+                            username: {
+                                type: 'string'
+                            }
+                        }
+                    }
+                }
+            },
+            ElicitResultSchema
+        )
+    ).rejects.toThrow('Client does not support form-mode elicitation requests');
+
+    expect(handler).not.toHaveBeenCalled();
+
+    await Promise.all([client.close(), server.close()]);
 });
 
 test('should reject URL-mode elicitation when client only supports form mode', async () => {
