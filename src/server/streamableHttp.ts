@@ -1,6 +1,7 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { Transport } from '../shared/transport.js';
 import {
+    CloseSSEStreamOptions,
     MessageExtraInfo,
     RequestInfo,
     isInitializeRequest,
@@ -649,7 +650,15 @@ export class StreamableHTTPServerTransport implements Transport {
 
                 // handle each message
                 for (const message of messages) {
-                    this.onmessage?.(message, { authInfo, requestInfo });
+                    // Build closeSSEStream callback for requests when eventStore is configured
+                    let closeSSEStream: ((options?: CloseSSEStreamOptions) => void) | undefined;
+                    if (isJSONRPCRequest(message) && this._eventStore) {
+                        closeSSEStream = (options?: CloseSSEStreamOptions) => {
+                            this.closeSSEStream(message.id, options?.retryInterval);
+                        };
+                    }
+
+                    this.onmessage?.(message, { authInfo, requestInfo, closeSSEStream });
                 }
                 // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
                 // This will be handled by the send() method when responses are ready
@@ -794,13 +803,21 @@ export class StreamableHTTPServerTransport implements Transport {
      * Close an SSE stream for a specific request, triggering client reconnection.
      * Use this to implement polling behavior during long-running operations -
      * client will reconnect after the retry interval specified in the priming event.
+     *
+     * @param requestId - The request ID whose stream should be closed
+     * @param retryInterval - Optional retry interval in milliseconds to send before closing.
+     *                        If provided, sends a retry field to override the transport default.
      */
-    closeSSEStream(requestId: RequestId): void {
+    closeSSEStream(requestId: RequestId, retryInterval?: number): void {
         const streamId = this._requestToStreamMapping.get(requestId);
         if (!streamId) return;
 
         const stream = this._streamMapping.get(streamId);
         if (stream) {
+            // If a custom retry interval is provided, send it before closing
+            if (retryInterval !== undefined) {
+                stream.write(`retry: ${retryInterval}\n\n`);
+            }
             stream.end();
             this._streamMapping.delete(streamId);
         }

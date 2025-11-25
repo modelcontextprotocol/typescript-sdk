@@ -2125,6 +2125,17 @@ export interface RequestInfo {
 }
 
 /**
+ * Options for closing an SSE stream.
+ */
+export interface CloseSSEStreamOptions {
+    /**
+     * Retry interval in milliseconds to suggest to clients before closing.
+     * When set, sends an SSE retry field to override the transport's default.
+     */
+    retryInterval?: number;
+}
+
+/**
  * Extra information about a message.
  */
 export interface MessageExtraInfo {
@@ -2137,6 +2148,12 @@ export interface MessageExtraInfo {
      * The authentication information.
      */
     authInfo?: AuthInfo;
+
+    /**
+     * Callback to close the SSE stream for this request, triggering client reconnection.
+     * Only available when using StreamableHTTPServerTransport with eventStore configured.
+     */
+    closeSSEStream?: (options?: CloseSSEStreamOptions) => void;
 }
 
 /* JSON-RPC types */
