@@ -61,13 +61,13 @@ import { validateAndWarnToolName } from '../shared/toolNameValidation.js';
  */
 export type CallToolResult<T extends ZodRawShapeCompat | AnySchema | undefined = undefined> = T extends ZodRawShapeCompat
     ? Omit<BaseCallToolResult, 'structuredContent'> & {
-        structuredContent?: ShapeOutput<T>;
-    }
+          structuredContent?: ShapeOutput<T>;
+      }
     : T extends AnySchema
-    ? Omit<BaseCallToolResult, 'structuredContent'> & {
-        structuredContent?: SchemaOutput<T>;
-    }
-    : BaseCallToolResult;
+      ? Omit<BaseCallToolResult, 'structuredContent'> & {
+            structuredContent?: SchemaOutput<T>;
+        }
+      : BaseCallToolResult;
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -137,9 +137,9 @@ export class McpServer {
                                 const obj = normalizeObjectSchema(tool.inputSchema);
                                 return obj
                                     ? (toJsonSchemaCompat(obj, {
-                                        strictUnions: true,
-                                        pipeStrategy: 'input'
-                                    }) as Tool['inputSchema'])
+                                          strictUnions: true,
+                                          pipeStrategy: 'input'
+                                      }) as Tool['inputSchema'])
                                     : EMPTY_OBJECT_JSON_SCHEMA;
                             })(),
                             annotations: tool.annotations,
@@ -1104,15 +1104,15 @@ export type ToolCallback<
     OutputArgs extends undefined | ZodRawShapeCompat | AnySchema = undefined
 > = InputArgs extends ZodRawShapeCompat
     ? (
-        args: ShapeOutput<InputArgs>,
-        extra: RequestHandlerExtra<ServerRequest, ServerNotification>
-    ) => CallToolResult<OutputArgs> | Promise<CallToolResult<OutputArgs>>
+          args: ShapeOutput<InputArgs>,
+          extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+      ) => CallToolResult<OutputArgs> | Promise<CallToolResult<OutputArgs>>
     : InputArgs extends AnySchema
-    ? (
-        args: SchemaOutput<InputArgs>,
-        extra: RequestHandlerExtra<ServerRequest, ServerNotification>
-    ) => CallToolResult<OutputArgs> | Promise<CallToolResult<OutputArgs>>
-    : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult<OutputArgs> | Promise<CallToolResult<OutputArgs>>;
+      ? (
+            args: SchemaOutput<InputArgs>,
+            extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+        ) => CallToolResult<OutputArgs> | Promise<CallToolResult<OutputArgs>>
+      : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult<OutputArgs> | Promise<CallToolResult<OutputArgs>>;
 
 export type RegisteredTool = {
     title?: string;
