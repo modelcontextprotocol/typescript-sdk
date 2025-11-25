@@ -2284,8 +2284,8 @@ describe('Task-based execution', () => {
 
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-            // Create a task on client
-            const pending = server.request(
+            // Create a task on client and wait for completion
+            const result = await server.request(
                 {
                     method: 'elicitation/create',
                     params: {
@@ -2300,6 +2300,10 @@ describe('Task-based execution', () => {
                 ElicitResultSchema,
                 { task: { ttl: 60000 } }
             );
+
+            // Verify the result was returned correctly
+            expect(result.action).toBe('accept');
+            expect(result.content).toEqual({ username: 'list-user' });
 
             // Get the task ID from the task list since it's generated automatically
             const taskList = await server.listTasks();
@@ -2376,8 +2380,8 @@ describe('Task-based execution', () => {
 
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-            // Create a task on client
-            const pending = server.request(
+            // Create a task on client and wait for completion
+            const result = await server.request(
                 {
                     method: 'elicitation/create',
                     params: {
@@ -2393,15 +2397,19 @@ describe('Task-based execution', () => {
                 { task: { ttl: 60000 } }
             );
 
+            // Verify the result was returned correctly
+            expect(result.action).toBe('accept');
+            expect(result.content).toEqual({ username: 'result-user' });
+
             // Get the task ID from the task list since it's generated automatically
             const taskList = await server.listTasks();
             expect(taskList.tasks.length).toBeGreaterThan(0);
             const taskId = taskList.tasks[0].taskId;
 
-            // Query task result
-            const result = await server.getTaskResult({ taskId }, ElicitResultSchema);
-            expect(result.action).toBe('accept');
-            expect(result.content).toEqual({ username: 'result-user' });
+            // Query task result using getTaskResult as well
+            const taskResult = await server.getTaskResult({ taskId }, ElicitResultSchema);
+            expect(taskResult.action).toBe('accept');
+            expect(taskResult.content).toEqual({ username: 'result-user' });
         });
 
         test('should query task list from client using listTasks', async () => {
@@ -2470,7 +2478,7 @@ describe('Task-based execution', () => {
             // Create multiple tasks on client
             const createdTaskIds: string[] = [];
             for (let i = 0; i < 2; i++) {
-                const pending = server.request(
+                const result = await server.request(
                     {
                         method: 'elicitation/create',
                         params: {
@@ -2485,6 +2493,10 @@ describe('Task-based execution', () => {
                     ElicitResultSchema,
                     { task: { ttl: 60000 } }
                 );
+
+                // Verify the result was returned correctly
+                expect(result.action).toBe('accept');
+                expect(result.content).toEqual({ username: 'list-user' });
 
                 // Get the task ID from the task list
                 const taskList = await server.listTasks();
