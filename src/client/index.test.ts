@@ -2013,16 +2013,22 @@ describe('Task-based execution', () => {
 
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-            // Create a task
-            await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+            // Create a task using callToolStream to capture the task ID
+            let taskId: string | undefined;
+            const stream = client.callToolStream({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
                 task: { ttl: 60000 }
             });
 
-            // Get the task ID from the task list and query task result
-            const taskList = await client.listTasks();
-            expect(taskList.tasks.length).toBeGreaterThan(0);
-            const taskId = taskList.tasks[0].taskId;
-            const result = await client.getTaskResult({ taskId }, CallToolResultSchema);
+            for await (const message of stream) {
+                if (message.type === 'taskCreated') {
+                    taskId = message.task.taskId;
+                }
+            }
+
+            expect(taskId).toBeDefined();
+
+            // Query task result using the captured task ID
+            const result = await client.getTaskResult({ taskId: taskId! }, CallToolResultSchema);
             expect(result.content).toEqual([{ type: 'text', text: 'Result data!' }]);
         });
 

@@ -2076,28 +2076,32 @@ describe('Task-based execution', () => {
 
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-        // Use callTool to create a task
-        await client.callTool({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+        // Use callToolStream to create a task and capture the task ID
+        let taskId: string | undefined;
+        const stream = client.callToolStream({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
             task: {
                 ttl: 60000
             }
         });
 
+        for await (const message of stream) {
+            if (message.type === 'taskCreated') {
+                taskId = message.task.taskId;
+            }
+        }
+
+        expect(taskId).toBeDefined();
+
         // Wait for the task to complete
         await new Promise(resolve => setTimeout(resolve, 50));
 
-        // Get the task ID from the task list since it's generated automatically
-        const taskList = await client.listTasks();
-        expect(taskList.tasks.length).toBeGreaterThan(0);
-        const taskId = taskList.tasks[0].taskId;
-
         // Verify we can retrieve the task
-        const task = await client.getTask({ taskId });
+        const task = await client.getTask({ taskId: taskId! });
         expect(task).toBeDefined();
         expect(task.status).toBe('completed');
 
         // Verify we can retrieve the result
-        const result = await client.getTaskResult({ taskId }, CallToolResultSchema);
+        const result = await client.getTaskResult({ taskId: taskId! }, CallToolResultSchema);
         expect(result.content).toEqual([{ type: 'text', text: 'Tool executed successfully!' }]);
 
         // Cleanup
@@ -2299,12 +2303,21 @@ describe('Task-based execution', () => {
 
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-        // Call tool WITH task creation
-        await client.callTool({ name: 'collect-info', arguments: {} }, CallToolResultSchema, {
+        // Call tool WITH task creation using callToolStream to capture task ID
+        let taskId: string | undefined;
+        const stream = client.callToolStream({ name: 'collect-info', arguments: {} }, CallToolResultSchema, {
             task: {
                 ttl: 60000
             }
         });
+
+        for await (const message of stream) {
+            if (message.type === 'taskCreated') {
+                taskId = message.task.taskId;
+            }
+        }
+
+        expect(taskId).toBeDefined();
 
         // Wait for completion
         await new Promise(resolve => setTimeout(resolve, 50));
@@ -2312,13 +2325,8 @@ describe('Task-based execution', () => {
         // Verify the nested elicitation request was made (related-task metadata is no longer automatically attached)
         expect(capturedElicitRequest).toBeDefined();
 
-        // Get the task ID from the task list since it's generated automatically
-        const taskList = await client.listTasks();
-        expect(taskList.tasks.length).toBeGreaterThan(0);
-        const taskId = taskList.tasks[0].taskId;
-
         // Verify tool result was correct
-        const result = await client.getTaskResult({ taskId }, CallToolResultSchema);
+        const result = await client.getTaskResult({ taskId: taskId! }, CallToolResultSchema);
         expect(result.content).toEqual([
             {
                 type: 'text',
