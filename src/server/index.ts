@@ -37,8 +37,6 @@ import {
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
 
-type LegacyElicitRequestFormParams = Omit<ElicitRequestFormParams, 'mode'>;
-
 export type ServerOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this server.
@@ -375,33 +373,13 @@ export class Server<
 
     /**
      * Creates an elicitation request for the given parameters.
-     * @param params The parameters for the form elicitation request (explicit mode: 'form').
+     * For backwards compatibility, `mode` may be omitted for form requests and will default to `'form'`.
+     * @param params The parameters for the elicitation request.
      * @param options Optional request options.
      * @returns The result of the elicitation request.
      */
-    async elicitInput(params: ElicitRequestFormParams, options?: RequestOptions): Promise<ElicitResult>;
-    /**
-     * Creates an elicitation request for the given parameters.
-     * @param params The parameters for the URL elicitation request (with url and elicitationId).
-     * @param options Optional request options.
-     * @returns The result of the elicitation request.
-     */
-    async elicitInput(params: ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult>;
-    /**
-     * Creates an elicitation request for the given parameters.
-     * @deprecated Use the overloads with explicit `mode: 'form' | 'url'` instead.
-     * @param params The parameters for the form elicitation request (legacy signature without mode).
-     * @param options Optional request options.
-     * @returns The result of the elicitation request.
-     */
-    async elicitInput(params: LegacyElicitRequestFormParams, options?: RequestOptions): Promise<ElicitResult>;
-
-    // Implementation (not visible to callers)
-    async elicitInput(
-        params: LegacyElicitRequestFormParams | ElicitRequestFormParams | ElicitRequestURLParams,
-        options?: RequestOptions
-    ): Promise<ElicitResult> {
-        const mode = ('mode' in params ? params.mode : 'form') as 'form' | 'url';
+    async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
+        const mode = (params.mode ?? 'form') as 'form' | 'url';
 
         switch (mode) {
             case 'url': {
@@ -416,10 +394,9 @@ export class Server<
                 if (!this._clientCapabilities?.elicitation?.form) {
                     throw new Error('Client does not support form elicitation.');
                 }
+
                 const formParams: ElicitRequestFormParams =
-                    'mode' in params
-                        ? (params as ElicitRequestFormParams)
-                        : ({ ...(params as LegacyElicitRequestFormParams), mode: 'form' } as ElicitRequestFormParams);
+                    params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
 
                 const result = await this.request({ method: 'elicitation/create', params: formParams }, ElicitResultSchema, options);
 
