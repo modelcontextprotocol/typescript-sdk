@@ -1774,6 +1774,144 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.tools[0]._meta).toBeUndefined();
         });
 
+        test('should include execution field in listTools response when tool has execution settings', async () => {
+            const taskStore = new InMemoryTaskStore();
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore
+                }
+            );
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            // Register a tool with execution.taskSupport
+            mcpServer.registerToolTask(
+                'task-tool',
+                {
+                    description: 'A tool with task support',
+                    inputSchema: { input: z.string() },
+                    execution: {
+                        taskSupport: 'required'
+                    }
+                },
+                {
+                    createTask: async (_args, extra) => {
+                        const task = await extra.taskStore.createTask({ ttl: 60000 });
+                        return { task };
+                    },
+                    getTask: async (_args, extra) => {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) throw new Error('Task not found');
+                        return task;
+                    },
+                    getTaskResult: async (_args, extra) => {
+                        return (await extra.taskStore.getTaskResult(extra.taskId)) as CallToolResult;
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0].name).toBe('task-tool');
+            expect(result.tools[0].execution).toEqual({
+                taskSupport: 'required'
+            });
+
+            taskStore.cleanup();
+        });
+
+        test('should include execution field with taskSupport optional in listTools response', async () => {
+            const taskStore = new InMemoryTaskStore();
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore
+                }
+            );
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            // Register a tool with execution.taskSupport optional
+            mcpServer.registerToolTask(
+                'optional-task-tool',
+                {
+                    description: 'A tool with optional task support',
+                    inputSchema: { input: z.string() },
+                    execution: {
+                        taskSupport: 'optional'
+                    }
+                },
+                {
+                    createTask: async (_args, extra) => {
+                        const task = await extra.taskStore.createTask({ ttl: 60000 });
+                        return { task };
+                    },
+                    getTask: async (_args, extra) => {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) throw new Error('Task not found');
+                        return task;
+                    },
+                    getTaskResult: async (_args, extra) => {
+                        return (await extra.taskStore.getTaskResult(extra.taskId)) as CallToolResult;
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0].name).toBe('optional-task-tool');
+            expect(result.tools[0].execution).toEqual({
+                taskSupport: 'optional'
+            });
+
+            taskStore.cleanup();
+        });
+
         test('should validate tool names according to SEP specification', () => {
             // Create a new server instance for this test
             const testServer = new McpServer({
