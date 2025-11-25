@@ -1497,9 +1497,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 if (task) {
                     const notification: TaskStatusNotification = TaskStatusNotificationSchema.parse({
                         method: 'notifications/tasks/status',
-                        params: {
-                            task
-                        }
+                        params: task
                     });
                     await this.notification(notification as SendNotificationT);
 
@@ -1537,9 +1535,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     if (updatedTask) {
                         const notification: TaskStatusNotification = TaskStatusNotificationSchema.parse({
                             method: 'notifications/tasks/status',
-                            params: {
-                                task: updatedTask
-                            }
+                            params: updatedTask
                         });
                         await this.notification(notification as SendNotificationT);
 

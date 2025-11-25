@@ -672,10 +672,9 @@ export const CreateTaskResultSchema = ResultSchema.extend({
 
 /**
  * Parameters for task status notification.
+ * Task fields are spread directly into params per the spec (NotificationParams & Task).
  */
-export const TaskStatusNotificationParamsSchema = z.object({
-    task: TaskSchema
-});
+export const TaskStatusNotificationParamsSchema = NotificationsParamsSchema.merge(TaskSchema);
 
 /**
  * A notification sent when a task's status changes.
