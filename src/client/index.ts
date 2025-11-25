@@ -40,7 +40,10 @@ import {
     type Tool,
     type UnsubscribeRequest,
     ElicitResultSchema,
-    ElicitRequestSchema
+    ElicitRequestSchema,
+    CreateTaskResultSchema,
+    CreateMessageRequestSchema,
+    CreateMessageResultSchema
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
@@ -283,6 +286,20 @@ export class Client<
 
                 const result = await Promise.resolve(handler(request, extra));
 
+                // When task creation is requested, validate and return CreateTaskResult
+                if (params.task) {
+                    const taskValidationResult = safeParse(CreateTaskResultSchema, result);
+                    if (!taskValidationResult.success) {
+                        const errorMessage =
+                            taskValidationResult.error instanceof Error
+                                ? taskValidationResult.error.message
+                                : String(taskValidationResult.error);
+                        throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
+                    }
+                    return taskValidationResult.data;
+                }
+
+                // For non-task requests, validate against ElicitResultSchema
                 const validationResult = safeParse(ElicitResultSchema, result);
                 if (!validationResult.success) {
                     // Type guard: if success is false, error is guaranteed to exist
@@ -311,7 +328,51 @@ export class Client<
             return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
         }
 
-        // Non-elicitation handlers use default behavior
+        if (method === 'sampling/createMessage') {
+            const wrappedHandler = async (
+                request: SchemaOutput<T>,
+                extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+            ): Promise<ClientResult | ResultT> => {
+                const validatedRequest = safeParse(CreateMessageRequestSchema, request);
+                if (!validatedRequest.success) {
+                    const errorMessage =
+                        validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid sampling request: ${errorMessage}`);
+                }
+
+                const { params } = validatedRequest.data;
+
+                const result = await Promise.resolve(handler(request, extra));
+
+                // When task creation is requested, validate and return CreateTaskResult
+                if (params.task) {
+                    const taskValidationResult = safeParse(CreateTaskResultSchema, result);
+                    if (!taskValidationResult.success) {
+                        const errorMessage =
+                            taskValidationResult.error instanceof Error
+                                ? taskValidationResult.error.message
+                                : String(taskValidationResult.error);
+                        throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
+                    }
+                    return taskValidationResult.data;
+                }
+
+                // For non-task requests, validate against CreateMessageResultSchema
+                const validationResult = safeParse(CreateMessageResultSchema, result);
+                if (!validationResult.success) {
+                    const errorMessage =
+                        validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid sampling result: ${errorMessage}`);
+                }
+
+                return validationResult.data;
+            };
+
+            // Install the wrapped handler
+            return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
+        }
+
+        // Other handlers use default behavior
         return super.setRequestHandler(requestSchema, handler);
     }
 

@@ -19,7 +19,8 @@ import {
     ElicitResultSchema,
     ListRootsRequestSchema,
     ErrorCode,
-    McpError
+    McpError,
+    CreateTaskResultSchema
 } from '../types.js';
 import { Transport } from '../shared/transport.js';
 import { Server } from '../server/index.js';
@@ -2150,22 +2151,22 @@ describe('Task-based execution', () => {
             );
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
-                let taskId: string | undefined;
-
-                // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const createdTask = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
-                    });
-                    taskId = createdTask.taskId;
-                }
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
-                if (taskId && extra.taskStore) {
-                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    const task = await extra.taskStore.createTask({
+                        ttl: extra.taskRequestedTtl
+                    });
+                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    // Return CreateTaskResult when task creation is requested
+                    return { task };
                 }
+
+                // Return ElicitResult for non-task requests
                 return result;
             });
 
@@ -2192,7 +2193,7 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Server creates task on client via elicitation
-            await server.request(
+            const createTaskResult = await server.request(
                 {
                     method: 'elicitation/create',
                     params: {
@@ -2207,14 +2208,14 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                ElicitResultSchema,
+                CreateTaskResultSchema,
                 { task: { ttl: 60000 } }
             );
 
-            // Get the task ID from the task list since it's generated automatically
-            const taskList = await server.listTasks();
-            expect(taskList.tasks.length).toBeGreaterThan(0);
-            const taskId = taskList.tasks[0].taskId;
+            // Verify CreateTaskResult structure
+            expect(createTaskResult.task).toBeDefined();
+            expect(createTaskResult.task.taskId).toBeDefined();
+            const taskId = createTaskResult.task.taskId;
 
             // Verify task was created
             const task = await server.getTask({ taskId });
@@ -2243,22 +2244,22 @@ describe('Task-based execution', () => {
             );
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
-                let taskId: string | undefined;
-
-                // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const createdTask = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
-                    });
-                    taskId = createdTask.taskId;
-                }
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
-                if (taskId && extra.taskStore) {
-                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    const task = await extra.taskStore.createTask({
+                        ttl: extra.taskRequestedTtl
+                    });
+                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    // Return CreateTaskResult when task creation is requested
+                    return { task };
                 }
+
+                // Return ElicitResult for non-task requests
                 return result;
             });
 
@@ -2284,8 +2285,8 @@ describe('Task-based execution', () => {
 
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-            // Create a task on client and wait for completion
-            const result = await server.request(
+            // Create a task on client and wait for CreateTaskResult
+            const createTaskResult = await server.request(
                 {
                     method: 'elicitation/create',
                     params: {
@@ -2297,18 +2298,14 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                ElicitResultSchema,
+                CreateTaskResultSchema,
                 { task: { ttl: 60000 } }
             );
 
-            // Verify the result was returned correctly
-            expect(result.action).toBe('accept');
-            expect(result.content).toEqual({ username: 'list-user' });
-
-            // Get the task ID from the task list since it's generated automatically
-            const taskList = await server.listTasks();
-            expect(taskList.tasks.length).toBeGreaterThan(0);
-            const taskId = taskList.tasks[0].taskId;
+            // Verify CreateTaskResult structure
+            expect(createTaskResult.task).toBeDefined();
+            expect(createTaskResult.task.taskId).toBeDefined();
+            const taskId = createTaskResult.task.taskId;
 
             // Query task status
             const task = await server.getTask({ taskId });
@@ -2339,22 +2336,22 @@ describe('Task-based execution', () => {
             );
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
-                let taskId: string | undefined;
-
-                // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const createdTask = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
-                    });
-                    taskId = createdTask.taskId;
-                }
                 const result = {
                     action: 'accept',
                     content: { username: 'result-user' }
                 };
-                if (taskId && extra.taskStore) {
-                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    const task = await extra.taskStore.createTask({
+                        ttl: extra.taskRequestedTtl
+                    });
+                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    // Return CreateTaskResult when task creation is requested
+                    return { task };
                 }
+
+                // Return ElicitResult for non-task requests
                 return result;
             });
 
@@ -2380,8 +2377,8 @@ describe('Task-based execution', () => {
 
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-            // Create a task on client and wait for completion
-            const result = await server.request(
+            // Create a task on client and wait for CreateTaskResult
+            const createTaskResult = await server.request(
                 {
                     method: 'elicitation/create',
                     params: {
@@ -2393,20 +2390,16 @@ describe('Task-based execution', () => {
                         }
                     }
                 },
-                ElicitResultSchema,
+                CreateTaskResultSchema,
                 { task: { ttl: 60000 } }
             );
 
-            // Verify the result was returned correctly
-            expect(result.action).toBe('accept');
-            expect(result.content).toEqual({ username: 'result-user' });
+            // Verify CreateTaskResult structure
+            expect(createTaskResult.task).toBeDefined();
+            expect(createTaskResult.task.taskId).toBeDefined();
+            const taskId = createTaskResult.task.taskId;
 
-            // Get the task ID from the task list since it's generated automatically
-            const taskList = await server.listTasks();
-            expect(taskList.tasks.length).toBeGreaterThan(0);
-            const taskId = taskList.tasks[0].taskId;
-
-            // Query task result using getTaskResult as well
+            // Query task result using getTaskResult
             const taskResult = await server.getTaskResult({ taskId }, ElicitResultSchema);
             expect(taskResult.action).toBe('accept');
             expect(taskResult.content).toEqual({ username: 'result-user' });
@@ -2434,22 +2427,22 @@ describe('Task-based execution', () => {
             );
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
-                let taskId: string | undefined;
-
-                // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const createdTask = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
-                    });
-                    taskId = createdTask.taskId;
-                }
                 const result = {
                     action: 'accept',
                     content: { username: 'list-user' }
                 };
-                if (taskId && extra.taskStore) {
-                    await extra.taskStore.storeTaskResult(taskId, 'completed', result);
+
+                // Check if task creation is requested
+                if (request.params.task && extra.taskStore) {
+                    const task = await extra.taskStore.createTask({
+                        ttl: extra.taskRequestedTtl
+                    });
+                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    // Return CreateTaskResult when task creation is requested
+                    return { task };
                 }
+
+                // Return ElicitResult for non-task requests
                 return result;
             });
 
@@ -2478,7 +2471,7 @@ describe('Task-based execution', () => {
             // Create multiple tasks on client
             const createdTaskIds: string[] = [];
             for (let i = 0; i < 2; i++) {
-                const result = await server.request(
+                const createTaskResult = await server.request(
                     {
                         method: 'elicitation/create',
                         params: {
@@ -2490,20 +2483,14 @@ describe('Task-based execution', () => {
                             }
                         }
                     },
-                    ElicitResultSchema,
+                    CreateTaskResultSchema,
                     { task: { ttl: 60000 } }
                 );
 
-                // Verify the result was returned correctly
-                expect(result.action).toBe('accept');
-                expect(result.content).toEqual({ username: 'list-user' });
-
-                // Get the task ID from the task list
-                const taskList = await server.listTasks();
-                const newTask = taskList.tasks.find(t => !createdTaskIds.includes(t.taskId));
-                if (newTask) {
-                    createdTaskIds.push(newTask.taskId);
-                }
+                // Verify CreateTaskResult structure and capture taskId
+                expect(createTaskResult.task).toBeDefined();
+                expect(createTaskResult.task.taskId).toBeDefined();
+                createdTaskIds.push(createTaskResult.task.taskId);
             }
 
             // Query task list
