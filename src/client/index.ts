@@ -1,6 +1,5 @@
 import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
 import type { Transport } from '../shared/transport.js';
-import { takeResult } from '../shared/responseMessage.js';
 
 import {
     type CallToolRequest,
@@ -203,6 +202,7 @@ export class Client<
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
     private _cachedKnownTaskTools: Set<string> = new Set();
+    private _cachedRequiredTaskTools: Set<string> = new Set();
     private _experimental?: { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> };
 
     /**
@@ -645,13 +645,57 @@ export class Client<
      *
      * For task-based execution with streaming behavior, use client.experimental.tasks.callToolStream() instead.
      */
-    async callTool<T extends typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema>(
+    async callTool(
         params: CallToolRequest['params'],
-        resultSchema: T = CallToolResultSchema as T,
+        resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
         options?: RequestOptions
-    ): Promise<SchemaOutput<T>> {
-        // Use experimental.tasks.callToolStream for implementation (temporary dependency)
-        return await takeResult(this.experimental.tasks.callToolStream<T>(params, resultSchema, options));
+    ) {
+        // Guard: required-task tools need experimental API
+        if (this.isToolTaskRequired(params.name)) {
+            throw new McpError(
+                ErrorCode.InvalidRequest,
+                `Tool "${params.name}" requires task-based execution. Use client.experimental.tasks.callToolStream() instead.`
+            );
+        }
+
+        const result = await this.request({ method: 'tools/call', params }, resultSchema, options);
+
+        // Check if the tool has an outputSchema
+        const validator = this.getToolOutputValidator(params.name);
+        if (validator) {
+            // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
+            if (!result.structuredContent && !result.isError) {
+                throw new McpError(
+                    ErrorCode.InvalidRequest,
+                    `Tool ${params.name} has an output schema but did not return structured content`
+                );
+            }
+
+            // Only validate structured content if present (not when there's an error)
+            if (result.structuredContent) {
+                try {
+                    // Validate the structured content against the schema
+                    const validationResult = validator(result.structuredContent);
+
+                    if (!validationResult.valid) {
+                        throw new McpError(
+                            ErrorCode.InvalidParams,
+                            `Structured content does not match the tool's output schema: ${validationResult.errorMessage}`
+                        );
+                    }
+                } catch (error) {
+                    if (error instanceof McpError) {
+                        throw error;
+                    }
+                    throw new McpError(
+                        ErrorCode.InvalidParams,
+                        `Failed to validate structured content: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                }
+            }
+        }
+
+        return result;
     }
 
     private isToolTask(toolName: string): boolean {
@@ -663,12 +707,21 @@ export class Client<
     }
 
     /**
+     * Check if a tool requires task-based execution.
+     * Unlike isToolTask which includes 'optional' tools, this only checks for 'required'.
+     */
+    private isToolTaskRequired(toolName: string): boolean {
+        return this._cachedRequiredTaskTools.has(toolName);
+    }
+
+    /**
      * Cache validators for tool output schemas.
      * Called after listTools() to pre-compile validators for better performance.
      */
     private cacheToolMetadata(tools: Tool[]): void {
         this._cachedToolOutputValidators.clear();
         this._cachedKnownTaskTools.clear();
+        this._cachedRequiredTaskTools.clear();
 
         for (const tool of tools) {
             // If the tool has an outputSchema, create and cache the validator
@@ -681,6 +734,9 @@ export class Client<
             const taskSupport = tool.execution?.taskSupport;
             if (taskSupport === 'required' || taskSupport === 'optional') {
                 this._cachedKnownTaskTools.add(tool.name);
+            }
+            if (taskSupport === 'required') {
+                this._cachedRequiredTaskTools.add(tool.name);
             }
         }
     }
