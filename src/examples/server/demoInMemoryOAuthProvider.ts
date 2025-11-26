@@ -142,7 +142,7 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
     ): Promise<OAuthTokens> {
         throw new Error('Not implemented for example demo');
     }
-    
+
     async verifyAccessToken(token: string): Promise<AuthInfo> {
         const tokenData = this.tokens.get(token);
         if (!tokenData || !tokenData.expiresAt || tokenData.expiresAt < Date.now()) {
