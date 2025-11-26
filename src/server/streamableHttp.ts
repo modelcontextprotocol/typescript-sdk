@@ -815,8 +815,9 @@ export class StreamableHTTPServerTransport implements Transport {
         const stream = this._streamMapping.get(streamId);
         if (stream) {
             // If a custom retry interval is provided, send it before closing
+            // Use single \n (not \n\n) to avoid triggering SSE event dispatch
             if (retryInterval !== undefined) {
-                stream.write(`retry: ${retryInterval}\n\n`);
+                stream.write(`retry: ${retryInterval}\n`);
             }
             stream.end();
             this._streamMapping.delete(streamId);
