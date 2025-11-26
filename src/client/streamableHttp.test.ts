@@ -582,11 +582,13 @@ describe('StreamableHTTPClientTransport', () => {
                 ok: false,
                 status: 401,
                 statusText: 'Unauthorized',
-                headers: new Headers()
+                headers: new Headers(),
+                text: async () => Promise.reject('dont read my body')
             })
             .mockResolvedValue({
                 ok: false,
-                status: 404
+                status: 404,
+                text: async () => Promise.reject('dont read my body')
             });
 
         await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
@@ -883,7 +885,8 @@ describe('StreamableHTTPClientTransport', () => {
             ok: false,
             status: 401,
             statusText: 'Unauthorized',
-            headers: new Headers()
+            headers: new Headers(),
+            text: async () => Promise.reject('dont read my body')
         };
         (global.fetch as Mock)
             // Initial connection
@@ -936,7 +939,8 @@ describe('StreamableHTTPClientTransport', () => {
             ok: false,
             status: 401,
             statusText: 'Unauthorized',
-            headers: new Headers()
+            headers: new Headers(),
+            text: async () => Promise.reject('dont read my body')
         };
         (global.fetch as Mock)
             // Initial connection
@@ -962,7 +966,8 @@ describe('StreamableHTTPClientTransport', () => {
             // Fallback should fail to complete the flow
             .mockResolvedValue({
                 ok: false,
-                status: 404
+                status: 404,
+                text: async () => Promise.reject('dont read my body')
             });
 
         await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
@@ -987,7 +992,8 @@ describe('StreamableHTTPClientTransport', () => {
             ok: false,
             status: 401,
             statusText: 'Unauthorized',
-            headers: new Headers()
+            headers: new Headers(),
+            text: async () => Promise.reject('dont read my body')
         };
         (global.fetch as Mock)
             // Initial connection
@@ -1013,7 +1019,8 @@ describe('StreamableHTTPClientTransport', () => {
             // Fallback should fail to complete the flow
             .mockResolvedValue({
                 ok: false,
-                status: 404
+                status: 404,
+                text: async () => Promise.reject('dont read my body')
             });
 
         await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
@@ -1026,7 +1033,8 @@ describe('StreamableHTTPClientTransport', () => {
                 ok: false,
                 status: 401,
                 statusText: 'Unauthorized',
-                headers: new Headers()
+                headers: new Headers(),
+                text: async () => Promise.reject('dont read my body')
             };
 
             // Create custom fetch
@@ -1328,7 +1336,8 @@ describe('StreamableHTTPClientTransport', () => {
                 ok: false,
                 status: 401,
                 statusText: 'Unauthorized',
-                headers: new Headers()
+                headers: new Headers(),
+                text: async () => Promise.reject('dont read my body')
             };
 
             (global.fetch as Mock)

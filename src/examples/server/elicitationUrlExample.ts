@@ -253,6 +253,7 @@ const tokenVerifier = {
         });
 
         if (!response.ok) {
+            await response.body?.cancel();
             throw new Error(`Invalid or expired token: ${await response.text()}`);
         }
 
