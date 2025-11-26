@@ -142,31 +142,7 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
     ): Promise<OAuthTokens> {
         throw new Error('Not implemented for example demo');
     }
-
-    async issueClientCredentialsToken(client: OAuthClientInformationFull, scopes?: string[], resource?: URL): Promise<OAuthTokens> {
-        if (this.validateResource && !this.validateResource(resource)) {
-            throw new Error(`Invalid resource: ${resource}`);
-        }
-
-        const token = randomUUID();
-        const tokenData = {
-            token,
-            clientId: client.client_id,
-            scopes: scopes || [],
-            expiresAt: Date.now() + 3600000, // 1 hour
-            resource,
-            type: 'access'
-        };
-        this.tokens.set(token, tokenData);
-
-        return {
-            access_token: token,
-            token_type: 'bearer',
-            expires_in: 3600,
-            scope: (scopes || []).join(' ')
-        };
-    }
-
+    
     async verifyAccessToken(token: string): Promise<AuthInfo> {
         const tokenData = this.tokens.get(token);
         if (!tokenData || !tokenData.expiresAt || tokenData.expiresAt < Date.now()) {
