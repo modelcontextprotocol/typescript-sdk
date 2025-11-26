@@ -1385,6 +1385,8 @@ const client = new Client(
 
 ### Task-Based Execution
 
+> **⚠️ Experimental API**: Task-based execution is an experimental feature and may change without notice. Access these APIs via the `.experimental.tasks` namespace.
+
 Task-based execution enables "call-now, fetch-later" patterns for long-running operations. This is useful for tools that take significant time to complete, where clients may want to disconnect and check on progress or retrieve results later.
 
 Common use cases include:
@@ -1400,7 +1402,7 @@ To enable task-based execution, configure your server with a `TaskStore` impleme
 
 ```typescript
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { TaskStore } from '@modelcontextprotocol/sdk/shared/task.js';
+import { TaskStore } from '@modelcontextprotocol/sdk/experimental';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 // Implement TaskStore backed by your database (e.g., PostgreSQL, Redis, etc.)
@@ -1458,8 +1460,8 @@ const server = new Server(
     }
 );
 
-// Register a tool that supports tasks
-server.registerToolTask(
+// Register a tool that supports tasks using the experimental API
+server.experimental.tasks.registerToolTask(
     'my-echo-tool',
     {
         title: 'My Echo Tool',
@@ -1508,7 +1510,7 @@ server.registerToolTask(
 
 #### Client-Side: Using Task-Based Execution
 
-Clients use `callToolStream()` to initiate task-augmented tool calls. The returned `AsyncGenerator` abstracts automatic polling and status updates:
+Clients use `experimental.tasks.callToolStream()` to initiate task-augmented tool calls. The returned `AsyncGenerator` abstracts automatic polling and status updates:
 
 ```typescript
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -1521,8 +1523,8 @@ const client = new Client({
 
 // ... connect to server ...
 
-// Call the tool with task metadata using streaming API
-const stream = client.callToolStream(
+// Call the tool with task metadata using the experimental streaming API
+const stream = client.experimental.tasks.callToolStream(
     {
         name: 'my-echo-tool',
         arguments: { message: 'Hello, world!' }
@@ -1566,7 +1568,7 @@ if (taskStatus.status === 'completed') {
 }
 ```
 
-The `callToolStream()` method also works with non-task tools, making it a drop-in replacement for `callTool()` in applications that support it. When used to invoke a tool that doesn't support tasks, the `taskCreated` and `taskStatus` events will not be emitted.
+The `experimental.tasks.callToolStream()` method also works with non-task tools, making it a drop-in replacement for `callTool()` in applications that support it. When used to invoke a tool that doesn't support tasks, the `taskCreated` and `taskStatus` events will not be emitted.
 
 #### Task Status Lifecycle
 

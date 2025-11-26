@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { InMemoryTransport } from '../inMemory.js';
-import { Client } from '../client/index.js';
-import { Server } from '../server/index.js';
-import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../examples/shared/inMemoryTaskStore.js';
-import { ErrorCode, McpError } from '../types.js';
+import { InMemoryTransport } from '../../inMemory.js';
+import { Client } from '../../client/index.js';
+import { Server } from '../../server/index.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from './stores/in-memory.js';
+import { ErrorCode, McpError } from '../../types.js';
 
 describe('Task Listing with Pagination', () => {
     let client: Client;
@@ -67,7 +67,7 @@ describe('Task Listing with Pagination', () => {
     });
 
     it('should return empty list when no tasks exist', async () => {
-        const result = await client.listTasks();
+        const result = await client.experimental.tasks.listTasks();
 
         expect(result.tasks).toEqual([]);
         expect(result.nextCursor).toBeUndefined();
@@ -82,7 +82,7 @@ describe('Task Listing with Pagination', () => {
             });
         }
 
-        const result = await client.listTasks();
+        const result = await client.experimental.tasks.listTasks();
 
         expect(result.tasks).toHaveLength(3);
         expect(result.nextCursor).toBeUndefined();
@@ -98,12 +98,12 @@ describe('Task Listing with Pagination', () => {
         }
 
         // Get first page
-        const page1 = await client.listTasks();
+        const page1 = await client.experimental.tasks.listTasks();
         expect(page1.tasks).toHaveLength(10);
         expect(page1.nextCursor).toBeDefined();
 
         // Get second page using cursor
-        const page2 = await client.listTasks({ cursor: page1.nextCursor });
+        const page2 = await client.experimental.tasks.listTasks(page1.nextCursor);
         expect(page2.tasks).toHaveLength(5);
         expect(page2.nextCursor).toBeUndefined();
     });
@@ -122,7 +122,7 @@ describe('Task Listing with Pagination', () => {
         const validCursor = allTasks[2].taskId;
 
         // Use the cursor - should work even though we don't know its internal structure
-        const result = await client.listTasks({ cursor: validCursor });
+        const result = await client.experimental.tasks.listTasks(validCursor);
         expect(result.tasks).toHaveLength(2);
     });
 
@@ -133,7 +133,7 @@ describe('Task Listing with Pagination', () => {
         });
 
         // Try to use an invalid cursor - should return -32602 (Invalid params) per MCP spec
-        await expect(client.listTasks({ cursor: 'invalid-cursor' })).rejects.toSatisfy((error: McpError) => {
+        await expect(client.experimental.tasks.listTasks('invalid-cursor')).rejects.toSatisfy((error: McpError) => {
             expect(error).toBeInstanceOf(McpError);
             expect(error.code).toBe(ErrorCode.InvalidParams);
             expect(error.message).toContain('Invalid cursor');
@@ -149,11 +149,11 @@ describe('Task Listing with Pagination', () => {
         });
 
         // Verify it's accessible via tasks/get
-        const getResult = await client.getTask({ taskId: task.taskId });
+        const getResult = await client.experimental.tasks.getTask(task.taskId);
         expect(getResult.taskId).toBe(task.taskId);
 
         // Verify it's also accessible via tasks/list
-        const listResult = await client.listTasks();
+        const listResult = await client.experimental.tasks.listTasks();
         expect(listResult.tasks).toHaveLength(1);
         expect(listResult.tasks[0].taskId).toBe(task.taskId);
     });
@@ -165,7 +165,7 @@ describe('Task Listing with Pagination', () => {
             params: { name: 'test-tool' }
         });
 
-        const result = await client.listTasks();
+        const result = await client.experimental.tasks.listTasks();
 
         // The response should have _meta but not include related-task metadata
         expect(result._meta).toBeDefined();

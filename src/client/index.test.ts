@@ -26,7 +26,7 @@ import { Transport } from '../shared/transport.js';
 import { Server } from '../server/index.js';
 import { McpServer } from '../server/mcp.js';
 import { InMemoryTransport } from '../inMemory.js';
-import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../examples/shared/inMemoryTaskStore.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../experimental/tasks/stores/in-memory.js';
 import * as z3 from 'zod/v3';
 import * as z4 from 'zod/v4';
 
@@ -1818,7 +1818,7 @@ describe('Task-based execution', () => {
                 }
             );
 
-            server.registerToolTask(
+            server.experimental.tasks.registerToolTask(
                 'test-tool',
                 {
                     description: 'A test tool',
@@ -1868,7 +1868,7 @@ describe('Task-based execution', () => {
             });
 
             // Verify task was created successfully by listing tasks
-            const taskList = await client.listTasks();
+            const taskList = await client.experimental.tasks.listTasks();
             expect(taskList.tasks.length).toBeGreaterThan(0);
             const task = taskList.tasks[0];
             expect(task.status).toBe('completed');
@@ -1894,7 +1894,7 @@ describe('Task-based execution', () => {
                 }
             );
 
-            server.registerToolTask(
+            server.experimental.tasks.registerToolTask(
                 'test-tool',
                 {
                     description: 'A test tool',
@@ -1942,7 +1942,7 @@ describe('Task-based execution', () => {
             });
 
             // Query task status by listing tasks and getting the first one
-            const taskList = await client.listTasks();
+            const taskList = await client.experimental.tasks.listTasks();
             expect(taskList.tasks.length).toBeGreaterThan(0);
             const task = taskList.tasks[0];
             expect(task).toBeDefined();
@@ -1971,7 +1971,7 @@ describe('Task-based execution', () => {
                 }
             );
 
-            server.registerToolTask(
+            server.experimental.tasks.registerToolTask(
                 'test-tool',
                 {
                     description: 'A test tool',
@@ -2015,7 +2015,7 @@ describe('Task-based execution', () => {
 
             // Create a task using callToolStream to capture the task ID
             let taskId: string | undefined;
-            const stream = client.callToolStream({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+            const stream = client.experimental.tasks.callToolStream({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
                 task: { ttl: 60000 }
             });
 
@@ -2028,7 +2028,7 @@ describe('Task-based execution', () => {
             expect(taskId).toBeDefined();
 
             // Query task result using the captured task ID
-            const result = await client.getTaskResult({ taskId: taskId! }, CallToolResultSchema);
+            const result = await client.experimental.tasks.getTaskResult(taskId!, CallToolResultSchema);
             expect(result.content).toEqual([{ type: 'text', text: 'Result data!' }]);
         });
 
@@ -2052,7 +2052,7 @@ describe('Task-based execution', () => {
                 }
             );
 
-            server.registerToolTask(
+            server.experimental.tasks.registerToolTask(
                 'test-tool',
                 {
                     description: 'A test tool',
@@ -2103,7 +2103,7 @@ describe('Task-based execution', () => {
                 });
 
                 // Get the task ID from the task list
-                const taskList = await client.listTasks();
+                const taskList = await client.experimental.tasks.listTasks();
                 const newTask = taskList.tasks.find(t => !createdTaskIds.includes(t.taskId));
                 if (newTask) {
                     createdTaskIds.push(newTask.taskId);
@@ -2111,7 +2111,7 @@ describe('Task-based execution', () => {
             }
 
             // Query task list
-            const taskList = await client.listTasks();
+            const taskList = await client.experimental.tasks.listTasks();
             expect(taskList.tasks.length).toBeGreaterThanOrEqual(2);
             for (const taskId of createdTaskIds) {
                 expect(taskList.tasks).toContainEqual(
@@ -2224,7 +2224,7 @@ describe('Task-based execution', () => {
             const taskId = createTaskResult.task.taskId;
 
             // Verify task was created
-            const task = await server.getTask({ taskId });
+            const task = await server.experimental.tasks.getTask(taskId);
             expect(task.status).toBe('completed');
         });
 
@@ -2314,7 +2314,7 @@ describe('Task-based execution', () => {
             const taskId = createTaskResult.task.taskId;
 
             // Query task status
-            const task = await server.getTask({ taskId });
+            const task = await server.experimental.tasks.getTask(taskId);
             expect(task).toBeDefined();
             expect(task.taskId).toBe(taskId);
             expect(task.status).toBe('completed');
@@ -2406,7 +2406,7 @@ describe('Task-based execution', () => {
             const taskId = createTaskResult.task.taskId;
 
             // Query task result using getTaskResult
-            const taskResult = await server.getTaskResult({ taskId }, ElicitResultSchema);
+            const taskResult = await server.experimental.tasks.getTaskResult(taskId, ElicitResultSchema);
             expect(taskResult.action).toBe('accept');
             expect(taskResult.content).toEqual({ username: 'result-user' });
         });
@@ -2500,7 +2500,7 @@ describe('Task-based execution', () => {
             }
 
             // Query task list
-            const taskList = await server.listTasks();
+            const taskList = await server.experimental.tasks.listTasks();
             expect(taskList.tasks.length).toBeGreaterThanOrEqual(2);
             for (const taskId of createdTaskIds) {
                 expect(taskList.tasks).toContainEqual(
@@ -2535,7 +2535,7 @@ describe('Task-based execution', () => {
             }
         );
 
-        server.registerToolTask(
+        server.experimental.tasks.registerToolTask(
             'test-tool',
             {
                 description: 'A test tool',
@@ -2601,7 +2601,7 @@ describe('Task-based execution', () => {
             });
 
             // Get the task ID from the task list
-            const taskList = await client.listTasks();
+            const taskList = await client.experimental.tasks.listTasks();
             const newTask = taskList.tasks.find(t => !createdTaskIds.includes(t.taskId));
             if (newTask) {
                 createdTaskIds.push(newTask.taskId);
@@ -2609,13 +2609,13 @@ describe('Task-based execution', () => {
         }
 
         // List all tasks without cursor
-        const firstPage = await client.listTasks();
+        const firstPage = await client.experimental.tasks.listTasks();
         expect(firstPage.tasks.length).toBeGreaterThan(0);
         expect(firstPage.tasks.map(t => t.taskId)).toEqual(expect.arrayContaining(createdTaskIds));
 
         // If there's a cursor, test pagination
         if (firstPage.nextCursor) {
-            const secondPage = await client.listTasks({ cursor: firstPage.nextCursor });
+            const secondPage = await client.experimental.tasks.listTasks(firstPage.nextCursor);
             expect(secondPage.tasks).toBeDefined();
         }
 
@@ -2680,7 +2680,7 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Try to get a task that doesn't exist
-            await expect(client.getTask({ taskId: 'non-existent-task' })).rejects.toThrow();
+            await expect(client.experimental.tasks.getTask('non-existent-task')).rejects.toThrow();
         });
 
         test('should throw error when querying result of non-existent task from server', async () => {
@@ -2727,7 +2727,7 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Try to get result of a task that doesn't exist
-            await expect(client.getTaskResult({ taskId: 'non-existent-task' }, CallToolResultSchema)).rejects.toThrow();
+            await expect(client.experimental.tasks.getTaskResult('non-existent-task', CallToolResultSchema)).rejects.toThrow();
         });
 
         test('should throw error when server queries non-existent task from client', async () => {
@@ -2779,7 +2779,7 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Try to query a task that doesn't exist on client
-            await expect(server.getTask({ taskId: 'non-existent-task' })).rejects.toThrow();
+            await expect(server.experimental.tasks.getTask('non-existent-task')).rejects.toThrow();
         });
     });
 });
@@ -2805,7 +2805,7 @@ test('should respect server task capabilities', async () => {
         }
     );
 
-    server.registerToolTask(
+    server.experimental.tasks.registerToolTask(
         'test-tool',
         {
             description: 'A test tool',
@@ -2871,7 +2871,7 @@ test('should respect server task capabilities', async () => {
             task: { ttl: 60000 }
         })
     ).resolves.not.toThrow();
-    await expect(client.listTasks()).resolves.not.toThrow();
+    await expect(client.experimental.tasks.listTasks()).resolves.not.toThrow();
 
     // tools/list doesn't support task creation, but it shouldn't throw - it should just ignore the task metadata
     await expect(
@@ -2928,7 +2928,7 @@ test('should expose requestStream() method for streaming responses', async () =>
     expect(regularResult.content).toEqual([{ type: 'text', text: 'Tool result' }]);
 
     // Test requestStream with non-task request (should yield only result)
-    const stream = client.requestStream(
+    const stream = client.experimental.tasks.requestStream(
         {
             method: 'tools/call',
             params: { name: 'test-tool', arguments: {} }
@@ -2989,7 +2989,7 @@ test('should expose callToolStream() method for streaming tool calls', async () 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     // Test callToolStream
-    const stream = client.callToolStream({ name: 'test-tool', arguments: {} });
+    const stream = client.experimental.tasks.callToolStream({ name: 'test-tool', arguments: {} });
 
     const messages = [];
     for await (const message of stream) {
@@ -3070,7 +3070,7 @@ test('should validate structured output in callToolStream()', async () => {
     await client.listTools();
 
     // Test callToolStream with valid structured output
-    const stream = client.callToolStream({ name: 'structured-tool', arguments: {} });
+    const stream = client.experimental.tasks.callToolStream({ name: 'structured-tool', arguments: {} });
 
     const messages = [];
     for await (const message of stream) {

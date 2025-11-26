@@ -1,5 +1,12 @@
-import { Task, Request, RequestId, Result } from '../../types.js';
-import { TaskStore, isTerminal, TaskMessageQueue, QueuedMessage, CreateTaskOptions } from '../../shared/task.js';
+/**
+ * In-memory implementations of TaskStore and TaskMessageQueue.
+ * WARNING: These APIs are experimental and may change without notice.
+ *
+ * @experimental
+ */
+
+import { Task, Request, RequestId, Result } from '../../../types.js';
+import { TaskStore, isTerminal, TaskMessageQueue, QueuedMessage, CreateTaskOptions } from '../interfaces.js';
 import { randomBytes } from 'crypto';
 
 interface StoredTask {
@@ -17,6 +24,8 @@ interface StoredTask {
  *
  * Note: This is not suitable for production use as all data is lost on restart.
  * For production, consider implementing TaskStore with a database or distributed cache.
+ *
+ * @experimental
  */
 export class InMemoryTaskStore implements TaskStore {
     private tasks = new Map<string, StoredTask>();
@@ -212,6 +221,8 @@ export class InMemoryTaskStore implements TaskStore {
  *
  * Note: This is not suitable for production use in distributed systems.
  * For production, consider implementing TaskMessageQueue with Redis or other distributed queues.
+ *
+ * @experimental
  */
 export class InMemoryTaskMessageQueue implements TaskMessageQueue {
     private queues = new Map<string, QueuedMessage[]>();

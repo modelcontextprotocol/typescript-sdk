@@ -814,11 +814,12 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
     console.log('Arguments:', args);
 
     // Use task-based execution - call now, fetch later
+    // Using the experimental tasks API - WARNING: may change without notice
     console.log('This will return immediately while processing continues in the background...');
 
     try {
         // Call the tool with task metadata using streaming API
-        const stream = client.callToolStream(
+        const stream = client.experimental.tasks.callToolStream(
             {
                 name,
                 arguments: args

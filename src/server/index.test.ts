@@ -24,7 +24,7 @@ import {
 } from '../types.js';
 import { Server } from './index.js';
 import { McpServer } from './mcp.js';
-import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../examples/shared/inMemoryTaskStore.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../experimental/tasks/stores/in-memory.js';
 import { CallToolRequestSchema, CallToolResultSchema } from '../types.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
 import type { AnyObjectSchema } from './zod-compat.js';
@@ -2017,7 +2017,7 @@ describe('Task-based execution', () => {
         );
 
         // Register a tool using registerToolTask
-        server.registerToolTask(
+        server.experimental.tasks.registerToolTask(
             'test-tool',
             {
                 description: 'A test tool',
@@ -2078,7 +2078,7 @@ describe('Task-based execution', () => {
 
         // Use callToolStream to create a task and capture the task ID
         let taskId: string | undefined;
-        const stream = client.callToolStream({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
+        const stream = client.experimental.tasks.callToolStream({ name: 'test-tool', arguments: {} }, CallToolResultSchema, {
             task: {
                 ttl: 60000
             }
@@ -2096,12 +2096,12 @@ describe('Task-based execution', () => {
         await new Promise(resolve => setTimeout(resolve, 50));
 
         // Verify we can retrieve the task
-        const task = await client.getTask({ taskId: taskId! });
+        const task = await client.experimental.tasks.getTask(taskId!);
         expect(task).toBeDefined();
         expect(task.status).toBe('completed');
 
         // Verify we can retrieve the result
-        const result = await client.getTaskResult({ taskId: taskId! }, CallToolResultSchema);
+        const result = await client.experimental.tasks.getTaskResult(taskId!, CallToolResultSchema);
         expect(result.content).toEqual([{ type: 'text', text: 'Tool executed successfully!' }]);
 
         // Cleanup
@@ -2168,7 +2168,7 @@ describe('Task-based execution', () => {
 
         // Try to get a task when server doesn't have TaskStore
         // The server will return a "Method not found" error
-        await expect(client.getTask({ taskId: 'non-existent' })).rejects.toThrow('Method not found');
+        await expect(client.experimental.tasks.getTask('non-existent')).rejects.toThrow('Method not found');
     });
 
     test('should automatically attach related-task metadata to nested requests during tool execution', async () => {
@@ -2239,7 +2239,7 @@ describe('Task-based execution', () => {
         });
 
         // Register a tool using registerToolTask that makes a nested elicitation request
-        server.registerToolTask(
+        server.experimental.tasks.registerToolTask(
             'collect-info',
             {
                 description: 'Collects user info via elicitation',
@@ -2305,7 +2305,7 @@ describe('Task-based execution', () => {
 
         // Call tool WITH task creation using callToolStream to capture task ID
         let taskId: string | undefined;
-        const stream = client.callToolStream({ name: 'collect-info', arguments: {} }, CallToolResultSchema, {
+        const stream = client.experimental.tasks.callToolStream({ name: 'collect-info', arguments: {} }, CallToolResultSchema, {
             task: {
                 ttl: 60000
             }
@@ -2326,7 +2326,7 @@ describe('Task-based execution', () => {
         expect(capturedElicitRequest).toBeDefined();
 
         // Verify tool result was correct
-        const result = await client.getTaskResult({ taskId: taskId! }, CallToolResultSchema);
+        const result = await client.experimental.tasks.getTaskResult(taskId!, CallToolResultSchema);
         expect(result.content).toEqual([
             {
                 type: 'text',
@@ -2426,7 +2426,7 @@ describe('Task-based execution', () => {
             const taskId = createTaskResult.task.taskId;
 
             // Verify task was created
-            const task = await server.getTask({ taskId });
+            const task = await server.experimental.tasks.getTask(taskId);
             expect(task.status).toBe('completed');
         });
 
@@ -2503,7 +2503,7 @@ describe('Task-based execution', () => {
             const taskId = createTaskResult.task.taskId;
 
             // Query task
-            const task = await server.getTask({ taskId });
+            const task = await server.experimental.tasks.getTask(taskId);
             expect(task).toBeDefined();
             expect(task.taskId).toBe(taskId);
             expect(task.status).toBe('completed');
@@ -2585,7 +2585,7 @@ describe('Task-based execution', () => {
             const taskId = createTaskResult.task.taskId;
 
             // Query result
-            const result = await server.getTaskResult({ taskId }, ElicitResultSchema);
+            const result = await server.experimental.tasks.getTaskResult(taskId, ElicitResultSchema);
             expect(result.action).toBe('accept');
             expect(result.content).toEqual({ username: 'result-user', confirmed: true });
         });
@@ -2679,7 +2679,7 @@ describe('Task-based execution', () => {
             }
 
             // Query task list
-            const taskList = await server.listTasks();
+            const taskList = await server.experimental.tasks.listTasks();
             expect(taskList.tasks.length).toBeGreaterThanOrEqual(2);
             for (const taskId of createdTaskIds) {
                 expect(taskList.tasks).toContainEqual(
@@ -2715,7 +2715,7 @@ describe('Task-based execution', () => {
         );
 
         // Register a tool using registerToolTask with variable delay
-        server.registerToolTask(
+        server.experimental.tasks.registerToolTask(
             'async-tool',
             {
                 description: 'An async test tool',
@@ -2791,22 +2791,22 @@ describe('Task-based execution', () => {
         await new Promise(resolve => setTimeout(resolve, 50));
 
         // Get all task IDs from the task list
-        const taskList = await client.listTasks();
+        const taskList = await client.experimental.tasks.listTasks();
         expect(taskList.tasks.length).toBeGreaterThanOrEqual(4);
         const taskIds = taskList.tasks.map(t => t.taskId);
 
         // Verify all tasks completed successfully
         for (let i = 0; i < taskIds.length; i++) {
-            const task = await client.getTask({ taskId: taskIds[i] });
+            const task = await client.experimental.tasks.getTask(taskIds[i]);
             expect(task.status).toBe('completed');
             expect(task.taskId).toBe(taskIds[i]);
 
-            const result = await client.getTaskResult({ taskId: taskIds[i] }, CallToolResultSchema);
+            const result = await client.experimental.tasks.getTaskResult(taskIds[i], CallToolResultSchema);
             expect(result.content).toEqual([{ type: 'text', text: `Completed task ${i + 1}` }]);
         }
 
         // Verify listTasks returns all tasks
-        const finalTaskList = await client.listTasks();
+        const finalTaskList = await client.experimental.tasks.listTasks();
         for (const taskId of taskIds) {
             expect(finalTaskList.tasks).toContainEqual(expect.objectContaining({ taskId }));
         }
@@ -2873,7 +2873,7 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Try to query a task that doesn't exist
-            await expect(client.getTask({ taskId: 'non-existent-task' })).rejects.toThrow();
+            await expect(client.experimental.tasks.getTask('non-existent-task')).rejects.toThrow();
         });
 
         test('should throw error when server queries non-existent task from client', async () => {
@@ -2925,7 +2925,7 @@ describe('Task-based execution', () => {
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
             // Try to query a task that doesn't exist on client
-            await expect(server.getTask({ taskId: 'non-existent-task' })).rejects.toThrow();
+            await expect(server.experimental.tasks.getTask('non-existent-task')).rejects.toThrow();
         });
     });
 });
@@ -3033,8 +3033,8 @@ test('should respect client task capabilities', async () => {
     expect(createTaskResult.task.taskId).toBeDefined();
     const taskId = createTaskResult.task.taskId;
 
-    await expect(server.listTasks()).resolves.not.toThrow();
-    await expect(server.getTask({ taskId })).resolves.not.toThrow();
+    await expect(server.experimental.tasks.listTasks()).resolves.not.toThrow();
+    await expect(server.experimental.tasks.getTask(taskId)).resolves.not.toThrow();
 
     // This should throw because client doesn't support task creation for sampling/createMessage
     await expect(

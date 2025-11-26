@@ -45,7 +45,7 @@ import {
 } from '../types.js';
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
-import { isTerminal, TaskStore, TaskMessageQueue, QueuedMessage, CreateTaskOptions } from './task.js';
+import { isTerminal, TaskStore, TaskMessageQueue, QueuedMessage, CreateTaskOptions } from '../experimental/tasks/interfaces.js';
 import { getMethodLiteral, parseWithCompat } from '../server/zod-json-schema-compat.js';
 import { ResponseMessage } from './responseMessage.js';
 
@@ -956,8 +956,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *   }
      * }
      * ```
+     *
+     * @experimental Use `client.experimental.tasks.requestStream()` to access this method.
      */
-    async *requestStream<T extends AnySchema>(
+    protected async *requestStream<T extends AnySchema>(
         request: SendRequestT,
         resultSchema: T,
         options?: RequestOptions
@@ -1199,16 +1201,20 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
     /**
      * Gets the current status of a task.
+     *
+     * @experimental Use `client.experimental.tasks.getTask()` to access this method.
      */
-    async getTask(params: GetTaskRequest['params'], options?: RequestOptions): Promise<GetTaskResult> {
+    protected async getTask(params: GetTaskRequest['params'], options?: RequestOptions): Promise<GetTaskResult> {
         // @ts-expect-error SendRequestT cannot directly contain GetTaskRequest, but we ensure all type instantiations contain it anyways
         return this.request({ method: 'tasks/get', params }, GetTaskResultSchema, options);
     }
 
     /**
      * Retrieves the result of a completed task.
+     *
+     * @experimental Use `client.experimental.tasks.getTaskResult()` to access this method.
      */
-    async getTaskResult<T extends AnySchema>(
+    protected async getTaskResult<T extends AnySchema>(
         params: GetTaskPayloadRequest['params'],
         resultSchema: T,
         options?: RequestOptions
@@ -1219,16 +1225,20 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
     /**
      * Lists tasks, optionally starting from a pagination cursor.
+     *
+     * @experimental Use `client.experimental.tasks.listTasks()` to access this method.
      */
-    async listTasks(params?: { cursor?: string }, options?: RequestOptions): Promise<SchemaOutput<typeof ListTasksResultSchema>> {
+    protected async listTasks(params?: { cursor?: string }, options?: RequestOptions): Promise<SchemaOutput<typeof ListTasksResultSchema>> {
         // @ts-expect-error SendRequestT cannot directly contain ListTasksRequest, but we ensure all type instantiations contain it anyways
         return this.request({ method: 'tasks/list', params }, ListTasksResultSchema, options);
     }
 
     /**
      * Cancels a specific task.
+     *
+     * @experimental Use `client.experimental.tasks.cancelTask()` to access this method.
      */
-    async cancelTask(params: { taskId: string }, options?: RequestOptions): Promise<SchemaOutput<typeof CancelTaskResultSchema>> {
+    protected async cancelTask(params: { taskId: string }, options?: RequestOptions): Promise<SchemaOutput<typeof CancelTaskResultSchema>> {
         // @ts-expect-error SendRequestT cannot directly contain CancelTaskRequest, but we ensure all type instantiations contain it anyways
         return this.request({ method: 'tasks/cancel', params }, CancelTaskResultSchema, options);
     }

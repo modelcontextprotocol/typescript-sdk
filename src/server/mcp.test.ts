@@ -21,7 +21,7 @@ import {
 } from '../types.js';
 import { completable } from './completable.js';
 import { McpServer, ResourceTemplate } from './mcp.js';
-import { InMemoryTaskStore } from '../examples/shared/inMemoryTaskStore.js';
+import { InMemoryTaskStore } from '../experimental/tasks/stores/in-memory.js';
 import { zodTestMatrix, type ZodMatrixEntry } from '../shared/zodTestMatrix.js';
 
 function createLatch() {
@@ -1803,7 +1803,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // Register a tool with execution.taskSupport
-            mcpServer.registerToolTask(
+            mcpServer.experimental.tasks.registerToolTask(
                 'task-tool',
                 {
                     description: 'A tool with task support',
@@ -1872,7 +1872,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             // Register a tool with execution.taskSupport optional
-            mcpServer.registerToolTask(
+            mcpServer.experimental.tasks.registerToolTask(
                 'optional-task-tool',
                 {
                     description: 'A tool with optional task support',
@@ -5874,7 +5874,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             // Register a task-based tool with taskSupport "required"
-            mcpServer.registerToolTask(
+            mcpServer.experimental.tasks.registerToolTask(
                 'long-running-task',
                 {
                     description: 'A long running task',
@@ -5979,7 +5979,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             // Register a task-based tool with taskSupport "optional"
-            mcpServer.registerToolTask(
+            mcpServer.experimental.tasks.registerToolTask(
                 'optional-task',
                 {
                     description: 'An optional task',
@@ -6087,7 +6087,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             // Register a task-based tool with taskSupport "required"
-            mcpServer.registerToolTask(
+            mcpServer.experimental.tasks.registerToolTask(
                 'task-tool',
                 {
                     description: 'A task tool',
@@ -6207,7 +6207,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             // Register a task-based tool that fails
-            mcpServer.registerToolTask(
+            mcpServer.experimental.tasks.registerToolTask(
                 'failing-task',
                 {
                     description: 'A failing task',
@@ -6313,7 +6313,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             // Register a task-based tool that gets cancelled
-            mcpServer.registerToolTask(
+            mcpServer.experimental.tasks.registerToolTask(
                 'cancelled-task',
                 {
                     description: 'A task that gets cancelled',
@@ -6397,7 +6397,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Attempt to register a task-based tool with taskSupport "forbidden" (cast to bypass type checking)
             expect(() => {
-                mcpServer.registerToolTask(
+                mcpServer.experimental.tasks.registerToolTask(
                     'invalid-task',
                     {
                         description: 'A task with forbidden support',

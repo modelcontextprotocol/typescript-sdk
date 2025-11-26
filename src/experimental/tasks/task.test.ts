@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { isTerminal } from './task.js';
-import type { Task } from '../types.js';
+import { isTerminal } from './interfaces.js';
+import type { Task } from '../../types.js';
 
 describe('Task utility functions', () => {
     describe('isTerminal', () => {
