@@ -19,7 +19,7 @@ import {
     Implementation,
     Tool,
     ListToolsResult,
-    CallToolResult,
+    CallToolResult as BaseCallToolResult,
     McpError,
     ErrorCode,
     CompleteResult,
@@ -55,6 +55,19 @@ import { UriTemplate, Variables } from '../shared/uriTemplate.js';
 import { RequestHandlerExtra } from '../shared/protocol.js';
 import { Transport } from '../shared/transport.js';
 import { validateAndWarnToolName } from '../shared/toolNameValidation.js';
+
+/**
+ * A result of a tool call, with structured content typed according to the tool's output schema.
+ */
+export type CallToolResult<T extends ZodRawShapeCompat | AnySchema | undefined = undefined> = T extends ZodRawShapeCompat
+    ? Omit<BaseCallToolResult, 'structuredContent'> & {
+          structuredContent?: ShapeOutput<T>;
+      }
+    : T extends AnySchema
+      ? Omit<BaseCallToolResult, 'structuredContent'> & {
+            structuredContent?: SchemaOutput<T>;
+        }
+      : BaseCallToolResult;
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -148,10 +161,10 @@ export class McpServer {
             })
         );
 
-        this.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
+        this.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<BaseCallToolResult> => {
             const tool = this._registeredTools[request.params.name];
 
-            let result: CallToolResult;
+            let result: BaseCallToolResult;
 
             try {
                 if (!tool) {
@@ -178,10 +191,10 @@ export class McpServer {
 
                     const args = parseResult.data;
 
-                    result = await Promise.resolve(cb(args, extra));
+                    result = (await Promise.resolve(cb(args, extra))) as BaseCallToolResult;
                 } else {
                     const cb = tool.callback as ToolCallback<undefined>;
-                    result = await Promise.resolve(cb(extra));
+                    result = (await Promise.resolve(cb(extra))) as BaseCallToolResult;
                 }
 
                 if (tool.outputSchema && !result.isError) {
@@ -223,7 +236,7 @@ export class McpServer {
      * @param errorMessage - The error message.
      * @returns The tool error result.
      */
-    private createToolError(errorMessage: string): CallToolResult {
+    private createToolError(errorMessage: string): BaseCallToolResult {
         return {
             content: [
                 {
@@ -698,7 +711,7 @@ export class McpServer {
         outputSchema: ZodRawShapeCompat | AnySchema | undefined,
         annotations: ToolAnnotations | undefined,
         _meta: Record<string, unknown> | undefined,
-        callback: ToolCallback<ZodRawShapeCompat | undefined>
+        callback: ToolCallback<ZodRawShapeCompat | undefined, ZodRawShapeCompat | undefined>
     ): RegisteredTool {
         // Validate tool name according to SEP specification
         validateAndWarnToolName(name);
@@ -867,7 +880,7 @@ export class McpServer {
             annotations?: ToolAnnotations;
             _meta?: Record<string, unknown>;
         },
-        cb: ToolCallback<InputArgs>
+        cb: ToolCallback<InputArgs, OutputArgs>
     ): RegisteredTool {
         if (this._registeredTools[name]) {
             throw new Error(`Tool ${name} is already registered`);
@@ -883,7 +896,7 @@ export class McpServer {
             outputSchema,
             annotations,
             _meta,
-            cb as ToolCallback<ZodRawShapeCompat | undefined>
+            cb as ToolCallback<ZodRawShapeCompat | undefined, ZodRawShapeCompat | undefined>
         );
     }
 
@@ -1086,14 +1099,20 @@ export class ResourceTemplate {
  * - `content` if the tool does not have an outputSchema
  * - Both fields are optional but typically one should be provided
  */
-export type ToolCallback<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> = Args extends ZodRawShapeCompat
-    ? (args: ShapeOutput<Args>, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>
-    : Args extends AnySchema
+export type ToolCallback<
+    InputArgs extends undefined | ZodRawShapeCompat | AnySchema = undefined,
+    OutputArgs extends undefined | ZodRawShapeCompat | AnySchema = undefined
+> = InputArgs extends ZodRawShapeCompat
+    ? (
+          args: ShapeOutput<InputArgs>,
+          extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+      ) => CallToolResult<OutputArgs> | Promise<CallToolResult<OutputArgs>>
+    : InputArgs extends AnySchema
       ? (
-            args: SchemaOutput<Args>,
+            args: SchemaOutput<InputArgs>,
             extra: RequestHandlerExtra<ServerRequest, ServerNotification>
-        ) => CallToolResult | Promise<CallToolResult>
-      : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>;
+        ) => CallToolResult<OutputArgs> | Promise<CallToolResult<OutputArgs>>
+      : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult<OutputArgs> | Promise<CallToolResult<OutputArgs>>;
 
 export type RegisteredTool = {
     title?: string;
@@ -1102,11 +1121,11 @@ export type RegisteredTool = {
     outputSchema?: AnySchema;
     annotations?: ToolAnnotations;
     _meta?: Record<string, unknown>;
-    callback: ToolCallback<undefined | ZodRawShapeCompat>;
+    callback: ToolCallback<undefined | ZodRawShapeCompat, undefined | ZodRawShapeCompat>;
     enabled: boolean;
     enable(): void;
     disable(): void;
-    update<InputArgs extends ZodRawShapeCompat, OutputArgs extends ZodRawShapeCompat>(updates: {
+    update<InputArgs extends ZodRawShapeCompat | undefined, OutputArgs extends ZodRawShapeCompat | undefined>(updates: {
         name?: string | null;
         title?: string;
         description?: string;
@@ -1114,7 +1133,7 @@ export type RegisteredTool = {
         outputSchema?: OutputArgs;
         annotations?: ToolAnnotations;
         _meta?: Record<string, unknown>;
-        callback?: ToolCallback<InputArgs>;
+        callback?: ToolCallback<InputArgs, OutputArgs>;
         enabled?: boolean;
     }): void;
     remove(): void;

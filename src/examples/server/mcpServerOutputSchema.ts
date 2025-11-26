@@ -41,7 +41,12 @@ server.registerTool(
         void country;
         // Simulate weather API call
         const temp_c = Math.round((Math.random() * 35 - 5) * 10) / 10;
-        const conditions = ['sunny', 'cloudy', 'rainy', 'stormy', 'snowy'][Math.floor(Math.random() * 5)];
+        const conditions = ['sunny', 'cloudy', 'rainy', 'stormy', 'snowy'][Math.floor(Math.random() * 5)] as
+            | 'sunny'
+            | 'cloudy'
+            | 'rainy'
+            | 'stormy'
+            | 'snowy';
 
         const structuredContent = {
             temperature: {

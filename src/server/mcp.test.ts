@@ -1283,25 +1283,27 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         timestamp: z.string()
                     }
                 },
-                async ({ input }) => ({
-                    content: [
-                        {
-                            type: 'text',
-                            text: JSON.stringify({
-                                processedInput: input,
-                                resultType: 'structured',
-                                // Missing required 'timestamp' field
-                                someExtraField: 'unexpected' // Extra field not in schema
-                            })
+                async ({ input }) =>
+                    // @ts-expect-error - Intentionally returning invalid data to test runtime validation
+                    ({
+                        content: [
+                            {
+                                type: 'text',
+                                text: JSON.stringify({
+                                    processedInput: input,
+                                    resultType: 'structured',
+                                    // Missing required 'timestamp' field
+                                    someExtraField: 'unexpected' // Extra field not in schema
+                                })
+                            }
+                        ],
+                        structuredContent: {
+                            processedInput: input,
+                            resultType: 'structured',
+                            // Missing required 'timestamp' field
+                            someExtraField: 'unexpected' // Extra field not in schema
                         }
-                    ],
-                    structuredContent: {
-                        processedInput: input,
-                        resultType: 'structured',
-                        // Missing required 'timestamp' field
-                        someExtraField: 'unexpected' // Extra field not in schema
-                    }
-                })
+                    })
             );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
