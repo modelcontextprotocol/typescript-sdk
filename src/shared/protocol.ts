@@ -423,22 +423,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                                 continue;
                             }
 
-                            // At this point, message must be a request or notification (not a response)
-                            // Strip relatedTask metadata when dequeuing for delivery
-                            // The metadata was used for queuing, but shouldn't be sent to the client
-                            const messageToSend = { ...queuedMessage.message };
-                            if (messageToSend.params?._meta?.[RELATED_TASK_META_KEY]) {
-                                const metaCopy = { ...messageToSend.params._meta };
-                                delete metaCopy[RELATED_TASK_META_KEY];
-                                messageToSend.params = {
-                                    ...messageToSend.params,
-                                    _meta: metaCopy
-                                };
-                            }
-
                             // Send the message on the response stream by passing the relatedRequestId
                             // This tells the transport to write the message to the tasks/result response stream
-                            await this._transport?.send(messageToSend, { relatedRequestId: extra.requestId });
+                            await this._transport?.send(queuedMessage.message, { relatedRequestId: extra.requestId });
                         }
                     }
 
