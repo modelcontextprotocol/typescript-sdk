@@ -735,7 +735,7 @@ export const CancelTaskRequestSchema = RequestSchema.extend({
 /**
  * The response to a tasks/cancel request.
  */
-export const CancelTaskResultSchema = ResultSchema;
+export const CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
 
 /* Resources */
 /**

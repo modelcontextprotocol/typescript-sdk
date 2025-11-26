@@ -10,6 +10,8 @@ import {
     CreateTaskResultSchema,
     ElicitRequestSchema,
     ElicitResultSchema,
+    ErrorCode,
+    McpError,
     RELATED_TASK_META_KEY,
     TaskSchema
 } from '../types.js';
@@ -316,7 +318,7 @@ describe('Task Lifecycle Integration Tests', () => {
     });
 
     describe('Task Cancellation', () => {
-        it('should cancel a working task', async () => {
+        it('should cancel a working task and return the cancelled task', async () => {
             const client = new Client({
                 name: 'test-client',
                 version: '1.0.0'
@@ -348,17 +350,24 @@ describe('Task Lifecycle Integration Tests', () => {
             let task = await taskStore.getTask(taskId);
             expect(task?.status).toBe('working');
 
-            // Cancel the task
-            await taskStore.updateTaskStatus(taskId, 'cancelled');
+            // Cancel the task via client.cancelTask - per spec, returns Result & Task
+            const cancelResult = await client.cancelTask({ taskId });
 
-            // Verify task is cancelled
+            // Verify the cancel response includes the cancelled task (per MCP spec CancelTaskResult is Result & Task)
+            expect(cancelResult.taskId).toBe(taskId);
+            expect(cancelResult.status).toBe('cancelled');
+            expect(cancelResult.createdAt).toBeDefined();
+            expect(cancelResult.lastUpdatedAt).toBeDefined();
+            expect(cancelResult.ttl).toBeDefined();
+
+            // Verify task is cancelled in store as well
             task = await taskStore.getTask(taskId);
             expect(task?.status).toBe('cancelled');
 
             await transport.close();
         });
 
-        it('should reject cancellation of completed task', async () => {
+        it('should reject cancellation of completed task with error code -32602', async () => {
             const client = new Client({
                 name: 'test-client',
                 version: '1.0.0'
@@ -393,8 +402,13 @@ describe('Task Lifecycle Integration Tests', () => {
             const task = await taskStore.getTask(taskId);
             expect(task?.status).toBe('completed');
 
-            // Try to cancel (should fail)
-            await expect(taskStore.updateTaskStatus(taskId, 'cancelled')).rejects.toThrow();
+            // Try to cancel via tasks/cancel request (should fail with -32602)
+            await expect(client.cancelTask({ taskId })).rejects.toSatisfy((error: McpError) => {
+                expect(error).toBeInstanceOf(McpError);
+                expect(error.code).toBe(ErrorCode.InvalidParams);
+                expect(error.message).toContain('Cannot cancel task in terminal status');
+                return true;
+            });
 
             await transport.close();
         });
@@ -775,7 +789,7 @@ describe('Task Lifecycle Integration Tests', () => {
     });
 
     describe('Error Handling', () => {
-        it('should return null for non-existent task', async () => {
+        it('should return error code -32602 for non-existent task in tasks/get', async () => {
             const client = new Client({
                 name: 'test-client',
                 version: '1.0.0'
@@ -784,14 +798,18 @@ describe('Task Lifecycle Integration Tests', () => {
             const transport = new StreamableHTTPClientTransport(baseUrl);
             await client.connect(transport);
 
-            // Try to get non-existent task
-            const task = await taskStore.getTask('non-existent');
-            expect(task).toBeNull();
+            // Try to get non-existent task via tasks/get request
+            await expect(client.getTask({ taskId: 'non-existent-task-id' })).rejects.toSatisfy((error: McpError) => {
+                expect(error).toBeInstanceOf(McpError);
+                expect(error.code).toBe(ErrorCode.InvalidParams);
+                expect(error.message).toContain('Task not found');
+                return true;
+            });
 
             await transport.close();
         });
 
-        it('should return error for invalid task operation', async () => {
+        it('should return error code -32602 for non-existent task in tasks/cancel', async () => {
             const client = new Client({
                 name: 'test-client',
                 version: '1.0.0'
@@ -800,30 +818,41 @@ describe('Task Lifecycle Integration Tests', () => {
             const transport = new StreamableHTTPClientTransport(baseUrl);
             await client.connect(transport);
 
-            // Create and complete a task
-            const createResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'long-task',
-                        arguments: {
-                            duration: 100
-                        },
-                        task: {
-                            ttl: 60000
-                        }
-                    }
-                },
-                CreateTaskResultSchema
-            );
+            // Try to cancel non-existent task via tasks/cancel request
+            await expect(client.cancelTask({ taskId: 'non-existent-task-id' })).rejects.toSatisfy((error: McpError) => {
+                expect(error).toBeInstanceOf(McpError);
+                expect(error.code).toBe(ErrorCode.InvalidParams);
+                expect(error.message).toContain('Task not found');
+                return true;
+            });
 
-            const taskId = createResult.task.taskId;
+            await transport.close();
+        });
 
-            // Wait for completion
-            await new Promise(resolve => setTimeout(resolve, 200));
+        it('should return error code -32602 for non-existent task in tasks/result', async () => {
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
 
-            // Try to cancel completed task (should fail)
-            await expect(taskStore.updateTaskStatus(taskId, 'cancelled')).rejects.toThrow();
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Try to get result of non-existent task via tasks/result request
+            await expect(
+                client.request(
+                    {
+                        method: 'tasks/result',
+                        params: { taskId: 'non-existent-task-id' }
+                    },
+                    CallToolResultSchema
+                )
+            ).rejects.toSatisfy((error: McpError) => {
+                expect(error).toBeInstanceOf(McpError);
+                expect(error.code).toBe(ErrorCode.InvalidParams);
+                expect(error.message).toContain('Task not found');
+                return true;
+            });
 
             await transport.close();
         });

@@ -507,9 +507,16 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                     this._clearTaskQueue(request.params.taskId);
 
+                    const cancelledTask = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
+                    if (!cancelledTask) {
+                        // Task was deleted during cancellation (e.g., cleanup happened)
+                        throw new McpError(ErrorCode.InvalidParams, `Task not found after cancellation: ${request.params.taskId}`);
+                    }
+
                     return {
-                        _meta: {}
-                    } as SendResultT;
+                        _meta: {},
+                        ...cancelledTask
+                    } as unknown as SendResultT;
                 } catch (error) {
                     // Re-throw McpError as-is
                     if (error instanceof McpError) {

@@ -1715,13 +1715,18 @@ describe('Task-based execution', () => {
 
             const deleteTaskPromise = protocol.cancelTask({ taskId: 'task-to-delete' });
 
-            // Simulate server response
+            // Simulate server response - per MCP spec, CancelTaskResult is Result & Task
             setTimeout(() => {
                 transport.onmessage?.({
                     jsonrpc: '2.0',
                     id: sendSpy.mock.calls[0][0].id,
                     result: {
-                        _meta: {}
+                        _meta: {},
+                        taskId: 'task-to-delete',
+                        status: 'cancelled',
+                        ttl: 60000,
+                        createdAt: new Date().toISOString(),
+                        lastUpdatedAt: new Date().toISOString()
                     }
                 });
             }, 0);
@@ -1738,6 +1743,8 @@ describe('Task-based execution', () => {
                 expect.any(Object)
             );
             expect(result._meta).toBeDefined();
+            expect(result.taskId).toBe('task-to-delete');
+            expect(result.status).toBe('cancelled');
         });
     });
 

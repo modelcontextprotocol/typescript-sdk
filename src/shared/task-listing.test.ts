@@ -3,6 +3,7 @@ import { InMemoryTransport } from '../inMemory.js';
 import { Client } from '../client/index.js';
 import { Server } from '../server/index.js';
 import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../examples/shared/inMemoryTaskStore.js';
+import { ErrorCode, McpError } from '../types.js';
 
 describe('Task Listing with Pagination', () => {
     let client: Client;
@@ -125,14 +126,19 @@ describe('Task Listing with Pagination', () => {
         expect(result.tasks).toHaveLength(2);
     });
 
-    it('should return error for invalid cursor', async () => {
+    it('should return error code -32602 for invalid cursor', async () => {
         await taskStore.createTask({}, 1, {
             method: 'tools/call',
             params: { name: 'test-tool' }
         });
 
-        // Try to use an invalid cursor
-        await expect(client.listTasks({ cursor: 'invalid-cursor' })).rejects.toThrow();
+        // Try to use an invalid cursor - should return -32602 (Invalid params) per MCP spec
+        await expect(client.listTasks({ cursor: 'invalid-cursor' })).rejects.toSatisfy((error: McpError) => {
+            expect(error).toBeInstanceOf(McpError);
+            expect(error.code).toBe(ErrorCode.InvalidParams);
+            expect(error.message).toContain('Invalid cursor');
+            return true;
+        });
     });
 
     it('should ensure tasks accessible via tasks/get are also accessible via tasks/list', async () => {
