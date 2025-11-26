@@ -706,26 +706,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 if (relatedTaskId && !requestOptions.relatedTask) {
                     requestOptions.relatedTask = { taskId: relatedTaskId };
                 }
+
                 // Set task status to input_required when sending a request within a task context
                 // Use the taskId from options (explicit) or fall back to relatedTaskId (inherited)
                 const effectiveTaskId = requestOptions.relatedTask?.taskId ?? relatedTaskId;
                 if (effectiveTaskId && taskStore) {
-                    // Check current status - only update if transitioning from working
-                    // This avoids unnecessary updates and sends appropriate notifications
-                    const task = await taskStore.getTask(effectiveTaskId);
-                    if (task?.status === 'working') {
-                        await taskStore.updateTaskStatus(effectiveTaskId, 'input_required');
-                    } else if (!task || isTerminal(task.status)) {
-                        // Task not found or in terminal state - throw to stop the handler
-                        throw new McpError(
-                            ErrorCode.InvalidParams,
-                            task
-                                ? `Task "${effectiveTaskId}" is in terminal state "${task.status}" - no further messages can be sent`
-                                : `Task "${effectiveTaskId}" not found - it may have been cleaned up`
-                        );
-                    }
-                    // If already in input_required, just proceed without updating
+                    await taskStore.updateTaskStatus(effectiveTaskId, 'input_required');
                 }
+
                 return await this.request(r, resultSchema, requestOptions);
             },
             authInfo: extra?.authInfo,
