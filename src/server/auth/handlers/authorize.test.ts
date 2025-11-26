@@ -85,14 +85,6 @@ describe('Authorization Handler', () => {
 
         async revokeToken(): Promise<void> {
             // Do nothing in mock
-        },
-
-        async issueClientCredentialsToken(): Promise<OAuthTokens> {
-            return {
-                access_token: 'cc_access',
-                token_type: 'bearer',
-                expires_in: 3600
-            };
         }
     };
 

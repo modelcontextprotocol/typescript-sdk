@@ -1540,6 +1540,86 @@ describe('OAuth Authorization', () => {
             vi.clearAllMocks();
         });
 
+        it('performs client_credentials with private_key_jwt when jwtBearerOptions are provided', async () => {
+            // Arrange: metadata discovery for PRM and AS
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'cc_jwt_token',
+                            token_type: 'bearer',
+                            expires_in: 3600
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            // Provider: no existing client info or tokens
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'client-id'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue(undefined);
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/mcp-server',
+                jwtBearerOptions: {
+                    issuer: 'client-id',
+                    subject: 'client-id',
+                    privateKey: 'a-string-secret-at-least-256-bits-long',
+                    alg: 'HS256'
+                }
+            });
+
+            expect(result).toBe('AUTHORIZED');
+
+            // Find the token request
+            const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
+            expect(tokenCall).toBeDefined();
+
+            const [, init] = tokenCall!;
+            const body = init.body as URLSearchParams;
+
+            // grant_type MUST be client_credentials, not the JWT-bearer grant
+            expect(body.get('grant_type')).toBe('client_credentials');
+            // private_key_jwt client authentication parameters
+            expect(body.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+            expect(body.get('client_assertion')).toBeTruthy();
+            // resource parameter included based on PRM
+            expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
+        });
+
         it('falls back to /.well-known/oauth-authorization-server when no protected-resource-metadata', async () => {
             // Setup: First call to protected resource metadata fails (404)
             // Second call to auth server metadata succeeds

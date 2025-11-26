@@ -74,14 +74,6 @@ describe('MCP Auth Router', () => {
 
         async revokeToken(_client: OAuthClientInformationFull, _request: OAuthTokenRevocationRequest): Promise<void> {
             // Success - do nothing in mock
-        },
-
-        async issueClientCredentialsToken(): Promise<OAuthTokens> {
-            return {
-                access_token: 'cc_access',
-                token_type: 'bearer',
-                expires_in: 3600
-            };
         }
     };
 
@@ -141,14 +133,6 @@ describe('MCP Auth Router', () => {
                 };
             }
             throw new InvalidTokenError('Token is invalid or expired');
-        },
-
-        async issueClientCredentialsToken(): Promise<OAuthTokens> {
-            return {
-                access_token: 'cc_access',
-                token_type: 'bearer',
-                expires_in: 3600
-            };
         }
     };
 
@@ -227,14 +211,9 @@ describe('MCP Auth Router', () => {
 
             // Verify supported features
             expect(response.body.response_types_supported).toEqual(['code']);
-            expect(response.body.grant_types_supported).toEqual(['authorization_code', 'refresh_token', 'client_credentials']);
+            expect(response.body.grant_types_supported).toEqual(['authorization_code', 'refresh_token']);
             expect(response.body.code_challenge_methods_supported).toEqual(['S256']);
-            expect(response.body.token_endpoint_auth_methods_supported).toEqual([
-                'client_secret_post',
-                'client_secret_basic',
-                'private_key_jwt',
-                'none'
-            ]);
+            expect(response.body.token_endpoint_auth_methods_supported).toEqual(['client_secret_post', 'none']);
             expect(response.body.revocation_endpoint_auth_methods_supported).toEqual(['client_secret_post']);
 
             // Verify optional fields

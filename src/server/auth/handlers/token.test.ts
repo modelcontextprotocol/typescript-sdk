@@ -108,15 +108,6 @@ describe('Token Handler', () => {
 
             async revokeToken(_client: OAuthClientInformationFull, _request: OAuthTokenRevocationRequest): Promise<void> {
                 // Do nothing in mock
-            },
-
-            async issueClientCredentialsToken(client: OAuthClientInformationFull, scopes?: string[]): Promise<OAuthTokens> {
-                return {
-                    access_token: 'cc_access',
-                    token_type: 'bearer',
-                    expires_in: 3600,
-                    scope: (scopes || []).join(' ')
-                };
             }
         };
 
@@ -469,34 +460,6 @@ describe('Token Handler', () => {
 
             expect(response.status).toBe(200);
             expect(response.body.scope).toBe('profile email');
-        });
-    });
-
-    describe('Client credentials grant', () => {
-        it('issues token for client_credentials with basic auth', async () => {
-            // Override mock provider client_credentials handler for this test
-            mockProvider.issueClientCredentialsToken = async (
-                client: OAuthClientInformationFull,
-                scopes?: string[]
-            ): Promise<OAuthTokens> => {
-                return {
-                    access_token: 'cc_access',
-                    token_type: 'bearer',
-                    expires_in: 3600,
-                    scope: (scopes || []).join(' ')
-                };
-            };
-
-            const basic = Buffer.from('valid-client:valid-secret').toString('base64');
-            const response = await supertest(app).post('/token').set('Authorization', `Basic ${basic}`).type('form').send({
-                grant_type: 'client_credentials',
-                scope: 'read write'
-            });
-
-            expect(response.status).toBe(200);
-            expect(response.body.access_token).toBe('cc_access');
-            expect(response.body.token_type).toBe('bearer');
-            expect(response.body.scope).toBe('read write');
         });
     });
 

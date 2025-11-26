@@ -56,11 +56,6 @@ export interface OAuthServerProvider {
     verifyAccessToken(token: string): Promise<AuthInfo>;
 
     /**
-     * Issues an access token for the client_credentials grant.
-     */
-    issueClientCredentialsToken(client: OAuthClientInformationFull, scopes?: string[], resource?: URL): Promise<OAuthTokens>;
-
-    /**
      * Revokes an access or refresh token. If unimplemented, token revocation is not supported (not recommended).
      *
      * If the given token is invalid or already revoked, this method should do nothing.

@@ -3,7 +3,7 @@
 import { Client } from '../../client/index.js';
 import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
 import { JwtAssertionSigningOptions, OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from '../../shared/auth.js';
-import { OAuthClientProvider, exchangeJwtBearer } from '../../client/auth.js';
+import { OAuthClientProvider, auth } from '../../client/auth.js';
 
 const DEFAULT_SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3000/mcp';
 
@@ -70,24 +70,16 @@ class InMemoryJwtBearerProvider implements OAuthClientProvider {
             return;
         }
 
-        const authorizationServerUrl = new URL('/', serverUrl);
-        const metadata = undefined;
-
-        const clientInformation: OAuthClientInformationMixed =
-            this._client ??
-            ({
-                client_id: this._jwtSigningOptions.issuer
-            } as OAuthClientInformationMixed);
-
-        const tokens = await exchangeJwtBearer(authorizationServerUrl, {
-            metadata,
-            clientInformation,
-            jwtOptions: this._jwtSigningOptions,
-            scope: this._clientMetadata.scope,
-            resource: undefined
+        // Use the high-level auth() API with jwtBearerOptions, which now performs a
+        // client_credentials grant with private_key_jwt client authentication.
+        const result = await auth(this, {
+            serverUrl,
+            jwtBearerOptions: this._jwtSigningOptions
         });
 
-        this._tokens = tokens;
+        if (result !== 'AUTHORIZED') {
+            throw new Error('Failed to obtain JWT-bearer access token');
+        }
     }
 }
 

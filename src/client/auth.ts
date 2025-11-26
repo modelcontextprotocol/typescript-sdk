@@ -321,11 +321,12 @@ export async function auth(
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
         /**
-         * Optional JWT assertion options for performing an RFC 7523 JWT-bearer grant.
+         * Optional JWT assertion options for performing an RFC 7523 Section 2.2 private_key_jwt
+         * client authentication with a client_credentials grant.
          *
          * When provided, and no valid/refreshable tokens are available, auth() will
-         * attempt a JWT-bearer grant before falling back to client_credentials or
-         * interactive authorization_code flows.
+         * attempt a client_credentials grant with private_key_jwt client authentication
+         * before falling back to other flows.
          */
         jwtBearerOptions?: JwtAssertionOptions;
     }
@@ -478,15 +479,19 @@ async function authInternal(
         }
     }
 
-    // Attempt JWT-bearer grant for M2M if explicitly configured
+    // Attempt client_credentials grant with private_key_jwt client authentication for M2M
+    // when explicitly configured via jwtBearerOptions (RFC 7523 Section 2.2).
     if (jwtBearerOptions) {
-        const jwtTokens = await exchangeJwtBearer(authorizationServerUrl, {
+        const jwtTokens = await exchangeClientCredentials(authorizationServerUrl, {
             metadata,
             clientInformation,
-            jwtOptions: jwtBearerOptions,
             scope: scope || provider.clientMetadata.scope,
             resource,
-            addClientAuthentication: provider.addClientAuthentication,
+            addClientAuthentication: async (_headers, params, url, md) => {
+                const assertion = await createJwtBearerAssertion(url, md, jwtBearerOptions);
+                params.set('client_assertion', assertion);
+                params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+            },
             fetchFn
         });
         await provider.saveTokens(jwtTokens);
@@ -1244,7 +1249,7 @@ export async function exchangeClientCredentials(
 }
 
 /**
- * Creates a JWT assertion suitable for RFC 7523 JWT-bearer grant or private_key_jwt
+ * Creates a JWT assertion suitable for RFC 7523 Section 2.2 private_key_jwt
  * client authentication.
  *
  * If `options.assertion` is provided, it is returned as-is without signing.
@@ -1316,74 +1321,6 @@ export async function createJwtBearerAssertion(
  * This is a lower-level helper that can be used by higher-level clients for M2M
  * scenarios where no interactive user authorization is required.
  */
-export async function exchangeJwtBearer(
-    authorizationServerUrl: string | URL,
-    {
-        metadata,
-        clientInformation,
-        jwtOptions,
-        scope,
-        resource,
-        addClientAuthentication,
-        fetchFn
-    }: {
-        metadata?: AuthorizationServerMetadata;
-        clientInformation: OAuthClientInformationMixed;
-        jwtOptions: JwtAssertionOptions;
-        scope?: string;
-        resource?: URL;
-        addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
-        fetchFn?: FetchLike;
-    }
-): Promise<OAuthTokens> {
-    const grantType = 'urn:ietf:params:oauth:grant-type:jwt-bearer';
-
-    const tokenUrl = metadata?.token_endpoint ? new URL(metadata.token_endpoint) : new URL('/token', authorizationServerUrl);
-
-    if (metadata?.grant_types_supported && !metadata.grant_types_supported.includes(grantType)) {
-        throw new Error(`Incompatible auth server: does not support grant type ${grantType}`);
-    }
-
-    const headers = new Headers({
-        'Content-Type': 'application/x-www-form-urlencoded'
-    });
-
-    const assertion = await createJwtBearerAssertion(authorizationServerUrl, metadata, jwtOptions);
-
-    const params = new URLSearchParams({
-        grant_type: grantType,
-        assertion
-    });
-
-    if (scope) {
-        params.set('scope', scope);
-    }
-
-    if (resource) {
-        params.set('resource', resource.href);
-    }
-
-    if (addClientAuthentication) {
-        await addClientAuthentication(headers, params, tokenUrl, metadata);
-    } else {
-        const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
-        const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
-        applyClientAuthentication(authMethod, clientInformation as OAuthClientInformation, headers, params);
-    }
-
-    const response = await (fetchFn ?? fetch)(tokenUrl, {
-        method: 'POST',
-        headers,
-        body: params
-    });
-
-    if (!response.ok) {
-        throw await parseErrorResponse(response);
-    }
-
-    return OAuthTokensSchema.parse(await response.json());
-}
-
 /**
  * Performs OAuth 2.0 Dynamic Client Registration according to RFC 7591.
  */
