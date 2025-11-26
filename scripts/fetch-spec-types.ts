@@ -15,7 +15,6 @@ async function fetchLatestSHA(): Promise<string> {
 
     const response = await fetch(url);
     if (!response.ok) {
-        await response.body?.cancel();
         throw new Error(`Failed to fetch commit info: ${response.status} ${response.statusText}`);
     }
 
@@ -32,7 +31,6 @@ async function fetchSpecTypes(sha: string): Promise<string> {
 
     const response = await fetch(url);
     if (!response.ok) {
-        await response.body?.cancel();
         throw new Error(`Failed to fetch spec types: ${response.status} ${response.statusText}`);
     }
 
