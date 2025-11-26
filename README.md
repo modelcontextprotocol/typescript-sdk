@@ -38,7 +38,7 @@
 ## Overview
 
 The Model Context Protocol allows applications to provide context for LLMs in a standardized way, separating the concerns of providing context from the actual LLM interaction. This TypeScript SDK implements
-[the full MCP specification](https://modelcontextprotocol.io/specification/latest), making it easy to:
+[the full MCP specification](https://modelcontextprotocol.io/specification/draft), making it easy to:
 
 - Create MCP servers that expose resources, prompts and tools
 - Build MCP clients that can connect to any MCP server
@@ -158,7 +158,7 @@ const server = new McpServer({
 
 ### Tools
 
-[Tools](https://modelcontextprotocol.io/specification/latest/server/tools) let LLMs take actions through your server. Tools can perform computation, fetch data and have side effects. Tools should be designed to be model-controlled - i.e. AI models will decide which tools to call,
+[Tools](https://modelcontextprotocol.io/specification/draft/server/tools) let LLMs take actions through your server. Tools can perform computation, fetch data and have side effects. Tools should be designed to be model-controlled - i.e. AI models will decide which tools to call,
 and the arguments.
 
 ```typescript
@@ -259,7 +259,7 @@ Tools can return `ResourceLink` objects to reference resources without embedding
 
 ### Resources
 
-[Resources](https://modelcontextprotocol.io/specification/latest/server/resources) can also expose data to LLMs, but unlike tools shouldn't perform significant computation or have side effects.
+[Resources](https://modelcontextprotocol.io/specification/draft/server/resources) can also expose data to LLMs, but unlike tools shouldn't perform significant computation or have side effects.
 
 Resources are designed to be used in an application-driven way, meaning MCP client applications can decide how to expose them. For example, a client could expose a resource picker to the human, or could expose them to the model directly.
 
@@ -333,7 +333,7 @@ server.registerResource(
 
 ### Prompts
 
-[Prompts](https://modelcontextprotocol.io/specification/latest/server/prompts) are reusable templates that help humans prompt models to interact with your server. They're designed to be user-driven, and might appear as slash commands in a chat interface.
+[Prompts](https://modelcontextprotocol.io/specification/draft/server/prompts) are reusable templates that help humans prompt models to interact with your server. They're designed to be user-driven, and might appear as slash commands in a chat interface.
 
 ```typescript
 import { completable } from '@modelcontextprotocol/sdk/server/completable.js';
