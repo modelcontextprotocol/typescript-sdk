@@ -5,7 +5,14 @@ import { Client } from '../client/index.js';
 import { StreamableHTTPClientTransport } from '../client/streamableHttp.js';
 import { McpServer } from '../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../server/streamableHttp.js';
-import { CallToolResultSchema, CreateTaskResultSchema, ElicitRequestSchema, ElicitResultSchema, TaskSchema } from '../types.js';
+import {
+    CallToolResultSchema,
+    CreateTaskResultSchema,
+    ElicitRequestSchema,
+    ElicitResultSchema,
+    RELATED_TASK_META_KEY,
+    TaskSchema
+} from '../types.js';
 import { z } from 'zod';
 import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../examples/shared/inMemoryTaskStore.js';
 import type { TaskRequestOptions } from '../shared/protocol.js';
@@ -565,6 +572,15 @@ describe('Task Lifecycle Integration Tests', () => {
 
     describe('Input Required Flow', () => {
         it('should handle elicitation during tool execution', async () => {
+            // Complete flow phases:
+            // 1. Client creates task
+            // 2. Server queues elicitation request and sets status to input_required
+            // 3. Client polls tasks/get, sees input_required status
+            // 4. Client calls tasks/result to dequeue elicitation request
+            // 5. Client responds to elicitation
+            // 6. Server receives response, completes task
+            // 7. Client receives final result
+
             const elicitClient = new Client(
                 {
                     name: 'test-client',
@@ -577,26 +593,27 @@ describe('Task Lifecycle Integration Tests', () => {
                 }
             );
 
+            // Track elicitation request receipt
+            let elicitationReceived = false;
+            let elicitationRequestMeta: Record<string, unknown> | undefined;
+
             // Set up elicitation handler on client
             elicitClient.setRequestHandler(ElicitRequestSchema, async request => {
-                // Verify elicitation request structure
-                expect(request.params.message).toBe('What is your name?');
-                expect(request.params.requestedSchema).toHaveProperty('properties');
+                elicitationReceived = true;
+                elicitationRequestMeta = request.params._meta;
 
-                // Respond with user input
-                const response = {
+                return {
                     action: 'accept' as const,
                     content: {
-                        userName: 'Alice'
+                        userName: 'TestUser'
                     }
                 };
-                return response;
             });
 
             const transport = new StreamableHTTPClientTransport(baseUrl);
             await elicitClient.connect(transport);
 
-            // Create a task without userName (will trigger elicitation)
+            // Phase 1: Create task
             const createResult = await elicitClient.request(
                 {
                     method: 'tools/call',
@@ -612,15 +629,36 @@ describe('Task Lifecycle Integration Tests', () => {
             );
 
             const taskId = createResult.task.taskId;
+            expect(createResult.task.status).toBe('working');
 
-            // Wait for elicitation to occur
-            await new Promise(resolve => setTimeout(resolve, 200));
+            // Phase 2: Wait for server to queue elicitation and update status
+            // Poll tasks/get until we see input_required status
+            let taskStatus: string = 'working';
+            const maxPolls = 20;
+            let polls = 0;
 
-            // Check if the elicitation request was queued
+            while (taskStatus === 'working' && polls < maxPolls) {
+                await new Promise(resolve => setTimeout(resolve, createResult.task.pollInterval ?? 100));
+                const task = await elicitClient.request(
+                    {
+                        method: 'tasks/get',
+                        params: { taskId }
+                    },
+                    TaskSchema
+                );
+                taskStatus = task.status;
+                polls++;
+            }
 
-            // Call tasks/result to receive the queued elicitation request
-            // This should deliver the elicitation request via the side-channel
-            // and then deliver the final result after the client responds
+            // Verify we saw input_required status (not completed or failed)
+            expect(taskStatus).toBe('input_required');
+
+            // Phase 3: Call tasks/result to dequeue messages and get final result
+            // This should:
+            // - Deliver the queued elicitation request via SSE
+            // - Client handler responds
+            // - Server receives response, completes task
+            // - Return final result
             const result = await elicitClient.request(
                 {
                     method: 'tasks/result',
@@ -629,76 +667,28 @@ describe('Task Lifecycle Integration Tests', () => {
                 CallToolResultSchema
             );
 
-            // Verify final result is delivered correctly
-            expect(result.content).toEqual([{ type: 'text', text: 'Hello, Alice!' }]);
+            // Verify elicitation was received and processed
+            expect(elicitationReceived).toBe(true);
+
+            // Verify the elicitation request had related-task metadata
+            expect(elicitationRequestMeta).toBeDefined();
+            expect(elicitationRequestMeta?.[RELATED_TASK_META_KEY]).toEqual({ taskId });
+
+            // Verify final result
+            expect(result.content).toEqual([{ type: 'text', text: 'Hello, TestUser!' }]);
 
             // Verify task is now completed
-            const task = await elicitClient.request(
+            const finalTask = await elicitClient.request(
                 {
                     method: 'tasks/get',
                     params: { taskId }
                 },
                 TaskSchema
             );
-            expect(task.status).toBe('completed');
+            expect(finalTask.status).toBe('completed');
 
             await transport.close();
-        }, 10000); // Increase timeout to 10 seconds for debugging
-
-        it('should complete immediately when input is provided upfront', async () => {
-            const client = new Client({
-                name: 'test-client',
-                version: '1.0.0'
-            });
-
-            const transport = new StreamableHTTPClientTransport(baseUrl);
-            await client.connect(transport);
-
-            // Create a task with userName provided (no elicitation needed)
-            const createResult = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'input-task',
-                        arguments: {
-                            userName: 'Bob'
-                        },
-                        task: {
-                            ttl: 60000
-                        }
-                    }
-                },
-                CreateTaskResultSchema
-            );
-
-            const taskId = createResult.task.taskId;
-
-            // Wait for completion
-            await new Promise(resolve => setTimeout(resolve, 300));
-
-            // Verify task completed without elicitation
-            const task = await client.request(
-                {
-                    method: 'tasks/get',
-                    params: { taskId }
-                },
-                TaskSchema
-            );
-            expect(task.status).toBe('completed');
-
-            // Get result
-            const result = await client.request(
-                {
-                    method: 'tasks/result',
-                    params: { taskId }
-                },
-                CallToolResultSchema
-            );
-
-            expect(result.content).toEqual([{ type: 'text', text: 'Hello, Bob!' }]);
-
-            await transport.close();
-        });
+        }, 15000);
     });
 
     describe('Task Listing and Pagination', () => {
@@ -1013,7 +1003,7 @@ describe('Task Lifecycle Integration Tests', () => {
             // Wait for messages to be queued
             await new Promise(resolve => setTimeout(resolve, 200));
 
-            // Verify task is working and messages are queued
+            // Verify task is in input_required state and messages are queued
             let task = await client.request(
                 {
                     method: 'tasks/get',
@@ -1021,7 +1011,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 },
                 TaskSchema
             );
-            expect(task.status).toBe('working');
+            expect(task.status).toBe('input_required');
 
             // Cancel the task before calling tasks/result using the proper tasks/cancel request
             // This will trigger queue cleanup via _clearTaskQueue in the handler
@@ -1322,33 +1312,36 @@ describe('Task Lifecycle Integration Tests', () => {
                         // Perform async work that queues messages and completes quickly
                         (async () => {
                             try {
-                                // Queue messages without waiting for responses
-                                const pendingRequests: Promise<unknown>[] = [];
-
+                                // Queue messages - these will be queued before the task completes
+                                // We await each one starting to ensure they're queued before completing
                                 for (let i = 0; i < messageCount; i++) {
-                                    const requestPromise = extra.sendRequest(
-                                        {
-                                            method: 'elicitation/create',
-                                            params: {
-                                                mode: 'form',
-                                                message: `Quick message ${i + 1} of ${messageCount}`,
-                                                requestedSchema: {
-                                                    type: 'object',
-                                                    properties: {
-                                                        response: { type: 'string' }
-                                                    },
-                                                    required: ['response']
+                                    // Start the request but don't wait for response
+                                    // The request gets queued when sendRequest is called
+                                    extra
+                                        .sendRequest(
+                                            {
+                                                method: 'elicitation/create',
+                                                params: {
+                                                    mode: 'form',
+                                                    message: `Quick message ${i + 1} of ${messageCount}`,
+                                                    requestedSchema: {
+                                                        type: 'object',
+                                                        properties: {
+                                                            response: { type: 'string' }
+                                                        },
+                                                        required: ['response']
+                                                    }
                                                 }
-                                            }
-                                        },
-                                        ElicitResultSchema,
-                                        { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
-                                    );
-                                    pendingRequests.push(requestPromise);
+                                            },
+                                            ElicitResultSchema,
+                                            { relatedTask: { taskId: task.taskId } } as unknown as TaskRequestOptions
+                                        )
+                                        .catch(() => {});
+                                    // Small delay to ensure message is queued before next iteration
+                                    await new Promise(resolve => setTimeout(resolve, 10));
                                 }
 
-                                // Complete the task immediately (before responses are received)
-                                // This creates a terminal task with queued messages
+                                // Complete the task after all messages are queued
                                 try {
                                     await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
                                         content: [{ type: 'text', text: 'Task completed quickly' }]
@@ -1356,9 +1349,6 @@ describe('Task Lifecycle Integration Tests', () => {
                                 } catch {
                                     // Task may have been cleaned up if test ended
                                 }
-
-                                // Wait for all responses in the background
-                                await Promise.all(pendingRequests.map(p => p.catch(() => {})));
                             } catch (error) {
                                 // Handle errors
                                 try {

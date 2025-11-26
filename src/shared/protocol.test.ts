@@ -3661,6 +3661,172 @@ describe('Message Interception', () => {
         });
     });
 
+    describe('server queues responses/errors for task-related requests', () => {
+        it('should queue response when handling a request with relatedTask metadata', async () => {
+            await protocol.connect(transport);
+
+            // Set up a request handler that returns a result
+            const TestRequestSchema = z.object({
+                method: z.literal('test/taskRequest'),
+                params: z
+                    .object({
+                        _meta: z.optional(z.record(z.unknown()))
+                    })
+                    .passthrough()
+            });
+
+            protocol.setRequestHandler(TestRequestSchema, async () => {
+                return { content: 'test result' } as Result;
+            });
+
+            // Simulate an incoming request with relatedTask metadata
+            const requestId = 456;
+            const taskId = 'task-response-test';
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: requestId,
+                method: 'test/taskRequest',
+                params: {
+                    _meta: {
+                        'io.modelcontextprotocol/related-task': { taskId }
+                    }
+                }
+            });
+
+            // Wait for the handler to complete
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Verify the response was queued instead of sent directly
+            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            expect(queue).toBeDefined();
+
+            const queuedMessage = await queue!.dequeue(taskId);
+            expect(queuedMessage).toBeDefined();
+            expect(queuedMessage!.type).toBe('response');
+            if (queuedMessage!.type === 'response') {
+                expect(queuedMessage!.message.id).toBe(requestId);
+                expect(queuedMessage!.message.result).toEqual({ content: 'test result' });
+            }
+        });
+
+        it('should queue error when handling a request with relatedTask metadata that throws', async () => {
+            await protocol.connect(transport);
+
+            // Set up a request handler that throws an error
+            const TestRequestSchema = z.object({
+                method: z.literal('test/taskRequestError'),
+                params: z
+                    .object({
+                        _meta: z.optional(z.record(z.unknown()))
+                    })
+                    .passthrough()
+            });
+
+            protocol.setRequestHandler(TestRequestSchema, async () => {
+                throw new McpError(ErrorCode.InternalError, 'Test error message');
+            });
+
+            // Simulate an incoming request with relatedTask metadata
+            const requestId = 789;
+            const taskId = 'task-error-test';
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: requestId,
+                method: 'test/taskRequestError',
+                params: {
+                    _meta: {
+                        'io.modelcontextprotocol/related-task': { taskId }
+                    }
+                }
+            });
+
+            // Wait for the handler to complete
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Verify the error was queued instead of sent directly
+            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            expect(queue).toBeDefined();
+
+            const queuedMessage = await queue!.dequeue(taskId);
+            expect(queuedMessage).toBeDefined();
+            expect(queuedMessage!.type).toBe('error');
+            if (queuedMessage!.type === 'error') {
+                expect(queuedMessage!.message.id).toBe(requestId);
+                expect(queuedMessage!.message.error.code).toBe(ErrorCode.InternalError);
+                expect(queuedMessage!.message.error.message).toContain('Test error message');
+            }
+        });
+
+        it('should queue MethodNotFound error for unknown method with relatedTask metadata', async () => {
+            await protocol.connect(transport);
+
+            // Simulate an incoming request for unknown method with relatedTask metadata
+            const requestId = 101;
+            const taskId = 'task-not-found-test';
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: requestId,
+                method: 'unknown/method',
+                params: {
+                    _meta: {
+                        'io.modelcontextprotocol/related-task': { taskId }
+                    }
+                }
+            });
+
+            // Wait for processing
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Verify the error was queued
+            const queue = (protocol as unknown as TestProtocol)._taskMessageQueue;
+            expect(queue).toBeDefined();
+
+            const queuedMessage = await queue!.dequeue(taskId);
+            expect(queuedMessage).toBeDefined();
+            expect(queuedMessage!.type).toBe('error');
+            if (queuedMessage!.type === 'error') {
+                expect(queuedMessage!.message.id).toBe(requestId);
+                expect(queuedMessage!.message.error.code).toBe(ErrorCode.MethodNotFound);
+            }
+        });
+
+        it('should send response normally when request has no relatedTask metadata', async () => {
+            await protocol.connect(transport);
+            const sendSpy = vi.spyOn(transport, 'send');
+
+            // Set up a request handler
+            const TestRequestSchema = z.object({
+                method: z.literal('test/normalRequest'),
+                params: z.optional(z.record(z.unknown()))
+            });
+
+            protocol.setRequestHandler(TestRequestSchema, async () => {
+                return { content: 'normal result' } as Result;
+            });
+
+            // Simulate an incoming request WITHOUT relatedTask metadata
+            const requestId = 202;
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: requestId,
+                method: 'test/normalRequest',
+                params: {}
+            });
+
+            // Wait for the handler to complete
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Verify the response was sent through transport, not queued
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    jsonrpc: '2.0',
+                    id: requestId,
+                    result: { content: 'normal result' }
+                })
+            );
+        });
+    });
+
     describe('messages without metadata bypass the queue', () => {
         it('should not queue notifications without relatedTask metadata', async () => {
             await protocol.connect(transport);

@@ -650,17 +650,35 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         // Capture the current transport at request time to ensure responses go to the correct client
         const capturedTransport = this._transport;
 
+        // Extract taskId from request metadata if present (needed early for method not found case)
+        const relatedTaskId = request.params?._meta?.[RELATED_TASK_META_KEY]?.taskId;
+
         if (handler === undefined) {
-            capturedTransport
-                ?.send({
-                    jsonrpc: '2.0',
-                    id: request.id,
-                    error: {
-                        code: ErrorCode.MethodNotFound,
-                        message: 'Method not found'
-                    }
-                })
-                .catch(error => this._onerror(new Error(`Failed to send an error response: ${error}`)));
+            const errorResponse: JSONRPCError = {
+                jsonrpc: '2.0',
+                id: request.id,
+                error: {
+                    code: ErrorCode.MethodNotFound,
+                    message: 'Method not found'
+                }
+            };
+
+            // Queue or send the error response based on whether this is a task-related request
+            if (relatedTaskId && this._taskMessageQueue) {
+                this._enqueueTaskMessage(
+                    relatedTaskId,
+                    {
+                        type: 'error',
+                        message: errorResponse,
+                        timestamp: Date.now()
+                    },
+                    capturedTransport?.sessionId
+                ).catch(error => this._onerror(new Error(`Failed to enqueue error response: ${error}`)));
+            } else {
+                capturedTransport
+                    ?.send(errorResponse)
+                    .catch(error => this._onerror(new Error(`Failed to send an error response: ${error}`)));
+            }
             return;
         }
 
@@ -669,9 +687,6 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         const taskCreationParams = request.params?.task;
         const taskStore = this._taskStore ? this.requestTaskStore(request, capturedTransport?.sessionId) : undefined;
-
-        // Extract taskId from request metadata if present
-        const relatedTaskId = request.params?._meta?.[RELATED_TASK_META_KEY]?.taskId;
 
         const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
             signal: abortController.signal,
@@ -690,6 +705,26 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 const requestOptions: RequestOptions = { ...options, relatedRequestId: request.id };
                 if (relatedTaskId && !requestOptions.relatedTask) {
                     requestOptions.relatedTask = { taskId: relatedTaskId };
+                }
+                // Set task status to input_required when sending a request within a task context
+                // Use the taskId from options (explicit) or fall back to relatedTaskId (inherited)
+                const effectiveTaskId = requestOptions.relatedTask?.taskId ?? relatedTaskId;
+                if (effectiveTaskId && taskStore) {
+                    // Check current status - only update if transitioning from working
+                    // This avoids unnecessary updates and sends appropriate notifications
+                    const task = await taskStore.getTask(effectiveTaskId);
+                    if (task?.status === 'working') {
+                        await taskStore.updateTaskStatus(effectiveTaskId, 'input_required');
+                    } else if (!task || isTerminal(task.status)) {
+                        // Task not found or in terminal state - throw to stop the handler
+                        throw new McpError(
+                            ErrorCode.InvalidParams,
+                            task
+                                ? `Task "${effectiveTaskId}" is in terminal state "${task.status}" - no further messages can be sent`
+                                : `Task "${effectiveTaskId}" not found - it may have been cleaned up`
+                        );
+                    }
+                    // If already in input_required, just proceed without updating
                 }
                 return await this.request(r, resultSchema, requestOptions);
             },
@@ -718,12 +753,26 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         return;
                     }
 
-                    // Send the response
-                    await capturedTransport?.send({
+                    const response: JSONRPCResponse = {
                         result,
                         jsonrpc: '2.0',
                         id: request.id
-                    });
+                    };
+
+                    // Queue or send the response based on whether this is a task-related request
+                    if (relatedTaskId && this._taskMessageQueue) {
+                        await this._enqueueTaskMessage(
+                            relatedTaskId,
+                            {
+                                type: 'response',
+                                message: response,
+                                timestamp: Date.now()
+                            },
+                            capturedTransport?.sessionId
+                        );
+                    } else {
+                        await capturedTransport?.send(response);
+                    }
                 },
                 async error => {
                     if (abortController.signal.aborted) {
@@ -731,7 +780,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         return;
                     }
 
-                    return capturedTransport?.send({
+                    const errorResponse: JSONRPCError = {
                         jsonrpc: '2.0',
                         id: request.id,
                         error: {
@@ -739,7 +788,22 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                             message: error.message ?? 'Internal error',
                             ...(error['data'] !== undefined && { data: error['data'] })
                         }
-                    });
+                    };
+
+                    // Queue or send the error response based on whether this is a task-related request
+                    if (relatedTaskId && this._taskMessageQueue) {
+                        await this._enqueueTaskMessage(
+                            relatedTaskId,
+                            {
+                                type: 'error',
+                                message: errorResponse,
+                                timestamp: Date.now()
+                            },
+                            capturedTransport?.sessionId
+                        );
+                    } else {
+                        await capturedTransport?.send(errorResponse);
+                    }
                 }
             )
             .catch(error => this._onerror(new Error(`Failed to send response: ${error}`)))
@@ -1498,41 +1562,35 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 return taskStore.getTaskResult(taskId, sessionId);
             },
             updateTaskStatus: async (taskId, status, statusMessage) => {
-                try {
-                    // Check if task is in terminal state before attempting to update
-                    const task = await taskStore.getTask(taskId, sessionId);
-                    if (!task) {
-                        return;
+                // Check if task exists
+                const task = await taskStore.getTask(taskId, sessionId);
+                if (!task) {
+                    throw new McpError(ErrorCode.InvalidParams, `Task "${taskId}" not found - it may have been cleaned up`);
+                }
+
+                // Don't allow transitions from terminal states
+                if (isTerminal(task.status)) {
+                    throw new McpError(
+                        ErrorCode.InvalidParams,
+                        `Cannot update task "${taskId}" from terminal status "${task.status}" to "${status}". Terminal states (completed, failed, cancelled) cannot transition to other states.`
+                    );
+                }
+
+                await taskStore.updateTaskStatus(taskId, status, statusMessage, sessionId);
+
+                // Get updated task state and send notification
+                const updatedTask = await taskStore.getTask(taskId, sessionId);
+                if (updatedTask) {
+                    const notification: TaskStatusNotification = TaskStatusNotificationSchema.parse({
+                        method: 'notifications/tasks/status',
+                        params: updatedTask
+                    });
+                    await this.notification(notification as SendNotificationT);
+
+                    if (isTerminal(updatedTask.status)) {
+                        this._cleanupTaskProgressHandler(taskId);
+                        // Don't clear queue here - it will be cleared after delivery via tasks/result
                     }
-
-                    // Don't allow transitions from terminal states
-                    if (isTerminal(task.status)) {
-                        this._onerror(
-                            new Error(
-                                `Cannot update task "${taskId}" from terminal status "${task.status}" to "${status}". Terminal states (completed, failed, cancelled) cannot transition to other states.`
-                            )
-                        );
-                        return;
-                    }
-
-                    await taskStore.updateTaskStatus(taskId, status, statusMessage, sessionId);
-
-                    // Get updated task state and send notification
-                    const updatedTask = await taskStore.getTask(taskId, sessionId);
-                    if (updatedTask) {
-                        const notification: TaskStatusNotification = TaskStatusNotificationSchema.parse({
-                            method: 'notifications/tasks/status',
-                            params: updatedTask
-                        });
-                        await this.notification(notification as SendNotificationT);
-
-                        if (isTerminal(updatedTask.status)) {
-                            this._cleanupTaskProgressHandler(taskId);
-                            // Don't clear queue here - it will be cleared after delivery via tasks/result
-                        }
-                    }
-                } catch (error) {
-                    throw new Error(`Failed to update status of task "${taskId}" to "${status}": ${error}`);
                 }
             },
             listTasks: cursor => {
