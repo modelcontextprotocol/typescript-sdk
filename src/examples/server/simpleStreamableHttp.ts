@@ -485,7 +485,8 @@ if (useOAuth) {
             });
 
             if (!response.ok) {
-                throw new Error(`Invalid or expired token: ${await response.text()}`);
+                const text = await response.text().catch(() => null);
+                throw new Error(`Invalid or expired token: ${text}`);
             }
 
             const data = await response.json();

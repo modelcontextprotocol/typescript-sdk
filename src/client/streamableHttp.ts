@@ -223,6 +223,8 @@ export class StreamableHTTPClientTransport implements Transport {
             });
 
             if (!response.ok) {
+                await response.body?.cancel();
+
                 if (response.status === 401 && this._authProvider) {
                     // Need to authenticate
                     return await this._authThenStart();
@@ -463,6 +465,8 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             if (!response.ok) {
+                const text = await response.text().catch(() => null);
+
                 if (response.status === 401 && this._authProvider) {
                     // Prevent infinite recursion when server returns 401 after successful auth
                     if (this._hasCompletedAuthFlow) {
@@ -525,7 +529,6 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 }
 
-                const text = await response.text().catch(() => null);
                 throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
             }
 
@@ -535,6 +538,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {
+                await response.body?.cancel();
                 // if the accepted notification is initialized, we start the SSE stream
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
@@ -609,6 +613,7 @@ export class StreamableHTTPClientTransport implements Transport {
             };
 
             const response = await (this._fetch ?? fetch)(this._url, init);
+            await response.body?.cancel();
 
             // We specifically handle 405 as a valid response according to the spec,
             // meaning the server does not support explicit session termination
