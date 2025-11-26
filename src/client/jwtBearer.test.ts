@@ -150,9 +150,9 @@ btHHccicX+r3BsSv5adOxQ==
         });
 
         const params = new URLSearchParams();
-        await expect(
-            addClientAuth(new Headers(), params, 'https://auth.example.com/token', undefined)
-        ).rejects.toThrow('Unsupported algorithm none');
+        await expect(addClientAuth(new Headers(), params, 'https://auth.example.com/token', undefined)).rejects.toThrow(
+            'Unsupported algorithm none'
+        );
     });
 
     it('throws when jose cannot import an invalid RSA PEM key', async () => {
@@ -166,9 +166,9 @@ btHHccicX+r3BsSv5adOxQ==
         });
 
         const params = new URLSearchParams();
-        await expect(
-            addClientAuth(new Headers(), params, 'https://auth.example.com/token', undefined)
-        ).rejects.toThrow(/Invalid character/);
+        await expect(addClientAuth(new Headers(), params, 'https://auth.example.com/token', undefined)).rejects.toThrow(
+            /Invalid character/
+        );
     });
 
     it('throws when jose cannot import a mismatched JWK key', async () => {
@@ -187,8 +187,8 @@ btHHccicX+r3BsSv5adOxQ==
         });
 
         const params = new URLSearchParams();
-        await expect(
-            addClientAuth(new Headers(), params, 'https://auth.example.com/token', undefined)
-        ).rejects.toThrow(/Key for the RS256 algorithm must be one of type CryptoKey, KeyObject, or JSON Web Key/);
+        await expect(addClientAuth(new Headers(), params, 'https://auth.example.com/token', undefined)).rejects.toThrow(
+            /Key for the RS256 algorithm must be one of type CryptoKey, KeyObject, or JSON Web Key/
+        );
     });
 });

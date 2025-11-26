@@ -31,6 +31,16 @@ import {
 import { FetchLike } from '../shared/transport.js';
 
 /**
+ * Function type for adding client authentication to token requests.
+ */
+export type AddClientAuthentication = (
+    headers: Headers,
+    params: URLSearchParams,
+    url: string | URL,
+    metadata?: AuthorizationServerMetadata
+) => void | Promise<void>;
+
+/**
  * Implements an end-to-end OAuth client to be used with one MCP server.
  *
  * This client relies upon a concept of an authorized "session," the exact
@@ -124,12 +134,7 @@ export interface OAuthClientProvider {
      * @param url - The token endpoint URL being called
      * @param metadata - Optional OAuth metadata for the server, which may include supported authentication methods
      */
-    addClientAuthentication?(
-        headers: Headers,
-        params: URLSearchParams,
-        url: string | URL,
-        metadata?: AuthorizationServerMetadata
-    ): void | Promise<void>;
+    addClientAuthentication?: AddClientAuthentication;
 
     /**
      * If defined, overrides the selection and validation of the
@@ -1045,9 +1050,7 @@ async function executeTokenRequest(
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
-    const tokenUrl = metadata?.token_endpoint
-        ? new URL(metadata.token_endpoint)
-        : new URL('/token', authorizationServerUrl);
+    const tokenUrl = metadata?.token_endpoint ? new URL(metadata.token_endpoint) : new URL('/token', authorizationServerUrl);
 
     const headers = new Headers({
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -1113,11 +1116,7 @@ export async function exchangeAuthorization(
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
-    const tokenRequestParams = prepareAuthorizationCodeRequest(
-        authorizationCode,
-        codeVerifier,
-        redirectUri
-    );
+    const tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, redirectUri);
 
     return executeTokenRequest(authorizationServerUrl, {
         metadata,
@@ -1236,11 +1235,7 @@ export async function fetchToken(
             throw new Error('redirectUrl is required for authorization_code flow');
         }
         const codeVerifier = await provider.codeVerifier();
-        tokenRequestParams = prepareAuthorizationCodeRequest(
-            authorizationCode,
-            codeVerifier,
-            provider.redirectUrl
-        );
+        tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, provider.redirectUrl);
     }
 
     const clientInformation = await provider.clientInformation();
@@ -1296,4 +1291,3 @@ export async function registerClient(
 
     return OAuthClientInformationFullSchema.parse(await response.json());
 }
-

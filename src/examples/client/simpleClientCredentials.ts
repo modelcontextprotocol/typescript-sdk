@@ -61,10 +61,7 @@ function createProvider(): OAuthClientProvider {
 async function main() {
     const provider = createProvider();
 
-    const client = new Client(
-        { name: 'client-credentials-example', version: '1.0.0' },
-        { capabilities: {} }
-    );
+    const client = new Client({ name: 'client-credentials-example', version: '1.0.0' }, { capabilities: {} });
 
     const transport = new StreamableHTTPClientTransport(new URL(DEFAULT_SERVER_URL), {
         authProvider: provider

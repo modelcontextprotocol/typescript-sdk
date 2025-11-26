@@ -6,12 +6,8 @@
  */
 
 import type { JWK } from 'jose';
-import {
-    OAuthClientInformation,
-    OAuthClientMetadata,
-    OAuthTokens
-} from '../shared/auth.js';
-import { OAuthClientProvider } from './auth.js';
+import { OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '../shared/auth.js';
+import { AddClientAuthentication, OAuthClientProvider } from './auth.js';
 
 /**
  * Helper to produce a private_key_jwt client authentication function.
@@ -28,7 +24,7 @@ export function createPrivateKeyJwtAuth(options: {
     audience?: string | URL;
     lifetimeSeconds?: number;
     claims?: Record<string, unknown>;
-}): OAuthClientProvider['addClientAuthentication'] {
+}): AddClientAuthentication {
     return async (_headers, params, url, metadata) => {
         // Lazy import to avoid heavy dependency unless used
         const jose = await import('jose');
@@ -237,7 +233,7 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
     private _tokens?: OAuthTokens;
     private _clientInfo: OAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
-    addClientAuthentication: OAuthClientProvider['addClientAuthentication'];
+    addClientAuthentication: AddClientAuthentication;
 
     constructor(options: PrivateKeyJwtProviderOptions) {
         this._clientInfo = {
