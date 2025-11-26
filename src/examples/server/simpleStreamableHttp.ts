@@ -15,7 +15,7 @@ import {
     ResourceLink
 } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
-import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../shared/inMemoryTaskStore.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../../experimental/tasks/stores/in-memory.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from '../../shared/auth.js';
 import { checkResourceAllowed } from '../../shared/auth-utils.js';
@@ -456,7 +456,8 @@ const getServer = () => {
     );
 
     // Register a long-running tool that demonstrates task execution
-    server.registerToolTask(
+    // Using the experimental tasks API - WARNING: may change without notice
+    server.experimental.tasks.registerToolTask(
         'delay',
         {
             title: 'Delay',

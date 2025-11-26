@@ -1,4 +1,98 @@
-import { Task, Request, RequestId, Result, JSONRPCRequest, JSONRPCNotification, JSONRPCResponse, JSONRPCError } from '../types.js';
+/**
+ * Experimental task interfaces for MCP SDK.
+ * WARNING: These APIs are experimental and may change without notice.
+ */
+
+import {
+    Task,
+    Request,
+    RequestId,
+    Result,
+    JSONRPCRequest,
+    JSONRPCNotification,
+    JSONRPCResponse,
+    JSONRPCError,
+    ServerRequest,
+    ServerNotification,
+    CallToolResult,
+    GetTaskResult,
+    ToolExecution
+} from '../../types.js';
+import { CreateTaskResult } from './types.js';
+import type { RequestHandlerExtra, RequestTaskStore } from '../../shared/protocol.js';
+import type { ZodRawShapeCompat, AnySchema, ShapeOutput } from '../../server/zod-compat.js';
+
+// ============================================================================
+// Task Handler Types (for registerToolTask)
+// ============================================================================
+
+/**
+ * Extended handler extra with task store for task creation.
+ * @experimental
+ */
+export interface CreateTaskRequestHandlerExtra extends RequestHandlerExtra<ServerRequest, ServerNotification> {
+    taskStore: RequestTaskStore;
+}
+
+/**
+ * Extended handler extra with task ID and store for task operations.
+ * @experimental
+ */
+export interface TaskRequestHandlerExtra extends RequestHandlerExtra<ServerRequest, ServerNotification> {
+    taskId: string;
+    taskStore: RequestTaskStore;
+}
+
+/**
+ * Base callback type for tool handlers.
+ * @experimental
+ */
+export type BaseToolCallback<
+    SendResultT extends Result,
+    ExtraT extends RequestHandlerExtra<ServerRequest, ServerNotification>,
+    Args extends undefined | ZodRawShapeCompat | AnySchema = undefined
+> = Args extends ZodRawShapeCompat
+    ? (args: ShapeOutput<Args>, extra: ExtraT) => SendResultT | Promise<SendResultT>
+    : Args extends AnySchema
+      ? (args: unknown, extra: ExtraT) => SendResultT | Promise<SendResultT>
+      : (extra: ExtraT) => SendResultT | Promise<SendResultT>;
+
+/**
+ * Handler for creating a task.
+ * @experimental
+ */
+export type CreateTaskRequestHandler<
+    SendResultT extends Result,
+    Args extends undefined | ZodRawShapeCompat | AnySchema = undefined
+> = BaseToolCallback<SendResultT, CreateTaskRequestHandlerExtra, Args>;
+
+/**
+ * Handler for task operations (get, getResult).
+ * @experimental
+ */
+export type TaskRequestHandler<
+    SendResultT extends Result,
+    Args extends undefined | ZodRawShapeCompat | AnySchema = undefined
+> = BaseToolCallback<SendResultT, TaskRequestHandlerExtra, Args>;
+
+/**
+ * Interface for task-based tool handlers.
+ * @experimental
+ */
+export interface ToolTaskHandler<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> {
+    createTask: CreateTaskRequestHandler<CreateTaskResult, Args>;
+    getTask: TaskRequestHandler<GetTaskResult, Args>;
+    getTaskResult: TaskRequestHandler<CallToolResult, Args>;
+}
+
+/**
+ * Task-specific execution configuration.
+ * taskSupport cannot be 'forbidden' for task-based tools.
+ * @experimental
+ */
+export type TaskToolExecution<TaskSupport = ToolExecution['taskSupport']> = Omit<ToolExecution, 'taskSupport'> & {
+    taskSupport: TaskSupport extends 'forbidden' | undefined ? never : TaskSupport;
+};
 
 /**
  * Represents a message queued for side-channel delivery via tasks/result.
@@ -51,6 +145,8 @@ export interface QueuedError extends BaseQueuedMessage {
  *
  * All methods are async to support external storage implementations.
  * All data in QueuedMessage must be JSON-serializable.
+ *
+ * @experimental
  */
 export interface TaskMessageQueue {
     /**
@@ -84,6 +180,7 @@ export interface TaskMessageQueue {
 
 /**
  * Task creation options.
+ * @experimental
  */
 export interface CreateTaskOptions {
     /**
@@ -108,6 +205,8 @@ export interface CreateTaskOptions {
  *
  * Similar to Transport, this allows pluggable task storage implementations
  * (in-memory, database, distributed cache, etc.).
+ *
+ * @experimental
  */
 export interface TaskStore {
     /**
@@ -183,6 +282,7 @@ export interface TaskStore {
  *
  * @param status - The task status to check
  * @returns True if the status is terminal (completed, failed, or cancelled)
+ * @experimental
  */
 export function isTerminal(status: Task['status']): boolean {
     return status === 'completed' || status === 'failed' || status === 'cancelled';

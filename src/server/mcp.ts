@@ -46,7 +46,6 @@ import {
     ToolAnnotations,
     LoggingMessageNotification,
     CreateTaskResult,
-    GetTaskResult,
     Result,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
@@ -57,10 +56,12 @@ import {
 } from '../types.js';
 import { isCompletable, getCompleter } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
-import { RequestHandlerExtra, RequestTaskStore } from '../shared/protocol.js';
+import { RequestHandlerExtra } from '../shared/protocol.js';
 import { Transport } from '../shared/transport.js';
 
 import { validateAndWarnToolName } from '../shared/toolNameValidation.js';
+import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcp-server.js';
+import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -79,9 +80,26 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    private _experimental?: { tasks: ExperimentalMcpServerTasks };
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
         this.server = new Server(serverInfo, options);
+    }
+
+    /**
+     * Access experimental features.
+     *
+     * WARNING: These APIs are experimental and may change without notice.
+     *
+     * @experimental
+     */
+    get experimental(): { tasks: ExperimentalMcpServerTasks } {
+        if (!this._experimental) {
+            this._experimental = {
+                tasks: new ExperimentalMcpServerTasks(this)
+            };
+        }
+        return this._experimental;
     }
 
     /**
@@ -1044,74 +1062,6 @@ export class McpServer {
     }
 
     /**
-     * Registers a task-based tool with a config object and callback.
-     */
-    registerToolTask<OutputArgs extends undefined | ZodRawShapeCompat | AnySchema>(
-        name: string,
-        config: {
-            title?: string;
-            description?: string;
-            outputSchema?: OutputArgs;
-            annotations?: ToolAnnotations;
-            execution?: TaskToolExecution;
-            _meta?: Record<string, unknown>;
-        },
-        handler: ToolTaskHandler<undefined>
-    ): RegisteredTool;
-
-    /**
-     * Registers a task-based tool with a config object and callback.
-     */
-    registerToolTask<InputArgs extends ZodRawShapeCompat | AnySchema, OutputArgs extends undefined | ZodRawShapeCompat | AnySchema>(
-        name: string,
-        config: {
-            title?: string;
-            description?: string;
-            inputSchema: InputArgs;
-            outputSchema?: OutputArgs;
-            annotations?: ToolAnnotations;
-            execution?: TaskToolExecution;
-            _meta?: Record<string, unknown>;
-        },
-        handler: ToolTaskHandler<InputArgs>
-    ): RegisteredTool;
-
-    registerToolTask<
-        InputArgs extends undefined | ZodRawShapeCompat | AnySchema,
-        OutputArgs extends undefined | ZodRawShapeCompat | AnySchema
-    >(
-        name: string,
-        config: {
-            title?: string;
-            description?: string;
-            inputSchema?: InputArgs;
-            outputSchema?: OutputArgs;
-            annotations?: ToolAnnotations;
-            execution?: TaskToolExecution;
-            _meta?: Record<string, unknown>;
-        },
-        handler: ToolTaskHandler<InputArgs>
-    ): RegisteredTool {
-        // Validate that taskSupport is not 'forbidden' for task-based tools
-        const execution: ToolExecution = { taskSupport: 'required', ...config.execution };
-        if (execution.taskSupport === 'forbidden') {
-            throw new Error(`Cannot register task-based tool '${name}' with taskSupport 'forbidden'. Use registerTool() instead.`);
-        }
-
-        return this._createRegisteredTool(
-            name,
-            config.title,
-            config.description,
-            config.inputSchema,
-            config.outputSchema,
-            config.annotations,
-            execution,
-            config._meta,
-            handler
-        );
-    }
-
-    /**
      * Registers a zero-argument prompt `name`, which will run the given function when the client calls it.
      * @deprecated Use `registerPrompt` instead.
      */
@@ -1326,46 +1276,10 @@ export type ToolCallback<Args extends undefined | ZodRawShapeCompat | AnySchema 
     Args
 >;
 
-export interface CreateTaskRequestHandlerExtra extends RequestHandlerExtra<ServerRequest, ServerNotification> {
-    taskStore: RequestTaskStore;
-}
-
-export interface TaskRequestHandlerExtra extends RequestHandlerExtra<ServerRequest, ServerNotification> {
-    taskId: string;
-    taskStore: RequestTaskStore;
-}
-
-export type CreateTaskRequestHandler<
-    SendResultT extends Result,
-    Args extends undefined | ZodRawShapeCompat | AnySchema = undefined
-> = BaseToolCallback<SendResultT, CreateTaskRequestHandlerExtra, Args>;
-
-export type TaskRequestHandler<
-    SendResultT extends Result,
-    Args extends undefined | ZodRawShapeCompat | AnySchema = undefined
-> = BaseToolCallback<SendResultT, TaskRequestHandlerExtra, Args>;
-
-export interface ToolTaskHandler<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> {
-    createTask: CreateTaskRequestHandler<CreateTaskResult, Args>;
-    getTask: TaskRequestHandler<GetTaskResult, Args>;
-    getTaskResult: TaskRequestHandler<CallToolResult, Args>;
-}
-
-/**
- * Supertype for tool handler callbacks registered with Server.registerTool() and Server.registerToolTask().
- */
-export type AnyToolCallback<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> =
-    | ToolCallback<Args>
-    | TaskRequestHandler<CreateTaskResult, Args>;
-
 /**
  * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
  */
 export type AnyToolHandler<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
-
-export type TaskToolExecution<TaskSupport = ToolExecution['taskSupport']> = Omit<ToolExecution, 'taskSupport'> & {
-    taskSupport: TaskSupport extends 'forbidden' | undefined ? never : TaskSupport;
-};
 
 export type RegisteredTool = {
     title?: string;

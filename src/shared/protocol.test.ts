@@ -16,13 +16,13 @@ import {
 } from '../types.js';
 import { Protocol, mergeCapabilities } from './protocol.js';
 import { Transport, TransportSendOptions } from './transport.js';
-import { TaskStore, TaskMessageQueue, QueuedMessage, QueuedNotification, QueuedRequest } from './task.js';
+import { TaskStore, TaskMessageQueue, QueuedMessage, QueuedNotification, QueuedRequest } from '../experimental/tasks/interfaces.js';
 import { MockInstance, vi } from 'vitest';
 import { JSONRPCResponse, JSONRPCRequest, JSONRPCError } from '../types.js';
 import { ErrorMessage, ResponseMessage, toArrayAsync } from './responseMessage.js';
-import { InMemoryTaskMessageQueue } from '../examples/shared/inMemoryTaskStore.js';
+import { InMemoryTaskMessageQueue } from '../experimental/tasks/stores/in-memory.js';
 
-// Type helper for accessing private Protocol properties in tests
+// Type helper for accessing private/protected Protocol properties in tests
 interface TestProtocol {
     _taskMessageQueue?: TaskMessageQueue;
     _requestResolvers: Map<RequestId, (response: JSONRPCResponse | Error) => void>;
@@ -30,6 +30,10 @@ interface TestProtocol {
     _taskProgressTokens: Map<string, number>;
     _clearTaskQueue: (taskId: string, sessionId?: string) => Promise<void>;
     requestTaskStore: (request: Request, authInfo: unknown) => TaskStore;
+    // Protected task methods (exposed for testing)
+    listTasks: (params?: { cursor?: string }) => Promise<{ tasks: Task[]; nextCursor?: string }>;
+    cancelTask: (params: { taskId: string }) => Promise<Result>;
+    requestStream: <T extends Result>(request: Request, schema: ZodType<T>, options?: unknown) => AsyncGenerator<ResponseMessage<T>>;
 }
 
 // Mock Transport class
@@ -1487,7 +1491,7 @@ describe('Task-based execution', () => {
         it('should call listTasks method from client side', async () => {
             await protocol.connect(transport);
 
-            const listTasksPromise = protocol.listTasks();
+            const listTasksPromise = (protocol as unknown as TestProtocol).listTasks();
 
             // Simulate server response
             setTimeout(() => {
@@ -1527,7 +1531,7 @@ describe('Task-based execution', () => {
         it('should call listTasks with cursor from client side', async () => {
             await protocol.connect(transport);
 
-            const listTasksPromise = protocol.listTasks({ cursor: 'task-10' });
+            const listTasksPromise = (protocol as unknown as TestProtocol).listTasks({ cursor: 'task-10' });
 
             // Simulate server response
             setTimeout(() => {
@@ -1713,7 +1717,7 @@ describe('Task-based execution', () => {
         it('should call cancelTask method from client side', async () => {
             await protocol.connect(transport);
 
-            const deleteTaskPromise = protocol.cancelTask({ taskId: 'task-to-delete' });
+            const deleteTaskPromise = (protocol as unknown as TestProtocol).cancelTask({ taskId: 'task-to-delete' });
 
             // Simulate server response - per MCP spec, CancelTaskResult is Result & Task
             setTimeout(() => {
@@ -4458,7 +4462,10 @@ describe('requestStream() method', () => {
         // Start the request stream
         const streamPromise = (async () => {
             const messages = [];
-            const stream = protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema);
+            const stream = (protocol as unknown as TestProtocol).requestStream(
+                { method: 'tools/call', params: { name: 'test', arguments: {} } },
+                CallToolResultSchema
+            );
             for await (const message of stream) {
                 messages.push(message);
             }
@@ -4498,7 +4505,10 @@ describe('requestStream() method', () => {
         // Start the request stream
         const streamPromise = (async () => {
             const messages = [];
-            const stream = protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema);
+            const stream = (protocol as unknown as TestProtocol).requestStream(
+                { method: 'tools/call', params: { name: 'test', arguments: {} } },
+                CallToolResultSchema
+            );
             for await (const message of stream) {
                 messages.push(message);
             }
@@ -4545,9 +4555,13 @@ describe('requestStream() method', () => {
 
         // Start the request stream with already-aborted signal
         const messages = [];
-        const stream = protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema, {
-            signal: abortController.signal
-        });
+        const stream = (protocol as unknown as TestProtocol).requestStream(
+            { method: 'tools/call', params: { name: 'test', arguments: {} } },
+            CallToolResultSchema,
+            {
+                signal: abortController.signal
+            }
+        );
         for await (const message of stream) {
             messages.push(message);
         }
@@ -4573,7 +4587,10 @@ describe('requestStream() method', () => {
             await protocol.connect(transport);
 
             const messagesPromise = toArrayAsync(
-                protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema)
+                (protocol as unknown as TestProtocol).requestStream(
+                    { method: 'tools/call', params: { name: 'test', arguments: {} } },
+                    CallToolResultSchema
+                )
             );
 
             // Simulate server error response
@@ -4612,9 +4629,13 @@ describe('requestStream() method', () => {
                 await protocol.connect(transport);
 
                 const messagesPromise = toArrayAsync(
-                    protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema, {
-                        timeout: 100
-                    })
+                    (protocol as unknown as TestProtocol).requestStream(
+                        { method: 'tools/call', params: { name: 'test', arguments: {} } },
+                        CallToolResultSchema,
+                        {
+                            timeout: 100
+                        }
+                    )
                 );
 
                 // Advance time to trigger timeout
@@ -4650,9 +4671,13 @@ describe('requestStream() method', () => {
 
             // Collect messages
             const messages = await toArrayAsync(
-                protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema, {
-                    signal: abortController.signal
-                })
+                (protocol as unknown as TestProtocol).requestStream(
+                    { method: 'tools/call', params: { name: 'test', arguments: {} } },
+                    CallToolResultSchema,
+                    {
+                        signal: abortController.signal
+                    }
+                )
             );
 
             // Verify error is terminal and last message
@@ -4675,7 +4700,10 @@ describe('requestStream() method', () => {
             await protocol.connect(transport);
 
             const messagesPromise = toArrayAsync(
-                protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema)
+                (protocol as unknown as TestProtocol).requestStream(
+                    { method: 'tools/call', params: { name: 'test', arguments: {} } },
+                    CallToolResultSchema
+                )
             );
 
             // Simulate server error response
@@ -4724,7 +4752,10 @@ describe('requestStream() method', () => {
             await protocol.connect(transport);
 
             const messagesPromise = toArrayAsync(
-                protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema)
+                (protocol as unknown as TestProtocol).requestStream(
+                    { method: 'tools/call', params: { name: 'test', arguments: {} } },
+                    CallToolResultSchema
+                )
             );
 
             // Simulate task creation response
@@ -4784,7 +4815,10 @@ describe('requestStream() method', () => {
             transport.send = vi.fn().mockRejectedValue(new Error('Network error'));
 
             const messages = await toArrayAsync(
-                protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema)
+                (protocol as unknown as TestProtocol).requestStream(
+                    { method: 'tools/call', params: { name: 'test', arguments: {} } },
+                    CallToolResultSchema
+                )
             );
 
             // Verify error is terminal and last message
@@ -4806,7 +4840,10 @@ describe('requestStream() method', () => {
             await protocol.connect(transport);
 
             const messagesPromise = toArrayAsync(
-                protocol.requestStream({ method: 'tools/call', params: { name: 'test', arguments: {} } }, CallToolResultSchema)
+                (protocol as unknown as TestProtocol).requestStream(
+                    { method: 'tools/call', params: { name: 'test', arguments: {} } },
+                    CallToolResultSchema
+                )
             );
 
             // Simulate server error response

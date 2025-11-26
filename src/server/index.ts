@@ -1,5 +1,4 @@
 import { mergeCapabilities, Protocol, type NotificationOptions, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
-import { ResponseMessage } from '../shared/responseMessage.js';
 import {
     type ClientCapabilities,
     type CreateMessageRequest,
@@ -42,7 +41,6 @@ import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
 import {
     AnyObjectSchema,
-    AnySchema,
     getObjectShape,
     isZ4Schema,
     safeParse,
@@ -51,6 +49,8 @@ import {
     type ZodV4Internal
 } from './zod-compat.js';
 import { RequestHandlerExtra } from '../shared/protocol.js';
+import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
+import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '../experimental/tasks/helpers.js';
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -131,6 +131,7 @@ export class Server<
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
+    private _experimental?: { tasks: ExperimentalServerTasks<RequestT, NotificationT, ResultT> };
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
@@ -164,6 +165,22 @@ export class Server<
                 return {};
             });
         }
+    }
+
+    /**
+     * Access experimental features.
+     *
+     * WARNING: These APIs are experimental and may change without notice.
+     *
+     * @experimental
+     */
+    get experimental(): { tasks: ExperimentalServerTasks<RequestT, NotificationT, ResultT> } {
+        if (!this._experimental) {
+            this._experimental = {
+                tasks: new ExperimentalServerTasks(this)
+            };
+        }
+        return this._experimental;
     }
 
     // Map log levels by session id
@@ -399,29 +416,7 @@ export class Server<
     }
 
     protected assertTaskCapability(method: string): void {
-        if (!this._clientCapabilities?.tasks?.requests) {
-            throw new Error(`Client does not support task creation (required for ${method})`);
-        }
-
-        const requests = this._clientCapabilities.tasks.requests;
-
-        switch (method) {
-            case 'sampling/createMessage':
-                if (!requests.sampling?.createMessage) {
-                    throw new Error(`Client does not support task creation for sampling/createMessage (required for ${method})`);
-                }
-                break;
-
-            case 'elicitation/create':
-                if (!requests.elicitation?.create) {
-                    throw new Error(`Client does not support task creation for elicitation/create (required for ${method})`);
-                }
-                break;
-
-            default:
-                // Method doesn't support tasks, which is fine - no error
-                break;
-        }
+        assertClientRequestTaskCapability(this._clientCapabilities?.tasks?.requests, method, 'Client');
     }
 
     protected assertTaskHandlerCapability(method: string): void {
@@ -431,23 +426,7 @@ export class Server<
             return;
         }
 
-        if (!this._capabilities.tasks?.requests) {
-            throw new Error(`Server does not support task creation (required for ${method})`);
-        }
-
-        const requests = this._capabilities.tasks.requests;
-
-        switch (method) {
-            case 'tools/call':
-                if (!requests.tools?.call) {
-                    throw new Error(`Server does not support task creation for tools/call (required for ${method})`);
-                }
-                break;
-
-            default:
-                // Method doesn't support tasks, which is fine - no error
-                break;
-        }
+        assertToolsCallTaskCapability(this._capabilities.tasks?.requests, method, 'Server');
     }
 
     private async _oninitialize(request: InitializeRequest): Promise<InitializeResult> {
@@ -482,47 +461,6 @@ export class Server<
 
     private getCapabilities(): ServerCapabilities {
         return this._capabilities;
-    }
-
-    /**
-     * Sends a request and returns an AsyncGenerator that yields response messages.
-     * The generator is guaranteed to end with either a 'result' or 'error' message.
-     *
-     * This method provides streaming access to request processing, allowing you to
-     * observe intermediate task status updates for task-augmented requests.
-     *
-     * @example
-     * ```typescript
-     * const stream = server.requestStream(request, resultSchema, options);
-     * for await (const message of stream) {
-     *   switch (message.type) {
-     *     case 'taskCreated':
-     *       console.log('Task created:', message.task.taskId);
-     *       break;
-     *     case 'taskStatus':
-     *       console.log('Task status:', message.task.status);
-     *       break;
-     *     case 'result':
-     *       console.log('Final result:', message.result);
-     *       break;
-     *     case 'error':
-     *       console.error('Error:', message.error);
-     *       break;
-     *   }
-     * }
-     * ```
-     *
-     * @param request - The request to send
-     * @param resultSchema - Zod schema for validating the result
-     * @param options - Optional request options (timeout, signal, task creation params, etc.)
-     * @returns AsyncGenerator that yields ResponseMessage objects
-     */
-    requestStream<T extends AnySchema>(
-        request: ServerRequest | RequestT,
-        resultSchema: T,
-        options?: RequestOptions
-    ): AsyncGenerator<ResponseMessage<SchemaOutput<T>>, void, void> {
-        return super.requestStream(request, resultSchema, options);
     }
 
     async ping() {
