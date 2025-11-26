@@ -213,49 +213,6 @@ export const OAuthTokenRevocationRequestSchema = z
     })
     .strip();
 
-/**
- * Schema for JWT assertion signing options
- */
-export const JwtAssertionSigningOptionsSchema = z
-    .object({
-        issuer: z.string().min(1).describe('The issuer of the JWT assertion.'),
-        subject: z.string().min(1).describe('The subject of the JWT assertion.'),
-        privateKey: z
-            .string()
-            .min(1)
-            .describe('The string of the private key.')
-            .or(z.instanceof(Uint8Array).describe('The Uint8Array of the private key.'))
-            .or(z.record(z.string(), z.unknown()).describe('The JWK object of the JWT assertion.'))
-            .describe('The private key of the JWT assertion - string, Uint8Array, or JWK object.'),
-        alg: z.string().min(1).describe('The algorithm of the JWT assertion.'),
-        audience: z.string().min(1).optional().describe('The audience of the JWT assertion.'),
-        lifetimeSeconds: z.number().optional().describe('The lifetime of the JWT assertion in seconds.'),
-        claims: z.record(z.string(), z.any()).optional().describe('The claims of the JWT assertion.')
-    })
-    .strip();
-
-/**
- * Schema for JWT assertion pre-built options
- */
-export const JwtAssertionPrebuiltOptionsSchema = z
-    .object({
-        assertion: z.string().min(1).describe('The pre-built JWT assertion.')
-    })
-    .strip();
-
-/**
- * Options for creating a JWT assertion for JWT-bearer grant or private_key_jwt.
- */
-export const JwtAssertionOptionsSchema = z.union([JwtAssertionSigningOptionsSchema, JwtAssertionPrebuiltOptionsSchema]);
-
-export type JwtAssertionSigningOptions = z.infer<typeof JwtAssertionSigningOptionsSchema>;
-export type JwtAssertionPrebuiltOptions = z.infer<typeof JwtAssertionPrebuiltOptionsSchema>;
-export type JwtAssertionOptions = JwtAssertionSigningOptions | JwtAssertionPrebuiltOptions;
-
-export const isJwtPrebuiltAssertion = (options: JwtAssertionOptions): options is JwtAssertionPrebuiltOptions => {
-    return 'assertion' in options;
-};
-
 export type OAuthMetadata = z.infer<typeof OAuthMetadataSchema>;
 export type OpenIdProviderMetadata = z.infer<typeof OpenIdProviderMetadataSchema>;
 export type OpenIdProviderDiscoveryMetadata = z.infer<typeof OpenIdProviderDiscoveryMetadataSchema>;

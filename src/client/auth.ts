@@ -10,9 +10,7 @@ import {
     OAuthProtectedResourceMetadata,
     OAuthErrorResponseSchema,
     AuthorizationServerMetadata,
-    OpenIdProviderDiscoveryMetadataSchema,
-    JwtAssertionOptions,
-    isJwtPrebuiltAssertion
+    OpenIdProviderDiscoveryMetadataSchema
 } from '../shared/auth.js';
 import {
     OAuthClientInformationFullSchema,
@@ -31,7 +29,6 @@ import {
     UnauthorizedClientError
 } from '../server/auth/errors.js';
 import { FetchLike } from '../shared/transport.js';
-import type { JWK } from 'jose';
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
@@ -43,8 +40,10 @@ import type { JWK } from 'jose';
 export interface OAuthClientProvider {
     /**
      * The URL to redirect the user agent to after authorization.
+     * Return undefined for non-interactive flows that don't require user interaction
+     * (e.g., client_credentials, jwt-bearer).
      */
-    get redirectUrl(): string | URL;
+    get redirectUrl(): string | URL | undefined;
 
     /**
      * External URL the server should use to fetch client metadata document
@@ -147,6 +146,44 @@ export interface OAuthClientProvider {
      * This avoids requiring the user to intervene manually.
      */
     invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier'): void | Promise<void>;
+
+    /**
+     * Prepares grant-specific parameters for a token request.
+     *
+     * This optional method allows providers to customize the token request based on
+     * the grant type they support. When implemented, it returns the grant type and
+     * any grant-specific parameters needed for the token exchange.
+     *
+     * If not implemented, the default behavior depends on the flow:
+     * - For authorization code flow: uses code, code_verifier, and redirect_uri
+     * - For client_credentials: detected via grant_types in clientMetadata
+     *
+     * @param scope - Optional scope to request
+     * @returns Grant type and parameters, or undefined to use default behavior
+     *
+     * @example
+     * // For client_credentials grant:
+     * prepareTokenRequest(scope) {
+     *   return {
+     *     grantType: 'client_credentials',
+     *     params: scope ? { scope } : {}
+     *   };
+     * }
+     *
+     * @example
+     * // For authorization_code grant (default behavior):
+     * async prepareTokenRequest() {
+     *   return {
+     *     grantType: 'authorization_code',
+     *     params: {
+     *       code: this.authorizationCode,
+     *       code_verifier: await this.codeVerifier(),
+     *       redirect_uri: String(this.redirectUrl)
+     *     }
+     *   };
+     * }
+     */
+    prepareTokenRequest?(scope?: string): URLSearchParams | Promise<URLSearchParams | undefined> | undefined;
 }
 
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
@@ -320,15 +357,6 @@ export async function auth(
         scope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
-        /**
-         * Optional JWT assertion options for performing an RFC 7523 Section 2.2 private_key_jwt
-         * client authentication with a client_credentials grant.
-         *
-         * When provided, and no valid/refreshable tokens are available, auth() will
-         * attempt a client_credentials grant with private_key_jwt client authentication
-         * before falling back to other flows.
-         */
-        jwtBearerOptions?: JwtAssertionOptions;
     }
 ): Promise<AuthResult> {
     try {
@@ -355,15 +383,13 @@ async function authInternal(
         authorizationCode,
         scope,
         resourceMetadataUrl,
-        fetchFn,
-        jwtBearerOptions
+        fetchFn
     }: {
         serverUrl: string | URL;
         authorizationCode?: string;
         scope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
-        jwtBearerOptions?: JwtAssertionOptions;
     }
 ): Promise<AuthResult> {
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
@@ -433,18 +459,16 @@ async function authInternal(
         }
     }
 
-    // Exchange authorization code for tokens
-    if (authorizationCode !== undefined) {
-        const codeVerifier = await provider.codeVerifier();
-        const tokens = await exchangeAuthorization(authorizationServerUrl, {
+    // Non-interactive flows (e.g., client_credentials, jwt-bearer) don't need a redirect URL
+    const nonInteractiveFlow = !provider.redirectUrl;
+
+    // Exchange authorization code for tokens, or fetch tokens directly for non-interactive flows
+    if (authorizationCode !== undefined || nonInteractiveFlow) {
+        const tokens = await fetchToken(provider, authorizationServerUrl, {
             metadata,
-            clientInformation,
-            authorizationCode,
-            codeVerifier,
-            redirectUri: provider.redirectUrl,
             resource,
-            addClientAuthentication: provider.addClientAuthentication,
-            fetchFn: fetchFn
+            authorizationCode,
+            fetchFn
         });
 
         await provider.saveTokens(tokens);
@@ -476,50 +500,6 @@ async function authInternal(
                 // Refresh failed for another reason, re-throw
                 throw error;
             }
-        }
-    }
-
-    // Attempt client_credentials grant with private_key_jwt client authentication for M2M
-    // when explicitly configured via jwtBearerOptions (RFC 7523 Section 2.2).
-    if (jwtBearerOptions) {
-        const jwtTokens = await exchangeClientCredentials(authorizationServerUrl, {
-            metadata,
-            clientInformation,
-            scope: scope || provider.clientMetadata.scope,
-            resource,
-            addClientAuthentication: async (_headers, params, url, md) => {
-                const assertion = await createJwtBearerAssertion(url, md, jwtBearerOptions);
-                params.set('client_assertion', assertion);
-                params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
-            },
-            fetchFn
-        });
-        await provider.saveTokens(jwtTokens);
-        return 'AUTHORIZED';
-    }
-
-    // Attempt client_credentials grant for M2M if supported by client configuration
-    {
-        const requestedGrantTypes = provider.clientMetadata.grant_types ?? [];
-        const registeredGrantTypes =
-            'grant_types' in (clientInformation as OAuthClientInformationFull) &&
-            (clientInformation as Partial<OAuthClientInformationFull>).grant_types
-                ? (clientInformation as OAuthClientInformationFull).grant_types!
-                : [];
-        const supportsClientCredentials =
-            requestedGrantTypes.includes('client_credentials') || registeredGrantTypes.includes('client_credentials');
-
-        if (supportsClientCredentials) {
-            const ccTokens = await exchangeClientCredentials(authorizationServerUrl, {
-                metadata,
-                clientInformation,
-                scope: scope || provider.clientMetadata.scope,
-                resource,
-                addClientAuthentication: provider.addClientAuthentication,
-                fetchFn
-            });
-            await provider.saveTokens(ccTokens);
-            return 'AUTHORIZED';
         }
     }
 
@@ -1020,6 +1000,86 @@ export async function startAuthorization(
 }
 
 /**
+ * Prepares token request parameters for an authorization code exchange.
+ *
+ * This is the default implementation used by fetchToken when the provider
+ * doesn't implement prepareTokenRequest.
+ *
+ * @param authorizationCode - The authorization code received from the authorization endpoint
+ * @param codeVerifier - The PKCE code verifier
+ * @param redirectUri - The redirect URI used in the authorization request
+ * @returns URLSearchParams for the authorization_code grant
+ */
+export function prepareAuthorizationCodeRequest(
+    authorizationCode: string,
+    codeVerifier: string,
+    redirectUri: string | URL
+): URLSearchParams {
+    return new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: authorizationCode,
+        code_verifier: codeVerifier,
+        redirect_uri: String(redirectUri)
+    });
+}
+
+/**
+ * Internal helper to execute a token request with the given parameters.
+ * Used by exchangeAuthorization, refreshAuthorization, and fetchToken.
+ */
+async function executeTokenRequest(
+    authorizationServerUrl: string | URL,
+    {
+        metadata,
+        tokenRequestParams,
+        clientInformation,
+        addClientAuthentication,
+        resource,
+        fetchFn
+    }: {
+        metadata?: AuthorizationServerMetadata;
+        tokenRequestParams: URLSearchParams;
+        clientInformation?: OAuthClientInformationMixed;
+        addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
+        resource?: URL;
+        fetchFn?: FetchLike;
+    }
+): Promise<OAuthTokens> {
+    const tokenUrl = metadata?.token_endpoint
+        ? new URL(metadata.token_endpoint)
+        : new URL('/token', authorizationServerUrl);
+
+    const headers = new Headers({
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json'
+    });
+
+    if (resource) {
+        tokenRequestParams.set('resource', resource.href);
+    }
+
+    if (addClientAuthentication) {
+        await addClientAuthentication(headers, tokenRequestParams, tokenUrl, metadata);
+    } else if (clientInformation) {
+        const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
+        const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
+        applyClientAuthentication(authMethod, clientInformation as OAuthClientInformation, headers, tokenRequestParams);
+    }
+
+    const response = await (fetchFn ?? fetch)(tokenUrl, {
+        method: 'POST',
+        headers,
+        body: tokenRequestParams
+    });
+
+    if (!response.ok) {
+        throw await parseErrorResponse(response);
+    }
+
+    return OAuthTokensSchema.parse(await response.json());
+}
+
+/**
  * Exchanges an authorization code for an access token with the given server.
  *
  * Supports multiple client authentication methods as specified in OAuth 2.1:
@@ -1053,51 +1113,20 @@ export async function exchangeAuthorization(
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
-    const grantType = 'authorization_code';
+    const tokenRequestParams = prepareAuthorizationCodeRequest(
+        authorizationCode,
+        codeVerifier,
+        redirectUri
+    );
 
-    const tokenUrl = metadata?.token_endpoint ? new URL(metadata.token_endpoint) : new URL('/token', authorizationServerUrl);
-
-    if (metadata?.grant_types_supported && !metadata.grant_types_supported.includes(grantType)) {
-        throw new Error(`Incompatible auth server: does not support grant type ${grantType}`);
-    }
-
-    // Exchange code for tokens
-    const headers = new Headers({
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Accept: 'application/json'
+    return executeTokenRequest(authorizationServerUrl, {
+        metadata,
+        tokenRequestParams,
+        clientInformation,
+        addClientAuthentication,
+        resource,
+        fetchFn
     });
-    const params = new URLSearchParams({
-        grant_type: grantType,
-        code: authorizationCode,
-        code_verifier: codeVerifier,
-        redirect_uri: String(redirectUri)
-    });
-
-    if (addClientAuthentication) {
-        await addClientAuthentication(headers, params, tokenUrl, metadata);
-    } else {
-        // Determine and apply client authentication method
-        const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
-        const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
-
-        applyClientAuthentication(authMethod, clientInformation, headers, params);
-    }
-
-    if (resource) {
-        params.set('resource', resource.href);
-    }
-
-    const response = await (fetchFn ?? fetch)(tokenUrl, {
-        method: 'POST',
-        headers,
-        body: params
-    });
-
-    if (!response.ok) {
-        throw await parseErrorResponse(response);
-    }
-
-    return OAuthTokensSchema.parse(await response.json());
 }
 
 /**
@@ -1130,197 +1159,102 @@ export async function refreshAuthorization(
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
-    const grantType = 'refresh_token';
-
-    let tokenUrl: URL;
-    if (metadata) {
-        tokenUrl = new URL(metadata.token_endpoint);
-
-        if (metadata.grant_types_supported && !metadata.grant_types_supported.includes(grantType)) {
-            throw new Error(`Incompatible auth server: does not support grant type ${grantType}`);
-        }
-    } else {
-        tokenUrl = new URL('/token', authorizationServerUrl);
-    }
-
-    // Exchange refresh token
-    const headers = new Headers({
-        'Content-Type': 'application/x-www-form-urlencoded'
-    });
-    const params = new URLSearchParams({
-        grant_type: grantType,
+    const tokenRequestParams = new URLSearchParams({
+        grant_type: 'refresh_token',
         refresh_token: refreshToken
     });
 
-    if (addClientAuthentication) {
-        await addClientAuthentication(headers, params, tokenUrl, metadata);
-    } else {
-        // Determine and apply client authentication method
-        const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
-        const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
-
-        applyClientAuthentication(authMethod, clientInformation, headers, params);
-    }
-
-    if (resource) {
-        params.set('resource', resource.href);
-    }
-
-    const response = await (fetchFn ?? fetch)(tokenUrl, {
-        method: 'POST',
-        headers,
-        body: params
+    const tokens = await executeTokenRequest(authorizationServerUrl, {
+        metadata,
+        tokenRequestParams,
+        clientInformation,
+        addClientAuthentication,
+        resource,
+        fetchFn
     });
-    if (!response.ok) {
-        throw await parseErrorResponse(response);
-    }
 
-    return OAuthTokensSchema.parse({ refresh_token: refreshToken, ...(await response.json()) });
+    // Preserve original refresh token if server didn't return a new one
+    return { refresh_token: refreshToken, ...tokens };
 }
 
 /**
- * Exchange client credentials for an access token (client_credentials grant).
+ * Unified token fetching that works with any grant type via provider.prepareTokenRequest().
  *
- * Applies client authentication based on server metadata and client configuration:
- * - Uses provider.addClientAuthentication when provided (e.g., private_key_jwt)
- * - Otherwise selects between client_secret_basic and client_secret_post
+ * This function provides a single entry point for obtaining tokens regardless of the
+ * OAuth grant type. The provider's prepareTokenRequest() method determines which grant
+ * to use and supplies the grant-specific parameters.
  *
- * Includes RFC 8707 resource parameter only when a protected resource was discovered.
+ * @param provider - OAuth client provider that implements prepareTokenRequest()
+ * @param authorizationServerUrl - The authorization server's base URL
+ * @param options - Configuration for the token request
+ * @returns Promise resolving to OAuth tokens
+ * @throws {Error} When provider doesn't implement prepareTokenRequest or token fetch fails
+ *
+ * @example
+ * // Provider for client_credentials:
+ * class MyProvider implements OAuthClientProvider {
+ *   prepareTokenRequest(scope) {
+ *     const params = new URLSearchParams({ grant_type: 'client_credentials' });
+ *     if (scope) params.set('scope', scope);
+ *     return params;
+ *   }
+ *   // ... other methods
+ * }
+ *
+ * const tokens = await fetchToken(provider, authServerUrl, { metadata });
  */
-export async function exchangeClientCredentials(
+export async function fetchToken(
+    provider: OAuthClientProvider,
     authorizationServerUrl: string | URL,
     {
         metadata,
-        clientInformation,
-        scope,
         resource,
-        addClientAuthentication,
+        authorizationCode,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        clientInformation: OAuthClientInformationMixed;
-        scope?: string;
         resource?: URL;
-        addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
+        /** Authorization code for the default authorization_code grant flow */
+        authorizationCode?: string;
         fetchFn?: FetchLike;
-    }
+    } = {}
 ): Promise<OAuthTokens> {
-    const grantType = 'client_credentials';
+    const scope = provider.clientMetadata.scope;
 
-    const tokenUrl = metadata?.token_endpoint ? new URL(metadata.token_endpoint) : new URL('/token', authorizationServerUrl);
-
-    if (metadata?.grant_types_supported && !metadata.grant_types_supported.includes(grantType)) {
-        throw new Error(`Incompatible auth server: does not support grant type ${grantType}`);
+    // Use provider's prepareTokenRequest if available, otherwise fall back to authorization_code
+    let tokenRequestParams: URLSearchParams | undefined;
+    if (provider.prepareTokenRequest) {
+        tokenRequestParams = await provider.prepareTokenRequest(scope);
     }
 
-    const headers = new Headers({
-        'Content-Type': 'application/x-www-form-urlencoded'
+    // Default to authorization_code grant if no custom prepareTokenRequest
+    if (!tokenRequestParams) {
+        if (!authorizationCode) {
+            throw new Error('Either provider.prepareTokenRequest() or authorizationCode is required');
+        }
+        if (!provider.redirectUrl) {
+            throw new Error('redirectUrl is required for authorization_code flow');
+        }
+        const codeVerifier = await provider.codeVerifier();
+        tokenRequestParams = prepareAuthorizationCodeRequest(
+            authorizationCode,
+            codeVerifier,
+            provider.redirectUrl
+        );
+    }
+
+    const clientInformation = await provider.clientInformation();
+
+    return executeTokenRequest(authorizationServerUrl, {
+        metadata,
+        tokenRequestParams,
+        clientInformation: clientInformation ?? undefined,
+        addClientAuthentication: provider.addClientAuthentication,
+        resource,
+        fetchFn
     });
-    const params = new URLSearchParams({
-        grant_type: grantType
-    });
-
-    if (scope) {
-        params.set('scope', scope);
-    }
-
-    if (resource) {
-        params.set('resource', resource.href);
-    }
-
-    if (addClientAuthentication) {
-        await addClientAuthentication(headers, params, tokenUrl, metadata);
-    } else {
-        const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
-        const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
-        applyClientAuthentication(authMethod, clientInformation as OAuthClientInformation, headers, params);
-    }
-
-    const response = await (fetchFn ?? fetch)(tokenUrl, {
-        method: 'POST',
-        headers,
-        body: params
-    });
-    if (!response.ok) {
-        throw await parseErrorResponse(response);
-    }
-
-    return OAuthTokensSchema.parse(await response.json());
 }
 
-/**
- * Creates a JWT assertion suitable for RFC 7523 Section 2.2 private_key_jwt
- * client authentication.
- *
- * If `options.assertion` is provided, it is returned as-is without signing.
- */
-export async function createJwtBearerAssertion(
-    authorizationServerUrl: string | URL,
-    metadata: AuthorizationServerMetadata | undefined,
-    options: JwtAssertionOptions
-): Promise<string> {
-    if (isJwtPrebuiltAssertion(options)) {
-        return options.assertion;
-    }
-
-    // Lazy import to avoid heavy dependency unless used
-    const jose = await import('jose');
-
-    const audience = String(options.audience ?? metadata?.issuer ?? authorizationServerUrl);
-    const lifetimeSeconds = options.lifetimeSeconds ?? 300;
-
-    const now = Math.floor(Date.now() / 1000);
-    const jti = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-    const baseClaims = {
-        iss: options.issuer,
-        sub: options.subject,
-        aud: audience,
-        exp: now + lifetimeSeconds,
-        iat: now,
-        jti
-    };
-    const claims = options.claims ? { ...baseClaims, ...options.claims } : baseClaims;
-
-    const alg = options.alg;
-    let key: unknown;
-    if (typeof options.privateKey === 'string') {
-        if (alg.startsWith('RS') || alg.startsWith('ES') || alg.startsWith('PS')) {
-            key = await jose.importPKCS8(options.privateKey, alg);
-        } else if (alg.startsWith('HS')) {
-            key = new TextEncoder().encode(options.privateKey);
-        } else {
-            throw new Error(`Unsupported algorithm ${alg}`);
-        }
-    } else if (options.privateKey instanceof Uint8Array) {
-        if (alg.startsWith('HS')) {
-            key = options.privateKey;
-        } else {
-            // Assume PKCS#8 DER in Uint8Array for asymmetric algorithms
-            key = await jose.importPKCS8(new TextDecoder().decode(options.privateKey), alg);
-        }
-    } else {
-        // Treat as JWK
-        key = await jose.importJWK(options.privateKey as JWK, alg);
-    }
-
-    return await new jose.SignJWT(claims)
-        .setProtectedHeader({ alg, typ: 'JWT' })
-        .setIssuer(options.issuer)
-        .setSubject(options.subject)
-        .setAudience(audience)
-        .setIssuedAt(now)
-        .setExpirationTime(now + lifetimeSeconds)
-        .setJti(jti)
-        .sign(key as unknown as Uint8Array | CryptoKey);
-}
-
-/**
- * Exchange a JWT assertion for an access token using the RFC 7523 JWT-bearer grant.
- *
- * This is a lower-level helper that can be used by higher-level clients for M2M
- * scenarios where no interactive user authorization is required.
- */
 /**
  * Performs OAuth 2.0 Dynamic Client Registration according to RFC 7591.
  */
@@ -1363,77 +1297,3 @@ export async function registerClient(
     return OAuthClientInformationFullSchema.parse(await response.json());
 }
 
-/**
- * Helper to produce a private_key_jwt client authentication function.
- *
- * Usage:
- *   const addClientAuth = createPrivateKeyJwtAuth({ issuer, subject, privateKey, alg, audience? });
- *   // pass addClientAuth as provider.addClientAuthentication implementation
- */
-export function createPrivateKeyJwtAuth(options: {
-    issuer: string;
-    subject: string;
-    privateKey: string | Uint8Array | Record<string, unknown>;
-    alg: string;
-    audience?: string | URL;
-    lifetimeSeconds?: number;
-    claims?: Record<string, unknown>;
-}): OAuthClientProvider['addClientAuthentication'] {
-    return async (_headers, params, url, metadata) => {
-        // Lazy import to avoid heavy dependency unless used
-        const jose = await import('jose');
-
-        const audience = String(options.audience ?? metadata?.issuer ?? url);
-        const lifetimeSeconds = options.lifetimeSeconds ?? 300;
-
-        const now = Math.floor(Date.now() / 1000);
-        const jti = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-        const baseClaims = {
-            iss: options.issuer,
-            sub: options.subject,
-            aud: audience,
-            exp: now + lifetimeSeconds,
-            iat: now,
-            jti
-        };
-        const claims = options.claims ? { ...baseClaims, ...options.claims } : baseClaims;
-
-        // Import key for the requested algorithm
-        const alg = options.alg;
-        let key: unknown;
-        if (typeof options.privateKey === 'string') {
-            if (alg.startsWith('RS') || alg.startsWith('ES') || alg.startsWith('PS')) {
-                key = await jose.importPKCS8(options.privateKey, alg);
-            } else if (alg.startsWith('HS')) {
-                key = new TextEncoder().encode(options.privateKey);
-            } else {
-                throw new Error(`Unsupported algorithm ${alg}`);
-            }
-        } else if (options.privateKey instanceof Uint8Array) {
-            if (alg.startsWith('HS')) {
-                key = options.privateKey;
-            } else {
-                // Assume PKCS#8 DER in Uint8Array for asymmetric algorithms
-                key = await jose.importPKCS8(new TextDecoder().decode(options.privateKey), alg);
-            }
-        } else {
-            // Treat as JWK
-            key = await jose.importJWK(options.privateKey as JWK, alg);
-        }
-
-        // Sign JWT
-        const assertion = await new jose.SignJWT(claims)
-            .setProtectedHeader({ alg, typ: 'JWT' })
-            .setIssuer(options.issuer)
-            .setSubject(options.subject)
-            .setAudience(audience)
-            .setIssuedAt(now)
-            .setExpirationTime(now + lifetimeSeconds)
-            .setJti(jti)
-            .sign(key as unknown as Uint8Array | CryptoKey);
-
-        params.set('client_assertion', assertion);
-        params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
-    };
-}

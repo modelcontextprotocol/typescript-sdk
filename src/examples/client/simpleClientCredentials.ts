@@ -1,75 +1,82 @@
 #!/usr/bin/env node
 
+/**
+ * Example demonstrating client_credentials grant for machine-to-machine authentication.
+ *
+ * Supports two authentication methods based on environment variables:
+ *
+ * 1. client_secret_basic (default):
+ *    MCP_CLIENT_ID - OAuth client ID (required)
+ *    MCP_CLIENT_SECRET - OAuth client secret (required)
+ *
+ * 2. private_key_jwt (when MCP_CLIENT_PRIVATE_KEY_PEM is set):
+ *    MCP_CLIENT_ID - OAuth client ID (required)
+ *    MCP_CLIENT_PRIVATE_KEY_PEM - PEM-encoded private key for JWT signing (required)
+ *    MCP_CLIENT_ALGORITHM - Signing algorithm (default: RS256)
+ *
+ * Common:
+ *    MCP_SERVER_URL - Server URL (default: http://localhost:3000/mcp)
+ */
+
 import { Client } from '../../client/index.js';
 import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
-import { OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from '../../shared/auth.js';
+import { ClientCredentialsProvider, PrivateKeyJwtProvider } from '../../client/auth-extensions.js';
 import { OAuthClientProvider } from '../../client/auth.js';
 
 const DEFAULT_SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3000/mcp';
 
-class InMemoryOAuthClientProvider implements OAuthClientProvider {
-    constructor(
-        private readonly _clientMetadata: OAuthClientMetadata,
-        private readonly addAuth?: OAuthClientProvider['addClientAuthentication']
-    ) {}
+function createProvider(): OAuthClientProvider {
+    const clientId = process.env.MCP_CLIENT_ID;
+    if (!clientId) {
+        console.error('MCP_CLIENT_ID environment variable is required');
+        process.exit(1);
+    }
 
-    private _tokens?: OAuthTokens;
-    private _client?: OAuthClientInformationMixed;
+    // If private key is provided, use private_key_jwt authentication
+    const privateKeyPem = process.env.MCP_CLIENT_PRIVATE_KEY_PEM;
+    if (privateKeyPem) {
+        const algorithm = process.env.MCP_CLIENT_ALGORITHM || 'RS256';
+        console.log('Using private_key_jwt authentication');
+        return new PrivateKeyJwtProvider({
+            clientId,
+            privateKey: privateKeyPem,
+            algorithm
+        });
+    }
 
-    get redirectUrl(): string | URL {
-        return 'http://localhost/void';
+    // Otherwise, use client_secret_basic authentication
+    const clientSecret = process.env.MCP_CLIENT_SECRET;
+    if (!clientSecret) {
+        console.error('MCP_CLIENT_SECRET or MCP_CLIENT_PRIVATE_KEY_PEM environment variable is required');
+        process.exit(1);
     }
-    get clientMetadata(): OAuthClientMetadata {
-        return this._clientMetadata;
-    }
-    clientInformation(): OAuthClientInformationMixed | undefined {
-        return this._client;
-    }
-    saveClientInformation(info: OAuthClientInformationMixed): void {
-        this._client = info;
-    }
-    tokens(): OAuthTokens | undefined {
-        return this._tokens;
-    }
-    saveTokens(tokens: OAuthTokens): void {
-        this._tokens = tokens;
-    }
-    redirectToAuthorization(): void {
-        // Not used for client_credentials
-    }
-    saveCodeVerifier(): void {
-        // Not used for client_credentials
-    }
-    codeVerifier(): string {
-        throw new Error('Not used for client_credentials');
-    }
-    addClientAuthentication = this.addAuth;
+
+    console.log('Using client_secret_basic authentication');
+    return new ClientCredentialsProvider({
+        clientId,
+        clientSecret
+    });
 }
 
 async function main() {
-    // Option A: client_secret_post
-    const clientMetadata: OAuthClientMetadata = {
-        client_name: 'Client-Credentials Demo',
-        redirect_uris: ['http://localhost/void'],
-        grant_types: ['client_credentials'],
-        token_endpoint_auth_method: 'client_secret_post',
-        scope: 'mcp:tools'
-    };
+    const provider = createProvider();
 
-    // Option B: private_key_jwt (uncomment and configure to test)
-    // const addAuth = createPrivateKeyJwtAuth({
-    //     issuer: 'your-client-id',
-    //     subject: 'your-client-id',
-    //     privateKey: process.env.PRIVATE_KEY_PEM as string,
-    //     alg: 'RS256'
-    // });
+    const client = new Client(
+        { name: 'client-credentials-example', version: '1.0.0' },
+        { capabilities: {} }
+    );
 
-    const provider = new InMemoryOAuthClientProvider(clientMetadata /*, addAuth*/);
-    const client = new Client({ name: 'cc-client', version: '1.0.0' }, { capabilities: {} });
-    const transport = new StreamableHTTPClientTransport(new URL(DEFAULT_SERVER_URL), { authProvider: provider });
+    const transport = new StreamableHTTPClientTransport(new URL(DEFAULT_SERVER_URL), {
+        authProvider: provider
+    });
 
     await client.connect(transport);
-    console.log('Connected with client_credentials token.');
+    console.log('Connected successfully.');
+
+    const tools = await client.listTools();
+    console.log('Available tools:', tools.tools.map(t => t.name).join(', ') || '(none)');
+
+    await transport.close();
 }
 
 main().catch(err => {

@@ -14,6 +14,7 @@ import {
     selectClientAuthMethod,
     isHttpsUrl
 } from './auth.js';
+import { createPrivateKeyJwtAuth } from './auth-extensions.js';
 import { InvalidClientMetadataError, ServerError } from '../server/auth/errors.js';
 import { AuthorizationServerMetadata } from '../shared/auth.js';
 import { expect, vi, type Mock } from 'vitest';
@@ -1324,12 +1325,11 @@ describe('OAuth Authorization', () => {
                 }),
                 expect.objectContaining({
                     method: 'POST',
-                    headers: new Headers({
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    })
                 })
             );
 
+            const headers = mockFetch.mock.calls[0][1].headers as Headers;
+            expect(headers.get('Content-Type')).toBe('application/x-www-form-urlencoded');
             const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
             expect(body.get('grant_type')).toBe('refresh_token');
             expect(body.get('refresh_token')).toBe('refresh123');
@@ -1540,7 +1540,7 @@ describe('OAuth Authorization', () => {
             vi.clearAllMocks();
         });
 
-        it('performs client_credentials with private_key_jwt when jwtBearerOptions are provided', async () => {
+        it('performs client_credentials with private_key_jwt when provider has addClientAuthentication', async () => {
             // Arrange: metadata discovery for PRM and AS
             mockFetch.mockImplementation(url => {
                 const urlString = url.toString();
@@ -1585,21 +1585,38 @@ describe('OAuth Authorization', () => {
                 return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
             });
 
-            // Provider: no existing client info or tokens
-            (mockProvider.clientInformation as Mock).mockResolvedValue({
-                client_id: 'client-id'
-            });
-            (mockProvider.tokens as Mock).mockResolvedValue(undefined);
-            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
-
-            const result = await auth(mockProvider, {
-                serverUrl: 'https://api.example.com/mcp-server',
-                jwtBearerOptions: {
+            // Create a provider with client_credentials grant and addClientAuthentication
+            // redirectUrl returns undefined to indicate non-interactive flow
+            const ccProvider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return undefined;
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: [],
+                        client_name: 'Test Client',
+                        grant_types: ['client_credentials']
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({
+                    client_id: 'client-id'
+                }),
+                tokens: vi.fn().mockResolvedValue(undefined),
+                saveTokens: vi.fn().mockResolvedValue(undefined),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn(),
+                prepareTokenRequest: () => new URLSearchParams({ grant_type: 'client_credentials' }),
+                addClientAuthentication: createPrivateKeyJwtAuth({
                     issuer: 'client-id',
                     subject: 'client-id',
                     privateKey: 'a-string-secret-at-least-256-bits-long',
                     alg: 'HS256'
-                }
+                })
+            };
+
+            const result = await auth(ccProvider, {
+                serverUrl: 'https://api.example.com/mcp-server'
             });
 
             expect(result).toBe('AUTHORIZED');
