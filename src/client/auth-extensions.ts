@@ -296,3 +296,100 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
         return params;
     }
 }
+
+/**
+ * Options for creating a StaticPrivateKeyJwtProvider.
+ */
+export interface StaticPrivateKeyJwtProviderOptions {
+    /**
+     * The client_id for this OAuth client.
+     */
+    clientId: string;
+
+    /**
+     * A pre-built JWT client assertion to use for authentication.
+     *
+     * This token should already contain the appropriate claims
+     * (iss, sub, aud, exp, etc.) and be signed by the client's key.
+     */
+    jwtBearerAssertion: string;
+
+    /**
+     * Optional client name for metadata.
+     */
+    clientName?: string;
+}
+
+/**
+ * OAuth provider for client_credentials grant with a static private_key_jwt assertion.
+ *
+ * This provider mirrors {@link PrivateKeyJwtProvider} but instead of constructing and
+ * signing a JWT on each request, it accepts a pre-built JWT assertion string and
+ * uses it directly for authentication.
+ */
+export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
+    private _tokens?: OAuthTokens;
+    private _clientInfo: OAuthClientInformation;
+    private _clientMetadata: OAuthClientMetadata;
+    addClientAuthentication: AddClientAuthentication;
+
+    constructor(options: StaticPrivateKeyJwtProviderOptions) {
+        this._clientInfo = {
+            client_id: options.clientId
+        };
+        this._clientMetadata = {
+            client_name: options.clientName ?? 'static-private-key-jwt-client',
+            redirect_uris: [],
+            grant_types: ['client_credentials'],
+            token_endpoint_auth_method: 'private_key_jwt'
+        };
+
+        const assertion = options.jwtBearerAssertion;
+        this.addClientAuthentication = async (_headers, params) => {
+            params.set('client_assertion', assertion);
+            params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+        };
+    }
+
+    get redirectUrl(): undefined {
+        return undefined;
+    }
+
+    get clientMetadata(): OAuthClientMetadata {
+        return this._clientMetadata;
+    }
+
+    clientInformation(): OAuthClientInformation {
+        return this._clientInfo;
+    }
+
+    saveClientInformation(info: OAuthClientInformation): void {
+        this._clientInfo = info;
+    }
+
+    tokens(): OAuthTokens | undefined {
+        return this._tokens;
+    }
+
+    saveTokens(tokens: OAuthTokens): void {
+        this._tokens = tokens;
+    }
+
+    redirectToAuthorization(): void {
+        throw new Error('redirectToAuthorization is not used for client_credentials flow');
+    }
+
+    saveCodeVerifier(): void {
+        // Not used for client_credentials
+    }
+
+    codeVerifier(): string {
+        throw new Error('codeVerifier is not used for client_credentials flow');
+    }
+
+    prepareTokenRequest(scope?: string): URLSearchParams {
+        const params = new URLSearchParams({ grant_type: 'client_credentials' });
+        if (scope) params.set('scope', scope);
+        return params;
+    }
+}
