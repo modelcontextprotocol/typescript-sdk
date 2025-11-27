@@ -218,6 +218,30 @@ describe('createPrivateKeyJwtAuth', () => {
         expect(parts).toHaveLength(3);
     });
 
+    it('throws when globalThis.crypto is not available', async () => {
+        // Temporarily remove globalThis.crypto to simulate older Node.js runtimes
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const globalAny = globalThis as any;
+        const originalCrypto = globalAny.crypto;
+        // Use delete so that typeof globalThis.crypto === 'undefined'
+        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+        delete globalAny.crypto;
+
+        try {
+            const addClientAuth = createPrivateKeyJwtAuth(baseOptions);
+            const params = new URLSearchParams();
+
+            await expect(
+                addClientAuth(new Headers(), params, 'https://auth.example.com/token', undefined)
+            ).rejects.toThrow(
+                'crypto is not available, please ensure you add have Web Crypto API support for older Node.js versions'
+            );
+        } finally {
+            // Restore original crypto to avoid affecting other tests
+            globalAny.crypto = originalCrypto;
+        }
+    });
+
     it('creates a signed JWT when using a Uint8Array HMAC key', async () => {
         const secret = new TextEncoder().encode('a-string-secret-at-least-256-bits-long');
 

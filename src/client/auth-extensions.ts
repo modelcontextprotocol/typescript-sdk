@@ -27,6 +27,10 @@ export function createPrivateKeyJwtAuth(options: {
 }): AddClientAuthentication {
     return async (_headers, params, url, metadata) => {
         // Lazy import to avoid heavy dependency unless used
+        if (typeof globalThis.crypto === 'undefined') {
+            throw new TypeError('crypto is not available, please ensure you add have Web Crypto API support for older Node.js versions (see https://github.com/modelcontextprotocol/typescript-sdk#nodejs-web-crypto-globalthiscrypto-compatibility)');
+        }
+
         const jose = await import('jose');
 
         const audience = String(options.audience ?? metadata?.issuer ?? url);
