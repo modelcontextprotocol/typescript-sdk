@@ -2,6 +2,7 @@ import { AnySchema, AnyObjectSchema, SchemaOutput, safeParse } from '../server/z
 import {
     CancelledNotificationSchema,
     ClientCapabilities,
+    CloseSSEStreamOptions,
     ErrorCode,
     isJSONRPCError,
     isJSONRPCRequest,
@@ -154,6 +155,16 @@ export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT 
      * This is used by certain transports to correctly associate related messages.
      */
     sendRequest: <U extends AnySchema>(request: SendRequestT, resultSchema: U, options?: RequestOptions) => Promise<SchemaOutput<U>>;
+
+    /**
+     * Closes the SSE stream for this request, triggering client reconnection.
+     * Only available when using StreamableHTTPServerTransport with eventStore configured.
+     * Use this to implement polling behavior during long-running operations.
+     *
+     * @param options - Optional configuration for the close operation
+     * @param options.retryInterval - Retry interval in milliseconds to suggest to clients
+     */
+    closeSSEStream?: (options?: CloseSSEStreamOptions) => void;
 };
 
 /**
@@ -369,7 +380,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             sendRequest: (r, resultSchema, options?) => this.request(r, resultSchema, { ...options, relatedRequestId: request.id }),
             authInfo: extra?.authInfo,
             requestId: request.id,
-            requestInfo: extra?.requestInfo
+            requestInfo: extra?.requestInfo,
+            closeSSEStream: extra?.closeSSEStream
         };
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
