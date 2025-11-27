@@ -4,6 +4,7 @@ import { getDisplayName } from '../shared/metadataUtils.js';
 import { UriTemplate } from '../shared/uriTemplate.js';
 import {
     CallToolResultSchema,
+    type CallToolResult,
     CompleteResultSchema,
     ElicitRequestSchema,
     GetPromptResultSchema,
@@ -20,7 +21,24 @@ import {
 } from '../types.js';
 import { completable } from './completable.js';
 import { McpServer, ResourceTemplate } from './mcp.js';
+import { InMemoryTaskStore } from '../experimental/tasks/stores/in-memory.js';
 import { zodTestMatrix, type ZodMatrixEntry } from '../shared/zodTestMatrix.js';
+
+function createLatch() {
+    let latch = false;
+    const waitForLatch = async () => {
+        while (!latch) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    };
+
+    return {
+        releaseLatch: () => {
+            latch = true;
+        },
+        waitForLatch
+    };
+}
 
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;
@@ -1754,6 +1772,144 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0].name).toBe('test-without-meta');
             expect(result.tools[0]._meta).toBeUndefined();
+        });
+
+        test('should include execution field in listTools response when tool has execution settings', async () => {
+            const taskStore = new InMemoryTaskStore();
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore
+                }
+            );
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            // Register a tool with execution.taskSupport
+            mcpServer.experimental.tasks.registerToolTask(
+                'task-tool',
+                {
+                    description: 'A tool with task support',
+                    inputSchema: { input: z.string() },
+                    execution: {
+                        taskSupport: 'required'
+                    }
+                },
+                {
+                    createTask: async (_args, extra) => {
+                        const task = await extra.taskStore.createTask({ ttl: 60000 });
+                        return { task };
+                    },
+                    getTask: async (_args, extra) => {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) throw new Error('Task not found');
+                        return task;
+                    },
+                    getTaskResult: async (_args, extra) => {
+                        return (await extra.taskStore.getTaskResult(extra.taskId)) as CallToolResult;
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0].name).toBe('task-tool');
+            expect(result.tools[0].execution).toEqual({
+                taskSupport: 'required'
+            });
+
+            taskStore.cleanup();
+        });
+
+        test('should include execution field with taskSupport optional in listTools response', async () => {
+            const taskStore = new InMemoryTaskStore();
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore
+                }
+            );
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            // Register a tool with execution.taskSupport optional
+            mcpServer.experimental.tasks.registerToolTask(
+                'optional-task-tool',
+                {
+                    description: 'A tool with optional task support',
+                    inputSchema: { input: z.string() },
+                    execution: {
+                        taskSupport: 'optional'
+                    }
+                },
+                {
+                    createTask: async (_args, extra) => {
+                        const task = await extra.taskStore.createTask({ ttl: 60000 });
+                        return { task };
+                    },
+                    getTask: async (_args, extra) => {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) throw new Error('Task not found');
+                        return task;
+                    },
+                    getTaskResult: async (_args, extra) => {
+                        return (await extra.taskStore.getTaskResult(extra.taskId)) as CallToolResult;
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0].name).toBe('optional-task-tool');
+            expect(result.tools[0].execution).toEqual({
+                taskSupport: 'optional'
+            });
+
+            taskStore.cleanup();
         });
 
         test('should validate tool names according to SEP specification', () => {
@@ -3738,6 +3894,1098 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Tool 1: Only name
             mcpServer.tool('tool_name_only', async () => ({
+                content: [{ type: 'text' as const, text: 'Response' }]
+            }));
+
+            // Tool 2: Name and annotations.title
+            mcpServer.tool(
+                'tool_with_annotations_title',
+                'Tool with annotations title',
+                {
+                    title: 'Annotations Title'
+                },
+                async () => ({
+                    content: [{ type: 'text' as const, text: 'Response' }]
+                })
+            );
+
+            // Tool 3: Name and title (using registerTool)
+            mcpServer.registerTool(
+                'tool_with_title',
+                {
+                    title: 'Regular Title',
+                    description: 'Tool with regular title'
+                },
+                async () => ({
+                    content: [{ type: 'text' as const, text: 'Response' }]
+                })
+            );
+
+            // Tool 4: All three - title should win
+            mcpServer.registerTool(
+                'tool_with_all_titles',
+                {
+                    title: 'Regular Title Wins',
+                    description: 'Tool with all titles',
+                    annotations: {
+                        title: 'Annotations Title Should Not Show'
+                    }
+                },
+                async () => ({
+                    content: [{ type: 'text' as const, text: 'Response' }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+
+            expect(result.tools).toHaveLength(4);
+
+            // Tool 1: Only name - should display name
+            const tool1 = result.tools.find(t => t.name === 'tool_name_only');
+            expect(tool1).toBeDefined();
+            expect(getDisplayName(tool1!)).toBe('tool_name_only');
+
+            // Tool 2: Name and annotations.title - should display annotations.title
+            const tool2 = result.tools.find(t => t.name === 'tool_with_annotations_title');
+            expect(tool2).toBeDefined();
+            expect(tool2!.annotations?.title).toBe('Annotations Title');
+            expect(getDisplayName(tool2!)).toBe('Annotations Title');
+
+            // Tool 3: Name and title - should display title
+            const tool3 = result.tools.find(t => t.name === 'tool_with_title');
+            expect(tool3).toBeDefined();
+            expect(tool3!.title).toBe('Regular Title');
+            expect(getDisplayName(tool3!)).toBe('Regular Title');
+
+            // Tool 4: All three - title should take precedence
+            const tool4 = result.tools.find(t => t.name === 'tool_with_all_titles');
+            expect(tool4).toBeDefined();
+            expect(tool4!.title).toBe('Regular Title Wins');
+            expect(tool4!.annotations?.title).toBe('Annotations Title Should Not Show');
+            expect(getDisplayName(tool4!)).toBe('Regular Title Wins');
+        });
+
+        test('getDisplayName unit tests for title precedence', () => {
+            // Test 1: Only name
+            expect(getDisplayName({ name: 'tool_name' })).toBe('tool_name');
+
+            // Test 2: Name and title - title wins
+            expect(
+                getDisplayName({
+                    name: 'tool_name',
+                    title: 'Tool Title'
+                })
+            ).toBe('Tool Title');
+
+            // Test 3: Name and annotations.title - annotations.title wins
+            expect(
+                getDisplayName({
+                    name: 'tool_name',
+                    annotations: { title: 'Annotations Title' }
+                })
+            ).toBe('Annotations Title');
+
+            // Test 4: All three - title wins (correct precedence)
+            expect(
+                getDisplayName({
+                    name: 'tool_name',
+                    title: 'Regular Title',
+                    annotations: { title: 'Annotations Title' }
+                })
+            ).toBe('Regular Title');
+
+            // Test 5: Empty title should not be used
+            expect(
+                getDisplayName({
+                    name: 'tool_name',
+                    title: '',
+                    annotations: { title: 'Annotations Title' }
+                })
+            ).toBe('Annotations Title');
+
+            // Test 6: Undefined vs null handling
+            expect(
+                getDisplayName({
+                    name: 'tool_name',
+                    title: undefined,
+                    annotations: { title: 'Annotations Title' }
+                })
+            ).toBe('Annotations Title');
+        });
+
+        test('should support resource template completion with resolved context', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerResource(
+                'test',
+                new ResourceTemplate('github://repos/{owner}/{repo}', {
+                    list: undefined,
+                    complete: {
+                        repo: (value, context) => {
+                            if (context?.arguments?.['owner'] === 'org1') {
+                                return ['project1', 'project2', 'project3'].filter(r => r.startsWith(value));
+                            } else if (context?.arguments?.['owner'] === 'org2') {
+                                return ['repo1', 'repo2', 'repo3'].filter(r => r.startsWith(value));
+                            }
+                            return [];
+                        }
+                    }
+                }),
+                {
+                    title: 'GitHub Repository',
+                    description: 'Repository information'
+                },
+                async () => ({
+                    contents: [
+                        {
+                            uri: 'github://repos/test/test',
+                            text: 'Test content'
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            // Test with microsoft owner
+            const result1 = await client.request(
+                {
+                    method: 'completion/complete',
+                    params: {
+                        ref: {
+                            type: 'ref/resource',
+                            uri: 'github://repos/{owner}/{repo}'
+                        },
+                        argument: {
+                            name: 'repo',
+                            value: 'p'
+                        },
+                        context: {
+                            arguments: {
+                                owner: 'org1'
+                            }
+                        }
+                    }
+                },
+                CompleteResultSchema
+            );
+
+            expect(result1.completion.values).toEqual(['project1', 'project2', 'project3']);
+            expect(result1.completion.total).toBe(3);
+
+            // Test with facebook owner
+            const result2 = await client.request(
+                {
+                    method: 'completion/complete',
+                    params: {
+                        ref: {
+                            type: 'ref/resource',
+                            uri: 'github://repos/{owner}/{repo}'
+                        },
+                        argument: {
+                            name: 'repo',
+                            value: 'r'
+                        },
+                        context: {
+                            arguments: {
+                                owner: 'org2'
+                            }
+                        }
+                    }
+                },
+                CompleteResultSchema
+            );
+
+            expect(result2.completion.values).toEqual(['repo1', 'repo2', 'repo3']);
+            expect(result2.completion.total).toBe(3);
+
+            // Test with no resolved context
+            const result3 = await client.request(
+                {
+                    method: 'completion/complete',
+                    params: {
+                        ref: {
+                            type: 'ref/resource',
+                            uri: 'github://repos/{owner}/{repo}'
+                        },
+                        argument: {
+                            name: 'repo',
+                            value: 't'
+                        }
+                    }
+                },
+                CompleteResultSchema
+            );
+
+            expect(result3.completion.values).toEqual([]);
+            expect(result3.completion.total).toBe(0);
+        });
+
+        test('should support prompt argument completion with resolved context', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerPrompt(
+                'test-prompt',
+                {
+                    title: 'Team Greeting',
+                    description: 'Generate a greeting for team members',
+                    argsSchema: {
+                        department: completable(z.string(), value => {
+                            return ['engineering', 'sales', 'marketing', 'support'].filter(d => d.startsWith(value));
+                        }),
+                        name: completable(z.string(), (value, context) => {
+                            const department = context?.arguments?.['department'];
+                            if (department === 'engineering') {
+                                return ['Alice', 'Bob', 'Charlie'].filter(n => n.startsWith(value));
+                            } else if (department === 'sales') {
+                                return ['David', 'Eve', 'Frank'].filter(n => n.startsWith(value));
+                            } else if (department === 'marketing') {
+                                return ['Grace', 'Henry', 'Iris'].filter(n => n.startsWith(value));
+                            }
+                            return ['Guest'].filter(n => n.startsWith(value));
+                        })
+                    }
+                },
+                async ({ department, name }) => ({
+                    messages: [
+                        {
+                            role: 'assistant',
+                            content: {
+                                type: 'text',
+                                text: `Hello ${name}, welcome to the ${department} team!`
+                            }
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            // Test with engineering department
+            const result1 = await client.request(
+                {
+                    method: 'completion/complete',
+                    params: {
+                        ref: {
+                            type: 'ref/prompt',
+                            name: 'test-prompt'
+                        },
+                        argument: {
+                            name: 'name',
+                            value: 'A'
+                        },
+                        context: {
+                            arguments: {
+                                department: 'engineering'
+                            }
+                        }
+                    }
+                },
+                CompleteResultSchema
+            );
+
+            expect(result1.completion.values).toEqual(['Alice']);
+
+            // Test with sales department
+            const result2 = await client.request(
+                {
+                    method: 'completion/complete',
+                    params: {
+                        ref: {
+                            type: 'ref/prompt',
+                            name: 'test-prompt'
+                        },
+                        argument: {
+                            name: 'name',
+                            value: 'D'
+                        },
+                        context: {
+                            arguments: {
+                                department: 'sales'
+                            }
+                        }
+                    }
+                },
+                CompleteResultSchema
+            );
+
+            expect(result2.completion.values).toEqual(['David']);
+
+            // Test with marketing department
+            const result3 = await client.request(
+                {
+                    method: 'completion/complete',
+                    params: {
+                        ref: {
+                            type: 'ref/prompt',
+                            name: 'test-prompt'
+                        },
+                        argument: {
+                            name: 'name',
+                            value: 'G'
+                        },
+                        context: {
+                            arguments: {
+                                department: 'marketing'
+                            }
+                        }
+                    }
+                },
+                CompleteResultSchema
+            );
+
+            expect(result3.completion.values).toEqual(['Grace']);
+
+            // Test with no resolved context
+            const result4 = await client.request(
+                {
+                    method: 'completion/complete',
+                    params: {
+                        ref: {
+                            type: 'ref/prompt',
+                            name: 'test-prompt'
+                        },
+                        argument: {
+                            name: 'name',
+                            value: 'G'
+                        }
+                    }
+                },
+                CompleteResultSchema
+            );
+
+            expect(result4.completion.values).toEqual(['Guest']);
+        });
+    });
+
+    describe('elicitInput()', () => {
+        const checkAvailability = vi.fn().mockResolvedValue(false);
+        const findAlternatives = vi.fn().mockResolvedValue([]);
+        const makeBooking = vi.fn().mockResolvedValue('BOOKING-123');
+
+        let mcpServer: McpServer;
+        let client: Client;
+
+        beforeEach(() => {
+            vi.clearAllMocks();
+
+            // Create server with restaurant booking tool
+            mcpServer = new McpServer({
+                name: 'restaurant-booking-server',
+                version: '1.0.0'
+            });
+
+            // Register the restaurant booking tool from README example
+            mcpServer.tool(
+                'book-restaurant',
+                {
+                    restaurant: z.string(),
+                    date: z.string(),
+                    partySize: z.number()
+                },
+                async ({ restaurant, date, partySize }) => {
+                    // Check availability
+                    const available = await checkAvailability(restaurant, date, partySize);
+
+                    if (!available) {
+                        // Ask user if they want to try alternative dates
+                        const result = await mcpServer.server.elicitInput({
+                            message: `No tables available at ${restaurant} on ${date}. Would you like to check alternative dates?`,
+                            requestedSchema: {
+                                type: 'object',
+                                properties: {
+                                    checkAlternatives: {
+                                        type: 'boolean',
+                                        title: 'Check alternative dates',
+                                        description: 'Would you like me to check other dates?'
+                                    },
+                                    flexibleDates: {
+                                        type: 'string',
+                                        title: 'Date flexibility',
+                                        description: 'How flexible are your dates?',
+                                        enum: ['next_day', 'same_week', 'next_week'],
+                                        enumNames: ['Next day', 'Same week', 'Next week']
+                                    }
+                                },
+                                required: ['checkAlternatives']
+                            }
+                        });
+
+                        if (result.action === 'accept' && result.content?.checkAlternatives) {
+                            const alternatives = await findAlternatives(
+                                restaurant,
+                                date,
+                                partySize,
+                                result.content.flexibleDates as string
+                            );
+                            return {
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: `Found these alternatives: ${alternatives.join(', ')}`
+                                    }
+                                ]
+                            };
+                        }
+
+                        return {
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: 'No booking made. Original date not available.'
+                                }
+                            ]
+                        };
+                    }
+
+                    await makeBooking(restaurant, date, partySize);
+                    return {
+                        content: [
+                            {
+                                type: 'text',
+                                text: `Booked table for ${partySize} at ${restaurant} on ${date}`
+                            }
+                        ]
+                    };
+                }
+            );
+
+            // Create client with elicitation capability
+            client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {}
+                    }
+                }
+            );
+        });
+
+        test('should successfully elicit additional information', async () => {
+            // Mock availability check to return false
+            checkAvailability.mockResolvedValue(false);
+            findAlternatives.mockResolvedValue(['2024-12-26', '2024-12-27', '2024-12-28']);
+
+            // Set up client to accept alternative date checking
+            client.setRequestHandler(ElicitRequestSchema, async request => {
+                expect(request.params.message).toContain('No tables available at ABC Restaurant on 2024-12-25');
+                return {
+                    action: 'accept',
+                    content: {
+                        checkAlternatives: true,
+                        flexibleDates: 'same_week'
+                    }
+                };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            // Call the tool
+            const result = await client.callTool({
+                name: 'book-restaurant',
+                arguments: {
+                    restaurant: 'ABC Restaurant',
+                    date: '2024-12-25',
+                    partySize: 2
+                }
+            });
+
+            expect(checkAvailability).toHaveBeenCalledWith('ABC Restaurant', '2024-12-25', 2);
+            expect(findAlternatives).toHaveBeenCalledWith('ABC Restaurant', '2024-12-25', 2, 'same_week');
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Found these alternatives: 2024-12-26, 2024-12-27, 2024-12-28'
+                }
+            ]);
+        });
+
+        test('should handle user declining to elicitation request', async () => {
+            // Mock availability check to return false
+            checkAvailability.mockResolvedValue(false);
+
+            // Set up client to reject alternative date checking
+            client.setRequestHandler(ElicitRequestSchema, async () => {
+                return {
+                    action: 'accept',
+                    content: {
+                        checkAlternatives: false
+                    }
+                };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            // Call the tool
+            const result = await client.callTool({
+                name: 'book-restaurant',
+                arguments: {
+                    restaurant: 'ABC Restaurant',
+                    date: '2024-12-25',
+                    partySize: 2
+                }
+            });
+
+            expect(checkAvailability).toHaveBeenCalledWith('ABC Restaurant', '2024-12-25', 2);
+            expect(findAlternatives).not.toHaveBeenCalled();
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'No booking made. Original date not available.'
+                }
+            ]);
+        });
+
+        test('should handle user cancelling the elicitation', async () => {
+            // Mock availability check to return false
+            checkAvailability.mockResolvedValue(false);
+
+            // Set up client to cancel the elicitation
+            client.setRequestHandler(ElicitRequestSchema, async () => {
+                return {
+                    action: 'cancel'
+                };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            // Call the tool
+            const result = await client.callTool({
+                name: 'book-restaurant',
+                arguments: {
+                    restaurant: 'ABC Restaurant',
+                    date: '2024-12-25',
+                    partySize: 2
+                }
+            });
+
+            expect(checkAvailability).toHaveBeenCalledWith('ABC Restaurant', '2024-12-25', 2);
+            expect(findAlternatives).not.toHaveBeenCalled();
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'No booking made. Original date not available.'
+                }
+            ]);
+        });
+    });
+
+    describe('Tools with union and intersection schemas', () => {
+        test('should support union schemas', async () => {
+            const server = new McpServer({
+                name: 'test',
+                version: '1.0.0'
+            });
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const unionSchema = z.union([
+                z.object({ type: z.literal('email'), email: z.string().email() }),
+                z.object({ type: z.literal('phone'), phone: z.string() })
+            ]);
+
+            server.registerTool('contact', { inputSchema: unionSchema }, async args => {
+                if (args.type === 'email') {
+                    return {
+                        content: [{ type: 'text' as const, text: `Email contact: ${args.email}` }]
+                    };
+                } else {
+                    return {
+                        content: [{ type: 'text' as const, text: `Phone contact: ${args.phone}` }]
+                    };
+                }
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const emailResult = await client.callTool({
+                name: 'contact',
+                arguments: {
+                    type: 'email',
+                    email: 'test@example.com'
+                }
+            });
+
+            expect(emailResult.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Email contact: test@example.com'
+                }
+            ]);
+
+            const phoneResult = await client.callTool({
+                name: 'contact',
+                arguments: {
+                    type: 'phone',
+                    phone: '+1234567890'
+                }
+            });
+
+            expect(phoneResult.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Phone contact: +1234567890'
+                }
+            ]);
+        });
+
+        test('should support intersection schemas', async () => {
+            const server = new McpServer({
+                name: 'test',
+                version: '1.0.0'
+            });
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const baseSchema = z.object({ id: z.string() });
+            const extendedSchema = z.object({ name: z.string(), age: z.number() });
+            const intersectionSchema = z.intersection(baseSchema, extendedSchema);
+
+            server.registerTool('user', { inputSchema: intersectionSchema }, async args => {
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: `User: ${args.id}, ${args.name}, ${args.age} years old`
+                        }
+                    ]
+                };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const result = await client.callTool({
+                name: 'user',
+                arguments: {
+                    id: '123',
+                    name: 'John Doe',
+                    age: 30
+                }
+            });
+
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'User: 123, John Doe, 30 years old'
+                }
+            ]);
+        });
+
+        test('should support complex nested schemas', async () => {
+            const server = new McpServer({
+                name: 'test',
+                version: '1.0.0'
+            });
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const schema = z.object({
+                items: z.array(
+                    z.union([
+                        z.object({ type: z.literal('text'), content: z.string() }),
+                        z.object({ type: z.literal('number'), value: z.number() })
+                    ])
+                )
+            });
+
+            server.registerTool('process', { inputSchema: schema }, async args => {
+                const processed = args.items.map(item => {
+                    if (item.type === 'text') {
+                        return item.content.toUpperCase();
+                    } else {
+                        return item.value * 2;
+                    }
+                });
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: `Processed: ${processed.join(', ')}`
+                        }
+                    ]
+                };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const result = await client.callTool({
+                name: 'process',
+                arguments: {
+                    items: [
+                        { type: 'text', content: 'hello' },
+                        { type: 'number', value: 5 },
+                        { type: 'text', content: 'world' }
+                    ]
+                }
+            });
+
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Processed: HELLO, 10, WORLD'
+                }
+            ]);
+        });
+
+        test('should validate union schema inputs correctly', async () => {
+            const server = new McpServer({
+                name: 'test',
+                version: '1.0.0'
+            });
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const unionSchema = z.union([
+                z.object({ type: z.literal('a'), value: z.string() }),
+                z.object({ type: z.literal('b'), value: z.number() })
+            ]);
+
+            server.registerTool('union-test', { inputSchema: unionSchema }, async () => {
+                return {
+                    content: [{ type: 'text' as const, text: 'Success' }]
+                };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const invalidTypeResult = await client.callTool({
+                name: 'union-test',
+                arguments: {
+                    type: 'a',
+                    value: 123
+                }
+            });
+
+            expect(invalidTypeResult.isError).toBe(true);
+            expect(invalidTypeResult.content).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'text',
+                        text: expect.stringContaining('Input validation error')
+                    })
+                ])
+            );
+        });
+    });
+
+    describe('resource()', () => {
+        /***
+         * Test: Resource Registration with URI and Read Callback
+         */
+        test('should register resource with uri and readCallback', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.resource('test', 'test://resource', async () => ({
+                contents: [
+                    {
+                        uri: 'test://resource',
+                        text: 'Test content'
+                    }
+                ]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request(
+                {
+                    method: 'resources/list'
+                },
+                ListResourcesResultSchema
+            );
+
+            expect(result.resources).toHaveLength(1);
+            expect(result.resources[0].name).toBe('test');
+            expect(result.resources[0].uri).toBe('test://resource');
+        });
+
+        /***
+         * Test: Update Resource with URI
+         */
+        test('should update resource with uri', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const notifications: Notification[] = [];
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+            client.fallbackNotificationHandler = async notification => {
+                notifications.push(notification);
+            };
+
+            // Register initial resource
+            const resource = mcpServer.resource('test', 'test://resource', async () => ({
+                contents: [
+                    {
+                        uri: 'test://resource',
+                        text: 'Initial content'
+                    }
+                ]
+            }));
+
+            // Update the resource
+            resource.update({
+                callback: async () => ({
+                    contents: [
+                        {
+                            uri: 'test://resource',
+                            text: 'Updated content'
+                        }
+                    ]
+                })
+            });
+
+            // Updates before connection should not trigger notifications
+            expect(notifications).toHaveLength(0);
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request(
+                {
+                    method: 'resources/read',
+                    params: {
+                        uri: 'test://resource'
+                    }
+                },
+                ReadResourceResultSchema
+            );
+
+            expect(result.contents).toEqual([
+                {
+                    uri: 'test://resource',
+                    text: 'Updated content'
+                }
+            ]);
+
+            // Now update again after connection
+            resource.update({
+                callback: async () => ({
+                    contents: [
+                        {
+                            uri: 'test://resource',
+                            text: 'Another update'
+                        }
+                    ]
+                })
+            });
+
+            // Yield to event loop for notification to fly
+            await new Promise(process.nextTick);
+
+            expect(notifications).toMatchObject([{ method: 'notifications/resources/list_changed' }]);
+        });
+
+        /***
+         * Test: Resource Template Metadata Priority
+         */
+        test('should prioritize individual resource metadata over template metadata', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.resource(
+                'test',
+                new ResourceTemplate('test://resource/{id}', {
+                    list: async () => ({
+                        resources: [
+                            {
+                                name: 'Resource 1',
+                                uri: 'test://resource/1',
+                                description: 'Individual resource description',
+                                mimeType: 'text/plain'
+                            },
+                            {
+                                name: 'Resource 2',
+                                uri: 'test://resource/2'
+                                // This resource has no description or mimeType
+                            }
+                        ]
+                    })
+                }),
+                {
+                    description: 'Template description',
+                    mimeType: 'application/json'
+                },
+                async uri => ({
+                    contents: [
+                        {
+                            uri: uri.href,
+                            text: 'Test content'
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request(
+                {
+                    method: 'resources/list'
+                },
+                ListResourcesResultSchema
+            );
+
+            expect(result.resources).toHaveLength(2);
+
+            // Resource 1 should have its own metadata
+            expect(result.resources[0].name).toBe('Resource 1');
+            expect(result.resources[0].description).toBe('Individual resource description');
+            expect(result.resources[0].mimeType).toBe('text/plain');
+
+            // Resource 2 should inherit template metadata
+            expect(result.resources[1].name).toBe('Resource 2');
+            expect(result.resources[1].description).toBe('Template description');
+            expect(result.resources[1].mimeType).toBe('application/json');
+        });
+
+        /***
+         * Test: Resource Template Metadata Overrides All Fields
+         */
+        test('should allow resource to override all template metadata fields', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.resource(
+                'test',
+                new ResourceTemplate('test://resource/{id}', {
+                    list: async () => ({
+                        resources: [
+                            {
+                                name: 'Overridden Name',
+                                uri: 'test://resource/1',
+                                description: 'Overridden description',
+                                mimeType: 'text/markdown'
+                                // Add any other metadata fields if they exist
+                            }
+                        ]
+                    })
+                }),
+                {
+                    title: 'Template Name',
+                    description: 'Template description',
+                    mimeType: 'application/json'
+                },
+                async uri => ({
+                    contents: [
+                        {
+                            uri: uri.href,
+                            text: 'Test content'
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request(
+                {
+                    method: 'resources/list'
+                },
+                ListResourcesResultSchema
+            );
+
+            expect(result.resources).toHaveLength(1);
+
+            // All fields should be from the individual resource, not the template
+            expect(result.resources[0].name).toBe('Overridden Name');
+            expect(result.resources[0].description).toBe('Overridden description');
+            expect(result.resources[0].mimeType).toBe('text/markdown');
+        });
+    });
+
+    describe('Tool title precedence', () => {
+        test('should follow correct title precedence: title → annotations.title → name', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            // Tool 1: Only name
+            mcpServer.tool('tool_name_only', async () => ({
                 content: [{ type: 'text', text: 'Response' }]
             }));
 
@@ -4580,6 +5828,607 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     })
                 ])
             );
+        });
+    });
+
+    describe('Tool-level task hints with automatic polling wrapper', () => {
+        test('should return error for tool with taskSupport "required" called without task augmentation', async () => {
+            const taskStore = new InMemoryTaskStore();
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore
+                }
+            );
+
+            const client = new Client(
+                {
+                    name: 'test client',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    }
+                }
+            );
+
+            // Register a task-based tool with taskSupport "required"
+            mcpServer.experimental.tasks.registerToolTask(
+                'long-running-task',
+                {
+                    description: 'A long running task',
+                    inputSchema: {
+                        input: z.string()
+                    },
+                    execution: {
+                        taskSupport: 'required'
+                    }
+                },
+                {
+                    createTask: async ({ input }, extra) => {
+                        const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
+
+                        // Capture taskStore for use in setTimeout
+                        const store = extra.taskStore;
+
+                        // Simulate async work
+                        setTimeout(async () => {
+                            await store.storeTaskResult(task.taskId, 'completed', {
+                                content: [{ type: 'text' as const, text: `Processed: ${input}` }]
+                            });
+                        }, 200);
+
+                        return { task };
+                    },
+                    getTask: async (_args, extra) => {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) {
+                            throw new Error('Task not found');
+                        }
+                        return task;
+                    },
+                    getTaskResult: async (_input, extra) => {
+                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        return result as CallToolResult;
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            // Call the tool WITHOUT task augmentation - should return error
+            const result = await client.callTool(
+                {
+                    name: 'long-running-task',
+                    arguments: { input: 'test data' }
+                },
+                CallToolResultSchema
+            );
+
+            // Should receive error result
+            expect(result.isError).toBe(true);
+            const content = result.content as TextContent[];
+            expect(content[0].text).toContain('requires task augmentation');
+
+            taskStore.cleanup();
+        });
+
+        test('should automatically poll and return CallToolResult for tool with taskSupport "optional" called without task augmentation', async () => {
+            const taskStore = new InMemoryTaskStore();
+            const { releaseLatch, waitForLatch } = createLatch();
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore
+                }
+            );
+
+            const client = new Client(
+                {
+                    name: 'test client',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    }
+                }
+            );
+
+            // Register a task-based tool with taskSupport "optional"
+            mcpServer.experimental.tasks.registerToolTask(
+                'optional-task',
+                {
+                    description: 'An optional task',
+                    inputSchema: {
+                        value: z.number()
+                    },
+                    execution: {
+                        taskSupport: 'optional'
+                    }
+                },
+                {
+                    createTask: async ({ value }, extra) => {
+                        const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
+
+                        // Capture taskStore for use in setTimeout
+                        const store = extra.taskStore;
+
+                        // Simulate async work
+                        setTimeout(async () => {
+                            await store.storeTaskResult(task.taskId, 'completed', {
+                                content: [{ type: 'text' as const, text: `Result: ${value * 2}` }]
+                            });
+                            releaseLatch();
+                        }, 150);
+
+                        return { task };
+                    },
+                    getTask: async (_args, extra) => {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) {
+                            throw new Error('Task not found');
+                        }
+                        return task;
+                    },
+                    getTaskResult: async (_value, extra) => {
+                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        return result as CallToolResult;
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            // Call the tool WITHOUT task augmentation
+            const result = await client.callTool(
+                {
+                    name: 'optional-task',
+                    arguments: { value: 21 }
+                },
+                CallToolResultSchema
+            );
+
+            // Should receive CallToolResult directly, not CreateTaskResult
+            expect(result).toHaveProperty('content');
+            expect(result.content).toEqual([{ type: 'text' as const, text: 'Result: 42' }]);
+            expect(result).not.toHaveProperty('task');
+
+            // Wait for async operations to complete
+            await waitForLatch();
+            taskStore.cleanup();
+        });
+
+        test('should return CreateTaskResult when tool with taskSupport "required" is called WITH task augmentation', async () => {
+            const taskStore = new InMemoryTaskStore();
+            const { releaseLatch, waitForLatch } = createLatch();
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore
+                }
+            );
+
+            const client = new Client(
+                {
+                    name: 'test client',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    }
+                }
+            );
+
+            // Register a task-based tool with taskSupport "required"
+            mcpServer.experimental.tasks.registerToolTask(
+                'task-tool',
+                {
+                    description: 'A task tool',
+                    inputSchema: {
+                        data: z.string()
+                    },
+                    execution: {
+                        taskSupport: 'required'
+                    }
+                },
+                {
+                    createTask: async ({ data }, extra) => {
+                        const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
+
+                        // Capture taskStore for use in setTimeout
+                        const store = extra.taskStore;
+
+                        // Simulate async work
+                        setTimeout(async () => {
+                            await store.storeTaskResult(task.taskId, 'completed', {
+                                content: [{ type: 'text' as const, text: `Completed: ${data}` }]
+                            });
+                            releaseLatch();
+                        }, 200);
+
+                        return { task };
+                    },
+                    getTask: async (_args, extra) => {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) {
+                            throw new Error('Task not found');
+                        }
+                        return task;
+                    },
+                    getTaskResult: async (_data, extra) => {
+                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        return result as CallToolResult;
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            // Call the tool WITH task augmentation
+            const result = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'task-tool',
+                        arguments: { data: 'test' },
+                        task: { ttl: 60000 }
+                    }
+                },
+                z.object({
+                    task: z.object({
+                        taskId: z.string(),
+                        status: z.string(),
+                        ttl: z.union([z.number(), z.null()]),
+                        createdAt: z.string(),
+                        pollInterval: z.number().optional()
+                    })
+                })
+            );
+
+            // Should receive CreateTaskResult with task field
+            expect(result).toHaveProperty('task');
+            expect(result.task).toHaveProperty('taskId');
+            expect(result.task.status).toBe('working');
+
+            // Wait for async operations to complete
+            await waitForLatch();
+            taskStore.cleanup();
+        });
+
+        test('should handle task failures during automatic polling', async () => {
+            const taskStore = new InMemoryTaskStore();
+            const { releaseLatch, waitForLatch } = createLatch();
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore
+                }
+            );
+
+            const client = new Client(
+                {
+                    name: 'test client',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    }
+                }
+            );
+
+            // Register a task-based tool that fails
+            mcpServer.experimental.tasks.registerToolTask(
+                'failing-task',
+                {
+                    description: 'A failing task',
+                    execution: {
+                        taskSupport: 'optional'
+                    }
+                },
+                {
+                    createTask: async extra => {
+                        const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
+
+                        // Capture taskStore for use in setTimeout
+                        const store = extra.taskStore;
+
+                        // Simulate async failure
+                        setTimeout(async () => {
+                            await store.storeTaskResult(task.taskId, 'failed', {
+                                content: [{ type: 'text' as const, text: 'Error occurred' }],
+                                isError: true
+                            });
+                            releaseLatch();
+                        }, 150);
+
+                        return { task };
+                    },
+                    getTask: async extra => {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) {
+                            throw new Error('Task not found');
+                        }
+                        return task;
+                    },
+                    getTaskResult: async extra => {
+                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        return result as CallToolResult;
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            // Call the tool WITHOUT task augmentation
+            const result = await client.callTool(
+                {
+                    name: 'failing-task',
+                    arguments: {}
+                },
+                CallToolResultSchema
+            );
+
+            // Should receive the error result
+            expect(result).toHaveProperty('content');
+            expect(result.content).toEqual([{ type: 'text' as const, text: 'Error occurred' }]);
+            expect(result.isError).toBe(true);
+
+            // Wait for async operations to complete
+            await waitForLatch();
+            taskStore.cleanup();
+        });
+
+        test('should handle task cancellation during automatic polling', async () => {
+            const taskStore = new InMemoryTaskStore();
+            const { releaseLatch, waitForLatch } = createLatch();
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore
+                }
+            );
+
+            const client = new Client(
+                {
+                    name: 'test client',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    }
+                }
+            );
+
+            // Register a task-based tool that gets cancelled
+            mcpServer.experimental.tasks.registerToolTask(
+                'cancelled-task',
+                {
+                    description: 'A task that gets cancelled',
+                    execution: {
+                        taskSupport: 'optional'
+                    }
+                },
+                {
+                    createTask: async extra => {
+                        const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
+
+                        // Capture taskStore for use in setTimeout
+                        const store = extra.taskStore;
+
+                        // Simulate async cancellation
+                        setTimeout(async () => {
+                            await store.updateTaskStatus(task.taskId, 'cancelled', 'Task was cancelled');
+                            releaseLatch();
+                        }, 150);
+
+                        return { task };
+                    },
+                    getTask: async extra => {
+                        const task = await extra.taskStore.getTask(extra.taskId);
+                        if (!task) {
+                            throw new Error('Task not found');
+                        }
+                        return task;
+                    },
+                    getTaskResult: async extra => {
+                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        return result as CallToolResult;
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            // Call the tool WITHOUT task augmentation
+            const result = await client.callTool(
+                {
+                    name: 'cancelled-task',
+                    arguments: {}
+                },
+                CallToolResultSchema
+            );
+
+            // Should receive an error since cancelled tasks don't have results
+            expect(result).toHaveProperty('content');
+            expect(result.content).toEqual([{ type: 'text' as const, text: expect.stringContaining('has no result stored') }]);
+
+            // Wait for async operations to complete
+            await waitForLatch();
+            taskStore.cleanup();
+        });
+
+        test('should raise error when registerToolTask is called with taskSupport "forbidden"', () => {
+            const taskStore = new InMemoryTaskStore();
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore
+                }
+            );
+
+            // Attempt to register a task-based tool with taskSupport "forbidden" (cast to bypass type checking)
+            expect(() => {
+                mcpServer.experimental.tasks.registerToolTask(
+                    'invalid-task',
+                    {
+                        description: 'A task with forbidden support',
+                        inputSchema: {
+                            input: z.string()
+                        },
+                        execution: {
+                            taskSupport: 'forbidden' as unknown as 'required'
+                        }
+                    },
+                    {
+                        createTask: async (_args, extra) => {
+                            const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
+                            return { task };
+                        },
+                        getTask: async (_args, extra) => {
+                            const task = await extra.taskStore.getTask(extra.taskId);
+                            if (!task) {
+                                throw new Error('Task not found');
+                            }
+                            return task;
+                        },
+                        getTaskResult: async (_args, extra) => {
+                            const result = await extra.taskStore.getTaskResult(extra.taskId);
+                            return result as CallToolResult;
+                        }
+                    }
+                );
+            }).toThrow();
+
+            taskStore.cleanup();
         });
     });
 });

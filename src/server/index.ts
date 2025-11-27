@@ -32,10 +32,25 @@ import {
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS,
     type ToolResultContent,
-    type ToolUseContent
+    type ToolUseContent,
+    CallToolRequestSchema,
+    CallToolResultSchema,
+    CreateTaskResultSchema
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
+import {
+    AnyObjectSchema,
+    getObjectShape,
+    isZ4Schema,
+    safeParse,
+    SchemaOutput,
+    type ZodV3Internal,
+    type ZodV4Internal
+} from './zod-compat.js';
+import { RequestHandlerExtra } from '../shared/protocol.js';
+import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
+import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '../experimental/tasks/helpers.js';
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -116,6 +131,7 @@ export class Server<
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
+    private _experimental?: { tasks: ExperimentalServerTasks<RequestT, NotificationT, ResultT> };
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `initialized` notification).
@@ -151,6 +167,22 @@ export class Server<
         }
     }
 
+    /**
+     * Access experimental features.
+     *
+     * WARNING: These APIs are experimental and may change without notice.
+     *
+     * @experimental
+     */
+    get experimental(): { tasks: ExperimentalServerTasks<RequestT, NotificationT, ResultT> } {
+        if (!this._experimental) {
+            this._experimental = {
+                tasks: new ExperimentalServerTasks(this)
+            };
+        }
+        return this._experimental;
+    }
+
     // Map log levels by session id
     private _loggingLevels = new Map<string | undefined, LoggingLevel>();
 
@@ -173,6 +205,87 @@ export class Server<
             throw new Error('Cannot register capabilities after connecting to transport');
         }
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
+    }
+
+    /**
+     * Override request handler registration to enforce server-side validation for tools/call.
+     */
+    public override setRequestHandler<T extends AnyObjectSchema>(
+        requestSchema: T,
+        handler: (
+            request: SchemaOutput<T>,
+            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+        ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
+    ): void {
+        const shape = getObjectShape(requestSchema);
+        const methodSchema = shape?.method;
+        if (!methodSchema) {
+            throw new Error('Schema is missing a method literal');
+        }
+
+        // Extract literal value using type-safe property access
+        let methodValue: unknown;
+        if (isZ4Schema(methodSchema)) {
+            const v4Schema = methodSchema as unknown as ZodV4Internal;
+            const v4Def = v4Schema._zod?.def;
+            methodValue = v4Def?.value ?? v4Schema.value;
+        } else {
+            const v3Schema = methodSchema as unknown as ZodV3Internal;
+            const legacyDef = v3Schema._def;
+            methodValue = legacyDef?.value ?? v3Schema.value;
+        }
+
+        if (typeof methodValue !== 'string') {
+            throw new Error('Schema method literal must be a string');
+        }
+        const method = methodValue;
+
+        if (method === 'tools/call') {
+            const wrappedHandler = async (
+                request: SchemaOutput<T>,
+                extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+            ): Promise<ServerResult | ResultT> => {
+                const validatedRequest = safeParse(CallToolRequestSchema, request);
+                if (!validatedRequest.success) {
+                    const errorMessage =
+                        validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
+                }
+
+                const { params } = validatedRequest.data;
+
+                const result = await Promise.resolve(handler(request, extra));
+
+                // When task creation is requested, validate and return CreateTaskResult
+                if (params.task) {
+                    const taskValidationResult = safeParse(CreateTaskResultSchema, result);
+                    if (!taskValidationResult.success) {
+                        const errorMessage =
+                            taskValidationResult.error instanceof Error
+                                ? taskValidationResult.error.message
+                                : String(taskValidationResult.error);
+                        throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
+                    }
+                    return taskValidationResult.data;
+                }
+
+                // For non-task requests, validate against CallToolResultSchema
+                const validationResult = safeParse(CallToolResultSchema, result);
+                if (!validationResult.success) {
+                    const errorMessage =
+                        validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
+                }
+
+                return validationResult.data;
+            };
+
+            // Install the wrapped handler
+            return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
+        }
+
+        // Other handlers use default behavior
+        return super.setRequestHandler(requestSchema, handler);
     }
 
     protected assertCapabilityForMethod(method: RequestT['method']): void {
@@ -245,6 +358,12 @@ export class Server<
     }
 
     protected assertRequestHandlerCapability(method: string): void {
+        // Task handlers are registered in Protocol constructor before _capabilities is initialized
+        // Skip capability check for task methods during initialization
+        if (!this._capabilities) {
+            return;
+        }
+
         switch (method) {
             case 'completion/complete':
                 if (!this._capabilities.completions) {
@@ -280,11 +399,34 @@ export class Server<
                 }
                 break;
 
+            case 'tasks/get':
+            case 'tasks/list':
+            case 'tasks/result':
+            case 'tasks/cancel':
+                if (!this._capabilities.tasks) {
+                    throw new Error(`Server does not support tasks capability (required for ${method})`);
+                }
+                break;
+
             case 'ping':
             case 'initialize':
                 // No specific capability required for these methods
                 break;
         }
+    }
+
+    protected assertTaskCapability(method: string): void {
+        assertClientRequestTaskCapability(this._clientCapabilities?.tasks?.requests, method, 'Client');
+    }
+
+    protected assertTaskHandlerCapability(method: string): void {
+        // Task handlers are registered in Protocol constructor before _capabilities is initialized
+        // Skip capability check for task methods during initialization
+        if (!this._capabilities) {
+            return;
+        }
+
+        assertToolsCallTaskCapability(this._capabilities.tasks?.requests, method, 'Server');
     }
 
     private async _oninitialize(request: InitializeRequest): Promise<InitializeResult> {
