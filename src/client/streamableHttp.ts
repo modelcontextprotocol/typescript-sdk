@@ -21,6 +21,41 @@ export class StreamableHTTPError extends Error {
 }
 
 /**
+ * Custom reconnection scheduler function type.
+ * Allows environments to override the default setTimeout-based reconnection.
+ *
+ * @example Serverless environment (immediate reconnection)
+ * ```typescript
+ * const serverlessScheduler: ReconnectionScheduler = (reconnect) => {
+ *   // Reconnect immediately without timer
+ *   reconnect();
+ * };
+ * ```
+ *
+ * @example Mobile environment (platform-specific scheduling)
+ * ```typescript
+ * const mobileScheduler: ReconnectionScheduler = (reconnect, delay) => {
+ *   // Use native background task API
+ *   BackgroundFetch.schedule({ delay, callback: reconnect });
+ * };
+ * ```
+ */
+export type ReconnectionScheduler = (
+    /**
+     * Function to call to initiate reconnection
+     */
+    reconnect: () => void,
+    /**
+     * Suggested delay in milliseconds before reconnecting
+     */
+    delay: number,
+    /**
+     * Current reconnection attempt count
+     */
+    attemptCount: number
+) => void;
+
+/**
  * Options for starting or authenticating an SSE connection
  */
 export interface StartSSEOptions {
@@ -110,6 +145,18 @@ export type StreamableHTTPClientTransportOptions = {
     reconnectionOptions?: StreamableHTTPReconnectionOptions;
 
     /**
+     * Custom reconnection scheduler for non-persistent client environments.
+     *
+     * Useful for:
+     * - Serverless functions (immediate reconnection on next invocation)
+     * - Mobile apps (platform-specific background scheduling)
+     * - Desktop apps (sleep/wake cycle handling)
+     *
+     * If not provided, defaults to setTimeout-based scheduling.
+     */
+    reconnectionScheduler?: ReconnectionScheduler;
+
+    /**
      * Session ID for the connection. This is used to identify the session on the server.
      * When not provided and connecting to a server that supports session IDs, the server will generate a new session ID.
      */
@@ -136,6 +183,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _hasCompletedAuthFlow = false; // Circuit breaker: detect auth success followed by immediate 401
     private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
+    private _reconnectionScheduler?: ReconnectionScheduler; // Custom reconnection scheduler
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -151,6 +199,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
+        this._reconnectionScheduler = opts?.reconnectionScheduler;
     }
 
     private async _authThenStart(): Promise<void> {
@@ -284,15 +333,20 @@ export class StreamableHTTPClientTransport implements Transport {
         // Calculate next delay based on current attempt count
         const delay = this._getNextReconnectionDelay(attemptCount);
 
-        // Schedule the reconnection
-        setTimeout(() => {
-            // Use the last event ID to resume where we left off
+        // Determine reconnection strategy by custom scheduler or default setTimeout
+        const reconnect = () => {
             this._startOrAuthSse(options).catch(error => {
                 this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
-                // Schedule another attempt if this one failed, incrementing the attempt counter
                 this._scheduleReconnection(options, attemptCount + 1);
             });
-        }, delay);
+        };
+
+        // Use custom scheduler if provided, otherwise default to setTimeout
+        if (this._reconnectionScheduler) {
+            this._reconnectionScheduler(reconnect, delay, attemptCount);
+        } else {
+            setTimeout(reconnect, delay);
+        }
     }
 
     private _handleSseStream(stream: ReadableStream<Uint8Array> | null, options: StartSSEOptions, isReconnectable: boolean): void {

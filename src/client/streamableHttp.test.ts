@@ -1372,4 +1372,230 @@ describe('StreamableHTTPClientTransport', () => {
             });
         });
     });
+
+    describe('Custom Reconnection Scheduler', () => {
+        beforeEach(() => {
+            vi.useFakeTimers();
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it('should use custom reconnection scheduler when provided', async () => {
+            const customSchedulerSpy = vi.fn((reconnect, _, __) => {
+                // Immediately call reconnect without setTimeout
+                reconnect();
+            });
+
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 1000,
+                    maxReconnectionDelay: 5000,
+                    reconnectionDelayGrowFactor: 2,
+                    maxRetries: 1
+                },
+                reconnectionScheduler: customSchedulerSpy
+            });
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            // Create a failing stream
+            const failingStream = new ReadableStream({
+                start(controller) {
+                    controller.error(new Error('Network failure'));
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            // First call: GET request that fails
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: failingStream
+            });
+            // Second call: reconnection attempt
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream()
+            });
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+
+            // Wait for async operations
+            await vi.advanceTimersByTimeAsync(50);
+
+            // Verify custom scheduler was called
+            expect(customSchedulerSpy).toHaveBeenCalled();
+            expect(customSchedulerSpy).toHaveBeenCalledWith(expect.any(Function), 1000, 0);
+
+            // Verify reconnection occurred (fetch called twice)
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+        });
+
+        it('should pass correct parameters to custom scheduler', async () => {
+            let capturedDelay: number | undefined;
+            let capturedAttemptCount: number | undefined;
+
+            const customScheduler = vi.fn((reconnect, delay, attemptCount) => {
+                capturedDelay = delay;
+                capturedAttemptCount = attemptCount;
+                // Don't actually reconnect to avoid infinite loop
+            });
+
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 2000,
+                    maxReconnectionDelay: 10000,
+                    reconnectionDelayGrowFactor: 1.5,
+                    maxRetries: 1
+                },
+                reconnectionScheduler: customScheduler
+            });
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const failingStream = new ReadableStream({
+                start(controller) {
+                    controller.error(new Error('Network failure'));
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: failingStream
+            });
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            await vi.advanceTimersByTimeAsync(50);
+
+            // Verify scheduler received correct delay (initial delay of 2000ms)
+            expect(capturedDelay).toBe(2000);
+            // Verify scheduler received correct attempt count (first attempt = 0)
+            expect(capturedAttemptCount).toBe(0);
+        });
+
+        it('should fall back to setTimeout when no custom scheduler provided', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 100,
+                    maxReconnectionDelay: 5000,
+                    reconnectionDelayGrowFactor: 2,
+                    maxRetries: 1
+                }
+                // No reconnectionScheduler provided
+            });
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const failingStream = new ReadableStream({
+                start(controller) {
+                    controller.error(new Error('Network failure'));
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            // First call: fails
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: failingStream
+            });
+            // Second call: reconnection
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream()
+            });
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+
+            // Should not reconnect immediately (setTimeout used)
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // Advance time by delay amount
+            await vi.advanceTimersByTimeAsync(100);
+
+            // Now should have attempted reconnection
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+        });
+
+        it('should support serverless scenario - store reconnect callback for later invocation', async () => {
+            let storedReconnect: (() => void) | undefined;
+
+            // Serverless scheduler: store callback instead of calling immediately
+            // In real serverless, this would be persisted and called on next function invocation
+            const serverlessScheduler = vi.fn((reconnect, _, __) => {
+                storedReconnect = reconnect;
+                // Do NOT call reconnect() - that's the key difference from regular scheduling
+            });
+
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 5000,
+                    maxReconnectionDelay: 30000,
+                    reconnectionDelayGrowFactor: 2,
+                    maxRetries: 1
+                },
+                reconnectionScheduler: serverlessScheduler
+            });
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const failingStream = new ReadableStream({
+                start(controller) {
+                    controller.error(new Error('Network failure'));
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: failingStream
+            });
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            await vi.advanceTimersByTimeAsync(10);
+
+            // Verify scheduler was called and callback was stored
+            expect(serverlessScheduler).toHaveBeenCalled();
+            expect(storedReconnect).toBeDefined();
+
+            // Only 1 fetch call so far (no automatic reconnection)
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // Simulate next serverless function invocation - manually trigger stored reconnection
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream()
+            });
+
+            storedReconnect!(); // Manual trigger simulates next invocation
+
+            await vi.advanceTimersByTimeAsync(10);
+
+            // Now should have 2 calls total (initial + manual reconnection)
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+        });
+    });
 });
