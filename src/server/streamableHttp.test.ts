@@ -1815,7 +1815,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer = result.mcpServer;
 
             // Track whether closeSSEStream callback was provided
-            let receivedCloseSSEStream: ((options?: { retryInterval?: number }) => void) | undefined;
+            let receivedCloseSSEStream: (() => void) | undefined;
 
             // Register a tool that captures the extra.closeSSEStream callback
             mcpServer.tool('test-callback-tool', 'Test tool', {}, async (_args, extra) => {
@@ -1872,7 +1872,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             mcpServer = result.mcpServer;
 
             // Track whether closeSSEStream callback was provided
-            let receivedCloseSSEStream: ((options?: { retryInterval?: number }) => void) | undefined;
+            let receivedCloseSSEStream: (() => void) | undefined;
 
             // Register a tool that captures the extra.closeSSEStream callback
             mcpServer.tool('test-no-callback-tool', 'Test tool', {}, async (_args, extra) => {
@@ -1915,76 +1915,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Verify closeSSEStream callback was NOT provided
             expect(receivedCloseSSEStream).toBeUndefined();
-        });
-
-        it('should send custom retry interval when closeSSEStream is called with retryInterval', async () => {
-            const result = await createTestServer({
-                sessionIdGenerator: () => randomUUID(),
-                eventStore: createEventStore(),
-                retryInterval: 1000 // Default
-            });
-            server = result.server;
-            transport = result.transport;
-            baseUrl = result.baseUrl;
-            mcpServer = result.mcpServer;
-
-            // Track tool execution state
-            let toolResolve: () => void;
-            const toolPromise = new Promise<void>(resolve => {
-                toolResolve = resolve;
-            });
-
-            // Register a tool that uses closeSSEStream with custom retry interval
-            mcpServer.tool('custom-retry-tool', 'Test tool', {}, async (_args, extra) => {
-                // Use closeSSEStream with custom retry interval
-                extra.closeSSEStream?.({ retryInterval: 5000 });
-                await toolPromise;
-                return { content: [{ type: 'text', text: 'Done' }] };
-            });
-
-            // Initialize to get session ID
-            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
-            sessionId = initResponse.headers.get('mcp-session-id') as string;
-            expect(sessionId).toBeDefined();
-
-            // Call the tool
-            const toolCallRequest: JSONRPCMessage = {
-                jsonrpc: '2.0',
-                id: 202,
-                method: 'tools/call',
-                params: { name: 'custom-retry-tool', arguments: {} }
-            };
-
-            const postResponse = await fetch(baseUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Accept: 'text/event-stream, application/json',
-                    'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
-                },
-                body: JSON.stringify(toolCallRequest)
-            });
-
-            expect(postResponse.status).toBe(200);
-
-            // Collect all SSE data
-            const reader = postResponse.body?.getReader();
-            let allText = '';
-            while (true) {
-                const { done, value } = await reader!.read();
-                if (value) {
-                    allText += new TextDecoder().decode(value);
-                }
-                if (done) break;
-            }
-
-            // Verify the custom retry interval was sent
-            // The stream should contain "retry: 5000" (the custom value)
-            expect(allText).toContain('retry: 5000');
-
-            // Clean up
-            toolResolve!();
         });
     });
 

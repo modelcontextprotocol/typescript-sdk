@@ -62,11 +62,11 @@ server.tool(
         await sleep(1000);
 
         // Server decides to disconnect the client to free resources
-        // Client will reconnect via GET with Last-Event-ID after retryInterval
+        // Client will reconnect via GET with Last-Event-ID after the transport's retryInterval
         // Use extra.closeSSEStream callback - available when eventStore is configured
         if (extra.closeSSEStream) {
             console.log(`[${extra.sessionId}] Closing SSE stream to trigger client polling...`);
-            extra.closeSSEStream({ retryInterval: 2000 });
+            extra.closeSSEStream();
         }
 
         // Continue processing while client is disconnected
