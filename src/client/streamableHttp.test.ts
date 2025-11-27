@@ -865,6 +865,57 @@ describe('StreamableHTTPClientTransport', () => {
             const reconnectHeaders = fetchMock.mock.calls[1][1]?.headers as Headers;
             expect(reconnectHeaders.get('last-event-id')).toBe('event-123');
         });
+
+        it('should not throw JSON parse error on priming events with empty data', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const resumptionTokenSpy = vi.fn();
+
+            // Create a stream that sends a priming event (ID only, empty data) then a real message
+            const streamWithPrimingEvent = new ReadableStream({
+                start(controller) {
+                    // Send a priming event with ID but empty data - this should NOT cause a JSON parse error
+                    controller.enqueue(new TextEncoder().encode('id: priming-123\ndata: \n\n'));
+                    // Send a real message
+                    controller.enqueue(
+                        new TextEncoder().encode('id: msg-456\ndata: {"jsonrpc":"2.0","result":{"tools":[]},"id":"req-1"}\n\n')
+                    );
+                    controller.close();
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: streamWithPrimingEvent
+            });
+
+            await transport.start();
+            transport.send(
+                {
+                    jsonrpc: '2.0',
+                    method: 'tools/list',
+                    id: 'req-1',
+                    params: {}
+                },
+                { resumptionToken: undefined, onresumptiontoken: resumptionTokenSpy }
+            );
+
+            await vi.advanceTimersByTimeAsync(50);
+
+            // No JSON parse errors should have occurred
+            expect(errorSpy).not.toHaveBeenCalledWith(
+                expect.objectContaining({ message: expect.stringContaining('Unexpected end of JSON') })
+            );
+            // Resumption token callback should have been called for both events with IDs
+            expect(resumptionTokenSpy).toHaveBeenCalledWith('priming-123');
+            expect(resumptionTokenSpy).toHaveBeenCalledWith('msg-456');
+        });
     });
 
     it('invalidates all credentials on InvalidClientError during auth', async () => {
