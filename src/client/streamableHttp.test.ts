@@ -209,7 +209,7 @@ describe('StreamableHTTPClientTransport', () => {
         const errorSpy = vi.fn();
         transport.onerror = errorSpy;
 
-        await expect(transport.send(message)).rejects.toThrow('Error POSTing to endpoint (HTTP 404)');
+        await expect(transport.send(message)).rejects.toThrow('Streamable HTTP error: Error POSTing to endpoint: Session not found');
         expect(errorSpy).toHaveBeenCalled();
     });
 
