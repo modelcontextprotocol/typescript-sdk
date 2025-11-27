@@ -1483,7 +1483,8 @@ This setup allows you to:
 
 ### Custom Reconnection Scheduling for Non-Persistent Environments
 
-By default, the Streamable HTTP client transport uses `setTimeout` to schedule automatic reconnections after connection failures. However, this approach doesn't work well in non-persistent environments like serverless functions, mobile apps, or desktop applications that may be suspended.
+By default, the Streamable HTTP client transport uses `setTimeout` to schedule automatic reconnections after connection failures. However, this approach doesn't work well in non-persistent environments like serverless functions, mobile apps, or desktop applications that may be
+suspended.
 
 The SDK allows you to provide a custom reconnection scheduler to handle these scenarios:
 
@@ -1498,9 +1499,9 @@ The SDK allows you to provide a custom reconnection scheduler to handle these sc
 
 ```typescript
 type ReconnectionScheduler = (
-  reconnect: () => void,    // Function to call to initiate reconnection
-  delay: number,            // Suggested delay in milliseconds
-  attemptCount: number      // Current reconnection attempt count (0-indexed)
+    reconnect: () => void, // Function to call to initiate reconnection
+    delay: number, // Suggested delay in milliseconds
+    attemptCount: number // Current reconnection attempt count (0-indexed)
 ) => void;
 ```
 
@@ -1512,27 +1513,24 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 
 // Serverless scheduler: reconnect immediately without setTimeout
 const serverlessScheduler = (reconnect, delay, attemptCount) => {
-  // In serverless, timers don't persist across invocations
-  // Just reconnect immediately - the function will handle retries on next invocation
-  reconnect();
+    // In serverless, timers don't persist across invocations
+    // Just reconnect immediately - the function will handle retries on next invocation
+    reconnect();
 };
 
-const transport = new StreamableHTTPClientTransport(
-  new URL('https://api.example.com/mcp'),
-  {
+const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), {
     reconnectionOptions: {
-      initialReconnectionDelay: 1000,
-      maxReconnectionDelay: 30000,
-      reconnectionDelayGrowFactor: 2,
-      maxRetries: 5
+        initialReconnectionDelay: 1000,
+        maxReconnectionDelay: 30000,
+        reconnectionDelayGrowFactor: 2,
+        maxRetries: 5
     },
     reconnectionScheduler: serverlessScheduler
-  }
-);
+});
 
 const client = new Client({
-  name: 'serverless-client',
-  version: '1.0.0'
+    name: 'serverless-client',
+    version: '1.0.0'
 });
 
 await client.connect(transport);
@@ -1547,24 +1545,21 @@ For true serverless environments where the function may terminate before reconne
 let storedReconnect: (() => void) | undefined;
 
 const deferredScheduler = (reconnect, delay, attemptCount) => {
-  // Store the reconnect callback instead of calling it
-  // In a real app, persist this to a database or queue
-  storedReconnect = reconnect;
-  console.log(`Reconnection scheduled for next invocation (attempt ${attemptCount})`);
+    // Store the reconnect callback instead of calling it
+    // In a real app, persist this to a database or queue
+    storedReconnect = reconnect;
+    console.log(`Reconnection scheduled for next invocation (attempt ${attemptCount})`);
 };
 
-const transport = new StreamableHTTPClientTransport(
-  new URL('https://api.example.com/mcp'),
-  {
+const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), {
     reconnectionScheduler: deferredScheduler
-  }
-);
+});
 
 // Later, on next function invocation:
 if (storedReconnect) {
-  console.log('Triggering stored reconnection');
-  storedReconnect();
-  storedReconnect = undefined;
+    console.log('Triggering stored reconnection');
+    storedReconnect();
+    storedReconnect = undefined;
 }
 ```
 
@@ -1573,34 +1568,31 @@ if (storedReconnect) {
 ```typescript
 // iOS/Android mobile app using platform-specific background tasks
 const mobileScheduler = (reconnect, delay, attemptCount) => {
-  if (attemptCount > 3) {
-    console.log('Too many reconnection attempts, giving up');
-    return;
-  }
-
-  // Use native background task API (pseudocode)
-  BackgroundTaskManager.schedule({
-    taskId: 'mcp-reconnect',
-    delay: delay,
-    callback: () => {
-      console.log(`Background reconnection attempt ${attemptCount}`);
-      reconnect();
+    if (attemptCount > 3) {
+        console.log('Too many reconnection attempts, giving up');
+        return;
     }
-  });
+
+    // Use native background task API (pseudocode)
+    BackgroundTaskManager.schedule({
+        taskId: 'mcp-reconnect',
+        delay: delay,
+        callback: () => {
+            console.log(`Background reconnection attempt ${attemptCount}`);
+            reconnect();
+        }
+    });
 };
 
-const transport = new StreamableHTTPClientTransport(
-  new URL('https://api.example.com/mcp'),
-  {
+const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), {
     reconnectionOptions: {
-      initialReconnectionDelay: 5000,
-      maxReconnectionDelay: 60000,
-      reconnectionDelayGrowFactor: 1.5,
-      maxRetries: 3
+        initialReconnectionDelay: 5000,
+        maxReconnectionDelay: 60000,
+        reconnectionDelayGrowFactor: 1.5,
+        maxRetries: 3
     },
     reconnectionScheduler: mobileScheduler
-  }
-);
+});
 ```
 
 #### Example: Desktop App with Power Management
@@ -1608,33 +1600,30 @@ const transport = new StreamableHTTPClientTransport(
 ```typescript
 // Desktop app that respects system sleep/wake cycles
 const desktopScheduler = (reconnect, delay, attemptCount) => {
-  const timeoutId = setTimeout(() => {
-    // Check if system was sleeping
-    const actualElapsed = Date.now() - scheduleTime;
-    if (actualElapsed > delay * 1.5) {
-      console.log('System was likely sleeping, reconnecting immediately');
-      reconnect();
-    } else {
-      reconnect();
-    }
-  }, delay);
+    const timeoutId = setTimeout(() => {
+        // Check if system was sleeping
+        const actualElapsed = Date.now() - scheduleTime;
+        if (actualElapsed > delay * 1.5) {
+            console.log('System was likely sleeping, reconnecting immediately');
+            reconnect();
+        } else {
+            reconnect();
+        }
+    }, delay);
 
-  const scheduleTime = Date.now();
+    const scheduleTime = Date.now();
 
-  // Handle system wake events (pseudocode)
-  powerMonitor.on('resume', () => {
-    clearTimeout(timeoutId);
-    console.log('System resumed, reconnecting immediately');
-    reconnect();
-  });
+    // Handle system wake events (pseudocode)
+    powerMonitor.on('resume', () => {
+        clearTimeout(timeoutId);
+        console.log('System resumed, reconnecting immediately');
+        reconnect();
+    });
 };
 
-const transport = new StreamableHTTPClientTransport(
-  new URL('https://api.example.com/mcp'),
-  {
+const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), {
     reconnectionScheduler: desktopScheduler
-  }
-);
+});
 ```
 
 #### Default Behavior
@@ -1644,7 +1633,7 @@ If no custom scheduler is provided, the transport uses the default `setTimeout`-
 ```typescript
 // Default scheduler (built-in)
 const defaultScheduler = (reconnect, delay, attemptCount) => {
-  setTimeout(reconnect, delay);
+    setTimeout(reconnect, delay);
 };
 ```
 
