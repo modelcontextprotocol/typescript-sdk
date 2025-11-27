@@ -253,6 +253,8 @@ export class SSEClientTransport implements Transport {
 
             const response = await (this._fetch ?? fetch)(this._endpoint, init);
             if (!response.ok) {
+                const text = await response.text().catch(() => null);
+
                 if (response.status === 401 && this._authProvider) {
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                     this._resourceMetadataUrl = resourceMetadataUrl;
@@ -272,7 +274,6 @@ export class SSEClientTransport implements Transport {
                     return this.send(message);
                 }
 
-                const text = await response.text().catch(() => null);
                 throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
             }
         } catch (error) {

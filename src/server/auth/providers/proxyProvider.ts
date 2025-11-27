@@ -84,6 +84,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
                     },
                     body: params.toString()
                 });
+                await response.body?.cancel();
 
                 if (!response.ok) {
                     throw new ServerError(`Token revocation failed: ${response.status}`);
@@ -107,6 +108,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
                     });
 
                     if (!response.ok) {
+                        await response.body?.cancel();
                         throw new ServerError(`Client registration failed: ${response.status}`);
                     }
 
@@ -181,6 +183,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
         });
 
         if (!response.ok) {
+            await response.body?.cancel();
             throw new ServerError(`Token exchange failed: ${response.status}`);
         }
 
@@ -221,6 +224,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
         });
 
         if (!response.ok) {
+            await response.body?.cancel();
             throw new ServerError(`Token refresh failed: ${response.status}`);
         }
 

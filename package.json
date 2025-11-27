@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/sdk",
-    "version": "1.23.0-beta.0",
+    "version": "1.23.0",
     "description": "Model Context Protocol implementation for TypeScript",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -42,6 +42,14 @@
         "./validation/cfworker": {
             "import": "./dist/esm/validation/cfworker-provider.js",
             "require": "./dist/cjs/validation/cfworker-provider.js"
+        },
+        "./experimental": {
+            "import": "./dist/esm/experimental/index.js",
+            "require": "./dist/cjs/experimental/index.js"
+        },
+        "./experimental/tasks": {
+            "import": "./dist/esm/experimental/tasks/index.js",
+            "require": "./dist/cjs/experimental/tasks/index.js"
         },
         "./*": {
             "import": "./dist/esm/*",

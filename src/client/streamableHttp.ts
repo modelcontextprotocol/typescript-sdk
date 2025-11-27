@@ -135,6 +135,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _protocolVersion?: string;
     private _hasCompletedAuthFlow = false; // Circuit breaker: detect auth success followed by immediate 401
     private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
+    private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -203,6 +204,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
     private async _startOrAuthSse(options: StartSSEOptions): Promise<void> {
         const { resumptionToken } = options;
+
         try {
             // Try to open an initial SSE stream with GET to listen for server messages
             // This is optional according to the spec - server may not support it
@@ -221,6 +223,8 @@ export class StreamableHTTPClientTransport implements Transport {
             });
 
             if (!response.ok) {
+                await response.body?.cancel();
+
                 if (response.status === 401 && this._authProvider) {
                     // Need to authenticate
                     return await this._authThenStart();
@@ -249,7 +253,12 @@ export class StreamableHTTPClientTransport implements Transport {
      * @returns Time to wait in milliseconds before next reconnection attempt
      */
     private _getNextReconnectionDelay(attempt: number): number {
-        // Access default values directly, ensuring they're never undefined
+        // Use server-provided retry value if available
+        if (this._serverRetryMs !== undefined) {
+            return this._serverRetryMs;
+        }
+
+        // Fall back to exponential backoff
         const initialDelay = this._reconnectionOptions.initialReconnectionDelay;
         const growFactor = this._reconnectionOptions.reconnectionDelayGrowFactor;
         const maxDelay = this._reconnectionOptions.maxReconnectionDelay;
@@ -259,7 +268,7 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     /**
-     * Schedule a reconnection attempt with exponential backoff
+     * Schedule a reconnection attempt using server-provided retry interval or backoff
      *
      * @param lastEventId The ID of the last received event for resumability
      * @param attemptCount Current reconnection attempt count for this specific stream
@@ -295,6 +304,9 @@ export class StreamableHTTPClientTransport implements Transport {
         const { onresumptiontoken, replayMessageId } = options;
 
         let lastEventId: string | undefined;
+        // Track whether we've received a priming event (event with ID)
+        // Per spec, server SHOULD send a priming event with ID before closing
+        let hasPrimingEvent = false;
         const processStream = async () => {
             // this is the closest we can get to trying to catch network errors
             // if something happens reader will throw
@@ -302,7 +314,14 @@ export class StreamableHTTPClientTransport implements Transport {
                 // Create a pipeline: binary stream -> text decoder -> SSE parser
                 const reader = stream
                     .pipeThrough(new TextDecoderStream() as ReadableWritablePair<string, Uint8Array>)
-                    .pipeThrough(new EventSourceParserStream())
+                    .pipeThrough(
+                        new EventSourceParserStream({
+                            onRetry: (retryMs: number) => {
+                                // Capture server-provided retry value for reconnection timing
+                                this._serverRetryMs = retryMs;
+                            }
+                        })
+                    )
                     .getReader();
 
                 while (true) {
@@ -314,6 +333,8 @@ export class StreamableHTTPClientTransport implements Transport {
                     // Update last event ID if provided
                     if (event.id) {
                         lastEventId = event.id;
+                        // Mark that we've received a priming event - stream is now resumable
+                        hasPrimingEvent = true;
                         onresumptiontoken?.(event.id);
                     }
 
@@ -329,12 +350,29 @@ export class StreamableHTTPClientTransport implements Transport {
                         }
                     }
                 }
+
+                // Handle graceful server-side disconnect
+                // Server may close connection after sending event ID and retry field
+                // Reconnect if: already reconnectable (GET stream) OR received a priming event (POST stream with event ID)
+                const canResume = isReconnectable || hasPrimingEvent;
+                if (canResume && this._abortController && !this._abortController.signal.aborted) {
+                    this._scheduleReconnection(
+                        {
+                            resumptionToken: lastEventId,
+                            onresumptiontoken,
+                            replayMessageId
+                        },
+                        0
+                    );
+                }
             } catch (error) {
                 // Handle stream errors - likely a network disconnect
                 this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
 
                 // Attempt to reconnect if the stream disconnects unexpectedly and we aren't closing
-                if (isReconnectable && this._abortController && !this._abortController.signal.aborted) {
+                // Reconnect if: already reconnectable (GET stream) OR received a priming event (POST stream with event ID)
+                const canResume = isReconnectable || hasPrimingEvent;
+                if (canResume && this._abortController && !this._abortController.signal.aborted) {
                     // Use the exponential backoff reconnection strategy
                     try {
                         this._scheduleReconnection(
@@ -427,6 +465,8 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             if (!response.ok) {
+                const text = await response.text().catch(() => null);
+
                 if (response.status === 401 && this._authProvider) {
                     // Prevent infinite recursion when server returns 401 after successful auth
                     if (this._hasCompletedAuthFlow) {
@@ -489,7 +529,6 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 }
 
-                const text = await response.text().catch(() => null);
                 throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
             }
 
@@ -499,6 +538,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {
+                await response.body?.cancel();
                 // if the accepted notification is initialized, we start the SSE stream
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
@@ -573,6 +613,7 @@ export class StreamableHTTPClientTransport implements Transport {
             };
 
             const response = await (this._fetch ?? fetch)(this._url, init);
+            await response.body?.cancel();
 
             // We specifically handle 405 as a valid response according to the spec,
             // meaning the server does not support explicit session termination
@@ -592,5 +633,19 @@ export class StreamableHTTPClientTransport implements Transport {
     }
     get protocolVersion(): string | undefined {
         return this._protocolVersion;
+    }
+
+    /**
+     * Resume an SSE stream from a previous event ID.
+     * Opens a GET SSE connection with Last-Event-ID header to replay missed events.
+     *
+     * @param lastEventId The event ID to resume from
+     * @param options Optional callback to receive new resumption tokens
+     */
+    async resumeStream(lastEventId: string, options?: { onresumptiontoken?: (token: string) => void }): Promise<void> {
+        await this._startOrAuthSse({
+            resumptionToken: lastEventId,
+            onresumptiontoken: options?.onresumptiontoken
+        });
     }
 }

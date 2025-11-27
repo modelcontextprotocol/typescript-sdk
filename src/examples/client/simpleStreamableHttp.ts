@@ -18,6 +18,7 @@ import {
     ResourceLink,
     ReadResourceRequest,
     ReadResourceResultSchema,
+    RELATED_TASK_META_KEY,
     ErrorCode,
     McpError
 } from '../../types.js';
@@ -60,6 +61,7 @@ function printHelp(): void {
     console.log('  reconnect                  - Reconnect to the server');
     console.log('  list-tools                 - List available tools');
     console.log('  call-tool <name> [args]    - Call a tool with optional JSON arguments');
+    console.log('  call-tool-task <name> [args] - Call a tool with task-based execution (example: call-tool-task delay {"duration":3000})');
     console.log('  greet [name]               - Call the greet tool');
     console.log('  multi-greet [name]         - Call the multi-greet tool with notifications');
     console.log('  collect-info [type]        - Test form elicitation with collect-user-info tool (contact/preferences/feedback)');
@@ -142,6 +144,23 @@ function commandLoop(): void {
                     await runNotificationsToolWithResumability(interval, count);
                     break;
                 }
+
+                case 'call-tool-task':
+                    if (args.length < 2) {
+                        console.log('Usage: call-tool-task <name> [args]');
+                    } else {
+                        const toolName = args[1];
+                        let toolArgs = {};
+                        if (args.length > 2) {
+                            try {
+                                toolArgs = JSON.parse(args.slice(2).join(' '));
+                            } catch {
+                                console.log('Invalid JSON arguments. Using empty args.');
+                            }
+                        }
+                        await callToolTask(toolName, toolArgs);
+                    }
+                    break;
 
                 case 'list-prompts':
                     await listPrompts();
@@ -238,6 +257,7 @@ async function connect(url?: string): Promise<void> {
             }
             console.log('\n🔔 Elicitation (form) Request Received:');
             console.log(`Message: ${request.params.message}`);
+            console.log(`Related Task: ${request.params._meta?.[RELATED_TASK_META_KEY]?.taskId}`);
             console.log('Requested Schema:');
             console.log(JSON.stringify(request.params.requestedSchema, null, 2));
 
@@ -781,6 +801,66 @@ async function readResource(uri: string): Promise<void> {
         }
     } catch (error) {
         console.log(`Error reading resource ${uri}: ${error}`);
+    }
+}
+
+async function callToolTask(name: string, args: Record<string, unknown>): Promise<void> {
+    if (!client) {
+        console.log('Not connected to server.');
+        return;
+    }
+
+    console.log(`Calling tool '${name}' with task-based execution...`);
+    console.log('Arguments:', args);
+
+    // Use task-based execution - call now, fetch later
+    // Using the experimental tasks API - WARNING: may change without notice
+    console.log('This will return immediately while processing continues in the background...');
+
+    try {
+        // Call the tool with task metadata using streaming API
+        const stream = client.experimental.tasks.callToolStream(
+            {
+                name,
+                arguments: args
+            },
+            CallToolResultSchema,
+            {
+                task: {
+                    ttl: 60000 // Keep results for 60 seconds
+                }
+            }
+        );
+
+        console.log('Waiting for task completion...');
+
+        let lastStatus = '';
+        for await (const message of stream) {
+            switch (message.type) {
+                case 'taskCreated':
+                    console.log('Task created successfully with ID:', message.task.taskId);
+                    break;
+                case 'taskStatus':
+                    if (lastStatus !== message.task.status) {
+                        console.log(`  ${message.task.status}${message.task.statusMessage ? ` - ${message.task.statusMessage}` : ''}`);
+                    }
+                    lastStatus = message.task.status;
+                    break;
+                case 'result':
+                    console.log('Task completed!');
+                    console.log('Tool result:');
+                    message.result.content.forEach(item => {
+                        if (item.type === 'text') {
+                            console.log(`  ${item.text}`);
+                        }
+                    });
+                    break;
+                case 'error':
+                    throw message.error;
+            }
+        }
+    } catch (error) {
+        console.log(`Error with task-based execution: ${error}`);
     }
 }
 

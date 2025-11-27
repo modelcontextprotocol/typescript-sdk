@@ -625,10 +625,12 @@ export async function discoverOAuthProtectedResourceMetadata(
     });
 
     if (!response || response.status === 404) {
+        await response?.body?.cancel();
         throw new Error(`Resource server does not implement OAuth 2.0 Protected Resource Metadata.`);
     }
 
     if (!response.ok) {
+        await response.body?.cancel();
         throw new Error(`HTTP ${response.status} trying to load well-known OAuth protected resource metadata.`);
     }
     return OAuthProtectedResourceMetadataSchema.parse(await response.json());
@@ -756,10 +758,12 @@ export async function discoverOAuthMetadata(
     });
 
     if (!response || response.status === 404) {
+        await response?.body?.cancel();
         return undefined;
     }
 
     if (!response.ok) {
+        await response.body?.cancel();
         throw new Error(`HTTP ${response.status} trying to load well-known OAuth metadata`);
     }
 
@@ -869,6 +873,7 @@ export async function discoverAuthorizationServerMetadata(
         }
 
         if (!response.ok) {
+            await response.body?.cancel();
             // Continue looking for any 4xx response code.
             if (response.status >= 400 && response.status < 500) {
                 continue; // Try next URL
