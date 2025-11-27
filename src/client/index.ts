@@ -1,5 +1,6 @@
 import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
 import type { Transport } from '../shared/transport.js';
+
 import {
     type CallToolRequest,
     CallToolResultSchema,
@@ -38,7 +39,10 @@ import {
     type Tool,
     type UnsubscribeRequest,
     ElicitResultSchema,
-    ElicitRequestSchema
+    ElicitRequestSchema,
+    CreateTaskResultSchema,
+    CreateMessageRequestSchema,
+    CreateMessageResultSchema
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
@@ -52,6 +56,8 @@ import {
     type ZodV4Internal
 } from '../server/zod-compat.js';
 import type { RequestHandlerExtra } from '../shared/protocol.js';
+import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
+import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '../experimental/tasks/helpers.js';
 
 /**
  * Elicitation default application helper. Applies defaults to the data based on the schema.
@@ -195,6 +201,9 @@ export class Client<
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
+    private _cachedKnownTaskTools: Set<string> = new Set();
+    private _cachedRequiredTaskTools: Set<string> = new Set();
+    private _experimental?: { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> };
 
     /**
      * Initializes this client with the given name and version information.
@@ -206,6 +215,22 @@ export class Client<
         super(options);
         this._capabilities = options?.capabilities ?? {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
+    }
+
+    /**
+     * Access experimental features.
+     *
+     * WARNING: These APIs are experimental and may change without notice.
+     *
+     * @experimental
+     */
+    get experimental(): { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> } {
+        if (!this._experimental) {
+            this._experimental = {
+                tasks: new ExperimentalClientTasks(this)
+            };
+        }
+        return this._experimental;
     }
 
     /**
@@ -280,6 +305,20 @@ export class Client<
 
                 const result = await Promise.resolve(handler(request, extra));
 
+                // When task creation is requested, validate and return CreateTaskResult
+                if (params.task) {
+                    const taskValidationResult = safeParse(CreateTaskResultSchema, result);
+                    if (!taskValidationResult.success) {
+                        const errorMessage =
+                            taskValidationResult.error instanceof Error
+                                ? taskValidationResult.error.message
+                                : String(taskValidationResult.error);
+                        throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
+                    }
+                    return taskValidationResult.data;
+                }
+
+                // For non-task requests, validate against ElicitResultSchema
                 const validationResult = safeParse(ElicitResultSchema, result);
                 if (!validationResult.success) {
                     // Type guard: if success is false, error is guaranteed to exist
@@ -308,7 +347,51 @@ export class Client<
             return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
         }
 
-        // Non-elicitation handlers use default behavior
+        if (method === 'sampling/createMessage') {
+            const wrappedHandler = async (
+                request: SchemaOutput<T>,
+                extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+            ): Promise<ClientResult | ResultT> => {
+                const validatedRequest = safeParse(CreateMessageRequestSchema, request);
+                if (!validatedRequest.success) {
+                    const errorMessage =
+                        validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid sampling request: ${errorMessage}`);
+                }
+
+                const { params } = validatedRequest.data;
+
+                const result = await Promise.resolve(handler(request, extra));
+
+                // When task creation is requested, validate and return CreateTaskResult
+                if (params.task) {
+                    const taskValidationResult = safeParse(CreateTaskResultSchema, result);
+                    if (!taskValidationResult.success) {
+                        const errorMessage =
+                            taskValidationResult.error instanceof Error
+                                ? taskValidationResult.error.message
+                                : String(taskValidationResult.error);
+                        throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
+                    }
+                    return taskValidationResult.data;
+                }
+
+                // For non-task requests, validate against CreateMessageResultSchema
+                const validationResult = safeParse(CreateMessageResultSchema, result);
+                if (!validationResult.success) {
+                    const errorMessage =
+                        validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid sampling result: ${errorMessage}`);
+                }
+
+                return validationResult.data;
+            };
+
+            // Install the wrapped handler
+            return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
+        }
+
+        // Other handlers use default behavior
         return super.setRequestHandler(requestSchema, handler);
     }
 
@@ -463,6 +546,12 @@ export class Client<
     }
 
     protected assertRequestHandlerCapability(method: string): void {
+        // Task handlers are registered in Protocol constructor before _capabilities is initialized
+        // Skip capability check for task methods during initialization
+        if (!this._capabilities) {
+            return;
+        }
+
         switch (method) {
             case 'sampling/createMessage':
                 if (!this._capabilities.sampling) {
@@ -482,10 +571,33 @@ export class Client<
                 }
                 break;
 
+            case 'tasks/get':
+            case 'tasks/list':
+            case 'tasks/result':
+            case 'tasks/cancel':
+                if (!this._capabilities.tasks) {
+                    throw new Error(`Client does not support tasks capability (required for ${method})`);
+                }
+                break;
+
             case 'ping':
                 // No specific capability required for ping
                 break;
         }
+    }
+
+    protected assertTaskCapability(method: string): void {
+        assertToolsCallTaskCapability(this._serverCapabilities?.tasks?.requests, method, 'Server');
+    }
+
+    protected assertTaskHandlerCapability(method: string): void {
+        // Task handlers are registered in Protocol constructor before _capabilities is initialized
+        // Skip capability check for task methods during initialization
+        if (!this._capabilities) {
+            return;
+        }
+
+        assertClientRequestTaskCapability(this._capabilities.tasks?.requests, method, 'Client');
     }
 
     async ping(options?: RequestOptions) {
@@ -528,11 +640,24 @@ export class Client<
         return this.request({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
     }
 
+    /**
+     * Calls a tool and waits for the result. Automatically validates structured output if the tool has an outputSchema.
+     *
+     * For task-based execution with streaming behavior, use client.experimental.tasks.callToolStream() instead.
+     */
     async callTool(
         params: CallToolRequest['params'],
         resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
         options?: RequestOptions
     ) {
+        // Guard: required-task tools need experimental API
+        if (this.isToolTaskRequired(params.name)) {
+            throw new McpError(
+                ErrorCode.InvalidRequest,
+                `Tool "${params.name}" requires task-based execution. Use client.experimental.tasks.callToolStream() instead.`
+            );
+        }
+
         const result = await this.request({ method: 'tools/call', params }, resultSchema, options);
 
         // Check if the tool has an outputSchema
@@ -573,18 +698,45 @@ export class Client<
         return result;
     }
 
+    private isToolTask(toolName: string): boolean {
+        if (!this._serverCapabilities?.tasks?.requests?.tools?.call) {
+            return false;
+        }
+
+        return this._cachedKnownTaskTools.has(toolName);
+    }
+
+    /**
+     * Check if a tool requires task-based execution.
+     * Unlike isToolTask which includes 'optional' tools, this only checks for 'required'.
+     */
+    private isToolTaskRequired(toolName: string): boolean {
+        return this._cachedRequiredTaskTools.has(toolName);
+    }
+
     /**
      * Cache validators for tool output schemas.
      * Called after listTools() to pre-compile validators for better performance.
      */
-    private cacheToolOutputSchemas(tools: Tool[]): void {
+    private cacheToolMetadata(tools: Tool[]): void {
         this._cachedToolOutputValidators.clear();
+        this._cachedKnownTaskTools.clear();
+        this._cachedRequiredTaskTools.clear();
 
         for (const tool of tools) {
             // If the tool has an outputSchema, create and cache the validator
             if (tool.outputSchema) {
                 const toolValidator = this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
                 this._cachedToolOutputValidators.set(tool.name, toolValidator);
+            }
+
+            // If the tool supports task-based execution, cache that information
+            const taskSupport = tool.execution?.taskSupport;
+            if (taskSupport === 'required' || taskSupport === 'optional') {
+                this._cachedKnownTaskTools.add(tool.name);
+            }
+            if (taskSupport === 'required') {
+                this._cachedRequiredTaskTools.add(tool.name);
             }
         }
     }
@@ -600,7 +752,7 @@ export class Client<
         const result = await this.request({ method: 'tools/list', params }, ListToolsResultSchema, options);
 
         // Cache the tools and their output schemas for future validation
-        this.cacheToolOutputSchemas(result.tools);
+        this.cacheToolMetadata(result.tools);
 
         return result;
     }
