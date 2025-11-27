@@ -6,13 +6,16 @@
 
 import type * as z3 from 'zod/v3';
 import type * as z4c from 'zod/v4/core';
+import type { StandardSchemaV1 } from '@standard-schema/spec';
+import type { JsonSchema7Type } from 'zod-to-json-schema';
 
 import * as z4mini from 'zod/v4-mini';
 
 import { AnySchema, AnyObjectSchema, getObjectShape, safeParse, isZ4Schema, getLiteralValue } from './zod-compat.js';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import { toJsonSchema as toStandardJsonSchema } from '@standard-community/standard-json';
 
-type JsonSchema = Record<string, unknown>;
+type JsonSchema = JsonSchema7Type;
 
 // Options accepted by call sites; we map them appropriately
 type CommonOpts = {
@@ -28,7 +31,13 @@ function mapMiniTarget(t: CommonOpts['target'] | undefined): 'draft-7' | 'draft-
     return 'draft-7'; // fallback
 }
 
-export function toJsonSchemaCompat(schema: AnyObjectSchema, opts?: CommonOpts): JsonSchema {
+export async function toJsonSchemaCompat(schema: AnyObjectSchema, opts?: CommonOpts): Promise<JsonSchema> {
+    const standard = (schema as { ['~standard']?: StandardSchemaV1['~standard'] })['~standard'];
+    if (standard && standard.vendor && standard.vendor !== 'zod') {
+        const converted = toStandardJsonSchema(schema as unknown as StandardSchemaV1);
+        return converted instanceof Promise ? await converted : converted;
+    }
+
     if (isZ4Schema(schema)) {
         // v4 branch — use Mini's built-in toJSONSchema
         return z4mini.toJSONSchema(schema as z4c.$ZodType, {
