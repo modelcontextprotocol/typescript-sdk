@@ -1088,7 +1088,7 @@ export class ResourceTemplate {
  */
 export type ToolCallback<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> = Args extends ZodRawShapeCompat
     ? (args: ShapeOutput<Args>, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>
-    : Args extends AnySchema
+    : [Args] extends [AnySchema]
       ? (
             args: SchemaOutput<Args>,
             extra: RequestHandlerExtra<ServerRequest, ServerNotification>
