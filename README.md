@@ -795,7 +795,8 @@ To test your server, you can use the [MCP Inspector](https://github.com/modelcon
 Some parts of the SDK (for example, JWT-based client authentication in `auth-extensions.ts` via `jose`) rely on the Web Crypto API exposed as `globalThis.crypto`.
 
 - **Node.js v19.0.0 and later**: `globalThis.crypto` is available by default.
-- **Node.js v18.x**: `globalThis.crypto` may not be defined by default; in this repository we polyfill it for tests (see `vitest.setup.ts`), and you should do the same in your app if it is missing - or alternatively, run Node with `--experimental-global-webcrypto` as per your Node version documentation. (See https://nodejs.org/dist/latest-v18.x/docs/api/globals.html#crypto )
+- **Node.js v18.x**: `globalThis.crypto` may not be defined by default; in this repository we polyfill it for tests (see `vitest.setup.ts`), and you should do the same in your app if it is missing - or alternatively, run Node with `--experimental-global-webcrypto` as per your
+  Node version documentation. (See https://nodejs.org/dist/latest-v18.x/docs/api/globals.html#crypto )
 
 If you run tests or applications on Node.js versions where `globalThis.crypto` is missing, you can polyfill it using the built-in `node:crypto` module, similar to the SDK's own `vitest.setup.ts`:
 
@@ -1466,11 +1467,7 @@ You can use these providers with the `StreamableHTTPClientTransport` and the hig
 ```typescript
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import {
-    ClientCredentialsProvider,
-    PrivateKeyJwtProvider,
-    StaticPrivateKeyJwtProvider
-} from '@modelcontextprotocol/sdk/client/auth-extensions.js';
+import { ClientCredentialsProvider, PrivateKeyJwtProvider, StaticPrivateKeyJwtProvider } from '@modelcontextprotocol/sdk/client/auth-extensions.js';
 import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
 
 const serverUrl = new URL('https://mcp.example.com/');
