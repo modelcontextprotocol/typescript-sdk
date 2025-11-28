@@ -7,7 +7,7 @@
 
 import { Task, Request, RequestId, Result } from '../../../types.js';
 import { TaskStore, isTerminal, TaskMessageQueue, QueuedMessage, CreateTaskOptions } from '../interfaces.js';
-import { randomBytes } from 'crypto';
+import { randomBytes } from 'node:crypto';
 
 interface StoredTask {
     task: Task;
