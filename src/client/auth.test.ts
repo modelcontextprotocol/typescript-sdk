@@ -14,6 +14,7 @@ import {
     selectClientAuthMethod,
     isHttpsUrl
 } from './auth.js';
+import { createPrivateKeyJwtAuth } from './auth-extensions.js';
 import { InvalidClientMetadataError, ServerError } from '../server/auth/errors.js';
 import { AuthorizationServerMetadata, OAuthTokens } from '../shared/auth.js';
 import { expect, vi, type Mock } from 'vitest';
@@ -1209,11 +1210,11 @@ describe('OAuth Authorization', () => {
                     headers: Headers,
                     params: URLSearchParams,
                     url: string | URL,
-                    metadata: AuthorizationServerMetadata
+                    metadata?: AuthorizationServerMetadata
                 ) => {
                     headers.set('Authorization', 'Basic ' + btoa(validClientInfo.client_id + ':' + validClientInfo.client_secret));
                     params.set('example_url', typeof url === 'string' ? url : url.toString());
-                    params.set('example_metadata', metadata.authorization_endpoint);
+                    params.set('example_metadata', metadata?.authorization_endpoint ?? '');
                     params.set('example_param', 'example_value');
                 }
             });
@@ -1237,7 +1238,7 @@ describe('OAuth Authorization', () => {
             expect(body.get('code_verifier')).toBe('verifier123');
             expect(body.get('client_id')).toBeNull();
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
-            expect(body.get('example_url')).toBe('https://auth.example.com');
+            expect(body.get('example_url')).toBe('https://auth.example.com/token');
             expect(body.get('example_metadata')).toBe('https://auth.example.com/authorize');
             expect(body.get('example_param')).toBe('example_value');
             expect(body.get('client_secret')).toBeNull();
@@ -1361,13 +1362,12 @@ describe('OAuth Authorization', () => {
                     href: 'https://auth.example.com/token'
                 }),
                 expect.objectContaining({
-                    method: 'POST',
-                    headers: new Headers({
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    })
+                    method: 'POST'
                 })
             );
 
+            const headers = mockFetch.mock.calls[0][1].headers as Headers;
+            expect(headers.get('Content-Type')).toBe('application/x-www-form-urlencoded');
             const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
             expect(body.get('grant_type')).toBe('refresh_token');
             expect(body.get('refresh_token')).toBe('refresh123');
@@ -1417,7 +1417,7 @@ describe('OAuth Authorization', () => {
             expect(body.get('grant_type')).toBe('refresh_token');
             expect(body.get('refresh_token')).toBe('refresh123');
             expect(body.get('client_id')).toBeNull();
-            expect(body.get('example_url')).toBe('https://auth.example.com');
+            expect(body.get('example_url')).toBe('https://auth.example.com/token');
             expect(body.get('example_metadata')).toBe('https://auth.example.com/authorize');
             expect(body.get('example_param')).toBe('example_value');
             expect(body.get('client_secret')).toBeNull();
@@ -1576,6 +1576,103 @@ describe('OAuth Authorization', () => {
 
         beforeEach(() => {
             vi.clearAllMocks();
+        });
+
+        it('performs client_credentials with private_key_jwt when provider has addClientAuthentication', async () => {
+            // Arrange: metadata discovery for PRM and AS
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'cc_jwt_token',
+                            token_type: 'bearer',
+                            expires_in: 3600
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            // Create a provider with client_credentials grant and addClientAuthentication
+            // redirectUrl returns undefined to indicate non-interactive flow
+            const ccProvider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return undefined;
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: [],
+                        client_name: 'Test Client',
+                        grant_types: ['client_credentials']
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({
+                    client_id: 'client-id'
+                }),
+                tokens: vi.fn().mockResolvedValue(undefined),
+                saveTokens: vi.fn().mockResolvedValue(undefined),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn(),
+                prepareTokenRequest: () => new URLSearchParams({ grant_type: 'client_credentials' }),
+                addClientAuthentication: createPrivateKeyJwtAuth({
+                    issuer: 'client-id',
+                    subject: 'client-id',
+                    privateKey: 'a-string-secret-at-least-256-bits-long',
+                    alg: 'HS256'
+                })
+            };
+
+            const result = await auth(ccProvider, {
+                serverUrl: 'https://api.example.com/mcp-server'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+
+            // Find the token request
+            const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
+            expect(tokenCall).toBeDefined();
+
+            const [, init] = tokenCall!;
+            const body = init.body as URLSearchParams;
+
+            // grant_type MUST be client_credentials, not the JWT-bearer grant
+            expect(body.get('grant_type')).toBe('client_credentials');
+            // private_key_jwt client authentication parameters
+            expect(body.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+            expect(body.get('client_assertion')).toBeTruthy();
+            // resource parameter included based on PRM
+            expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
 
         it('falls back to /.well-known/oauth-authorization-server when no protected-resource-metadata', async () => {
