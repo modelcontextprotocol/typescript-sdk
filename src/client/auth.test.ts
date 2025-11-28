@@ -750,7 +750,7 @@ describe('OAuth Authorization', () => {
         it('generates correct URLs for server with path', () => {
             const urls = buildDiscoveryUrls('https://auth.example.com/tenant1');
 
-            expect(urls).toHaveLength(3);
+            expect(urls).toHaveLength(4);
             expect(urls.map(u => ({ url: u.url.toString(), type: u.type }))).toEqual([
                 {
                     url: 'https://auth.example.com/.well-known/oauth-authorization-server/tenant1',
@@ -763,6 +763,10 @@ describe('OAuth Authorization', () => {
                 {
                     url: 'https://auth.example.com/tenant1/.well-known/openid-configuration',
                     type: 'oidc'
+                },
+                {
+                    url: 'https://auth.example.com/.well-known/oauth-authorization-server',
+                    type: 'oauth'
                 }
             ]);
         });
@@ -770,8 +774,21 @@ describe('OAuth Authorization', () => {
         it('handles URL object input', () => {
             const urls = buildDiscoveryUrls(new URL('https://auth.example.com/tenant1'));
 
-            expect(urls).toHaveLength(3);
+            expect(urls).toHaveLength(4);
             expect(urls[0].url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/tenant1');
+        });
+
+        it('includes root fallback for URLs with path (RFC 9470 workaround)', () => {
+            // Some servers incorrectly set authorization_servers to an endpoint path
+            // (e.g., "/api/auth") instead of the issuer URL, violating RFC 9470.
+            // The root fallback allows discovery to succeed in these cases.
+            const urls = buildDiscoveryUrls('https://example.com/api/auth');
+
+            // Last URL should be the root fallback
+            expect(urls[urls.length - 1]).toEqual({
+                url: new URL('https://example.com/.well-known/oauth-authorization-server'),
+                type: 'oauth'
+            });
         });
     });
 
@@ -912,7 +929,8 @@ describe('OAuth Authorization', () => {
             expect(metadata).toBeUndefined();
 
             // Verify that all discovery URLs were attempted
-            expect(mockFetch).toHaveBeenCalledTimes(6); // 3 URLs × 2 attempts each (with and without headers)
+            // 4 URLs (3 path-based + 1 root fallback) × 2 attempts each (with and without headers)
+            expect(mockFetch).toHaveBeenCalledTimes(8);
         });
     });
 

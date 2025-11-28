@@ -816,8 +816,9 @@ export async function discoverOAuthMetadata(
 /**
  * Builds a list of discovery URLs to try for authorization server metadata.
  * URLs are returned in priority order:
- * 1. OAuth metadata at the given URL
+ * 1. OAuth metadata at the given URL (path-suffixed if URL has path)
  * 2. OIDC metadata endpoints at the given URL
+ * 3. Fallback to root OAuth metadata (when URL has path)
  */
 export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url: URL; type: 'oauth' | 'oidc' }[] {
     const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
@@ -864,6 +865,15 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
     urlsToTry.push({
         url: new URL(`${pathname}/.well-known/openid-configuration`, url.origin),
         type: 'oidc'
+    });
+
+    // Fallback: Try root path discovery when path-based discovery fails.
+    // This handles cases where authorization_servers contains an endpoint path
+    // (e.g., "/api/auth") instead of the issuer URL, which violates RFC 9470
+    // but occurs in practice with some MCP server implementations (better-auth) apparently.
+    urlsToTry.push({
+        url: new URL('/.well-known/oauth-authorization-server', url.origin),
+        type: 'oauth'
     });
 
     return urlsToTry;
