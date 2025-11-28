@@ -480,6 +480,7 @@ describe('StreamableHTTPClientTransport', () => {
     it('should always send specified custom headers', async () => {
         const requestInit = {
             headers: {
+                Authorization: 'Bearer test-token',
                 'X-Custom-Header': 'CustomValue'
             }
         };
@@ -497,6 +498,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.start();
 
         await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer test-token');
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
 
         requestInit.headers['X-Custom-Header'] = 'SecondCustomValue';
@@ -510,6 +512,7 @@ describe('StreamableHTTPClientTransport', () => {
     it('should always send specified custom headers (Headers class)', async () => {
         const requestInit = {
             headers: new Headers({
+                Authorization: 'Bearer test-token',
                 'X-Custom-Header': 'CustomValue'
             })
         };
@@ -527,6 +530,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.start();
 
         await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer test-token');
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
 
         (requestInit.headers as Headers).set('X-Custom-Header', 'SecondCustomValue');
@@ -540,7 +544,10 @@ describe('StreamableHTTPClientTransport', () => {
     it('should always send specified custom headers (array of tuples)', async () => {
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             requestInit: {
-                headers: [['X-Custom-Header', 'CustomValue']]
+                headers: [
+                    ['Authorization', 'Bearer test-token'],
+                    ['X-Custom-Header', 'CustomValue']
+                ]
             }
         });
 
@@ -554,6 +561,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.start();
 
         await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer test-token');
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
     });
 
