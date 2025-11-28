@@ -1,12 +1,6 @@
 import { Client } from '../../client/index.js';
 import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
-import {
-    ListToolsRequest,
-    ListToolsResultSchema,
-    CallToolResultSchema,
-    LoggingMessageNotificationSchema,
-    CallToolResult
-} from '../../types.js';
+import { ListToolsRequest, ListToolsResultSchema, CallToolResultSchema, CallToolResult } from '../../types.js';
 
 /**
  * Parallel Tool Calls MCP Client
@@ -45,9 +39,9 @@ async function main(): Promise<void> {
         console.log('Successfully connected to MCP server');
 
         // Set up notification handler with caller identification
-        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
-            console.log(`Notification: ${notification.params.data}`);
-        });
+        client.onloggingmessage = params => {
+            console.log(`Notification: ${params.data}`);
+        };
 
         console.log('List tools');
         const toolsRequest = await listTools(client);

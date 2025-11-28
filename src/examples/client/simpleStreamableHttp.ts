@@ -12,9 +12,6 @@ import {
     GetPromptResultSchema,
     ListResourcesRequest,
     ListResourcesResultSchema,
-    LoggingMessageNotificationSchema,
-    ResourceListChangedNotificationSchema,
-    ElicitRequestSchema,
     ResourceLink,
     ReadResourceRequest,
     ReadResourceResultSchema,
@@ -232,16 +229,16 @@ async function connect(url?: string): Promise<void> {
         };
 
         // Set up elicitation request handler with proper validation
-        client.setRequestHandler(ElicitRequestSchema, async request => {
-            if (request.params.mode !== 'form') {
-                throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
+        client.onelicit = async params => {
+            if (params.mode !== 'form') {
+                throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${params.mode}`);
             }
             console.log('\n🔔 Elicitation (form) Request Received:');
-            console.log(`Message: ${request.params.message}`);
+            console.log(`Message: ${params.message}`);
             console.log('Requested Schema:');
-            console.log(JSON.stringify(request.params.requestedSchema, null, 2));
+            console.log(JSON.stringify(params.requestedSchema, null, 2));
 
-            const schema = request.params.requestedSchema;
+            const schema = params.requestedSchema;
             const properties = schema.properties;
             const required = schema.required || [];
 
@@ -256,7 +253,7 @@ async function connect(url?: string): Promise<void> {
                 attempts++;
                 console.log(`\nPlease provide the following information (attempt ${attempts}/${maxAttempts}):`);
 
-                const content: Record<string, unknown> = {};
+                const content: Record<string, string | number | boolean | string[]> = {};
                 let inputCancelled = false;
 
                 // Collect input for each field
@@ -320,7 +317,7 @@ async function connect(url?: string): Promise<void> {
                     // Parse and validate the input
                     try {
                         if (answer === '' && field.default !== undefined) {
-                            content[fieldName] = field.default;
+                            content[fieldName] = field.default as string | number | boolean | string[];
                         } else if (answer === '' && !isRequired) {
                             // Skip optional empty fields
                             continue;
@@ -351,7 +348,7 @@ async function connect(url?: string): Promise<void> {
                                 parsedValue = answer;
                             }
 
-                            content[fieldName] = parsedValue;
+                            content[fieldName] = parsedValue as string | number | boolean | string[];
                         }
                     } catch (error) {
                         console.log(`❌ Error: ${error}`);
@@ -425,21 +422,21 @@ async function connect(url?: string): Promise<void> {
 
             console.log('Maximum attempts reached. Declining request.');
             return { action: 'decline' };
-        });
+        };
 
         transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
             sessionId: sessionId
         });
 
         // Set up notification handlers
-        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+        client.onloggingmessage = params => {
             notificationCount++;
-            console.log(`\nNotification #${notificationCount}: ${notification.params.level} - ${notification.params.data}`);
+            console.log(`\nNotification #${notificationCount}: ${params.level} - ${params.data}`);
             // Re-display the prompt
             process.stdout.write('> ');
-        });
+        };
 
-        client.setNotificationHandler(ResourceListChangedNotificationSchema, async _ => {
+        client.onresourcelistchanged = async () => {
             console.log(`\nResource list changed notification received!`);
             try {
                 if (!client) {
@@ -459,7 +456,7 @@ async function connect(url?: string): Promise<void> {
             }
             // Re-display the prompt
             process.stdout.write('> ');
-        });
+        };
 
         // Connect the client
         await client.connect(transport);

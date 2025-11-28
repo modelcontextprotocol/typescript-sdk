@@ -14,7 +14,7 @@
  */
 import { Client } from '../../client/index.js';
 import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
-import { CallToolResultSchema, LoggingMessageNotificationSchema } from '../../types.js';
+import { CallToolResultSchema } from '../../types.js';
 
 const SERVER_URL = 'http://localhost:3001/mcp';
 
@@ -57,10 +57,9 @@ async function main(): Promise<void> {
     });
 
     // Set up notification handler to receive progress updates
-    client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
-        const data = notification.params.data;
-        console.log(`[Notification] ${data}`);
-    });
+    client.onloggingmessage = params => {
+        console.log(`[Notification] ${params.data}`);
+    };
 
     try {
         await client.connect(transport);

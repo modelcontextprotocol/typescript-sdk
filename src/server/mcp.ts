@@ -23,6 +23,7 @@ import {
     McpError,
     ErrorCode,
     CompleteResult,
+    CompleteRequest,
     PromptReference,
     ResourceTemplateReference,
     BaseMetadata,
@@ -44,11 +45,7 @@ import {
     ServerRequest,
     ServerNotification,
     ToolAnnotations,
-    LoggingMessageNotification,
-    CompleteRequestPrompt,
-    CompleteRequestResourceTemplate,
-    assertCompleteRequestPrompt,
-    assertCompleteRequestResourceTemplate
+    LoggingMessageNotification
 } from '../types.js';
 import { isCompletable, getCompleter } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
@@ -110,56 +107,53 @@ export class McpServer {
             }
         });
 
-        this.server.setRequestHandler(
-            ListToolsRequestSchema,
-            (): ListToolsResult => ({
-                tools: Object.entries(this._registeredTools)
-                    .filter(([, tool]) => tool.enabled)
-                    .map(([name, tool]): Tool => {
-                        const toolDefinition: Tool = {
-                            name,
-                            title: tool.title,
-                            description: tool.description,
-                            inputSchema: (() => {
-                                const obj = normalizeObjectSchema(tool.inputSchema);
-                                return obj
-                                    ? (toJsonSchemaCompat(obj, {
-                                          strictUnions: true,
-                                          pipeStrategy: 'input'
-                                      }) as Tool['inputSchema'])
-                                    : EMPTY_OBJECT_JSON_SCHEMA;
-                            })(),
-                            annotations: tool.annotations,
-                            _meta: tool._meta
-                        };
+        this.server.onlisttools = (): ListToolsResult => ({
+            tools: Object.entries(this._registeredTools)
+                .filter(([, tool]) => tool.enabled)
+                .map(([name, tool]): Tool => {
+                    const toolDefinition: Tool = {
+                        name,
+                        title: tool.title,
+                        description: tool.description,
+                        inputSchema: (() => {
+                            const obj = normalizeObjectSchema(tool.inputSchema);
+                            return obj
+                                ? (toJsonSchemaCompat(obj, {
+                                      strictUnions: true,
+                                      pipeStrategy: 'input'
+                                  }) as Tool['inputSchema'])
+                                : EMPTY_OBJECT_JSON_SCHEMA;
+                        })(),
+                        annotations: tool.annotations,
+                        _meta: tool._meta
+                    };
 
-                        if (tool.outputSchema) {
-                            const obj = normalizeObjectSchema(tool.outputSchema);
-                            if (obj) {
-                                toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
-                                    strictUnions: true,
-                                    pipeStrategy: 'output'
-                                }) as Tool['outputSchema'];
-                            }
+                    if (tool.outputSchema) {
+                        const obj = normalizeObjectSchema(tool.outputSchema);
+                        if (obj) {
+                            toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
+                                strictUnions: true,
+                                pipeStrategy: 'output'
+                            }) as Tool['outputSchema'];
                         }
+                    }
 
-                        return toolDefinition;
-                    })
-            })
-        );
+                    return toolDefinition;
+                })
+        });
 
-        this.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
-            const tool = this._registeredTools[request.params.name];
+        this.server.oncalltool = async (params, extra): Promise<CallToolResult> => {
+            const tool = this._registeredTools[params.name];
 
             let result: CallToolResult;
 
             try {
                 if (!tool) {
-                    throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
+                    throw new McpError(ErrorCode.InvalidParams, `Tool ${params.name} not found`);
                 }
 
                 if (!tool.enabled) {
-                    throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
+                    throw new McpError(ErrorCode.InvalidParams, `Tool ${params.name} disabled`);
                 }
 
                 if (tool.inputSchema) {
@@ -168,11 +162,11 @@ export class McpServer {
                     // If that fails, use the schema directly (for union/intersection/etc)
                     const inputObj = normalizeObjectSchema(tool.inputSchema);
                     const schemaToParse = inputObj ?? (tool.inputSchema as AnySchema);
-                    const parseResult = await safeParseAsync(schemaToParse, request.params.arguments);
+                    const parseResult = await safeParseAsync(schemaToParse, params.arguments);
                     if (!parseResult.success) {
                         throw new McpError(
                             ErrorCode.InvalidParams,
-                            `Input validation error: Invalid arguments for tool ${request.params.name}: ${getParseErrorMessage(parseResult.error)}`
+                            `Input validation error: Invalid arguments for tool ${params.name}: ${getParseErrorMessage(parseResult.error)}`
                         );
                     }
 
@@ -188,7 +182,7 @@ export class McpServer {
                     if (!result.structuredContent) {
                         throw new McpError(
                             ErrorCode.InvalidParams,
-                            `Output validation error: Tool ${request.params.name} has an output schema but no structured content was provided`
+                            `Output validation error: Tool ${params.name} has an output schema but no structured content was provided`
                         );
                     }
 
@@ -198,7 +192,7 @@ export class McpServer {
                     if (!parseResult.success) {
                         throw new McpError(
                             ErrorCode.InvalidParams,
-                            `Output validation error: Invalid structured content for tool ${request.params.name}: ${getParseErrorMessage(parseResult.error)}`
+                            `Output validation error: Invalid structured content for tool ${params.name}: ${getParseErrorMessage(parseResult.error)}`
                         );
                     }
                 }
@@ -212,7 +206,7 @@ export class McpServer {
             }
 
             return result;
-        });
+        };
 
         this._toolHandlersInitialized = true;
     }
@@ -248,32 +242,30 @@ export class McpServer {
             completions: {}
         });
 
-        this.server.setRequestHandler(CompleteRequestSchema, async (request): Promise<CompleteResult> => {
-            switch (request.params.ref.type) {
+        this.server.oncomplete = async (params): Promise<CompleteResult> => {
+            switch (params.ref.type) {
                 case 'ref/prompt':
-                    assertCompleteRequestPrompt(request);
-                    return this.handlePromptCompletion(request, request.params.ref);
+                    return this.handlePromptCompletion(params as CompleteRequest['params'] & { ref: PromptReference });
 
                 case 'ref/resource':
-                    assertCompleteRequestResourceTemplate(request);
-                    return this.handleResourceCompletion(request, request.params.ref);
+                    return this.handleResourceCompletion(params as CompleteRequest['params'] & { ref: ResourceTemplateReference });
 
                 default:
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid completion reference: ${request.params.ref}`);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid completion reference: ${params.ref}`);
             }
-        });
+        };
 
         this._completionHandlerInitialized = true;
     }
 
-    private async handlePromptCompletion(request: CompleteRequestPrompt, ref: PromptReference): Promise<CompleteResult> {
-        const prompt = this._registeredPrompts[ref.name];
+    private async handlePromptCompletion(params: CompleteRequest['params'] & { ref: PromptReference }): Promise<CompleteResult> {
+        const prompt = this._registeredPrompts[params.ref.name];
         if (!prompt) {
-            throw new McpError(ErrorCode.InvalidParams, `Prompt ${ref.name} not found`);
+            throw new McpError(ErrorCode.InvalidParams, `Prompt ${params.ref.name} not found`);
         }
 
         if (!prompt.enabled) {
-            throw new McpError(ErrorCode.InvalidParams, `Prompt ${ref.name} disabled`);
+            throw new McpError(ErrorCode.InvalidParams, `Prompt ${params.ref.name} disabled`);
         }
 
         if (!prompt.argsSchema) {
@@ -281,7 +273,7 @@ export class McpServer {
         }
 
         const promptShape = getObjectShape(prompt.argsSchema);
-        const field = promptShape?.[request.params.argument.name];
+        const field = promptShape?.[params.argument.name];
         if (!isCompletable(field)) {
             return EMPTY_COMPLETION_RESULT;
         }
@@ -290,31 +282,32 @@ export class McpServer {
         if (!completer) {
             return EMPTY_COMPLETION_RESULT;
         }
-        const suggestions = await completer(request.params.argument.value, request.params.context);
+        const suggestions = await completer(params.argument.value, params.context);
         return createCompletionResult(suggestions);
     }
 
     private async handleResourceCompletion(
-        request: CompleteRequestResourceTemplate,
-        ref: ResourceTemplateReference
+        params: CompleteRequest['params'] & { ref: ResourceTemplateReference }
     ): Promise<CompleteResult> {
-        const template = Object.values(this._registeredResourceTemplates).find(t => t.resourceTemplate.uriTemplate.toString() === ref.uri);
+        const template = Object.values(this._registeredResourceTemplates).find(
+            t => t.resourceTemplate.uriTemplate.toString() === params.ref.uri
+        );
 
         if (!template) {
-            if (this._registeredResources[ref.uri]) {
+            if (this._registeredResources[params.ref.uri]) {
                 // Attempting to autocomplete a fixed resource URI is not an error in the spec (but probably should be).
                 return EMPTY_COMPLETION_RESULT;
             }
 
-            throw new McpError(ErrorCode.InvalidParams, `Resource template ${request.params.ref.uri} not found`);
+            throw new McpError(ErrorCode.InvalidParams, `Resource template ${params.ref.uri} not found`);
         }
 
-        const completer = template.resourceTemplate.completeCallback(request.params.argument.name);
+        const completer = template.resourceTemplate.completeCallback(params.argument.name);
         if (!completer) {
             return EMPTY_COMPLETION_RESULT;
         }
 
-        const suggestions = await completer(request.params.argument.value, request.params.context);
+        const suggestions = await completer(params.argument.value, params.context);
         return createCompletionResult(suggestions);
     }
 
@@ -335,7 +328,7 @@ export class McpServer {
             }
         });
 
-        this.server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
+        this.server.onlistresources = async (params, extra) => {
             const resources = Object.entries(this._registeredResources)
                 .filter(([_, resource]) => resource.enabled)
                 .map(([uri, resource]) => ({
@@ -361,9 +354,9 @@ export class McpServer {
             }
 
             return { resources: [...resources, ...templateResources] };
-        });
+        };
 
-        this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+        this.server.onlistresourcetemplates = async () => {
             const resourceTemplates = Object.entries(this._registeredResourceTemplates).map(([name, template]) => ({
                 name,
                 uriTemplate: template.resourceTemplate.uriTemplate.toString(),
@@ -371,10 +364,10 @@ export class McpServer {
             }));
 
             return { resourceTemplates };
-        });
+        };
 
-        this.server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
-            const uri = new URL(request.params.uri);
+        this.server.onreadresource = async (params, extra) => {
+            const uri = new URL(params.uri);
 
             // First check for exact resource match
             const resource = this._registeredResources[uri.toString()];
@@ -394,7 +387,7 @@ export class McpServer {
             }
 
             throw new McpError(ErrorCode.InvalidParams, `Resource ${uri} not found`);
-        });
+        };
 
         this.setCompletionRequestHandler();
 
@@ -417,39 +410,36 @@ export class McpServer {
             }
         });
 
-        this.server.setRequestHandler(
-            ListPromptsRequestSchema,
-            (): ListPromptsResult => ({
-                prompts: Object.entries(this._registeredPrompts)
-                    .filter(([, prompt]) => prompt.enabled)
-                    .map(([name, prompt]): Prompt => {
-                        return {
-                            name,
-                            title: prompt.title,
-                            description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromSchema(prompt.argsSchema) : undefined
-                        };
-                    })
-            })
-        );
+        this.server.onlistprompts = (): ListPromptsResult => ({
+            prompts: Object.entries(this._registeredPrompts)
+                .filter(([, prompt]) => prompt.enabled)
+                .map(([name, prompt]): Prompt => {
+                    return {
+                        name,
+                        title: prompt.title,
+                        description: prompt.description,
+                        arguments: prompt.argsSchema ? promptArgumentsFromSchema(prompt.argsSchema) : undefined
+                    };
+                })
+        });
 
-        this.server.setRequestHandler(GetPromptRequestSchema, async (request, extra): Promise<GetPromptResult> => {
-            const prompt = this._registeredPrompts[request.params.name];
+        this.server.ongetprompt = async (params, extra): Promise<GetPromptResult> => {
+            const prompt = this._registeredPrompts[params.name];
             if (!prompt) {
-                throw new McpError(ErrorCode.InvalidParams, `Prompt ${request.params.name} not found`);
+                throw new McpError(ErrorCode.InvalidParams, `Prompt ${params.name} not found`);
             }
 
             if (!prompt.enabled) {
-                throw new McpError(ErrorCode.InvalidParams, `Prompt ${request.params.name} disabled`);
+                throw new McpError(ErrorCode.InvalidParams, `Prompt ${params.name} disabled`);
             }
 
             if (prompt.argsSchema) {
                 const argsObj = normalizeObjectSchema(prompt.argsSchema) as AnyObjectSchema;
-                const parseResult = await safeParseAsync(argsObj, request.params.arguments);
+                const parseResult = await safeParseAsync(argsObj, params.arguments);
                 if (!parseResult.success) {
                     throw new McpError(
                         ErrorCode.InvalidParams,
-                        `Invalid arguments for prompt ${request.params.name}: ${getParseErrorMessage(parseResult.error)}`
+                        `Invalid arguments for prompt ${params.name}: ${getParseErrorMessage(parseResult.error)}`
                     );
                 }
 
@@ -460,7 +450,7 @@ export class McpServer {
                 const cb = prompt.callback as PromptCallback<undefined>;
                 return await Promise.resolve(cb(extra));
             }
-        });
+        };
 
         this.setCompletionRequestHandler();
 

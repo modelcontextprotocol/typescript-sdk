@@ -13,15 +13,13 @@ import {
     ListToolsResultSchema,
     CallToolRequest,
     CallToolResultSchema,
-    ElicitRequestSchema,
     ElicitRequest,
     ElicitResult,
     ResourceLink,
     ElicitRequestURLParams,
     McpError,
     ErrorCode,
-    UrlElicitationRequiredError,
-    ElicitationCompleteNotificationSchema
+    UrlElicitationRequiredError
 } from '../../types.js';
 import { getDisplayName } from '../../shared/metadataUtils.js';
 import { OAuthClientMetadata } from '../../shared/auth.js';
@@ -64,7 +62,7 @@ let sessionId: string | undefined = undefined;
 
 // Elicitation queue management
 interface QueuedElicitation {
-    request: ElicitRequest;
+    params: ElicitRequest['params'];
     resolve: (result: ElicitResult) => void;
     reject: (error: Error) => void;
 }
@@ -238,7 +236,7 @@ async function elicitationLoop(): Promise<void> {
             console.log(`📤 Processing queued elicitation (${elicitationQueue.length} remaining)`);
 
             try {
-                const result = await handleElicitationRequest(queued.request);
+                const result = await handleElicitationParams(queued.params);
                 queued.resolve(result);
             } catch (error) {
                 queued.reject(error instanceof Error ? error : new Error(String(error)));
@@ -276,14 +274,14 @@ async function openBrowser(url: string): Promise<void> {
  * This function is used so that our CLI (which can only handle one input request at a time)
  * can handle elicitation requests and the command loop.
  *
- * @param request - The elicitation request to be handled
+ * @param params - The elicitation request params to be handled
  * @returns The elicitation result
  */
-async function elicitationRequestHandler(request: ElicitRequest): Promise<ElicitResult> {
+async function elicitationParamsHandler(params: ElicitRequest['params']): Promise<ElicitResult> {
     // If we are processing a command, handle this elicitation immediately
     if (isProcessingCommand) {
         console.log('📋 Processing elicitation immediately (during command execution)');
-        return await handleElicitationRequest(request);
+        return await handleElicitationParams(params);
     }
 
     // Otherwise, queue the request to be handled by the elicitation loop
@@ -291,7 +289,7 @@ async function elicitationRequestHandler(request: ElicitRequest): Promise<Elicit
 
     return new Promise<ElicitResult>((resolve, reject) => {
         elicitationQueue.push({
-            request,
+            params,
             resolve,
             reject
         });
@@ -309,17 +307,17 @@ async function elicitationRequestHandler(request: ElicitRequest): Promise<Elicit
  *
  * This function is used to handle the elicitation request and return the result.
  *
- * @param request - The elicitation request to be handled
+ * @param params - The elicitation request params to be handled
  * @returns The elicitation result
  */
-async function handleElicitationRequest(request: ElicitRequest): Promise<ElicitResult> {
-    const mode = request.params.mode;
+async function handleElicitationParams(params: ElicitRequest['params']): Promise<ElicitResult> {
+    const mode = params.mode;
     console.log('\n🔔 Elicitation Request Received:');
     console.log(`Mode: ${mode}`);
 
     if (mode === 'url') {
         return {
-            action: await handleURLElicitation(request.params as ElicitRequestURLParams)
+            action: await handleURLElicitation(params as ElicitRequestURLParams)
         };
     } else {
         // Should not happen because the client declares its capabilities to the server,
@@ -545,11 +543,11 @@ async function connect(url?: string): Promise<void> {
     console.log('👤 Client created');
 
     // Set up elicitation request handler with proper validation
-    client.setRequestHandler(ElicitRequestSchema, elicitationRequestHandler);
+    client.onelicit = elicitationParamsHandler;
 
     // Set up notification handler for elicitation completion
-    client.setNotificationHandler(ElicitationCompleteNotificationSchema, notification => {
-        const { elicitationId } = notification.params;
+    client.onelicitationcomplete = params => {
+        const { elicitationId } = params;
         const pending = pendingURLElicitations.get(elicitationId);
         if (pending) {
             clearTimeout(pending.timeout);
@@ -560,7 +558,7 @@ async function connect(url?: string): Promise<void> {
             // Shouldn't happen - discard it!
             console.warn(`Received completion notification for unknown elicitation: ${elicitationId}`);
         }
-    });
+    };
 
     try {
         console.log('🔐 Starting OAuth flow...');

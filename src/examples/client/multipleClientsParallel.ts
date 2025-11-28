@@ -1,6 +1,6 @@
 import { Client } from '../../client/index.js';
 import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
-import { CallToolRequest, CallToolResultSchema, LoggingMessageNotificationSchema, CallToolResult } from '../../types.js';
+import { CallToolRequest, CallToolResultSchema, CallToolResult } from '../../types.js';
 
 /**
  * Multiple Clients MCP Example
@@ -38,9 +38,9 @@ async function createAndRunClient(config: ClientConfig): Promise<{ id: string; r
     };
 
     // Set up client-specific notification handler
-    client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
-        console.log(`[${config.id}] Notification: ${notification.params.data}`);
-    });
+    client.onloggingmessage = params => {
+        console.log(`[${config.id}] Notification: ${params.data}`);
+    };
 
     try {
         // Connect to the server
