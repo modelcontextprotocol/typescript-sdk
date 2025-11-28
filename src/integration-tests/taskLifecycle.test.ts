@@ -1604,4 +1604,77 @@ describe('Task Lifecycle Integration Tests', () => {
             await transport.close();
         });
     });
+
+    describe('callToolStream with elicitation', () => {
+        it('should deliver elicitation via callToolStream and complete task', async () => {
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {
+                        elicitation: {}
+                    }
+                }
+            );
+
+            // Track elicitation request receipt
+            let elicitationReceived = false;
+            let elicitationMessage = '';
+
+            // Set up elicitation handler on client
+            client.setRequestHandler(ElicitRequestSchema, async request => {
+                elicitationReceived = true;
+                elicitationMessage = request.params.message;
+
+                return {
+                    action: 'accept' as const,
+                    content: {
+                        userName: 'StreamUser'
+                    }
+                };
+            });
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Use callToolStream instead of raw request()
+            const stream = client.experimental.tasks.callToolStream({ name: 'input-task', arguments: {} }, CallToolResultSchema, {
+                task: { ttl: 60000 }
+            });
+
+            // Collect all stream messages
+            const messages: Array<{ type: string; task?: unknown; result?: unknown; error?: unknown }> = [];
+            for await (const message of stream) {
+                messages.push(message);
+            }
+
+            // Verify stream yielded expected message types
+            expect(messages.length).toBeGreaterThanOrEqual(2);
+
+            // First message should be taskCreated
+            expect(messages[0].type).toBe('taskCreated');
+            expect(messages[0].task).toBeDefined();
+
+            // Should have a taskStatus message
+            const statusMessages = messages.filter(m => m.type === 'taskStatus');
+            expect(statusMessages.length).toBeGreaterThanOrEqual(1);
+
+            // Last message should be result
+            const lastMessage = messages[messages.length - 1];
+            expect(lastMessage.type).toBe('result');
+            expect(lastMessage.result).toBeDefined();
+
+            // Verify elicitation was received and processed
+            expect(elicitationReceived).toBe(true);
+            expect(elicitationMessage).toContain('What is your name?');
+
+            // Verify result content
+            const result = lastMessage.result as { content: Array<{ type: string; text: string }> };
+            expect(result.content).toEqual([{ type: 'text', text: 'Hello, StreamUser!' }]);
+
+            await transport.close();
+        }, 15000);
+    });
 });
