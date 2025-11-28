@@ -338,6 +338,11 @@ export class StreamableHTTPClientTransport implements Transport {
                         onresumptiontoken?.(event.id);
                     }
 
+                    // Skip events with no data (priming events, keep-alives)
+                    if (!event.data) {
+                        continue;
+                    }
+
                     if (!event.event || event.event === 'message') {
                         try {
                             const message = JSONRPCMessageSchema.parse(JSON.parse(event.data));
@@ -529,7 +534,7 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 }
 
-                throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
+                throw new StreamableHTTPError(response.status, `Error POSTing to endpoint: ${text}`);
             }
 
             // Reset auth loop flag on successful response

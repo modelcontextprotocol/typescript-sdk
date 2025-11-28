@@ -1,4 +1,4 @@
-import http from 'http';
+import http from 'node:http';
 import { type Mocked } from 'vitest';
 
 import { SSEServerTransport } from './sse.js';

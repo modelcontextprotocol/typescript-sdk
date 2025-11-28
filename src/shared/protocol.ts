@@ -1021,6 +1021,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     return;
                 }
 
+                // When input_required, call tasks/result to deliver queued messages
+                // (elicitation, sampling) via SSE and block until terminal
+                if (task.status === 'input_required') {
+                    const result = await this.getTaskResult({ taskId }, resultSchema, options);
+                    yield { type: 'result', result };
+                    return;
+                }
+
                 // Wait before polling again
                 const pollInterval = task.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1000;
                 await new Promise(resolve => setTimeout(resolve, pollInterval));
