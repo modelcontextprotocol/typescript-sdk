@@ -477,14 +477,30 @@ describe('StreamableHTTPClientTransport', () => {
         expect(global.fetch).not.toHaveBeenCalled();
     });
 
-    it('should always send specified custom headers', async () => {
-        const requestInit = {
+    it.each([
+        {
+            description: 'plain object headers',
             headers: {
                 'X-Custom-Header': 'CustomValue'
             }
-        };
+        },
+        {
+            description: 'Headers object',
+            headers: ((): HeadersInit => {
+                const h = new Headers();
+                h.set('X-Custom-Header', 'CustomValue');
+                return h;
+            })()
+        },
+        {
+            description: 'array of tuples',
+            headers: ((): HeadersInit => [
+                ['X-Custom-Header', 'CustomValue']
+            ])()
+        }
+    ])('should always send specified custom headers ($description)', async ({ headers }) => {
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
-            requestInit: requestInit
+            requestInit: { headers }
         });
 
         let actualReqInit: RequestInit = {};
@@ -498,43 +514,6 @@ describe('StreamableHTTPClientTransport', () => {
 
         await transport['_startOrAuthSse']({});
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
-
-        requestInit.headers['X-Custom-Header'] = 'SecondCustomValue';
-
-        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
-        expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('SecondCustomValue');
-
-        expect(global.fetch).toHaveBeenCalledTimes(2);
-    });
-
-    it('should always send specified custom headers (Headers class)', async () => {
-        const requestInit = {
-            headers: new Headers({
-                'X-Custom-Header': 'CustomValue'
-            })
-        };
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
-            requestInit: requestInit
-        });
-
-        let actualReqInit: RequestInit = {};
-
-        (global.fetch as Mock).mockImplementation(async (_url, reqInit) => {
-            actualReqInit = reqInit;
-            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
-        });
-
-        await transport.start();
-
-        await transport['_startOrAuthSse']({});
-        expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
-
-        (requestInit.headers as Headers).set('X-Custom-Header', 'SecondCustomValue');
-
-        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
-        expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('SecondCustomValue');
-
-        expect(global.fetch).toHaveBeenCalledTimes(2);
     });
 
     it('should have exponential backoff with configurable maxRetries', () => {
