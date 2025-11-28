@@ -15,7 +15,7 @@ import {
     isHttpsUrl
 } from './auth.js';
 import { InvalidClientMetadataError, ServerError } from '../server/auth/errors.js';
-import { AuthorizationServerMetadata } from '../shared/auth.js';
+import { AuthorizationServerMetadata, OAuthTokens } from '../shared/auth.js';
 import { expect, vi, type Mock } from 'vitest';
 
 // Mock pkce-challenge
@@ -1093,7 +1093,7 @@ describe('OAuth Authorization', () => {
     });
 
     describe('exchangeAuthorization', () => {
-        const validTokens = {
+        const validTokens: OAuthTokens = {
             access_token: 'access123',
             token_type: 'Bearer',
             expires_in: 3600,
@@ -1154,6 +1154,44 @@ describe('OAuth Authorization', () => {
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
 
+        it('allows for string "expires_in" values', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validTokens, expires_in: '3600' })
+            });
+
+            const tokens = await exchangeAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                authorizationCode: 'code123',
+                codeVerifier: 'verifier123',
+                redirectUri: 'http://localhost:3000/callback',
+                resource: new URL('https://api.example.com/mcp-server')
+            });
+
+            expect(tokens).toEqual(validTokens);
+            expect(mockFetch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    href: 'https://auth.example.com/token'
+                }),
+                expect.objectContaining({
+                    method: 'POST'
+                })
+            );
+
+            const options = mockFetch.mock.calls[0][1];
+            expect(options.headers).toBeInstanceOf(Headers);
+            expect(options.headers.get('Content-Type')).toBe('application/x-www-form-urlencoded');
+
+            const body = options.body as URLSearchParams;
+            expect(body.get('grant_type')).toBe('authorization_code');
+            expect(body.get('code')).toBe('code123');
+            expect(body.get('code_verifier')).toBe('verifier123');
+            expect(body.get('client_id')).toBe('client123');
+            expect(body.get('client_secret')).toBe('secret123');
+            expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
+            expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
+        });
         it('exchanges code for tokens with auth', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
