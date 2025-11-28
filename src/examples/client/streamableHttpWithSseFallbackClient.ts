@@ -1,13 +1,7 @@
 import { Client } from '../../client/index.js';
 import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
 import { SSEClientTransport } from '../../client/sse.js';
-import {
-    ListToolsRequest,
-    ListToolsResultSchema,
-    CallToolRequest,
-    CallToolResultSchema,
-    LoggingMessageNotificationSchema
-} from '../../types.js';
+import { ListToolsRequest, ListToolsResultSchema, CallToolRequest, CallToolResultSchema } from '../../types.js';
 
 /**
  * Simplified Backwards Compatible MCP Client
@@ -40,9 +34,9 @@ async function main(): Promise<void> {
         transport = connection.transport;
 
         // Set up notification handler
-        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
-            console.log(`Notification: ${notification.params.level} - ${notification.params.data}`);
-        });
+        client.onloggingmessage = params => {
+            console.log(`Notification: ${params.level} - ${params.data}`);
+        };
 
         // DEMO WORKFLOW:
         // 1. List available tools
