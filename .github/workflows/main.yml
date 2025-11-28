@@ -1,51 +1,78 @@
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-  release:
-    types: [published]
+    push:
+        branches:
+            - main
+    pull_request:
+    workflow_dispatch:
+    release:
+        types: [published]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+    build:
+        runs-on: ubuntu-latest
 
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 18
-          cache: npm
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: npm
 
-      - run: npm ci
-      - run: npm run build
-      - run: npm test
-      - run: npm run lint
+            - run: npm ci
+            - run: npm run check
+            - run: npm run build
 
-  publish:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'release'
-    environment: release
-    needs: build
+    test:
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                node-version: [18, 24]
 
-    permissions:
-      contents: read
-      id-token: write
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node-version }}
+                  cache: npm
 
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 18
-          cache: npm
-          registry-url: 'https://registry.npmjs.org'
+            - run: npm ci
+            - run: npm test
 
-      - run: npm ci
+    publish:
+        runs-on: ubuntu-latest
+        if: github.event_name == 'release'
+        environment: release
+        needs: [build, test]
 
-      - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        permissions:
+            contents: read
+            id-token: write
+
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: npm
+                  registry-url: 'https://registry.npmjs.org'
+
+            - run: npm ci
+
+            - name: Determine npm tag
+              id: npm-tag
+              run: |
+                  VERSION=$(node -p "require('./package.json').version")
+                  if [[ "$VERSION" == *"-beta"* ]]; then
+                    echo "tag=--tag beta" >> $GITHUB_OUTPUT
+                  else
+                    echo "tag=" >> $GITHUB_OUTPUT
+                  fi
+
+            - run: npm publish --provenance --access public ${{ steps.npm-tag.outputs.tag }}
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,23 +1,23 @@
 {
-  "compilerOptions": {
-    "target": "es2018",
-    "module": "Node16",
-    "moduleResolution": "Node16",
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "outDir": "./dist",
-    "strict": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "skipLibCheck": true,
-    "baseUrl": ".",
-    "paths": {
-      "pkce-challenge": ["node_modules/pkce-challenge/dist/index.node"]
-    }
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+    "compilerOptions": {
+        "target": "es2018",
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true,
+        "outDir": "./dist",
+        "strict": true,
+        "esModuleInterop": true,
+        "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "skipLibCheck": true,
+        "paths": {
+            "pkce-challenge": ["./node_modules/pkce-challenge/dist/index.node"]
+        },
+        "types": ["node", "vitest/globals"]
+    },
+    "include": ["src/**/*"],
+    "exclude": ["node_modules", "dist"]
 }
