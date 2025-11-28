@@ -494,9 +494,7 @@ describe('StreamableHTTPClientTransport', () => {
         },
         {
             description: 'array of tuples',
-            headers: ((): HeadersInit => [
-                ['X-Custom-Header', 'CustomValue']
-            ])()
+            headers: ((): HeadersInit => [['X-Custom-Header', 'CustomValue']])()
         }
     ])('should always send specified custom headers ($description)', async ({ headers }) => {
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
