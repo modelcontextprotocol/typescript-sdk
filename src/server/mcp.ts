@@ -1030,7 +1030,7 @@ export class McpServer {
     /**
      * Registers a tool with a config object and callback.
      */
-    registerTool<InputArgs extends ZodRawShapeCompat | AnySchema, OutputArgs extends ZodRawShapeCompat | AnySchema>(
+    registerTool<OutputArgs extends ZodRawShapeCompat | AnySchema, InputArgs extends undefined | ZodRawShapeCompat | AnySchema = undefined>(
         name: string,
         config: {
             title?: string;
