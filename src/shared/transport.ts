@@ -3,6 +3,49 @@ import { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types.js';
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
 /**
+ * Normalizes HeadersInit to a plain Record<string, string> for manipulation.
+ * Handles Headers objects, arrays of tuples, and plain objects.
+ */
+export function normalizeHeaders(headers: HeadersInit | undefined): Record<string, string> {
+    if (!headers) return {};
+
+    if (headers instanceof Headers) {
+        return Object.fromEntries(headers.entries());
+    }
+
+    if (Array.isArray(headers)) {
+        return Object.fromEntries(headers);
+    }
+
+    return { ...(headers as Record<string, string>) };
+}
+
+/**
+ * Creates a fetch function that includes base RequestInit options.
+ * This ensures requests inherit settings like credentials, mode, headers, etc. from the base init.
+ *
+ * @param baseFetch - The base fetch function to wrap (defaults to global fetch)
+ * @param baseInit - The base RequestInit to merge with each request
+ * @returns A wrapped fetch function that merges base options with call-specific options
+ */
+export function createFetchWithInit(baseFetch: FetchLike = fetch, baseInit?: RequestInit): FetchLike {
+    if (!baseInit) {
+        return baseFetch;
+    }
+
+    // Return a wrapped fetch that merges base RequestInit with call-specific init
+    return async (url: string | URL, init?: RequestInit): Promise<Response> => {
+        const mergedInit: RequestInit = {
+            ...baseInit,
+            ...init,
+            // Headers need special handling - merge instead of replace
+            headers: init?.headers ? { ...normalizeHeaders(baseInit.headers), ...normalizeHeaders(init.headers) } : baseInit.headers
+        };
+        return baseFetch(url, mergedInit);
+    };
+}
+
+/**
  * Options for sending a JSON-RPC message.
  */
 export type TransportSendOptions = {
@@ -71,7 +114,7 @@ export interface Transport {
      *
      * The requestInfo can be used to get the original request information (headers, etc.)
      */
-    onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
+    onmessage?: <T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void;
 
     /**
      * The session ID generated for this connection.

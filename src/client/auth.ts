@@ -21,6 +21,7 @@ import {
 import { checkResourceAllowed, resourceUrlFromServerUrl } from '../shared/auth-utils.js';
 import {
     InvalidClientError,
+    InvalidClientMetadataError,
     InvalidGrantError,
     OAUTH_ERRORS,
     OAuthError,
@@ -41,6 +42,11 @@ export interface OAuthClientProvider {
      * The URL to redirect the user agent to after authorization.
      */
     get redirectUrl(): string | URL;
+
+    /**
+     * External URL the server should use to fetch client metadata document
+     */
+    clientMetadataUrl?: string;
 
     /**
      * Metadata about this OAuth client.
@@ -348,6 +354,7 @@ async function authInternal(
 ): Promise<AuthResult> {
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | URL | undefined;
+
     try {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl }, fetchFn);
         if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
@@ -359,10 +366,10 @@ async function authInternal(
 
     /**
      * If we don't get a valid authorization server metadata from protected resource metadata,
-     * fallback to the legacy MCP spec's implementation (version 2025-03-26): MCP server acts as the Authorization server.
+     * fallback to the legacy MCP spec's implementation (version 2025-03-26): MCP server base URL acts as the Authorization server.
      */
     if (!authorizationServerUrl) {
-        authorizationServerUrl = serverUrl;
+        authorizationServerUrl = new URL('/', serverUrl);
     }
 
     const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
@@ -378,18 +385,38 @@ async function authInternal(
             throw new Error('Existing OAuth client information is required when exchanging an authorization code');
         }
 
-        if (!provider.saveClientInformation) {
-            throw new Error('OAuth client information must be saveable for dynamic registration');
+        const supportsUrlBasedClientId = metadata?.client_id_metadata_document_supported === true;
+        const clientMetadataUrl = provider.clientMetadataUrl;
+
+        if (clientMetadataUrl && !isHttpsUrl(clientMetadataUrl)) {
+            throw new InvalidClientMetadataError(
+                `clientMetadataUrl must be a valid HTTPS URL with a non-root pathname, got: ${clientMetadataUrl}`
+            );
         }
 
-        const fullInformation = await registerClient(authorizationServerUrl, {
-            metadata,
-            clientMetadata: provider.clientMetadata,
-            fetchFn
-        });
+        const shouldUseUrlBasedClientId = supportsUrlBasedClientId && clientMetadataUrl;
 
-        await provider.saveClientInformation(fullInformation);
-        clientInformation = fullInformation;
+        if (shouldUseUrlBasedClientId) {
+            // SEP-991: URL-based Client IDs
+            clientInformation = {
+                client_id: clientMetadataUrl
+            };
+            await provider.saveClientInformation?.(clientInformation);
+        } else {
+            // Fallback to dynamic registration
+            if (!provider.saveClientInformation) {
+                throw new Error('OAuth client information must be saveable for dynamic registration');
+            }
+
+            const fullInformation = await registerClient(authorizationServerUrl, {
+                metadata,
+                clientMetadata: provider.clientMetadata,
+                fetchFn
+            });
+
+            await provider.saveClientInformation(fullInformation);
+            clientInformation = fullInformation;
+        }
     }
 
     // Exchange authorization code for tokens
@@ -446,13 +473,27 @@ async function authInternal(
         clientInformation,
         state,
         redirectUrl: provider.redirectUrl,
-        scope: scope || provider.clientMetadata.scope,
+        scope: scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope,
         resource
     });
 
     await provider.saveCodeVerifier(codeVerifier);
     await provider.redirectToAuthorization(authorizationUrl);
     return 'REDIRECT';
+}
+
+/**
+ * SEP-991: URL-based Client IDs
+ * Validate that the client_id is a valid URL with https scheme
+ */
+export function isHttpsUrl(value?: string): boolean {
+    if (!value) return false;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'https:' && url.pathname !== '/';
+    } catch {
+        return false;
+    }
 }
 
 export async function selectResourceURL(
@@ -481,7 +522,67 @@ export async function selectResourceURL(
 }
 
 /**
+ * Extract resource_metadata, scope, and error from WWW-Authenticate header.
+ */
+export function extractWWWAuthenticateParams(res: Response): { resourceMetadataUrl?: URL; scope?: string; error?: string } {
+    const authenticateHeader = res.headers.get('WWW-Authenticate');
+    if (!authenticateHeader) {
+        return {};
+    }
+
+    const [type, scheme] = authenticateHeader.split(' ');
+    if (type.toLowerCase() !== 'bearer' || !scheme) {
+        return {};
+    }
+
+    const resourceMetadataMatch = extractFieldFromWwwAuth(res, 'resource_metadata') || undefined;
+
+    let resourceMetadataUrl: URL | undefined;
+    if (resourceMetadataMatch) {
+        try {
+            resourceMetadataUrl = new URL(resourceMetadataMatch);
+        } catch {
+            // Ignore invalid URL
+        }
+    }
+
+    const scope = extractFieldFromWwwAuth(res, 'scope') || undefined;
+    const error = extractFieldFromWwwAuth(res, 'error') || undefined;
+
+    return {
+        resourceMetadataUrl,
+        scope,
+        error
+    };
+}
+
+/**
+ * Extracts a specific field's value from the WWW-Authenticate header string.
+ *
+ * @param response The HTTP response object containing the headers.
+ * @param fieldName The name of the field to extract (e.g., "realm", "nonce").
+ * @returns The field value
+ */
+function extractFieldFromWwwAuth(response: Response, fieldName: string): string | null {
+    const wwwAuthHeader = response.headers.get('WWW-Authenticate');
+    if (!wwwAuthHeader) {
+        return null;
+    }
+
+    const pattern = new RegExp(`${fieldName}=(?:"([^"]+)"|([^\\s,]+))`);
+    const match = wwwAuthHeader.match(pattern);
+
+    if (match) {
+        // Pattern matches: field_name="value" or field_name=value (unquoted)
+        return match[1] || match[2];
+    }
+
+    return null;
+}
+
+/**
  * Extract resource_metadata from response header.
+ * @deprecated Use `extractWWWAuthenticateParams` instead.
  */
 export function extractResourceMetadataUrl(res: Response): URL | undefined {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
@@ -524,10 +625,12 @@ export async function discoverOAuthProtectedResourceMetadata(
     });
 
     if (!response || response.status === 404) {
+        await response?.body?.cancel();
         throw new Error(`Resource server does not implement OAuth 2.0 Protected Resource Metadata.`);
     }
 
     if (!response.ok) {
+        await response.body?.cancel();
         throw new Error(`HTTP ${response.status} trying to load well-known OAuth protected resource metadata.`);
     }
     return OAuthProtectedResourceMetadataSchema.parse(await response.json());
@@ -655,10 +758,12 @@ export async function discoverOAuthMetadata(
     });
 
     if (!response || response.status === 404) {
+        await response?.body?.cancel();
         return undefined;
     }
 
     if (!response.ok) {
+        await response.body?.cancel();
         throw new Error(`HTTP ${response.status} trying to load well-known OAuth metadata`);
     }
 
@@ -669,8 +774,7 @@ export async function discoverOAuthMetadata(
  * Builds a list of discovery URLs to try for authorization server metadata.
  * URLs are returned in priority order:
  * 1. OAuth metadata at the given URL
- * 2. OAuth metadata at root (if URL has path)
- * 3. OIDC metadata endpoints
+ * 2. OIDC metadata endpoints at the given URL
  */
 export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url: URL; type: 'oauth' | 'oidc' }[] {
     const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
@@ -706,18 +810,13 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
         type: 'oauth'
     });
 
-    // Root path: https://example.com/.well-known/oauth-authorization-server
-    urlsToTry.push({
-        url: new URL('/.well-known/oauth-authorization-server', url.origin),
-        type: 'oauth'
-    });
-
-    // 3. OIDC metadata endpoints
+    // 2. OIDC metadata endpoints
     // RFC 8414 style: Insert /.well-known/openid-configuration before the path
     urlsToTry.push({
         url: new URL(`/.well-known/openid-configuration${pathname}`, url.origin),
         type: 'oidc'
     });
+
     // OIDC Discovery 1.0 style: Append /.well-known/openid-configuration after the path
     urlsToTry.push({
         url: new URL(`${pathname}/.well-known/openid-configuration`, url.origin),
@@ -774,6 +873,7 @@ export async function discoverAuthorizationServerMetadata(
         }
 
         if (!response.ok) {
+            await response.body?.cancel();
             // Continue looking for any 4xx response code.
             if (response.status >= 400 && response.status < 500) {
                 continue; // Try next URL

@@ -1,5 +1,6 @@
 import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
 import type { Transport } from '../shared/transport.js';
+
 import {
     type CallToolRequest,
     CallToolResultSchema,
@@ -36,10 +37,95 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS,
     type SubscribeRequest,
     type Tool,
-    type UnsubscribeRequest
+    type UnsubscribeRequest,
+    ElicitResultSchema,
+    ElicitRequestSchema,
+    CreateTaskResultSchema,
+    CreateMessageRequestSchema,
+    CreateMessageResultSchema
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
+import {
+    AnyObjectSchema,
+    SchemaOutput,
+    getObjectShape,
+    isZ4Schema,
+    safeParse,
+    type ZodV3Internal,
+    type ZodV4Internal
+} from '../server/zod-compat.js';
+import type { RequestHandlerExtra } from '../shared/protocol.js';
+import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
+import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '../experimental/tasks/helpers.js';
+
+/**
+ * Elicitation default application helper. Applies defaults to the data based on the schema.
+ *
+ * @param schema - The schema to apply defaults to.
+ * @param data - The data to apply defaults to.
+ */
+function applyElicitationDefaults(schema: JsonSchemaType | undefined, data: unknown): void {
+    if (!schema || data === null || typeof data !== 'object') return;
+
+    // Handle object properties
+    if (schema.type === 'object' && schema.properties && typeof schema.properties === 'object') {
+        const obj = data as Record<string, unknown>;
+        const props = schema.properties as Record<string, JsonSchemaType & { default?: unknown }>;
+        for (const key of Object.keys(props)) {
+            const propSchema = props[key];
+            // If missing or explicitly undefined, apply default if present
+            if (obj[key] === undefined && Object.prototype.hasOwnProperty.call(propSchema, 'default')) {
+                obj[key] = propSchema.default;
+            }
+            // Recurse into existing nested objects/arrays
+            if (obj[key] !== undefined) {
+                applyElicitationDefaults(propSchema, obj[key]);
+            }
+        }
+    }
+
+    if (Array.isArray(schema.anyOf)) {
+        for (const sub of schema.anyOf) {
+            applyElicitationDefaults(sub, data);
+        }
+    }
+
+    // Combine schemas
+    if (Array.isArray(schema.oneOf)) {
+        for (const sub of schema.oneOf) {
+            applyElicitationDefaults(sub, data);
+        }
+    }
+}
+
+/**
+ * Determines which elicitation modes are supported based on declared client capabilities.
+ *
+ * According to the spec:
+ * - An empty elicitation capability object defaults to form mode support (backwards compatibility)
+ * - URL mode is only supported if explicitly declared
+ *
+ * @param capabilities - The client's elicitation capabilities
+ * @returns An object indicating which modes are supported
+ */
+export function getSupportedElicitationModes(capabilities: ClientCapabilities['elicitation']): {
+    supportsFormMode: boolean;
+    supportsUrlMode: boolean;
+} {
+    if (!capabilities) {
+        return { supportsFormMode: false, supportsUrlMode: false };
+    }
+
+    const hasFormCapability = capabilities.form !== undefined;
+    const hasUrlCapability = capabilities.url !== undefined;
+
+    // If neither form nor url are explicitly declared, form mode is supported (backwards compatibility)
+    const supportsFormMode = hasFormCapability || (!hasFormCapability && !hasUrlCapability);
+    const supportsUrlMode = hasUrlCapability;
+
+    return { supportsFormMode, supportsUrlMode };
+}
 
 export type ClientOptions = ProtocolOptions & {
     /**
@@ -115,6 +201,9 @@ export class Client<
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
+    private _cachedKnownTaskTools: Set<string> = new Set();
+    private _cachedRequiredTaskTools: Set<string> = new Set();
+    private _experimental?: { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> };
 
     /**
      * Initializes this client with the given name and version information.
@@ -129,6 +218,22 @@ export class Client<
     }
 
     /**
+     * Access experimental features.
+     *
+     * WARNING: These APIs are experimental and may change without notice.
+     *
+     * @experimental
+     */
+    get experimental(): { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> } {
+        if (!this._experimental) {
+            this._experimental = {
+                tasks: new ExperimentalClientTasks(this)
+            };
+        }
+        return this._experimental;
+    }
+
+    /**
      * Registers new capabilities. This can only be called before connecting to a transport.
      *
      * The new capabilities will be merged with any existing capabilities previously given (e.g., at initialization).
@@ -139,6 +244,155 @@ export class Client<
         }
 
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
+    }
+
+    /**
+     * Override request handler registration to enforce client-side validation for elicitation.
+     */
+    public override setRequestHandler<T extends AnyObjectSchema>(
+        requestSchema: T,
+        handler: (
+            request: SchemaOutput<T>,
+            extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+        ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
+    ): void {
+        const shape = getObjectShape(requestSchema);
+        const methodSchema = shape?.method;
+        if (!methodSchema) {
+            throw new Error('Schema is missing a method literal');
+        }
+
+        // Extract literal value using type-safe property access
+        let methodValue: unknown;
+        if (isZ4Schema(methodSchema)) {
+            const v4Schema = methodSchema as unknown as ZodV4Internal;
+            const v4Def = v4Schema._zod?.def;
+            methodValue = v4Def?.value ?? v4Schema.value;
+        } else {
+            const v3Schema = methodSchema as unknown as ZodV3Internal;
+            const legacyDef = v3Schema._def;
+            methodValue = legacyDef?.value ?? v3Schema.value;
+        }
+
+        if (typeof methodValue !== 'string') {
+            throw new Error('Schema method literal must be a string');
+        }
+        const method = methodValue;
+        if (method === 'elicitation/create') {
+            const wrappedHandler = async (
+                request: SchemaOutput<T>,
+                extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+            ): Promise<ClientResult | ResultT> => {
+                const validatedRequest = safeParse(ElicitRequestSchema, request);
+                if (!validatedRequest.success) {
+                    // Type guard: if success is false, error is guaranteed to exist
+                    const errorMessage =
+                        validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation request: ${errorMessage}`);
+                }
+
+                const { params } = validatedRequest.data;
+                const mode = params.mode ?? 'form';
+                const { supportsFormMode, supportsUrlMode } = getSupportedElicitationModes(this._capabilities.elicitation);
+
+                if (mode === 'form' && !supportsFormMode) {
+                    throw new McpError(ErrorCode.InvalidParams, 'Client does not support form-mode elicitation requests');
+                }
+
+                if (mode === 'url' && !supportsUrlMode) {
+                    throw new McpError(ErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
+                }
+
+                const result = await Promise.resolve(handler(request, extra));
+
+                // When task creation is requested, validate and return CreateTaskResult
+                if (params.task) {
+                    const taskValidationResult = safeParse(CreateTaskResultSchema, result);
+                    if (!taskValidationResult.success) {
+                        const errorMessage =
+                            taskValidationResult.error instanceof Error
+                                ? taskValidationResult.error.message
+                                : String(taskValidationResult.error);
+                        throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
+                    }
+                    return taskValidationResult.data;
+                }
+
+                // For non-task requests, validate against ElicitResultSchema
+                const validationResult = safeParse(ElicitResultSchema, result);
+                if (!validationResult.success) {
+                    // Type guard: if success is false, error is guaranteed to exist
+                    const errorMessage =
+                        validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation result: ${errorMessage}`);
+                }
+
+                const validatedResult = validationResult.data;
+                const requestedSchema = mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
+
+                if (mode === 'form' && validatedResult.action === 'accept' && validatedResult.content && requestedSchema) {
+                    if (this._capabilities.elicitation?.form?.applyDefaults) {
+                        try {
+                            applyElicitationDefaults(requestedSchema, validatedResult.content);
+                        } catch {
+                            // gracefully ignore errors in default application
+                        }
+                    }
+                }
+
+                return validatedResult;
+            };
+
+            // Install the wrapped handler
+            return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
+        }
+
+        if (method === 'sampling/createMessage') {
+            const wrappedHandler = async (
+                request: SchemaOutput<T>,
+                extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+            ): Promise<ClientResult | ResultT> => {
+                const validatedRequest = safeParse(CreateMessageRequestSchema, request);
+                if (!validatedRequest.success) {
+                    const errorMessage =
+                        validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid sampling request: ${errorMessage}`);
+                }
+
+                const { params } = validatedRequest.data;
+
+                const result = await Promise.resolve(handler(request, extra));
+
+                // When task creation is requested, validate and return CreateTaskResult
+                if (params.task) {
+                    const taskValidationResult = safeParse(CreateTaskResultSchema, result);
+                    if (!taskValidationResult.success) {
+                        const errorMessage =
+                            taskValidationResult.error instanceof Error
+                                ? taskValidationResult.error.message
+                                : String(taskValidationResult.error);
+                        throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
+                    }
+                    return taskValidationResult.data;
+                }
+
+                // For non-task requests, validate against CreateMessageResultSchema
+                const validationResult = safeParse(CreateMessageResultSchema, result);
+                if (!validationResult.success) {
+                    const errorMessage =
+                        validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid sampling result: ${errorMessage}`);
+                }
+
+                return validationResult.data;
+            };
+
+            // Install the wrapped handler
+            return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
+        }
+
+        // Other handlers use default behavior
+        return super.setRequestHandler(requestSchema, handler);
     }
 
     protected assertCapability(capability: keyof ServerCapabilities, method: string): void {
@@ -292,6 +546,12 @@ export class Client<
     }
 
     protected assertRequestHandlerCapability(method: string): void {
+        // Task handlers are registered in Protocol constructor before _capabilities is initialized
+        // Skip capability check for task methods during initialization
+        if (!this._capabilities) {
+            return;
+        }
+
         switch (method) {
             case 'sampling/createMessage':
                 if (!this._capabilities.sampling) {
@@ -311,10 +571,33 @@ export class Client<
                 }
                 break;
 
+            case 'tasks/get':
+            case 'tasks/list':
+            case 'tasks/result':
+            case 'tasks/cancel':
+                if (!this._capabilities.tasks) {
+                    throw new Error(`Client does not support tasks capability (required for ${method})`);
+                }
+                break;
+
             case 'ping':
                 // No specific capability required for ping
                 break;
         }
+    }
+
+    protected assertTaskCapability(method: string): void {
+        assertToolsCallTaskCapability(this._serverCapabilities?.tasks?.requests, method, 'Server');
+    }
+
+    protected assertTaskHandlerCapability(method: string): void {
+        // Task handlers are registered in Protocol constructor before _capabilities is initialized
+        // Skip capability check for task methods during initialization
+        if (!this._capabilities) {
+            return;
+        }
+
+        assertClientRequestTaskCapability(this._capabilities.tasks?.requests, method, 'Client');
     }
 
     async ping(options?: RequestOptions) {
@@ -357,11 +640,24 @@ export class Client<
         return this.request({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
     }
 
+    /**
+     * Calls a tool and waits for the result. Automatically validates structured output if the tool has an outputSchema.
+     *
+     * For task-based execution with streaming behavior, use client.experimental.tasks.callToolStream() instead.
+     */
     async callTool(
         params: CallToolRequest['params'],
         resultSchema: typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema = CallToolResultSchema,
         options?: RequestOptions
     ) {
+        // Guard: required-task tools need experimental API
+        if (this.isToolTaskRequired(params.name)) {
+            throw new McpError(
+                ErrorCode.InvalidRequest,
+                `Tool "${params.name}" requires task-based execution. Use client.experimental.tasks.callToolStream() instead.`
+            );
+        }
+
         const result = await this.request({ method: 'tools/call', params }, resultSchema, options);
 
         // Check if the tool has an outputSchema
@@ -402,18 +698,45 @@ export class Client<
         return result;
     }
 
+    private isToolTask(toolName: string): boolean {
+        if (!this._serverCapabilities?.tasks?.requests?.tools?.call) {
+            return false;
+        }
+
+        return this._cachedKnownTaskTools.has(toolName);
+    }
+
+    /**
+     * Check if a tool requires task-based execution.
+     * Unlike isToolTask which includes 'optional' tools, this only checks for 'required'.
+     */
+    private isToolTaskRequired(toolName: string): boolean {
+        return this._cachedRequiredTaskTools.has(toolName);
+    }
+
     /**
      * Cache validators for tool output schemas.
      * Called after listTools() to pre-compile validators for better performance.
      */
-    private cacheToolOutputSchemas(tools: Tool[]): void {
+    private cacheToolMetadata(tools: Tool[]): void {
         this._cachedToolOutputValidators.clear();
+        this._cachedKnownTaskTools.clear();
+        this._cachedRequiredTaskTools.clear();
 
         for (const tool of tools) {
             // If the tool has an outputSchema, create and cache the validator
             if (tool.outputSchema) {
                 const toolValidator = this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
                 this._cachedToolOutputValidators.set(tool.name, toolValidator);
+            }
+
+            // If the tool supports task-based execution, cache that information
+            const taskSupport = tool.execution?.taskSupport;
+            if (taskSupport === 'required' || taskSupport === 'optional') {
+                this._cachedKnownTaskTools.add(tool.name);
+            }
+            if (taskSupport === 'required') {
+                this._cachedRequiredTaskTools.add(tool.name);
             }
         }
     }
@@ -429,7 +752,7 @@ export class Client<
         const result = await this.request({ method: 'tools/list', params }, ListToolsResultSchema, options);
 
         // Cache the tools and their output schemas for future validation
-        this.cacheToolOutputSchemas(result.tools);
+        this.cacheToolMetadata(result.tools);
 
         return result;
     }
