@@ -308,14 +308,9 @@ describe('SSEClientTransport', () => {
 
             await transport.start();
 
-            // Store original fetch
             const originalFetch = global.fetch;
-
             try {
-                // Mock fetch for the message sending test
-                global.fetch = vi.fn().mockResolvedValue({
-                    ok: true
-                });
+                global.fetch = vi.fn().mockResolvedValue({ ok: true });
 
                 const message: JSONRPCMessage = {
                     jsonrpc: '2.0',
@@ -326,20 +321,88 @@ describe('SSEClientTransport', () => {
 
                 await transport.send(message);
 
-                // Verify fetch was called with correct headers
-                expect(global.fetch).toHaveBeenCalledWith(
-                    expect.any(URL),
-                    expect.objectContaining({
-                        headers: expect.any(Headers)
-                    })
-                );
+                const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
+                expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
+                expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
+                expect(calledHeaders.get('content-type')).toBe('application/json');
+
+                customHeaders['X-Custom-Header'] = 'updated-value';
+
+                await transport.send(message);
+
+                const updatedHeaders = (global.fetch as Mock).mock.calls[1][1].headers;
+                expect(updatedHeaders.get('X-Custom-Header')).toBe('updated-value');
+            } finally {
+                global.fetch = originalFetch;
+            }
+        });
+
+        it('passes custom headers to fetch requests (Headers class)', async () => {
+            const customHeaders = new Headers({
+                Authorization: 'Bearer test-token',
+                'X-Custom-Header': 'custom-value'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                requestInit: {
+                    headers: customHeaders
+                }
+            });
+
+            await transport.start();
+
+            const originalFetch = global.fetch;
+            try {
+                global.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+                const message: JSONRPCMessage = {
+                    jsonrpc: '2.0',
+                    id: '1',
+                    method: 'test',
+                    params: {}
+                };
+
+                await transport.send(message);
 
                 const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
-                expect(calledHeaders.get('Authorization')).toBe(customHeaders.Authorization);
-                expect(calledHeaders.get('X-Custom-Header')).toBe(customHeaders['X-Custom-Header']);
+                expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
+                expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
+                expect(calledHeaders.get('content-type')).toBe('application/json');
+
+                customHeaders.set('X-Custom-Header', 'updated-value');
+
+                await transport.send(message);
+
+                const updatedHeaders = (global.fetch as Mock).mock.calls[1][1].headers;
+                expect(updatedHeaders.get('X-Custom-Header')).toBe('updated-value');
+            } finally {
+                global.fetch = originalFetch;
+            }
+        });
+
+        it('passes custom headers to fetch requests (array of tuples)', async () => {
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                requestInit: {
+                    headers: [
+                        ['Authorization', 'Bearer test-token'],
+                        ['X-Custom-Header', 'custom-value']
+                    ]
+                }
+            });
+
+            await transport.start();
+
+            const originalFetch = global.fetch;
+            try {
+                global.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+                await transport.send({ jsonrpc: '2.0', id: '1', method: 'test', params: {} });
+
+                const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
+                expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
+                expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
                 expect(calledHeaders.get('content-type')).toBe('application/json');
             } finally {
-                // Restore original fetch
                 global.fetch = originalFetch;
             }
         });
