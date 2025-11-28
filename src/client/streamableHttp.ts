@@ -338,6 +338,11 @@ export class StreamableHTTPClientTransport implements Transport {
                         onresumptiontoken?.(event.id);
                     }
 
+                    // Skip events with no data (priming events, keep-alives)
+                    if (!event.data) {
+                        continue;
+                    }
+
                     if (!event.event || event.event === 'message') {
                         try {
                             const message = JSONRPCMessageSchema.parse(JSON.parse(event.data));
