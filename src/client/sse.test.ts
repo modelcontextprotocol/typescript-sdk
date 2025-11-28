@@ -1,5 +1,5 @@
-import { createServer, ServerResponse, type IncomingMessage, type Server } from 'http';
-import { AddressInfo } from 'net';
+import { createServer, ServerResponse, type IncomingMessage, type Server } from 'node:http';
+import { AddressInfo } from 'node:net';
 import { JSONRPCMessage } from '../types.js';
 import { SSEClientTransport } from './sse.js';
 import { OAuthClientProvider, UnauthorizedError } from './auth.js';
