@@ -296,6 +296,7 @@ describe('SSEClientTransport', () => {
 
         it('passes custom headers to fetch requests', async () => {
             const customHeaders = {
+                Authorization: 'Bearer test-token',
                 'X-Custom-Header': 'custom-value'
             };
 
@@ -321,6 +322,7 @@ describe('SSEClientTransport', () => {
                 await transport.send(message);
 
                 const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
+                expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
                 expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
                 expect(calledHeaders.get('content-type')).toBe('application/json');
 
@@ -337,6 +339,7 @@ describe('SSEClientTransport', () => {
 
         it('passes custom headers to fetch requests (Headers class)', async () => {
             const customHeaders = new Headers({
+                Authorization: 'Bearer test-token',
                 'X-Custom-Header': 'custom-value'
             });
 
@@ -362,6 +365,7 @@ describe('SSEClientTransport', () => {
                 await transport.send(message);
 
                 const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
+                expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
                 expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
                 expect(calledHeaders.get('content-type')).toBe('application/json');
 
@@ -379,7 +383,10 @@ describe('SSEClientTransport', () => {
         it('passes custom headers to fetch requests (array of tuples)', async () => {
             transport = new SSEClientTransport(resourceBaseUrl, {
                 requestInit: {
-                    headers: [['X-Custom-Header', 'custom-value']]
+                    headers: [
+                        ['Authorization', 'Bearer test-token'],
+                        ['X-Custom-Header', 'custom-value']
+                    ]
                 }
             });
 
@@ -392,6 +399,7 @@ describe('SSEClientTransport', () => {
                 await transport.send({ jsonrpc: '2.0', id: '1', method: 'test', params: {} });
 
                 const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
+                expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
                 expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
                 expect(calledHeaders.get('content-type')).toBe('application/json');
             } finally {
