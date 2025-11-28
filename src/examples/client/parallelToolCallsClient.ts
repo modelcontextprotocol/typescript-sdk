@@ -39,8 +39,8 @@ async function main(): Promise<void> {
         console.log('Successfully connected to MCP server');
 
         // Set up notification handler with caller identification
-        client.onloggingmessage = params => {
-            console.log(`Notification: ${params.data}`);
+        client.onloggingmessage = ({ data }) => {
+            console.log(`Notification: ${data}`);
         };
 
         console.log('List tools');

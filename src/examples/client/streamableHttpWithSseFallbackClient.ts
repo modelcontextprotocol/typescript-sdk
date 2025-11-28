@@ -34,8 +34,8 @@ async function main(): Promise<void> {
         transport = connection.transport;
 
         // Set up notification handler
-        client.onloggingmessage = params => {
-            console.log(`Notification: ${params.level} - ${params.data}`);
+        client.onloggingmessage = ({ level, data }) => {
+            console.log(`Notification: ${level} - ${data}`);
         };
 
         // DEMO WORKFLOW:

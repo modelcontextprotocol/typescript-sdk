@@ -57,8 +57,8 @@ async function main(): Promise<void> {
     });
 
     // Set up notification handler to receive progress updates
-    client.onloggingmessage = params => {
-        console.log(`[Notification] ${params.data}`);
+    client.onloggingmessage = ({ data }) => {
+        console.log(`[Notification] ${data}`);
     };
 
     try {

@@ -38,8 +38,8 @@ async function createAndRunClient(config: ClientConfig): Promise<{ id: string; r
     };
 
     // Set up client-specific notification handler
-    client.onloggingmessage = params => {
-        console.log(`[${config.id}] Notification: ${params.data}`);
+    client.onloggingmessage = ({ data }) => {
+        console.log(`[${config.id}] Notification: ${data}`);
     };
 
     try {

@@ -229,22 +229,21 @@ async function connect(url?: string): Promise<void> {
         };
 
         // Set up elicitation request handler with proper validation
-        client.onelicit = async params => {
-            if (params.mode !== 'form') {
-                throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${params.mode}`);
+        client.onelicit = async ({ mode, message, requestedSchema }) => {
+            if (mode !== 'form') {
+                throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${mode}`);
             }
             console.log('\n🔔 Elicitation (form) Request Received:');
-            console.log(`Message: ${params.message}`);
+            console.log(`Message: ${message}`);
             console.log('Requested Schema:');
-            console.log(JSON.stringify(params.requestedSchema, null, 2));
+            console.log(JSON.stringify(requestedSchema, null, 2));
 
-            const schema = params.requestedSchema;
-            const properties = schema.properties;
-            const required = schema.required || [];
+            const properties = requestedSchema.properties;
+            const required = requestedSchema.required || [];
 
             // Set up AJV validator for the requested schema
             const ajv = new Ajv();
-            const validate = ajv.compile(schema);
+            const validate = ajv.compile(requestedSchema);
 
             let attempts = 0;
             const maxAttempts = 3;
@@ -429,9 +428,9 @@ async function connect(url?: string): Promise<void> {
         });
 
         // Set up notification handlers
-        client.onloggingmessage = params => {
+        client.onloggingmessage = ({ level, data }) => {
             notificationCount++;
-            console.log(`\nNotification #${notificationCount}: ${params.level} - ${params.data}`);
+            console.log(`\nNotification #${notificationCount}: ${level} - ${data}`);
             // Re-display the prompt
             process.stdout.write('> ');
         };

@@ -142,18 +142,18 @@ export class McpServer {
                 })
         });
 
-        this.server.oncalltool = async (params, extra): Promise<CallToolResult> => {
-            const tool = this._registeredTools[params.name];
+        this.server.oncalltool = async ({ name, arguments: args }, extra): Promise<CallToolResult> => {
+            const tool = this._registeredTools[name];
 
             let result: CallToolResult;
 
             try {
                 if (!tool) {
-                    throw new McpError(ErrorCode.InvalidParams, `Tool ${params.name} not found`);
+                    throw new McpError(ErrorCode.InvalidParams, `Tool ${name} not found`);
                 }
 
                 if (!tool.enabled) {
-                    throw new McpError(ErrorCode.InvalidParams, `Tool ${params.name} disabled`);
+                    throw new McpError(ErrorCode.InvalidParams, `Tool ${name} disabled`);
                 }
 
                 if (tool.inputSchema) {
@@ -162,17 +162,17 @@ export class McpServer {
                     // If that fails, use the schema directly (for union/intersection/etc)
                     const inputObj = normalizeObjectSchema(tool.inputSchema);
                     const schemaToParse = inputObj ?? (tool.inputSchema as AnySchema);
-                    const parseResult = await safeParseAsync(schemaToParse, params.arguments);
+                    const parseResult = await safeParseAsync(schemaToParse, args);
                     if (!parseResult.success) {
                         throw new McpError(
                             ErrorCode.InvalidParams,
-                            `Input validation error: Invalid arguments for tool ${params.name}: ${getParseErrorMessage(parseResult.error)}`
+                            `Input validation error: Invalid arguments for tool ${name}: ${getParseErrorMessage(parseResult.error)}`
                         );
                     }
 
-                    const args = parseResult.data;
+                    const parsedArgs = parseResult.data;
 
-                    result = await Promise.resolve(cb(args, extra));
+                    result = await Promise.resolve(cb(parsedArgs, extra));
                 } else {
                     const cb = tool.callback as ToolCallback<undefined>;
                     result = await Promise.resolve(cb(extra));
@@ -182,7 +182,7 @@ export class McpServer {
                     if (!result.structuredContent) {
                         throw new McpError(
                             ErrorCode.InvalidParams,
-                            `Output validation error: Tool ${params.name} has an output schema but no structured content was provided`
+                            `Output validation error: Tool ${name} has an output schema but no structured content was provided`
                         );
                     }
 
@@ -192,7 +192,7 @@ export class McpServer {
                     if (!parseResult.success) {
                         throw new McpError(
                             ErrorCode.InvalidParams,
-                            `Output validation error: Invalid structured content for tool ${params.name}: ${getParseErrorMessage(parseResult.error)}`
+                            `Output validation error: Invalid structured content for tool ${name}: ${getParseErrorMessage(parseResult.error)}`
                         );
                     }
                 }
@@ -328,7 +328,7 @@ export class McpServer {
             }
         });
 
-        this.server.onlistresources = async (params, extra) => {
+        this.server.onlistresources = async (_params, extra) => {
             const resources = Object.entries(this._registeredResources)
                 .filter(([_, resource]) => resource.enabled)
                 .map(([uri, resource]) => ({
@@ -366,8 +366,8 @@ export class McpServer {
             return { resourceTemplates };
         };
 
-        this.server.onreadresource = async (params, extra) => {
-            const uri = new URL(params.uri);
+        this.server.onreadresource = async ({ uri: uriString }, extra) => {
+            const uri = new URL(uriString);
 
             // First check for exact resource match
             const resource = this._registeredResources[uri.toString()];
@@ -423,29 +423,29 @@ export class McpServer {
                 })
         });
 
-        this.server.ongetprompt = async (params, extra): Promise<GetPromptResult> => {
-            const prompt = this._registeredPrompts[params.name];
+        this.server.ongetprompt = async ({ name, arguments: args }, extra): Promise<GetPromptResult> => {
+            const prompt = this._registeredPrompts[name];
             if (!prompt) {
-                throw new McpError(ErrorCode.InvalidParams, `Prompt ${params.name} not found`);
+                throw new McpError(ErrorCode.InvalidParams, `Prompt ${name} not found`);
             }
 
             if (!prompt.enabled) {
-                throw new McpError(ErrorCode.InvalidParams, `Prompt ${params.name} disabled`);
+                throw new McpError(ErrorCode.InvalidParams, `Prompt ${name} disabled`);
             }
 
             if (prompt.argsSchema) {
                 const argsObj = normalizeObjectSchema(prompt.argsSchema) as AnyObjectSchema;
-                const parseResult = await safeParseAsync(argsObj, params.arguments);
+                const parseResult = await safeParseAsync(argsObj, args);
                 if (!parseResult.success) {
                     throw new McpError(
                         ErrorCode.InvalidParams,
-                        `Invalid arguments for prompt ${params.name}: ${getParseErrorMessage(parseResult.error)}`
+                        `Invalid arguments for prompt ${name}: ${getParseErrorMessage(parseResult.error)}`
                     );
                 }
 
-                const args = parseResult.data;
+                const parsedArgs = parseResult.data;
                 const cb = prompt.callback as PromptCallback<PromptArgsRawShape>;
-                return await Promise.resolve(cb(args, extra));
+                return await Promise.resolve(cb(parsedArgs, extra));
             } else {
                 const cb = prompt.callback as PromptCallback<undefined>;
                 return await Promise.resolve(cb(extra));

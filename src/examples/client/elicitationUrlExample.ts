@@ -546,8 +546,7 @@ async function connect(url?: string): Promise<void> {
     client.onelicit = elicitationParamsHandler;
 
     // Set up notification handler for elicitation completion
-    client.onelicitationcomplete = params => {
-        const { elicitationId } = params;
+    client.onelicitationcomplete = ({ elicitationId }) => {
         const pending = pendingURLElicitations.get(elicitationId);
         if (pending) {
             clearTimeout(pending.timeout);
