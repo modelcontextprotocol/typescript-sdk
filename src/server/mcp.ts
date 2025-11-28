@@ -23,6 +23,7 @@ import {
     McpError,
     ErrorCode,
     CompleteResult,
+    CompleteRequest,
     PromptReference,
     ResourceTemplateReference,
     BaseMetadata,
@@ -44,11 +45,7 @@ import {
     ServerRequest,
     ServerNotification,
     ToolAnnotations,
-    LoggingMessageNotification,
-    CompleteRequestPrompt,
-    CompleteRequestResourceTemplate,
-    assertCompleteRequestPrompt,
-    assertCompleteRequestResourceTemplate
+    LoggingMessageNotification
 } from '../types.js';
 import { isCompletable, getCompleter } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
@@ -245,32 +242,30 @@ export class McpServer {
             completions: {}
         });
 
-        this.server.setRequestHandler(CompleteRequestSchema, async (request): Promise<CompleteResult> => {
-            switch (request.params.ref.type) {
+        this.server.oncomplete = async (params): Promise<CompleteResult> => {
+            switch (params.ref.type) {
                 case 'ref/prompt':
-                    assertCompleteRequestPrompt(request);
-                    return this.handlePromptCompletion(request, request.params.ref);
+                    return this.handlePromptCompletion(params as CompleteRequest['params'] & { ref: PromptReference });
 
                 case 'ref/resource':
-                    assertCompleteRequestResourceTemplate(request);
-                    return this.handleResourceCompletion(request, request.params.ref);
+                    return this.handleResourceCompletion(params as CompleteRequest['params'] & { ref: ResourceTemplateReference });
 
                 default:
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid completion reference: ${request.params.ref}`);
+                    throw new McpError(ErrorCode.InvalidParams, `Invalid completion reference: ${params.ref}`);
             }
-        });
+        };
 
         this._completionHandlerInitialized = true;
     }
 
-    private async handlePromptCompletion(request: CompleteRequestPrompt, ref: PromptReference): Promise<CompleteResult> {
-        const prompt = this._registeredPrompts[ref.name];
+    private async handlePromptCompletion(params: CompleteRequest['params'] & { ref: PromptReference }): Promise<CompleteResult> {
+        const prompt = this._registeredPrompts[params.ref.name];
         if (!prompt) {
-            throw new McpError(ErrorCode.InvalidParams, `Prompt ${ref.name} not found`);
+            throw new McpError(ErrorCode.InvalidParams, `Prompt ${params.ref.name} not found`);
         }
 
         if (!prompt.enabled) {
-            throw new McpError(ErrorCode.InvalidParams, `Prompt ${ref.name} disabled`);
+            throw new McpError(ErrorCode.InvalidParams, `Prompt ${params.ref.name} disabled`);
         }
 
         if (!prompt.argsSchema) {
@@ -278,7 +273,7 @@ export class McpServer {
         }
 
         const promptShape = getObjectShape(prompt.argsSchema);
-        const field = promptShape?.[request.params.argument.name];
+        const field = promptShape?.[params.argument.name];
         if (!isCompletable(field)) {
             return EMPTY_COMPLETION_RESULT;
         }
@@ -287,31 +282,32 @@ export class McpServer {
         if (!completer) {
             return EMPTY_COMPLETION_RESULT;
         }
-        const suggestions = await completer(request.params.argument.value, request.params.context);
+        const suggestions = await completer(params.argument.value, params.context);
         return createCompletionResult(suggestions);
     }
 
     private async handleResourceCompletion(
-        request: CompleteRequestResourceTemplate,
-        ref: ResourceTemplateReference
+        params: CompleteRequest['params'] & { ref: ResourceTemplateReference }
     ): Promise<CompleteResult> {
-        const template = Object.values(this._registeredResourceTemplates).find(t => t.resourceTemplate.uriTemplate.toString() === ref.uri);
+        const template = Object.values(this._registeredResourceTemplates).find(
+            t => t.resourceTemplate.uriTemplate.toString() === params.ref.uri
+        );
 
         if (!template) {
-            if (this._registeredResources[ref.uri]) {
+            if (this._registeredResources[params.ref.uri]) {
                 // Attempting to autocomplete a fixed resource URI is not an error in the spec (but probably should be).
                 return EMPTY_COMPLETION_RESULT;
             }
 
-            throw new McpError(ErrorCode.InvalidParams, `Resource template ${request.params.ref.uri} not found`);
+            throw new McpError(ErrorCode.InvalidParams, `Resource template ${params.ref.uri} not found`);
         }
 
-        const completer = template.resourceTemplate.completeCallback(request.params.argument.name);
+        const completer = template.resourceTemplate.completeCallback(params.argument.name);
         if (!completer) {
             return EMPTY_COMPLETION_RESULT;
         }
 
-        const suggestions = await completer(request.params.argument.value, request.params.context);
+        const suggestions = await completer(params.argument.value, params.context);
         return createCompletionResult(suggestions);
     }
 
