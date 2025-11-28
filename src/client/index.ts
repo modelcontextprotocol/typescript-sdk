@@ -3,6 +3,8 @@ import type { Transport } from '../shared/transport.js';
 import {
     type CallToolRequest,
     CallToolResultSchema,
+    CancelledNotificationSchema,
+    type CancelledNotification,
     type ClientCapabilities,
     type ClientNotification,
     type ClientRequest,
@@ -10,6 +12,15 @@ import {
     type CompatibilityCallToolResultSchema,
     type CompleteRequest,
     CompleteResultSchema,
+    type CreateMessageRequest,
+    CreateMessageRequestSchema,
+    type CreateMessageResult,
+    type ElicitationCompleteNotification,
+    ElicitationCompleteNotificationSchema,
+    type ElicitRequest,
+    ElicitRequestSchema,
+    type ElicitResult,
+    ElicitResultSchema,
     EmptyResultSchema,
     ErrorCode,
     type GetPromptRequest,
@@ -23,22 +34,35 @@ import {
     ListResourcesResultSchema,
     type ListResourceTemplatesRequest,
     ListResourceTemplatesResultSchema,
+    type ListRootsRequest,
+    ListRootsRequestSchema,
+    type ListRootsResult,
     type ListToolsRequest,
     ListToolsResultSchema,
     type LoggingLevel,
+    type LoggingMessageNotification,
+    LoggingMessageNotificationSchema,
     McpError,
     type Notification,
+    type ProgressNotification,
+    ProgressNotificationSchema,
+    type PromptListChangedNotification,
+    PromptListChangedNotificationSchema,
     type ReadResourceRequest,
     ReadResourceResultSchema,
     type Request,
+    type ResourceListChangedNotification,
+    ResourceListChangedNotificationSchema,
+    type ResourceUpdatedNotification,
+    ResourceUpdatedNotificationSchema,
     type Result,
     type ServerCapabilities,
     SUPPORTED_PROTOCOL_VERSIONS,
     type SubscribeRequest,
     type Tool,
-    type UnsubscribeRequest,
-    ElicitResultSchema,
-    ElicitRequestSchema
+    type ToolListChangedNotification,
+    ToolListChangedNotificationSchema,
+    type UnsubscribeRequest
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
@@ -607,5 +631,105 @@ export class Client<
 
     async sendRootsListChanged() {
         return this.notification({ method: 'notifications/roots/list_changed' });
+    }
+
+    // =====================
+    // Notification Setters
+    // =====================
+
+    /**
+     * Sets a handler for logging message notifications from the server.
+     */
+    set onloggingmessage(callback: (params: LoggingMessageNotification['params']) => void) {
+        this.setNotificationHandler(LoggingMessageNotificationSchema, n => callback(n.params));
+    }
+
+    /**
+     * Sets a handler for resource updated notifications from the server.
+     */
+    set onresourceupdated(callback: (params: ResourceUpdatedNotification['params']) => void) {
+        this.setNotificationHandler(ResourceUpdatedNotificationSchema, n => callback(n.params));
+    }
+
+    /**
+     * Sets a handler for resource list changed notifications from the server.
+     */
+    set onresourcelistchanged(callback: (params?: ResourceListChangedNotification['params']) => void) {
+        this.setNotificationHandler(ResourceListChangedNotificationSchema, n => callback(n.params));
+    }
+
+    /**
+     * Sets a handler for tool list changed notifications from the server.
+     */
+    set ontoollistchanged(callback: (params?: ToolListChangedNotification['params']) => void) {
+        this.setNotificationHandler(ToolListChangedNotificationSchema, n => callback(n.params));
+    }
+
+    /**
+     * Sets a handler for prompt list changed notifications from the server.
+     */
+    set onpromptlistchanged(callback: (params?: PromptListChangedNotification['params']) => void) {
+        this.setNotificationHandler(PromptListChangedNotificationSchema, n => callback(n.params));
+    }
+
+    /**
+     * Sets a handler for elicitation complete notifications from the server.
+     */
+    set onelicitationcomplete(callback: (params: ElicitationCompleteNotification['params']) => void) {
+        this.setNotificationHandler(ElicitationCompleteNotificationSchema, n => callback(n.params));
+    }
+
+    /**
+     * Sets a handler for progress notifications from the server.
+     */
+    set onprogress(callback: (params: ProgressNotification['params']) => void) {
+        this.setNotificationHandler(ProgressNotificationSchema, n => callback(n.params));
+    }
+
+    /**
+     * Sets a handler for cancelled notifications from the server.
+     */
+    set oncancelled(callback: (params: CancelledNotification['params']) => void) {
+        this.setNotificationHandler(CancelledNotificationSchema, n => callback(n.params));
+    }
+
+    // =====================
+    // Request Handler Setters
+    // =====================
+
+    /**
+     * Sets a handler for sampling/createMessage requests from the server.
+     */
+    set oncreatemessage(
+        callback: (
+            params: CreateMessageRequest['params'],
+            extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+        ) => CreateMessageResult | Promise<CreateMessageResult>
+    ) {
+        this.setRequestHandler(CreateMessageRequestSchema, (request, extra) => callback(request.params, extra));
+    }
+
+    /**
+     * Sets a handler for elicitation/create requests from the server.
+     */
+    set onelicit(
+        callback: (
+            params: ElicitRequest['params'],
+            extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+        ) => ElicitResult | Promise<ElicitResult>
+    ) {
+        this.setRequestHandler(ElicitRequestSchema, (request, extra) => callback(request.params, extra));
+    }
+
+    /**
+     * Sets a handler for roots/list requests from the server.
+     */
+    set onlistroots(
+        callback: (
+            params: ListRootsRequest['params'],
+            extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
+        ) => ListRootsResult | Promise<ListRootsResult>
+    ) {
+        this.setRequestHandler(ListRootsRequestSchema, (request, extra) => callback(request.params, extra));
     }
 }

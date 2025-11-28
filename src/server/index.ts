@@ -1,38 +1,82 @@
-import { mergeCapabilities, Protocol, type NotificationOptions, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
 import {
+    mergeCapabilities,
+    Protocol,
+    type NotificationOptions,
+    type ProtocolOptions,
+    type RequestHandlerExtra,
+    type RequestOptions
+} from '../shared/protocol.js';
+import {
+    type CallToolRequest,
+    CallToolRequestSchema,
+    type CallToolResult,
+    CancelledNotificationSchema,
+    type CancelledNotification,
     type ClientCapabilities,
+    type CompleteRequest,
+    CompleteRequestSchema,
+    type CompleteResult,
     type CreateMessageRequest,
     CreateMessageResultSchema,
     type ElicitRequestFormParams,
     type ElicitRequestURLParams,
     type ElicitResult,
     ElicitResultSchema,
+    type EmptyResult,
     EmptyResultSchema,
     ErrorCode,
+    type GetPromptRequest,
+    GetPromptRequestSchema,
+    type GetPromptResult,
     type Implementation,
+    type InitializedNotification,
     InitializedNotificationSchema,
     type InitializeRequest,
     InitializeRequestSchema,
     type InitializeResult,
     LATEST_PROTOCOL_VERSION,
+    type ListPromptsRequest,
+    ListPromptsRequestSchema,
+    type ListPromptsResult,
+    type ListResourcesRequest,
+    ListResourcesRequestSchema,
+    type ListResourcesResult,
+    type ListResourceTemplatesRequest,
+    ListResourceTemplatesRequestSchema,
+    type ListResourceTemplatesResult,
     type ListRootsRequest,
     ListRootsResultSchema,
+    type ListToolsRequest,
+    ListToolsRequestSchema,
+    type ListToolsResult,
     type LoggingLevel,
     LoggingLevelSchema,
     type LoggingMessageNotification,
     McpError,
     type Notification,
+    type ProgressNotification,
+    ProgressNotificationSchema,
+    type ReadResourceRequest,
+    ReadResourceRequestSchema,
+    type ReadResourceResult,
     type Request,
     type ResourceUpdatedNotification,
     type Result,
+    type RootsListChangedNotification,
+    RootsListChangedNotificationSchema,
     type ServerCapabilities,
     type ServerNotification,
     type ServerRequest,
     type ServerResult,
+    type SetLevelRequest,
     SetLevelRequestSchema,
+    type SubscribeRequest,
+    SubscribeRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS,
     type ToolResultContent,
-    type ToolUseContent
+    type ToolUseContent,
+    type UnsubscribeRequest,
+    UnsubscribeRequestSchema
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
@@ -489,5 +533,174 @@ export class Server<
 
     async sendPromptListChanged() {
         return this.notification({ method: 'notifications/prompts/list_changed' });
+    }
+
+    // =====================
+    // Notification Setters
+    // =====================
+
+    /**
+     * Sets a handler for the initialized notification from the client.
+     * This is an alternative to the `oninitialized` callback property.
+     */
+    set oninitializednotification(callback: (params?: InitializedNotification['params']) => void) {
+        this.setNotificationHandler(InitializedNotificationSchema, n => callback(n.params));
+    }
+
+    /**
+     * Sets a handler for roots list changed notifications from the client.
+     */
+    set onrootslistchanged(callback: (params?: RootsListChangedNotification['params']) => void) {
+        this.setNotificationHandler(RootsListChangedNotificationSchema, n => callback(n.params));
+    }
+
+    /**
+     * Sets a handler for progress notifications from the client.
+     */
+    set onprogress(callback: (params: ProgressNotification['params']) => void) {
+        this.setNotificationHandler(ProgressNotificationSchema, n => callback(n.params));
+    }
+
+    /**
+     * Sets a handler for cancelled notifications from the client.
+     */
+    set oncancelled(callback: (params: CancelledNotification['params']) => void) {
+        this.setNotificationHandler(CancelledNotificationSchema, n => callback(n.params));
+    }
+
+    // =====================
+    // Request Handler Setters
+    // =====================
+
+    /**
+     * Sets a handler for prompts/list requests from the client.
+     */
+    set onlistprompts(
+        callback: (
+            params: ListPromptsRequest['params'],
+            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+        ) => ListPromptsResult | Promise<ListPromptsResult>
+    ) {
+        this.setRequestHandler(ListPromptsRequestSchema, (request, extra) => callback(request.params, extra));
+    }
+
+    /**
+     * Sets a handler for prompts/get requests from the client.
+     */
+    set ongetprompt(
+        callback: (
+            params: GetPromptRequest['params'],
+            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+        ) => GetPromptResult | Promise<GetPromptResult>
+    ) {
+        this.setRequestHandler(GetPromptRequestSchema, (request, extra) => callback(request.params, extra));
+    }
+
+    /**
+     * Sets a handler for resources/list requests from the client.
+     */
+    set onlistresources(
+        callback: (
+            params: ListResourcesRequest['params'],
+            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+        ) => ListResourcesResult | Promise<ListResourcesResult>
+    ) {
+        this.setRequestHandler(ListResourcesRequestSchema, (request, extra) => callback(request.params, extra));
+    }
+
+    /**
+     * Sets a handler for resources/templates/list requests from the client.
+     */
+    set onlistresourcetemplates(
+        callback: (
+            params: ListResourceTemplatesRequest['params'],
+            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+        ) => ListResourceTemplatesResult | Promise<ListResourceTemplatesResult>
+    ) {
+        this.setRequestHandler(ListResourceTemplatesRequestSchema, (request, extra) => callback(request.params, extra));
+    }
+
+    /**
+     * Sets a handler for resources/read requests from the client.
+     */
+    set onreadresource(
+        callback: (
+            params: ReadResourceRequest['params'],
+            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+        ) => ReadResourceResult | Promise<ReadResourceResult>
+    ) {
+        this.setRequestHandler(ReadResourceRequestSchema, (request, extra) => callback(request.params, extra));
+    }
+
+    /**
+     * Sets a handler for resources/subscribe requests from the client.
+     */
+    set onsubscribe(
+        callback: (
+            params: SubscribeRequest['params'],
+            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+        ) => EmptyResult | Promise<EmptyResult>
+    ) {
+        this.setRequestHandler(SubscribeRequestSchema, (request, extra) => callback(request.params, extra));
+    }
+
+    /**
+     * Sets a handler for resources/unsubscribe requests from the client.
+     */
+    set onunsubscribe(
+        callback: (
+            params: UnsubscribeRequest['params'],
+            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+        ) => EmptyResult | Promise<EmptyResult>
+    ) {
+        this.setRequestHandler(UnsubscribeRequestSchema, (request, extra) => callback(request.params, extra));
+    }
+
+    /**
+     * Sets a handler for tools/list requests from the client.
+     */
+    set onlisttools(
+        callback: (
+            params: ListToolsRequest['params'],
+            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+        ) => ListToolsResult | Promise<ListToolsResult>
+    ) {
+        this.setRequestHandler(ListToolsRequestSchema, (request, extra) => callback(request.params, extra));
+    }
+
+    /**
+     * Sets a handler for tools/call requests from the client.
+     */
+    set oncalltool(
+        callback: (
+            params: CallToolRequest['params'],
+            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+        ) => CallToolResult | Promise<CallToolResult>
+    ) {
+        this.setRequestHandler(CallToolRequestSchema, (request, extra) => callback(request.params, extra));
+    }
+
+    /**
+     * Sets a handler for completion/complete requests from the client.
+     */
+    set oncomplete(
+        callback: (
+            params: CompleteRequest['params'],
+            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+        ) => CompleteResult | Promise<CompleteResult>
+    ) {
+        this.setRequestHandler(CompleteRequestSchema, (request, extra) => callback(request.params, extra));
+    }
+
+    /**
+     * Sets a handler for logging/setLevel requests from the client.
+     */
+    set onsetlevel(
+        callback: (
+            params: SetLevelRequest['params'],
+            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+        ) => EmptyResult | Promise<EmptyResult>
+    ) {
+        this.setRequestHandler(SetLevelRequestSchema, (request, extra) => callback(request.params, extra));
     }
 }

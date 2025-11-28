@@ -1985,3 +1985,152 @@ test('should respect log level for transport with sessionId', async () => {
     await server.sendLoggingMessage(warningParams, SESSION_ID);
     expect(clientTransport.onmessage).toHaveBeenCalled();
 });
+
+describe('Server setter-based handlers', () => {
+    test('should register notification handler via onrootslistchanged setter', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { roots: { listChanged: true } } });
+
+        let notificationReceived = false;
+        server.onrootslistchanged = () => {
+            notificationReceived = true;
+        };
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await client.sendRootsListChanged();
+
+        // Wait for notification to be processed
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        expect(notificationReceived).toBe(true);
+    });
+
+    test('should register request handler via onlistprompts setter', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: { prompts: {} } });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: {} });
+
+        server.onlistprompts = () => ({
+            prompts: [{ name: 'greeting', description: 'A greeting prompt' }]
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await client.listPrompts();
+
+        expect(result.prompts).toHaveLength(1);
+        expect(result.prompts[0].name).toBe('greeting');
+    });
+
+    test('should register request handler via onlisttools setter', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: { tools: {} } });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: {} });
+
+        server.onlisttools = () => ({
+            tools: [
+                {
+                    name: 'calculator',
+                    description: 'A calculator tool',
+                    inputSchema: { type: 'object', properties: {} }
+                }
+            ]
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await client.listTools();
+
+        expect(result.tools).toHaveLength(1);
+        expect(result.tools[0].name).toBe('calculator');
+    });
+
+    test('should register request handler via oncalltool setter', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: { tools: {} } });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: {} });
+
+        server.onlisttools = () => ({
+            tools: [{ name: 'echo', inputSchema: { type: 'object' } }]
+        });
+
+        server.oncalltool = params => ({
+            content: [{ type: 'text', text: `Echo: ${JSON.stringify(params.arguments)}` }]
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await client.listTools();
+        const result = await client.callTool({ name: 'echo', arguments: { message: 'hello' } });
+
+        expect(result.content).toEqual([{ type: 'text', text: 'Echo: {"message":"hello"}' }]);
+    });
+
+    test('should register request handler via onlistresources setter', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: { resources: {} } });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: {} });
+
+        server.onlistresources = () => ({
+            resources: [{ uri: 'file:///test.txt', name: 'Test File', mimeType: 'text/plain' }]
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await client.listResources();
+
+        expect(result.resources).toHaveLength(1);
+        expect(result.resources[0].uri).toBe('file:///test.txt');
+    });
+
+    test('should register request handler via onreadresource setter', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: { resources: {} } });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: {} });
+
+        server.onreadresource = params => ({
+            contents: [{ uri: params.uri, text: `Content of ${params.uri}` }]
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const result = await client.readResource({ uri: 'file:///test.txt' });
+
+        expect(result.contents).toHaveLength(1);
+        expect(result.contents[0].text).toBe('Content of file:///test.txt');
+    });
+
+    test('should receive params in onprogress setter', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: {} });
+
+        const receivedProgress: { progressToken: string | number; progress: number }[] = [];
+        server.onprogress = params => {
+            receivedProgress.push(params);
+        };
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Send progress notification directly from client
+        await client.notification({
+            method: 'notifications/progress',
+            params: { progressToken: 'token-1', progress: 75, total: 100 }
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        expect(receivedProgress).toHaveLength(1);
+        expect(receivedProgress[0].progressToken).toBe('token-1');
+        expect(receivedProgress[0].progress).toBe(75);
+    });
+});
