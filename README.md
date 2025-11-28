@@ -1705,7 +1705,7 @@ try {
         name: 'streamable-http-client',
         version: '1.0.0'
     });
-    const transport = new StreamableHTTPClientTransport(new URL(baseUrl));
+    const transport = new StreamableHTTPClientTransport(baseUrl);
     await client.connect(transport);
     console.log('Connected using Streamable HTTP transport');
 } catch (error) {
