@@ -29,6 +29,7 @@
     - [Task-Based Execution](#task-based-execution)
     - [Writing MCP Clients](#writing-mcp-clients)
     - [Proxy Authorization Requests Upstream](#proxy-authorization-requests-upstream)
+    - [Custom Reconnection Scheduling for Non-Persistent Environments](#custom-reconnection-scheduling-for-non-persistent-environments)
     - [Backwards Compatibility](#backwards-compatibility)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
@@ -1767,6 +1768,164 @@ This setup allows you to:
 - Manage client registrations
 - Provide custom documentation URLs
 - Maintain control over the OAuth flow while delegating to an external provider
+
+### Custom Reconnection Scheduling for Non-Persistent Environments
+
+By default, the Streamable HTTP client transport uses `setTimeout` to schedule automatic reconnections after connection failures. However, this approach doesn't work well in non-persistent environments like serverless functions, mobile apps, or desktop applications that may be
+suspended.
+
+The SDK allows you to provide a custom reconnection scheduler to handle these scenarios:
+
+#### Use Cases
+
+- **Serverless Functions**: Reconnect immediately on the next function invocation instead of waiting for a timer
+- **Mobile Apps**: Use platform-specific background scheduling (iOS Background Fetch, Android WorkManager)
+- **Desktop Apps**: Handle sleep/wake cycles with OS-aware scheduling
+- **Edge Functions**: Optimize for short-lived execution contexts
+
+#### API
+
+```typescript
+type ReconnectionScheduler = (
+    reconnect: () => void, // Function to call to initiate reconnection
+    delay: number, // Suggested delay in milliseconds
+    attemptCount: number // Current reconnection attempt count (0-indexed)
+) => void;
+```
+
+#### Example: Serverless Environment (Immediate Reconnection)
+
+```typescript
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+
+// Serverless scheduler: reconnect immediately without setTimeout
+const serverlessScheduler = (reconnect, delay, attemptCount) => {
+    // In serverless, timers don't persist across invocations
+    // Just reconnect immediately - the function will handle retries on next invocation
+    reconnect();
+};
+
+const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), {
+    reconnectionOptions: {
+        initialReconnectionDelay: 1000,
+        maxReconnectionDelay: 30000,
+        reconnectionDelayGrowFactor: 2,
+        maxRetries: 5
+    },
+    reconnectionScheduler: serverlessScheduler
+});
+
+const client = new Client({
+    name: 'serverless-client',
+    version: '1.0.0'
+});
+
+await client.connect(transport);
+```
+
+#### Example: Serverless with Deferred Reconnection
+
+For true serverless environments where the function may terminate before reconnection, you can store the reconnection callback for the next invocation:
+
+```typescript
+// Global or persistent storage for reconnection callback
+let storedReconnect: (() => void) | undefined;
+
+const deferredScheduler = (reconnect, delay, attemptCount) => {
+    // Store the reconnect callback instead of calling it
+    // In a real app, persist this to a database or queue
+    storedReconnect = reconnect;
+    console.log(`Reconnection scheduled for next invocation (attempt ${attemptCount})`);
+};
+
+const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), {
+    reconnectionScheduler: deferredScheduler
+});
+
+// Later, on next function invocation:
+if (storedReconnect) {
+    console.log('Triggering stored reconnection');
+    storedReconnect();
+    storedReconnect = undefined;
+}
+```
+
+#### Example: Mobile App with Platform Scheduling
+
+```typescript
+// iOS/Android mobile app using platform-specific background tasks
+const mobileScheduler = (reconnect, delay, attemptCount) => {
+    if (attemptCount > 3) {
+        console.log('Too many reconnection attempts, giving up');
+        return;
+    }
+
+    // Use native background task API (pseudocode)
+    BackgroundTaskManager.schedule({
+        taskId: 'mcp-reconnect',
+        delay: delay,
+        callback: () => {
+            console.log(`Background reconnection attempt ${attemptCount}`);
+            reconnect();
+        }
+    });
+};
+
+const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), {
+    reconnectionOptions: {
+        initialReconnectionDelay: 5000,
+        maxReconnectionDelay: 60000,
+        reconnectionDelayGrowFactor: 1.5,
+        maxRetries: 3
+    },
+    reconnectionScheduler: mobileScheduler
+});
+```
+
+#### Example: Desktop App with Power Management
+
+```typescript
+// Desktop app that respects system sleep/wake cycles
+const desktopScheduler = (reconnect, delay, attemptCount) => {
+    const timeoutId = setTimeout(() => {
+        // Check if system was sleeping
+        const actualElapsed = Date.now() - scheduleTime;
+        if (actualElapsed > delay * 1.5) {
+            console.log('System was likely sleeping, reconnecting immediately');
+            reconnect();
+        } else {
+            reconnect();
+        }
+    }, delay);
+
+    const scheduleTime = Date.now();
+
+    // Handle system wake events (pseudocode)
+    powerMonitor.on('resume', () => {
+        clearTimeout(timeoutId);
+        console.log('System resumed, reconnecting immediately');
+        reconnect();
+    });
+};
+
+const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), {
+    reconnectionScheduler: desktopScheduler
+});
+```
+
+#### Default Behavior
+
+If no custom scheduler is provided, the transport uses the default `setTimeout`-based scheduler:
+
+```typescript
+// Default scheduler (built-in)
+const defaultScheduler = (reconnect, delay, attemptCount) => {
+    setTimeout(reconnect, delay);
+};
+```
+
+This default scheduler works well for traditional long-running applications but may not be suitable for environments with lifecycle constraints.
 
 ### Backwards Compatibility
 
