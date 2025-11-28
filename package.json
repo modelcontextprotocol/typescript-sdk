@@ -60,6 +60,7 @@
     ],
     "scripts": {
         "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
+        "generate:schemas": "npx ts-to-zod src/spec.types.ts src/schemas.generated.ts && tsx scripts/postprocess-schemas.ts",
         "typecheck": "tsgo --noEmit",
         "build": "npm run build:esm && npm run build:cjs",
         "build:esm": "mkdir -p dist/esm && echo '{\"type\": \"module\"}' > dist/esm/package.json && tsc -p tsconfig.prod.json",
@@ -120,6 +121,7 @@
         "eslint-config-prettier": "^10.1.8",
         "prettier": "3.6.2",
         "supertest": "^7.0.0",
+        "ts-to-zod": "^5.1.0",
         "tsx": "^4.16.5",
         "typescript": "^5.5.4",
         "typescript-eslint": "^8.0.0",
