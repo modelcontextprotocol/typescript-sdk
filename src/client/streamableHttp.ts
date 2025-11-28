@@ -534,7 +534,7 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 }
 
-                throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
+                throw new StreamableHTTPError(response.status, `Error POSTing to endpoint: ${text}`);
             }
 
             // Reset auth loop flag on successful response
