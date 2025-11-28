@@ -7,6 +7,12 @@ import { metadataHandler } from './handlers/metadata.js';
 import { OAuthServerProvider } from './provider.js';
 import { OAuthMetadata, OAuthProtectedResourceMetadata } from '../../shared/auth.js';
 
+// Check for dev mode flag that allows HTTP issuer URLs (for development/testing only)
+const allowHttpForDev = process.env.MCP_ALLOW_HTTP_AUTH_FOR_DEV_UNSAFE === 'true' || process.env.MCP_ALLOW_HTTP_AUTH_FOR_DEV_UNSAFE === '1';
+if (allowHttpForDev) {
+    console.warn('MCP_ALLOW_HTTP_AUTH_FOR_DEV_UNSAFE is enabled - HTTP issuer URLs are allowed. Do not use in production.');
+}
+
 export type AuthRouterOptions = {
     /**
      * A provider implementing the actual authorization logic for this router.
@@ -55,9 +61,7 @@ export type AuthRouterOptions = {
 
 const checkIssuerUrl = (issuer: URL): void => {
     // Technically RFC 8414 does not permit a localhost HTTPS exemption, but this will be necessary for ease of testing
-    // Also allow HTTP in development mode for testing with non-localhost URLs (e.g., Docker environments)
-    const devMode = process.env.MCP_DEV_MODE === 'true' || process.env.MCP_DEV_MODE === '1';
-    if (issuer.protocol !== 'https:' && issuer.hostname !== 'localhost' && issuer.hostname !== '127.0.0.1' && !devMode) {
+    if (issuer.protocol !== 'https:' && issuer.hostname !== 'localhost' && issuer.hostname !== '127.0.0.1' && !allowHttpForDev) {
         throw new Error('Issuer URL must be HTTPS');
     }
     if (issuer.hash) {
