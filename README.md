@@ -1,4 +1,4 @@
-# MCP TypeScript SDK ![NPM Version](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fsdk) ![MIT licensed](https://img.shields.io/npm/l/%40modelcontextprotocol%2Fsdk)
+# MCP TypeScript SDK [![NPM Version](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fsdk)](https://www.npmjs.com/package/@modelcontextprotocol/sdk) [![MIT licensed](https://img.shields.io/npm/l/%40modelcontextprotocol%2Fsdk)](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/LICENSE)
 
 <details>
 <summary>Table of Contents</summary>
