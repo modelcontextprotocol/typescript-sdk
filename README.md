@@ -26,6 +26,7 @@
     - [Improving Network Efficiency with Notification Debouncing](#improving-network-efficiency-with-notification-debouncing)
     - [Low-Level Server](#low-level-server)
     - [Eliciting User Input](#eliciting-user-input)
+    - [Task-Based Execution](#task-based-execution)
     - [Writing MCP Clients](#writing-mcp-clients)
     - [Proxy Authorization Requests Upstream](#proxy-authorization-requests-upstream)
     - [Backwards Compatibility](#backwards-compatibility)
@@ -38,7 +39,7 @@
 ## Overview
 
 The Model Context Protocol allows applications to provide context for LLMs in a standardized way, separating the concerns of providing context from the actual LLM interaction. This TypeScript SDK implements
-[the full MCP specification](https://modelcontextprotocol.io/specification/latest), making it easy to:
+[the full MCP specification](https://modelcontextprotocol.io/specification/draft), making it easy to:
 
 - Create MCP servers that expose resources, prompts and tools
 - Build MCP clients that can connect to any MCP server
@@ -47,8 +48,10 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 ## Installation
 
 ```bash
-npm install @modelcontextprotocol/sdk
+npm install @modelcontextprotocol/sdk zod
 ```
+
+This SDK has a **required peer dependency** on `zod` for schema validation. The SDK internally imports from `zod/v4`, but maintains backwards compatibility with projects using Zod v3.25 or later. You can use either API in your code by importing from `zod/v3` or `zod/v4`:
 
 ## Quick Start
 
@@ -58,7 +61,7 @@ Let's create a simple MCP server that exposes a calculator tool and some data. S
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 // Create an MCP server
 const server = new McpServer({
@@ -130,7 +133,7 @@ app.listen(port, () => {
 });
 ```
 
-Install the deps with `npm install @modelcontextprotocol/sdk express zod@3`, and run with `npx -y tsx server.ts`.
+Install the deps with `npm install @modelcontextprotocol/sdk express zod`, and run with `npx -y tsx server.ts`.
 
 You can connect to it using any MCP client that supports streamable http, such as:
 
@@ -156,7 +159,7 @@ const server = new McpServer({
 
 ### Tools
 
-[Tools](https://modelcontextprotocol.io/specification/latest/server/tools) let LLMs take actions through your server. Tools can perform computation, fetch data and have side effects. Tools should be designed to be model-controlled - i.e. AI models will decide which tools to call,
+[Tools](https://modelcontextprotocol.io/specification/draft/server/tools) let LLMs take actions through your server. Tools can perform computation, fetch data and have side effects. Tools should be designed to be model-controlled - i.e. AI models will decide which tools to call,
 and the arguments.
 
 ```typescript
@@ -257,7 +260,7 @@ Tools can return `ResourceLink` objects to reference resources without embedding
 
 ### Resources
 
-[Resources](https://modelcontextprotocol.io/specification/latest/server/resources) can also expose data to LLMs, but unlike tools shouldn't perform significant computation or have side effects.
+[Resources](https://modelcontextprotocol.io/specification/draft/server/resources) can also expose data to LLMs, but unlike tools shouldn't perform significant computation or have side effects.
 
 Resources are designed to be used in an application-driven way, meaning MCP client applications can decide how to expose them. For example, a client could expose a resource picker to the human, or could expose them to the model directly.
 
@@ -331,7 +334,7 @@ server.registerResource(
 
 ### Prompts
 
-[Prompts](https://modelcontextprotocol.io/specification/latest/server/prompts) are reusable templates that help humans prompt models to interact with your server. They're designed to be user-driven, and might appear as slash commands in a chat interface.
+[Prompts](https://modelcontextprotocol.io/specification/draft/server/prompts) are reusable templates that help humans prompt models to interact with your server. They're designed to be user-driven, and might appear as slash commands in a chat interface.
 
 ```typescript
 import { completable } from '@modelcontextprotocol/sdk/server/completable.js';
@@ -477,7 +480,7 @@ MCP servers can request LLM completions from connected clients that support samp
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 const mcpServer = new McpServer({
     name: 'tools-with-sample-server',
@@ -561,7 +564,7 @@ For most use cases where session management isn't needed:
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 const app = express();
 app.use(express.json());
@@ -621,6 +624,11 @@ app.post('/mcp', async (req, res) => {
             });
         }
     }
+});
+
+// Handle GET requests when session management is not supported - the server must return an HTTP 405 status code in this case
+app.get('/mcp', (req, res) => {
+    res.status(405).end();
 });
 
 const port = parseInt(process.env.PORT || '3000');
@@ -796,7 +804,7 @@ A simple server demonstrating resources, tools, and prompts:
 
 ```typescript
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 const server = new McpServer({
     name: 'echo-server',
@@ -866,7 +874,7 @@ A more complex example showing database integration:
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import sqlite3 from 'sqlite3';
 import { promisify } from 'util';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 const server = new McpServer({
     name: 'sqlite-explorer',
@@ -961,7 +969,7 @@ If you want to offer an initial set of tools/prompts/resources, but later add ad
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 const server = new McpServer({
     name: 'Dynamic Example',
@@ -1175,7 +1183,7 @@ await server.connect(transport);
 
 ### Eliciting User Input
 
-MCP servers can request additional information from users through the elicitation feature. This is useful for interactive workflows where the server needs user input or confirmation:
+MCP servers can request non-sensitive information from users through the form elicitation capability. This is useful for interactive workflows where the server needs user input or confirmation:
 
 ```typescript
 // Server-side: Restaurant booking tool that asks for alternatives
@@ -1208,6 +1216,7 @@ server.registerTool(
         if (!available) {
             // Ask user if they want to try alternative dates
             const result = await server.server.elicitInput({
+                mode: 'form',
                 message: `No tables available at ${restaurant} on ${date}. Would you like to check alternative dates?`,
                 requestedSchema: {
                     type: 'object',
@@ -1274,7 +1283,7 @@ server.registerTool(
 );
 ```
 
-Client-side: Handle elicitation requests
+On the client side, handle form elicitation requests:
 
 ```typescript
 // This is a placeholder - implement based on your UI framework
@@ -1299,7 +1308,285 @@ client.setRequestHandler(ElicitRequestSchema, async request => {
 });
 ```
 
-**Note**: Elicitation requires client support. Clients must declare the `elicitation` capability during initialization.
+When calling `server.elicitInput`, prefer to explicitly set `mode: 'form'` for new code. Omitting the mode continues to work for backwards compatibility and defaults to form elicitation.
+
+Elicitation is a client capability. Clients must declare the `elicitation` capability during initialization:
+
+```typescript
+const client = new Client(
+    {
+        name: 'example-client',
+        version: '1.0.0'
+    },
+    {
+        capabilities: {
+            elicitation: {
+                form: {}
+            }
+        }
+    }
+);
+```
+
+**Note**: Form elicitation **must** only be used to gather non-sensitive information. For sensitive information such as API keys or secrets, use URL elicitation instead.
+
+### Eliciting URL Actions
+
+MCP servers can prompt the user to perform a URL-based action through URL elicitation. This is useful for securely gathering sensitive information such as API keys or secrets, or for redirecting users to secure web-based flows.
+
+```typescript
+// Server-side: Prompt the user to navigate to a URL
+const result = await server.server.elicitInput({
+    mode: 'url',
+    message: 'Please enter your API key',
+    elicitationId: '550e8400-e29b-41d4-a716-446655440000',
+    url: 'http://localhost:3000/api-key'
+});
+
+// Alternative, return an error from within a tool:
+throw new UrlElicitationRequiredError([
+    {
+        mode: 'url',
+        message: 'This tool requires a payment confirmation. Open the link to confirm payment!',
+        url: `http://localhost:${MCP_PORT}/confirm-payment?session=${sessionId}&elicitation=${elicitationId}&cartId=${encodeURIComponent(cartId)}`,
+        elicitationId: '550e8400-e29b-41d4-a716-446655440000'
+    }
+]);
+```
+
+On the client side, handle URL elicitation requests:
+
+```typescript
+client.setRequestHandler(ElicitRequestSchema, async request => {
+    if (request.params.mode !== 'url') {
+        throw new McpError(ErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
+    }
+
+    // At a minimum, implement a UI that:
+    // - Display the full URL and server reason to prevent phishing
+    // - Explicitly ask the user for consent, with clear decline/cancel options
+    // - Open the URL in the system (not embedded) browser
+    // Optionally, listen for a `nofifications/elicitation/complete` message from the server
+});
+```
+
+Elicitation is a client capability. Clients must declare the `elicitation` capability during initialization:
+
+```typescript
+const client = new Client(
+    {
+        name: 'example-client',
+        version: '1.0.0'
+    },
+    {
+        capabilities: {
+            elicitation: {
+                url: {}
+            }
+        }
+    }
+);
+```
+
+### Task-Based Execution
+
+> **⚠️ Experimental API**: Task-based execution is an experimental feature and may change without notice. Access these APIs via the `.experimental.tasks` namespace.
+
+Task-based execution enables "call-now, fetch-later" patterns for long-running operations. This is useful for tools that take significant time to complete, where clients may want to disconnect and check on progress or retrieve results later.
+
+Common use cases include:
+
+- Long-running data processing or analysis
+- Code migration or refactoring operations
+- Complex computational tasks
+- Operations that require periodic status updates
+
+#### Server-Side: Implementing Task Support
+
+To enable task-based execution, configure your server with a `TaskStore` implementation. The SDK doesn't provide a built-in TaskStore—you'll need to implement one backed by your database of choice:
+
+```typescript
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { TaskStore } from '@modelcontextprotocol/sdk/experimental';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+
+// Implement TaskStore backed by your database (e.g., PostgreSQL, Redis, etc.)
+class MyTaskStore implements TaskStore {
+    async createTask(taskParams, requestId, request, sessionId?): Promise<Task> {
+        // Generate unique taskId and lastUpdatedAt/createdAt timestamps
+        // Store task in your database, using the session ID as a proxy to restrict unauthorized access
+        // Return final Task object
+    }
+
+    async getTask(taskId): Promise<Task | null> {
+        // Retrieve task from your database
+    }
+
+    async updateTaskStatus(taskId, status, statusMessage?): Promise<void> {
+        // Update task status in your database
+    }
+
+    async storeTaskResult(taskId, result): Promise<void> {
+        // Store task result in your database
+    }
+
+    async getTaskResult(taskId): Promise<Result> {
+        // Retrieve task result from your database
+    }
+
+    async listTasks(cursor?, sessionId?): Promise<{ tasks: Task[]; nextCursor?: string }> {
+        // List tasks with pagination support
+    }
+}
+
+const taskStore = new MyTaskStore();
+
+const server = new Server(
+    {
+        name: 'task-enabled-server',
+        version: '1.0.0'
+    },
+    {
+        capabilities: {
+            tools: {},
+            // Declare capabilities
+            tasks: {
+                list: {},
+                cancel: {},
+                requests: {
+                    tools: {
+                        // Declares support for tasks on tools/call
+                        call: {}
+                    }
+                }
+            }
+        },
+        taskStore // Enable task support
+    }
+);
+
+// Register a tool that supports tasks using the experimental API
+server.experimental.tasks.registerToolTask(
+    'my-echo-tool',
+    {
+        title: 'My Echo Tool',
+        description: 'A simple task-based echo tool.',
+        inputSchema: {
+            message: z.string().describe('Message to send')
+        }
+    },
+    {
+        async createTask({ message }, { taskStore, taskRequestedTtl, requestId }) {
+            // Create the task
+            const task = await taskStore.createTask({
+                ttl: taskRequestedTtl
+            });
+
+            // Simulate out-of-band work
+            (async () => {
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                await taskStore.storeTaskResult(task.taskId, 'completed', {
+                    content: [
+                        {
+                            type: 'text',
+                            text: message
+                        }
+                    ]
+                });
+            })();
+
+            // Return CreateTaskResult with the created task
+            return { task };
+        },
+        async getTask(_args, { taskId, taskStore }) {
+            // Retrieve the task
+            return await taskStore.getTask(taskId);
+        },
+        async getTaskResult(_args, { taskId, taskStore }) {
+            // Retrieve the result of the task
+            const result = await taskStore.getTaskResult(taskId);
+            return result as CallToolResult;
+        }
+    }
+);
+```
+
+**Note**: See `src/examples/shared/inMemoryTaskStore.ts` in the SDK source for a reference task store implementation suitable for development and testing.
+
+#### Client-Side: Using Task-Based Execution
+
+Clients use `experimental.tasks.callToolStream()` to initiate task-augmented tool calls. The returned `AsyncGenerator` abstracts automatic polling and status updates:
+
+```typescript
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+
+const client = new Client({
+    name: 'task-client',
+    version: '1.0.0'
+});
+
+// ... connect to server ...
+
+// Call the tool with task metadata using the experimental streaming API
+const stream = client.experimental.tasks.callToolStream(
+    {
+        name: 'my-echo-tool',
+        arguments: { message: 'Hello, world!' }
+    },
+    CallToolResultSchema
+);
+
+// Iterate the stream and handle stream events
+let taskId = '';
+for await (const message of stream) {
+    switch (message.type) {
+        case 'taskCreated':
+            console.log('Task created successfully with ID:', message.task.taskId);
+            taskId = message.task.taskId;
+            break;
+        case 'taskStatus':
+            console.log(`  ${message.task.status}${message.task.statusMessage ?? ''}`);
+            break;
+        case 'result':
+            console.log('Task completed! Tool result:');
+            message.result.content.forEach(item => {
+                if (item.type === 'text') {
+                    console.log(`  ${item.text}`);
+                }
+            });
+            break;
+        case 'error':
+            throw message.error;
+    }
+}
+
+// Optional: Fire and forget - disconnect and reconnect later
+// (useful when you don't want to wait for long-running tasks)
+// Later, after disconnecting and reconnecting to the server:
+const taskStatus = await client.getTask({ taskId });
+console.log('Task status:', taskStatus.status);
+
+if (taskStatus.status === 'completed') {
+    const taskResult = await client.getTaskResult({ taskId }, CallToolResultSchema);
+    console.log('Retrieved result after reconnect:', taskResult);
+}
+```
+
+The `experimental.tasks.callToolStream()` method also works with non-task tools, making it a drop-in replacement for `callTool()` in applications that support it. When used to invoke a tool that doesn't support tasks, the `taskCreated` and `taskStatus` events will not be emitted.
+
+#### Task Status Lifecycle
+
+Tasks transition through the following states:
+
+- **working**: Task is actively being processed
+- **input_required**: Task is waiting for additional input (e.g., from elicitation)
+- **completed**: Task finished successfully
+- **failed**: Task encountered an error
+- **cancelled**: Task was cancelled by the client
+
+The `ttl` parameter suggests how long the server will manage the task for. If the task duration exceeds this, the server may delete the task prematurely. The client's suggested value may be overridden by the server, and the final TTL will be provided in `Task.ttl` in
+`taskCreated` and `taskStatus` events.
 
 ### Writing MCP Clients
 

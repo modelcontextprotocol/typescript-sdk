@@ -29,7 +29,7 @@ describe('Metadata Handler', () => {
         const response = await supertest(app).post('/.well-known/oauth-authorization-server').send({});
 
         expect(response.status).toBe(405);
-        expect(response.headers.allow).toBe('GET');
+        expect(response.headers.allow).toBe('GET, OPTIONS');
         expect(response.body).toEqual({
             error: 'method_not_allowed',
             error_description: 'The method POST is not allowed for this endpoint'
