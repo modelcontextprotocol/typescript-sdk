@@ -3,6 +3,7 @@ import { Client } from '../client/index.js';
 import { StdioClientTransport } from '../client/stdio.js';
 import { Server } from '../server/index.js';
 import { StdioServerTransport } from '../server/stdio.js';
+import { LoggingMessageNotificationSchema } from '../types.js';
 
 describe('Process cleanup', () => {
     vi.setConfig({ testTimeout: 5000 }); // 5 second timeout
@@ -52,22 +53,58 @@ describe('Process cleanup', () => {
         });
 
         const transport = new StdioClientTransport({
-            command: process.argv0,
-            args: ['test-server.js'],
+            command: 'npm',
+            args: ['exec', 'tsx', 'test-server.ts'],
             cwd: __dirname
         });
+
+        await client.connect(transport);
 
         let onCloseWasCalled = 0;
         client.onclose = () => {
             onCloseWasCalled++;
         };
 
-        await client.connect(transport);
         await client.close();
 
         // A short delay to allow the close event to propagate
         await new Promise(resolve => setTimeout(resolve, 50));
 
         expect(onCloseWasCalled).toBe(1);
+    });
+
+    it('should exit cleanly for a server that hangs', async () => {
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        const transport = new StdioClientTransport({
+            command: 'npm',
+            args: ['exec', 'tsx', 'server-that-hangs.ts'],
+            cwd: __dirname
+        });
+
+        await client.connect(transport);
+        await client.setLoggingLevel('debug');
+        client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+            console.debug('server log: ' + notification.params.data);
+        });
+        const serverPid = transport.pid!;
+
+        await client.close();
+
+        // A short delay to allow the close event to propagate
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        try {
+            process.kill(serverPid, 9);
+            throw new Error('Expected server to be dead but it is alive');
+        } catch (err: unknown) {
+            // 'ESRCH' the process doesn't exist
+            if (err && typeof err === 'object' && 'code' in err && err.code === 'ESRCH') {
+                // success
+            } else throw err;
+        }
     });
 });
