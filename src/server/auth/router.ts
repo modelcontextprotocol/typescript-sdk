@@ -10,6 +10,7 @@ import { OAuthMetadata, OAuthProtectedResourceMetadata } from '../../shared/auth
 // Check for dev mode flag that allows HTTP issuer URLs (for development/testing only)
 const allowHttpForDev = process.env.MCP_ALLOW_HTTP_AUTH_FOR_DEV_UNSAFE === 'true' || process.env.MCP_ALLOW_HTTP_AUTH_FOR_DEV_UNSAFE === '1';
 if (allowHttpForDev) {
+    // eslint-disable-next-line no-console
     console.warn('MCP_ALLOW_HTTP_AUTH_FOR_DEV_UNSAFE is enabled - HTTP issuer URLs are allowed. Do not use in production.');
 }
 
