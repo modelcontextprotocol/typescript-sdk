@@ -55,7 +55,9 @@ export type AuthRouterOptions = {
 
 const checkIssuerUrl = (issuer: URL): void => {
     // Technically RFC 8414 does not permit a localhost HTTPS exemption, but this will be necessary for ease of testing
-    if (issuer.protocol !== 'https:' && issuer.hostname !== 'localhost' && issuer.hostname !== '127.0.0.1') {
+    // Also allow HTTP in development mode for testing with non-localhost URLs (e.g., Docker environments)
+    const devMode = process.env.MCP_DEV_MODE === 'true' || process.env.MCP_DEV_MODE === '1';
+    if (issuer.protocol !== 'https:' && issuer.hostname !== 'localhost' && issuer.hostname !== '127.0.0.1' && !devMode) {
         throw new Error('Issuer URL must be HTTPS');
     }
     if (issuer.hash) {
