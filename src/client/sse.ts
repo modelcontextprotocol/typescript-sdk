@@ -1,10 +1,5 @@
-import { EventSource, type ErrorEvent, type EventSourceInit } from "eventsource";
-import { Transport, FetchLike } from "../shared/transport.js";
-import { JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
-import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
-import { normalizeHeaders } from "../shared/headers.js";
 import { EventSource, type ErrorEvent, type EventSourceInit } from 'eventsource';
-import { Transport, FetchLike, createFetchWithInit } from '../shared/transport.js';
+import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../shared/transport.js';
 import { JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 
@@ -93,59 +88,6 @@ export class SSEClientTransport implements Transport {
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
     }
 
-    return await this._startOrAuth();
-  }
-
-  private async _commonHeaders(): Promise<Headers> {
-    const headers: HeadersInit & Record<string, string> = {};
-    if (this._authProvider) {
-      const tokens = await this._authProvider.tokens();
-      if (tokens) {
-        headers["Authorization"] = `Bearer ${tokens.access_token}`;
-      }
-    }
-    if (this._protocolVersion) {
-      headers["mcp-protocol-version"] = this._protocolVersion;
-    }
-
-    const extraHeaders = normalizeHeaders(this._requestInit?.headers);
-
-    return new Headers({
-      ...headers,
-      ...extraHeaders,
-    });
-  }
-
-  private _startOrAuth(): Promise<void> {
-    const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch) as typeof fetch
-    return new Promise((resolve, reject) => {
-      this._eventSource = new EventSource(
-        this._url.href,
-        {
-          ...this._eventSourceInit,
-          fetch: async (url, init) => {
-            const headers = await this._commonHeaders();
-            headers.set("Accept", "text/event-stream");
-            const response = await fetchImpl(url, {
-              ...init,
-              headers,
-            })
-
-            if (response.status === 401 && response.headers.has('www-authenticate')) {
-              this._resourceMetadataUrl = extractResourceMetadataUrl(response);
-            }
-
-            return response
-          },
-        },
-      );
-      this._abortController = new AbortController();
-
-      this._eventSource.onerror = (event) => {
-        if (event.code === 401 && this._authProvider) {
-
-          this._authThenStart().then(resolve, reject);
-          return;
     private async _authThenStart(): Promise<void> {
         if (!this._authProvider) {
             throw new UnauthorizedError('No auth provider');
@@ -172,7 +114,7 @@ export class SSEClientTransport implements Transport {
     }
 
     private async _commonHeaders(): Promise<Headers> {
-        const headers: HeadersInit = {};
+        const headers: HeadersInit & Record<string, string> = {};
         if (this._authProvider) {
             const tokens = await this._authProvider.tokens();
             if (tokens) {
@@ -183,7 +125,12 @@ export class SSEClientTransport implements Transport {
             headers['mcp-protocol-version'] = this._protocolVersion;
         }
 
-        return new Headers({ ...headers, ...this._requestInit?.headers });
+        const extraHeaders = normalizeHeaders(this._requestInit?.headers);
+
+        return new Headers({
+            ...headers,
+            ...extraHeaders
+        });
     }
 
     private _startOrAuth(): Promise<void> {

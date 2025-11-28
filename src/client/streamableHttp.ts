@@ -1,8 +1,3 @@
-import { Transport, FetchLike } from "../shared/transport.js";
-import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from "../types.js";
-import { auth, AuthResult, extractResourceMetadataUrl, OAuthClientProvider, UnauthorizedError } from "./auth.js";
-import { EventSourceParserStream } from "eventsource-parser/stream";
-import { normalizeHeaders } from "../shared/headers.js";
 import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../shared/transport.js';
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
@@ -183,38 +178,6 @@ export class StreamableHTTPClientTransport implements Transport {
         return await this._startOrAuthSse({ resumptionToken: undefined });
     }
 
-    const extraHeaders = normalizeHeaders(this._requestInit?.headers);
-
-    return new Headers({
-      ...headers,
-      ...extraHeaders,
-    });
-  }
-
-
-  private async _startOrAuthSse(options: StartSSEOptions): Promise<void> {
-    const { resumptionToken } = options;
-    try {
-      // Try to open an initial SSE stream with GET to listen for server messages
-      // This is optional according to the spec - server may not support it
-      const headers = await this._commonHeaders();
-      headers.set("Accept", "text/event-stream");
-
-      // Include Last-Event-ID header for resumable streams if provided
-      if (resumptionToken) {
-        headers.set("last-event-id", resumptionToken);
-      }
-
-      const response = await (this._fetch ?? fetch)(this._url, {
-        method: "GET",
-        headers,
-        signal: this._abortController?.signal,
-      });
-
-      if (!response.ok) {
-        if (response.status === 401 && this._authProvider) {
-          // Need to authenticate
-          return await this._authThenStart();
     private async _commonHeaders(): Promise<Headers> {
         const headers: HeadersInit & Record<string, string> = {};
         if (this._authProvider) {
@@ -259,20 +222,6 @@ export class StreamableHTTPClientTransport implements Transport {
                 signal: this._abortController?.signal
             });
 
-  /**
-   * Schedule a reconnection attempt with exponential backoff
-   *
-   * @param lastEventId The ID of the last received event for resumability
-   * @param attemptCount Current reconnection attempt count for this specific stream
-   */
-  private _scheduleReconnection(options: StartSSEOptions, attemptCount = 0): void {
-    // Use provided options or default options
-    const maxRetries = this._reconnectionOptions.maxRetries;
-
-    // Check if we've exceeded maximum retry attempts
-    if (maxRetries > 0 && attemptCount >= maxRetries) {
-      this.onerror?.(new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`));
-      return;
             if (!response.ok) {
                 await response.body?.cancel();
 
