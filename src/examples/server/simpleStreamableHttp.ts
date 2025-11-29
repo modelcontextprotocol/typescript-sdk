@@ -26,6 +26,21 @@ import cors from 'cors';
 const useOAuth = process.argv.includes('--oauth');
 const strictOAuth = process.argv.includes('--oauth-strict');
 
+// Configurable delays for testing (in milliseconds)
+const DELAY_LIST_TOOLS_MS = parseInt(process.env.MCP_DELAY_LIST_TOOLS_MS || '0', 10);
+const DELAY_CALL_TOOL_MS = parseInt(process.env.MCP_DELAY_CALL_TOOL_MS || '0', 10);
+
+// Helper to introduce artificial delays
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Check if a JSON-RPC request body contains a specific method
+const hasMethod = (body: unknown, method: string): boolean => {
+    if (Array.isArray(body)) {
+        return body.some(req => req?.method === method);
+    }
+    return (body as { method?: string })?.method === method;
+};
+
 // Create shared task store for demonstration
 const taskStore = new InMemoryTaskStore();
 
@@ -602,6 +617,17 @@ const mcpPostHandler = async (req: Request, res: Response) => {
     if (useOAuth && req.auth) {
         console.log('Authenticated user:', req.auth);
     }
+
+    // Apply configurable delays for testing
+    if (DELAY_LIST_TOOLS_MS > 0 && hasMethod(req.body, 'tools/list')) {
+        console.log(`Delaying tools/list by ${DELAY_LIST_TOOLS_MS}ms`);
+        await sleep(DELAY_LIST_TOOLS_MS);
+    }
+    if (DELAY_CALL_TOOL_MS > 0 && hasMethod(req.body, 'tools/call')) {
+        console.log(`Delaying tools/call by ${DELAY_CALL_TOOL_MS}ms`);
+        await sleep(DELAY_CALL_TOOL_MS);
+    }
+
     try {
         let transport: StreamableHTTPServerTransport;
         if (sessionId && transports[sessionId]) {

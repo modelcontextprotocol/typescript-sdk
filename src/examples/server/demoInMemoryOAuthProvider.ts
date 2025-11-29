@@ -8,6 +8,12 @@ import { createOAuthMetadata, mcpAuthRouter } from '../../server/auth/router.js'
 import { resourceUrlFromServerUrl } from '../../shared/auth-utils.js';
 import { InvalidRequestError } from '../../server/auth/errors.js';
 
+// Configurable delay for DCR registration (in milliseconds)
+const DELAY_DCR_MS = parseInt(process.env.MCP_DELAY_DCR_MS || '0', 10);
+
+// Helper to introduce artificial delays
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export class DemoInMemoryClientsStore implements OAuthRegisteredClientsStore {
     private clients = new Map<string, OAuthClientInformationFull>();
 
@@ -16,6 +22,10 @@ export class DemoInMemoryClientsStore implements OAuthRegisteredClientsStore {
     }
 
     async registerClient(clientMetadata: OAuthClientInformationFull) {
+        if (DELAY_DCR_MS > 0) {
+            console.log(`Delaying DCR registration by ${DELAY_DCR_MS}ms`);
+            await sleep(DELAY_DCR_MS);
+        }
         this.clients.set(clientMetadata.client_id, clientMetadata);
         return clientMetadata;
     }
