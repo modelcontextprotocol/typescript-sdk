@@ -768,22 +768,30 @@ export class StreamableHTTPServerTransport implements Transport {
                 this.sessionId = this.sessionIdGenerator?.();
                 this._initialized = true;
 
-                // Store session in external store if using external storage mode
+                // If we have a session ID and an onsessioninitialized handler, call it FIRST
+                // This allows the handler to store metadata (e.g., serverId) before we update the session
+                if (this.sessionId && this._onsessioninitialized) {
+                    await Promise.resolve(this._onsessioninitialized(this.sessionId));
+                }
+
+                // Store/update session in external store if using external storage mode
+                // This runs AFTER onsessioninitialized so we can merge with any existing metadata
                 if (this._sessionStorageMode === 'external' && this._sessionStore && this.sessionId) {
+                    // Try to get existing session data (may have been stored by onsessioninitialized)
+                    const existingData = await this._sessionStore.getSession(this.sessionId);
+                    const now = Date.now();
+
                     const sessionData: SessionData = {
                         sessionId: this.sessionId,
                         initialized: true,
-                        createdAt: Date.now(),
-                        lastActivity: Date.now()
+                        createdAt: existingData?.createdAt ?? now,
+                        lastActivity: now,
+                        // Preserve any existing metadata (e.g., serverId set by onsessioninitialized)
+                        metadata: existingData?.metadata
                     };
                     await this._sessionStore.storeSession(this.sessionId, sessionData);
                 }
 
-                // If we have a session ID and an onsessioninitialized handler, call it immediately
-                // This is needed in cases where the server needs to keep track of multiple sessions
-                if (this.sessionId && this._onsessioninitialized) {
-                    await Promise.resolve(this._onsessioninitialized(this.sessionId));
-                }
             }
             if (!isInitializationRequest) {
                 // If an Mcp-Session-Id is returned by the server during initialization,
