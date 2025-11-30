@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/sdk",
-    "version": "1.21.0",
+    "version": "1.23.0",
     "description": "Model Context Protocol implementation for TypeScript",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -43,6 +43,14 @@
             "import": "./dist/esm/validation/cfworker-provider.js",
             "require": "./dist/cjs/validation/cfworker-provider.js"
         },
+        "./experimental": {
+            "import": "./dist/esm/experimental/index.js",
+            "require": "./dist/cjs/experimental/index.js"
+        },
+        "./experimental/tasks": {
+            "import": "./dist/esm/experimental/tasks/index.js",
+            "require": "./dist/cjs/experimental/tasks/index.js"
+        },
         "./*": {
             "import": "./dist/esm/*",
             "require": "./dist/cjs/*"
@@ -59,7 +67,8 @@
         "dist"
     ],
     "scripts": {
-        "fetch:spec-types": "curl -o spec.types.ts https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/refs/heads/main/schema/draft/schema.ts",
+        "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
+        "typecheck": "tsgo --noEmit",
         "build": "npm run build:esm && npm run build:cjs",
         "build:esm": "mkdir -p dist/esm && echo '{\"type\": \"module\"}' > dist/esm/package.json && tsc -p tsconfig.prod.json",
         "build:esm:w": "npm run build:esm -- -w",
@@ -69,10 +78,12 @@
         "prepack": "npm run build:esm && npm run build:cjs",
         "lint": "eslint src/ && prettier --check .",
         "lint:fix": "eslint src/ --fix && prettier --write .",
-        "test": "npm run fetch:spec-types && jest",
+        "check": "npm run typecheck && npm run lint",
+        "test": "vitest run",
+        "test:watch": "vitest",
         "start": "npm run server",
-        "server": "tsx watch --clear-screen=false src/cli.ts server",
-        "client": "tsx src/cli.ts client"
+        "server": "tsx watch --clear-screen=false scripts/cli.ts server",
+        "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
         "ajv": "^8.17.1",
@@ -84,42 +95,45 @@
         "eventsource-parser": "^3.0.0",
         "express": "^5.0.1",
         "express-rate-limit": "^7.5.0",
+        "jose": "^6.1.1",
         "pkce-challenge": "^5.0.0",
         "raw-body": "^3.0.0",
-        "zod": "^3.23.8",
-        "zod-to-json-schema": "^3.24.1"
+        "zod": "^3.25 || ^4.0",
+        "zod-to-json-schema": "^3.25.0"
     },
     "peerDependencies": {
-        "@cfworker/json-schema": "^4.1.1"
+        "@cfworker/json-schema": "^4.1.1",
+        "zod": "^3.25 || ^4.0"
     },
     "peerDependenciesMeta": {
         "@cfworker/json-schema": {
             "optional": true
+        },
+        "zod": {
+            "optional": false
         }
     },
     "devDependencies": {
         "@cfworker/json-schema": "^4.1.1",
-        "@eslint/js": "^9.8.0",
-        "@jest-mock/express": "^3.0.0",
+        "@eslint/js": "^9.39.1",
         "@types/content-type": "^1.1.8",
         "@types/cors": "^2.8.17",
         "@types/cross-spawn": "^6.0.6",
-        "@types/eslint__js": "^8.42.3",
         "@types/eventsource": "^1.1.15",
         "@types/express": "^5.0.0",
-        "@types/jest": "^29.5.12",
-        "@types/node": "^22.0.2",
+        "@types/node": "^22.12.0",
         "@types/supertest": "^6.0.2",
         "@types/ws": "^8.5.12",
+        "@typescript/native-preview": "^7.0.0-dev.20251103.1",
         "eslint": "^9.8.0",
         "eslint-config-prettier": "^10.1.8",
-        "jest": "^29.7.0",
+        "eslint-plugin-n": "^17.23.1",
         "prettier": "3.6.2",
         "supertest": "^7.0.0",
-        "ts-jest": "^29.2.4",
         "tsx": "^4.16.5",
         "typescript": "^5.5.4",
         "typescript-eslint": "^8.0.0",
+        "vitest": "^4.0.8",
         "ws": "^8.18.0"
     },
     "resolutions": {

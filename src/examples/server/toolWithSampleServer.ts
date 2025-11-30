@@ -2,7 +2,7 @@
 
 import { McpServer } from '../../server/mcp.js';
 import { StdioServerTransport } from '../../server/stdio.js';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 const mcpServer = new McpServer({
     name: 'tools-with-sample-server',
@@ -33,13 +33,12 @@ mcpServer.registerTool(
             maxTokens: 500
         });
 
+        const contents = Array.isArray(response.content) ? response.content : [response.content];
         return {
-            content: [
-                {
-                    type: 'text',
-                    text: response.content.type === 'text' ? response.content.text : 'Unable to generate summary'
-                }
-            ]
+            content: contents.map(content => ({
+                type: 'text',
+                text: content.type === 'text' ? content.text : 'Unable to generate summary'
+            }))
         };
     }
 );

@@ -218,41 +218,9 @@ describe('Authorization Handler', () => {
         });
     });
 
-    describe('Scope validation', () => {
-        it('validates requested scopes against client registered scopes', async () => {
-            const response = await supertest(app).get('/authorize').query({
-                client_id: 'valid-client',
-                redirect_uri: 'https://example.com/callback',
-                response_type: 'code',
-                code_challenge: 'challenge123',
-                code_challenge_method: 'S256',
-                scope: 'profile email admin' // 'admin' not in client scopes
-            });
-
-            expect(response.status).toBe(302);
-            const location = new URL(response.header.location);
-            expect(location.searchParams.get('error')).toBe('invalid_scope');
-        });
-
-        it('accepts valid scopes subset', async () => {
-            const response = await supertest(app).get('/authorize').query({
-                client_id: 'valid-client',
-                redirect_uri: 'https://example.com/callback',
-                response_type: 'code',
-                code_challenge: 'challenge123',
-                code_challenge_method: 'S256',
-                scope: 'profile' // subset of client scopes
-            });
-
-            expect(response.status).toBe(302);
-            const location = new URL(response.header.location);
-            expect(location.searchParams.has('code')).toBe(true);
-        });
-    });
-
     describe('Resource parameter validation', () => {
         it('propagates resource parameter', async () => {
-            const mockProviderWithResource = jest.spyOn(mockProvider, 'authorize');
+            const mockProviderWithResource = vi.spyOn(mockProvider, 'authorize');
 
             const response = await supertest(app).get('/authorize').query({
                 client_id: 'valid-client',
