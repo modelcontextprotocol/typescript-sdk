@@ -1,4 +1,4 @@
-import * as z from 'zod/v4';
+import z from 'zod/v4';
 import { RequestHandler } from 'express';
 import { OAuthRegisteredClientsStore } from '../clients.js';
 import { OAuthClientInformationFull } from '../../../shared/auth.js';
