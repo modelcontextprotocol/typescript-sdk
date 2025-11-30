@@ -56,6 +56,114 @@ export interface EventStore {
 }
 
 /**
+ * Session data structure for distributed session storage
+ */
+export interface SessionData {
+    /**
+     * The unique session identifier
+     */
+    sessionId: string;
+
+    /**
+     * Whether the session has been initialized (received initialize request)
+     */
+    initialized: boolean;
+
+    /**
+     * Timestamp when the session was created (Unix ms)
+     */
+    createdAt: number;
+
+    /**
+     * Timestamp of last activity (Unix ms)
+     */
+    lastActivity: number;
+
+    /**
+     * Optional metadata for custom use cases (e.g., serverId, userId)
+     */
+    metadata?: Record<string, unknown>;
+}
+
+/**
+ * Interface for distributed session storage (e.g., Redis, PostgreSQL, etc.)
+ *
+ * This interface enables multi-node/multi-pod deployments where session state
+ * must be shared across multiple server instances. Without this, sessions are
+ * stored in-memory and requests routed to different pods will fail.
+ *
+ * Usage example with Redis:
+ * ```typescript
+ * const sessionStore: SessionStore = {
+ *   async storeSession(sessionId, data) {
+ *     await redis.setex(`mcp:session:${sessionId}`, 3600, JSON.stringify(data));
+ *   },
+ *   async getSession(sessionId) {
+ *     const data = await redis.get(`mcp:session:${sessionId}`);
+ *     return data ? JSON.parse(data) : null;
+ *   },
+ *   async updateSessionActivity(sessionId) {
+ *     const data = await this.getSession(sessionId);
+ *     if (data) {
+ *       data.lastActivity = Date.now();
+ *       await this.storeSession(sessionId, data);
+ *     }
+ *   },
+ *   async deleteSession(sessionId) {
+ *     await redis.del(`mcp:session:${sessionId}`);
+ *   },
+ *   async sessionExists(sessionId) {
+ *     return await redis.exists(`mcp:session:${sessionId}`) === 1;
+ *   }
+ * };
+ *
+ * const transport = new StreamableHTTPServerTransport({
+ *   sessionIdGenerator: () => randomUUID(),
+ *   sessionStore: sessionStore
+ * });
+ * ```
+ */
+export interface SessionStore {
+    /**
+     * Store session data
+     * @param sessionId The session identifier
+     * @param data The session data to store
+     */
+    storeSession(sessionId: string, data: SessionData): Promise<void>;
+
+    /**
+     * Retrieve session data
+     * @param sessionId The session identifier
+     * @returns The session data, or null if not found
+     */
+    getSession(sessionId: string): Promise<SessionData | null>;
+
+    /**
+     * Update session activity timestamp (e.g., refresh TTL)
+     * @param sessionId The session identifier
+     */
+    updateSessionActivity(sessionId: string): Promise<void>;
+
+    /**
+     * Delete a session
+     * @param sessionId The session identifier
+     */
+    deleteSession(sessionId: string): Promise<void>;
+
+    /**
+     * Check if a session exists
+     * @param sessionId The session identifier
+     * @returns true if the session exists
+     */
+    sessionExists(sessionId: string): Promise<boolean>;
+}
+
+/**
+ * Session storage mode for the transport
+ */
+export type SessionStorageMode = 'memory' | 'external';
+
+/**
  * Configuration options for StreamableHTTPServerTransport
  */
 export interface StreamableHTTPServerTransportOptions {
@@ -100,6 +208,47 @@ export interface StreamableHTTPServerTransportOptions {
      * If provided, resumability will be enabled, allowing clients to reconnect and resume messages
      */
     eventStore?: EventStore;
+
+    /**
+     * Session storage mode - explicitly choose between in-memory and external storage.
+     *
+     * - 'memory': Sessions stored in process memory (single-node only, default)
+     * - 'external': Sessions stored in external store (requires sessionStore option)
+     *
+     * When 'external' is selected but sessionStore is not provided, an error will be thrown.
+     *
+     * @default 'memory'
+     */
+    sessionStorageMode?: SessionStorageMode;
+
+    /**
+     * Session store for distributed session management.
+     * Required when sessionStorageMode is 'external'.
+     *
+     * This enables multi-node/multi-pod deployments where requests may be routed
+     * to different server instances.
+     *
+     * When sessionStore is provided with mode 'external':
+     * - Session validation checks the external store instead of local memory
+     * - Session data is persisted across server restarts
+     * - Multiple server instances can share session state
+     * - Cross-pod session recovery is handled automatically
+     *
+     * @example
+     * ```typescript
+     * // Redis session store for multi-pod deployment
+     * const transport = new StreamableHTTPServerTransport({
+     *   sessionIdGenerator: () => randomUUID(),
+     *   sessionStorageMode: 'external',
+     *   sessionStore: new RedisSessionStore({
+     *     redis: redisClient,
+     *     keyPrefix: 'mcp:session:',
+     *     ttlSeconds: 3600
+     *   })
+     * });
+     * ```
+     */
+    sessionStore?: SessionStore;
 
     /**
      * List of allowed host header values for DNS rebinding protection.
@@ -148,6 +297,12 @@ export interface StreamableHTTPServerTransportOptions {
  * app.post('/mcp', (req, res) => {
  *   transport.handleRequest(req, res, req.body);
  * });
+ *
+ * // With distributed session store (Redis) for multi-pod deployments
+ * const transport = new StreamableHTTPServerTransport({
+ *   sessionIdGenerator: () => randomUUID(),
+ *   sessionStore: myRedisSessionStore
+ * });
  * ```
  *
  * In stateful mode:
@@ -155,7 +310,7 @@ export interface StreamableHTTPServerTransportOptions {
  * - Session ID is always included in initialization responses
  * - Requests with invalid session IDs are rejected with 404 Not Found
  * - Non-initialization requests without a session ID are rejected with 400 Bad Request
- * - State is maintained in-memory (connections, message history)
+ * - State is maintained in-memory (connections, message history) or externally via sessionStore
  *
  * In stateless mode:
  * - No Session ID is included in any responses
@@ -172,6 +327,8 @@ export class StreamableHTTPServerTransport implements Transport {
     private _enableJsonResponse: boolean = false;
     private _standaloneSseStreamId: string = '_GET_stream';
     private _eventStore?: EventStore;
+    private _sessionStorageMode: SessionStorageMode;
+    private _sessionStore?: SessionStore;
     private _onsessioninitialized?: (sessionId: string) => void | Promise<void>;
     private _onsessionclosed?: (sessionId: string) => void | Promise<void>;
     private _allowedHosts?: string[];
@@ -188,12 +345,36 @@ export class StreamableHTTPServerTransport implements Transport {
         this.sessionIdGenerator = options.sessionIdGenerator;
         this._enableJsonResponse = options.enableJsonResponse ?? false;
         this._eventStore = options.eventStore;
+        this._sessionStorageMode = options.sessionStorageMode ?? 'memory';
+        this._sessionStore = options.sessionStore;
         this._onsessioninitialized = options.onsessioninitialized;
         this._onsessionclosed = options.onsessionclosed;
         this._allowedHosts = options.allowedHosts;
         this._allowedOrigins = options.allowedOrigins;
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
+
+        // Validate configuration
+        if (this._sessionStorageMode === 'external' && !this._sessionStore) {
+            throw new Error(
+                'SessionStore is required when sessionStorageMode is "external". ' +
+                'Please provide a sessionStore implementation (e.g., RedisSessionStore) or use sessionStorageMode: "memory".'
+            );
+        }
+    }
+
+    /**
+     * Returns the current session storage mode
+     */
+    get sessionStorageMode(): SessionStorageMode {
+        return this._sessionStorageMode;
+    }
+
+    /**
+     * Returns true if using external session storage
+     */
+    get isUsingExternalSessionStore(): boolean {
+        return this._sessionStorageMode === 'external' && this._sessionStore !== undefined;
     }
 
     /**
@@ -309,7 +490,7 @@ export class StreamableHTTPServerTransport implements Transport {
         // If an Mcp-Session-Id is returned by the server during initialization,
         // clients using the Streamable HTTP transport MUST include it
         // in the Mcp-Session-Id header on all of their subsequent HTTP requests.
-        if (!this.validateSession(req, res)) {
+        if (!await this.validateSession(req, res)) {
             return;
         }
         if (!this.validateProtocolVersion(req, res)) {
@@ -548,9 +729,17 @@ export class StreamableHTTPServerTransport implements Transport {
             // https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle/
             const isInitializationRequest = messages.some(isInitializeRequest);
             if (isInitializationRequest) {
+                // Check if session already exists (either in-memory or in session store)
+                let sessionAlreadyExists = this._initialized && this.sessionId !== undefined;
+
+                // If using external session storage, also check there
+                if (!sessionAlreadyExists && this._sessionStorageMode === 'external' && this._sessionStore && this.sessionId) {
+                    sessionAlreadyExists = await this._sessionStore.sessionExists(this.sessionId);
+                }
+
                 // If it's a server with session management and the session ID is already set we should reject the request
                 // to avoid re-initialization.
-                if (this._initialized && this.sessionId !== undefined) {
+                if (sessionAlreadyExists) {
                     res.writeHead(400).end(
                         JSON.stringify({
                             jsonrpc: '2.0',
@@ -579,6 +768,17 @@ export class StreamableHTTPServerTransport implements Transport {
                 this.sessionId = this.sessionIdGenerator?.();
                 this._initialized = true;
 
+                // Store session in external store if using external storage mode
+                if (this._sessionStorageMode === 'external' && this._sessionStore && this.sessionId) {
+                    const sessionData: SessionData = {
+                        sessionId: this.sessionId,
+                        initialized: true,
+                        createdAt: Date.now(),
+                        lastActivity: Date.now()
+                    };
+                    await this._sessionStore.storeSession(this.sessionId, sessionData);
+                }
+
                 // If we have a session ID and an onsessioninitialized handler, call it immediately
                 // This is needed in cases where the server needs to keep track of multiple sessions
                 if (this.sessionId && this._onsessioninitialized) {
@@ -589,12 +789,17 @@ export class StreamableHTTPServerTransport implements Transport {
                 // If an Mcp-Session-Id is returned by the server during initialization,
                 // clients using the Streamable HTTP transport MUST include it
                 // in the Mcp-Session-Id header on all of their subsequent HTTP requests.
-                if (!this.validateSession(req, res)) {
+                if (!await this.validateSession(req, res)) {
                     return;
                 }
                 // Mcp-Protocol-Version header is required for all requests after initialization.
                 if (!this.validateProtocolVersion(req, res)) {
                     return;
+                }
+
+                // Update session activity if using external session storage
+                if (this._sessionStorageMode === 'external' && this._sessionStore && this.sessionId) {
+                    await this._sessionStore.updateSessionActivity(this.sessionId);
                 }
             }
 
@@ -675,27 +880,111 @@ export class StreamableHTTPServerTransport implements Transport {
      * Handles DELETE requests to terminate sessions
      */
     private async handleDeleteRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-        if (!this.validateSession(req, res)) {
+        if (!await this.validateSession(req, res)) {
             return;
         }
         if (!this.validateProtocolVersion(req, res)) {
             return;
         }
+
+        // Delete session from external store if using external storage mode
+        if (this._sessionStorageMode === 'external' && this._sessionStore && this.sessionId) {
+            await this._sessionStore.deleteSession(this.sessionId);
+        }
+
         await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
         await this.close();
         res.writeHead(200).end();
     }
 
     /**
-     * Validates session ID for non-initialization requests
-     * Returns true if the session is valid, false otherwise
+     * Validates session ID for non-initialization requests.
+     *
+     * When sessionStore is provided, validation checks the external store,
+     * enabling multi-node deployments where different pods may handle requests
+     * for the same session.
+     *
+     * Returns true if the session is valid, false otherwise.
      */
-    private validateSession(req: IncomingMessage, res: ServerResponse): boolean {
+    private async validateSession(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
         if (this.sessionIdGenerator === undefined) {
             // If the sessionIdGenerator ID is not set, the session management is disabled
             // and we don't need to validate the session ID
             return true;
         }
+
+        const requestSessionId = req.headers['mcp-session-id'] as string | string[] | undefined;
+
+        // If using external session storage mode, check external store
+        if (this._sessionStorageMode === 'external' && this._sessionStore) {
+            if (!requestSessionId) {
+                // Non-initialization requests without a session ID should return 400 Bad Request
+                res.writeHead(400).end(
+                    JSON.stringify({
+                        jsonrpc: '2.0',
+                        error: {
+                            code: -32000,
+                            message: 'Bad Request: Mcp-Session-Id header is required'
+                        },
+                        id: null
+                    })
+                );
+                return false;
+            } else if (Array.isArray(requestSessionId)) {
+                res.writeHead(400).end(
+                    JSON.stringify({
+                        jsonrpc: '2.0',
+                        error: {
+                            code: -32000,
+                            message: 'Bad Request: Mcp-Session-Id header must be a single value'
+                        },
+                        id: null
+                    })
+                );
+                return false;
+            }
+
+            // Check if session exists in external store
+            const sessionData = await this._sessionStore.getSession(requestSessionId);
+            if (!sessionData) {
+                res.writeHead(404).end(
+                    JSON.stringify({
+                        jsonrpc: '2.0',
+                        error: {
+                            code: -32001,
+                            message: 'Session not found'
+                        },
+                        id: null
+                    })
+                );
+                return false;
+            }
+
+            if (!sessionData.initialized) {
+                res.writeHead(400).end(
+                    JSON.stringify({
+                        jsonrpc: '2.0',
+                        error: {
+                            code: -32000,
+                            message: 'Bad Request: Server not initialized'
+                        },
+                        id: null
+                    })
+                );
+                return false;
+            }
+
+            // Session is valid - update local state if needed
+            // This enables cross-pod session recovery
+            if (this.sessionId !== requestSessionId) {
+                this.sessionId = requestSessionId;
+                this._initialized = true;
+            }
+
+            return true;
+        }
+
+        // Original in-memory validation logic (no session store)
         if (!this._initialized) {
             // If the server has not been initialized yet, reject all requests
             res.writeHead(400).end(
@@ -711,9 +1000,7 @@ export class StreamableHTTPServerTransport implements Transport {
             return false;
         }
 
-        const sessionId = req.headers['mcp-session-id'];
-
-        if (!sessionId) {
+        if (!requestSessionId) {
             // Non-initialization requests without a session ID should return 400 Bad Request
             res.writeHead(400).end(
                 JSON.stringify({
@@ -726,7 +1013,7 @@ export class StreamableHTTPServerTransport implements Transport {
                 })
             );
             return false;
-        } else if (Array.isArray(sessionId)) {
+        } else if (Array.isArray(requestSessionId)) {
             res.writeHead(400).end(
                 JSON.stringify({
                     jsonrpc: '2.0',
@@ -738,7 +1025,7 @@ export class StreamableHTTPServerTransport implements Transport {
                 })
             );
             return false;
-        } else if (sessionId !== this.sessionId) {
+        } else if (requestSessionId !== this.sessionId) {
             // Reject requests with invalid session ID with 404 Not Found
             res.writeHead(404).end(
                 JSON.stringify({
