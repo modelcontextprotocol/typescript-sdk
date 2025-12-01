@@ -35,6 +35,16 @@ export interface EventStore {
      */
     storeEvent(streamId: StreamId, message: JSONRPCMessage): Promise<EventId>;
 
+    /**
+     * Get the stream ID associated with a given event ID.
+     * @param eventId The event ID to look up
+     * @returns The stream ID, or undefined if not found
+     *
+     * Optional: If not provided, the SDK will use the streamId returned by
+     * replayEventsAfter for stream mapping.
+     */
+    getStreamIdForEventId?(eventId: EventId): Promise<StreamId | undefined>;
+
     replayEventsAfter(
         lastEventId: EventId,
         {
@@ -108,6 +118,13 @@ export interface StreamableHTTPServerTransportOptions {
      * Default is false for backwards compatibility.
      */
     enableDnsRebindingProtection?: boolean;
+
+    /**
+     * Retry interval in milliseconds to suggest to clients in SSE retry field.
+     * When set, the server will send a retry field in SSE priming events to control
+     * client reconnection timing for polling behavior.
+     */
+    retryInterval?: number;
 }
 
 /**
@@ -160,6 +177,7 @@ export class StreamableHTTPServerTransport implements Transport {
     private _allowedHosts?: string[];
     private _allowedOrigins?: string[];
     private _enableDnsRebindingProtection: boolean;
+    private _retryInterval?: number;
 
     sessionId?: string;
     onclose?: () => void;
@@ -175,6 +193,7 @@ export class StreamableHTTPServerTransport implements Transport {
         this._allowedHosts = options.allowedHosts;
         this._allowedOrigins = options.allowedOrigins;
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
+        this._retryInterval = options.retryInterval;
     }
 
     /**
@@ -247,6 +266,24 @@ export class StreamableHTTPServerTransport implements Transport {
         } else {
             await this.handleUnsupportedRequest(res);
         }
+    }
+
+    /**
+     * Writes a priming event to establish resumption capability.
+     * Only sends if eventStore is configured (opt-in for resumability).
+     */
+    private async _maybeWritePrimingEvent(res: ServerResponse, streamId: string): Promise<void> {
+        if (!this._eventStore) {
+            return;
+        }
+
+        const primingEventId = await this._eventStore.storeEvent(streamId, {} as JSONRPCMessage);
+
+        let primingEvent = `id: ${primingEventId}\ndata: \n\n`;
+        if (this._retryInterval !== undefined) {
+            primingEvent = `id: ${primingEventId}\nretry: ${this._retryInterval}\ndata: \n\n`;
+        }
+        res.write(primingEvent);
     }
 
     /**
@@ -342,6 +379,41 @@ export class StreamableHTTPServerTransport implements Transport {
             return;
         }
         try {
+            // If getStreamIdForEventId is available, use it for conflict checking
+            let streamId: string | undefined;
+            if (this._eventStore.getStreamIdForEventId) {
+                streamId = await this._eventStore.getStreamIdForEventId(lastEventId);
+
+                if (!streamId) {
+                    res.writeHead(400).end(
+                        JSON.stringify({
+                            jsonrpc: '2.0',
+                            error: {
+                                code: -32000,
+                                message: 'Invalid event ID format'
+                            },
+                            id: null
+                        })
+                    );
+                    return;
+                }
+
+                // Check conflict with the SAME streamId we'll use for mapping
+                if (this._streamMapping.get(streamId) !== undefined) {
+                    res.writeHead(409).end(
+                        JSON.stringify({
+                            jsonrpc: '2.0',
+                            error: {
+                                code: -32000,
+                                message: 'Conflict: Stream already has an active connection'
+                            },
+                            id: null
+                        })
+                    );
+                    return;
+                }
+            }
+
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache, no-transform',
@@ -353,7 +425,8 @@ export class StreamableHTTPServerTransport implements Transport {
             }
             res.writeHead(200, headers).flushHeaders();
 
-            const streamId = await this._eventStore?.replayEventsAfter(lastEventId, {
+            // Replay events - returns the streamId for backwards compatibility
+            const replayedStreamId = await this._eventStore.replayEventsAfter(lastEventId, {
                 send: async (eventId: string, message: JSONRPCMessage) => {
                     if (!this.writeSSEEvent(res, message, eventId)) {
                         this.onerror?.(new Error('Failed replay events'));
@@ -361,7 +434,13 @@ export class StreamableHTTPServerTransport implements Transport {
                     }
                 }
             });
-            this._streamMapping.set(streamId, res);
+
+            this._streamMapping.set(replayedStreamId, res);
+
+            // Set up close handler for client disconnects
+            res.on('close', () => {
+                this._streamMapping.delete(replayedStreamId);
+            });
 
             // Add error handler for replay stream
             res.on('error', error => {
@@ -547,6 +626,8 @@ export class StreamableHTTPServerTransport implements Transport {
                     }
 
                     res.writeHead(200, headers);
+
+                    await this._maybeWritePrimingEvent(res, streamId);
                 }
                 // Store the response for this request to send messages back through this connection
                 // We need to track by request ID to maintain the connection
@@ -707,6 +788,22 @@ export class StreamableHTTPServerTransport implements Transport {
         // Clear any pending responses
         this._requestResponseMap.clear();
         this.onclose?.();
+    }
+
+    /**
+     * Close an SSE stream for a specific request, triggering client reconnection.
+     * Use this to implement polling behavior during long-running operations -
+     * client will reconnect after the retry interval specified in the priming event.
+     */
+    closeSSEStream(requestId: RequestId): void {
+        const streamId = this._requestToStreamMapping.get(requestId);
+        if (!streamId) return;
+
+        const stream = this._streamMapping.get(streamId);
+        if (stream) {
+            stream.end();
+            this._streamMapping.delete(streamId);
+        }
     }
 
     async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void> {

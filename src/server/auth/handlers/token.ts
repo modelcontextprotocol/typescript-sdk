@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod/v4';
 import express, { RequestHandler } from 'express';
 import { OAuthServerProvider } from '../provider.js';
 import cors from 'cors';
@@ -135,10 +135,8 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
                     res.status(200).json(tokens);
                     break;
                 }
-
-                // Not supported right now
-                //case "client_credentials":
-
+                // Additional auth methods will not be added on the server side of the SDK.
+                case 'client_credentials':
                 default:
                     throw new UnsupportedGrantTypeError('The grant type is not supported by this authorization server.');
             }

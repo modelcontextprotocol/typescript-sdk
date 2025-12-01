@@ -5,7 +5,7 @@ import { JSONRPCMessage, JSONRPCMessageSchema, MessageExtraInfo, RequestInfo } f
 import getRawBody from 'raw-body';
 import contentType from 'content-type';
 import { AuthInfo } from './auth/types.js';
-import { URL } from 'url';
+import { URL } from 'node:url';
 
 const MAXIMUM_MESSAGE_SIZE = '4mb';
 

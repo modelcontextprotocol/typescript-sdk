@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import { McpServer } from '../../server/mcp.js';
 import { SSEServerTransport } from '../../server/sse.js';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 import { CallToolResult } from '../../types.js';
 
 /**

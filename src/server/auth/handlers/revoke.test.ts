@@ -114,6 +114,7 @@ describe('Revocation Handler', () => {
             }
             throw new InvalidTokenError('Token is invalid or expired');
         }
+
         // No revokeToken method
     };
 
