@@ -866,6 +866,112 @@ describe('StreamableHTTPClientTransport', () => {
             expect(reconnectHeaders.get('last-event-id')).toBe('event-123');
         });
 
+        it('should NOT reconnect a POST stream when response was received', async () => {
+            // ARRANGE
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 1,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            // Create a stream that sends:
+            // 1. Priming event with ID (enables potential reconnection)
+            // 2. The actual response (should prevent reconnection)
+            // 3. Then closes
+            const streamWithResponse = new ReadableStream({
+                start(controller) {
+                    // Priming event with ID
+                    controller.enqueue(new TextEncoder().encode('id: priming-123\ndata: \n\n'));
+                    // The actual response to the request
+                    controller.enqueue(
+                        new TextEncoder().encode('id: response-456\ndata: {"jsonrpc":"2.0","result":{"tools":[]},"id":"request-1"}\n\n')
+                    );
+                    // Stream closes normally
+                    controller.close();
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: streamWithResponse
+            });
+
+            const requestMessage: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'tools/list',
+                id: 'request-1',
+                params: {}
+            };
+
+            // ACT
+            await transport.start();
+            await transport.send(requestMessage);
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT
+            // THE KEY ASSERTION: Fetch was called ONCE only - no reconnection!
+            // The response was received, so no need to reconnect.
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
+        });
+
+        it('should not attempt reconnection after close() is called', async () => {
+            // ARRANGE
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 100,
+                    maxRetries: 3,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            // Stream with priming event + notification (no response) that closes
+            // This triggers reconnection scheduling
+            const streamWithPriming = new ReadableStream({
+                start(controller) {
+                    controller.enqueue(
+                        new TextEncoder().encode('id: event-123\ndata: {"jsonrpc":"2.0","method":"notifications/test","params":{}}\n\n')
+                    );
+                    controller.close();
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+
+            // POST request returns streaming response
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: streamWithPriming
+            });
+
+            // ACT
+            await transport.start();
+            await transport.send({ jsonrpc: '2.0', method: 'test', id: '1', params: {} });
+
+            // Wait a tick to let stream processing complete and schedule reconnection
+            await vi.advanceTimersByTimeAsync(10);
+
+            // Now close() - reconnection timeout is pending (scheduled for 100ms)
+            await transport.close();
+
+            // Advance past reconnection delay
+            await vi.advanceTimersByTimeAsync(200);
+
+            // ASSERT
+            // Only 1 call: the initial POST. No reconnection attempts after close().
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
+        });
+
         it('should not throw JSON parse error on priming events with empty data', async () => {
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
 
