@@ -79,7 +79,7 @@ export class SSEServerTransport implements Transport {
         // Validate Origin header if allowedOrigins is configured
         if (this._options.allowedOrigins && this._options.allowedOrigins.length > 0) {
             const originHeader = req.headers.origin;
-            if (!originHeader || !this._options.allowedOrigins.includes(originHeader)) {
+            if (originHeader && !this._options.allowedOrigins.includes(originHeader)) {
                 return `Invalid Origin header: ${originHeader}`;
             }
         }

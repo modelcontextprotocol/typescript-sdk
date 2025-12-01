@@ -228,7 +228,7 @@ export class StreamableHTTPServerTransport implements Transport {
         // Validate Origin header if allowedOrigins is configured
         if (this._allowedOrigins && this._allowedOrigins.length > 0) {
             const originHeader = req.headers.origin;
-            if (!originHeader || !this._allowedOrigins.includes(originHeader)) {
+            if (originHeader && !this._allowedOrigins.includes(originHeader)) {
                 return `Invalid Origin header: ${originHeader}`;
             }
         }
