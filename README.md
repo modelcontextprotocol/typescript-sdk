@@ -796,6 +796,30 @@ await server.connect(transport);
 
 To test your server, you can use the [MCP Inspector](https://github.com/modelcontextprotocol/inspector). See its README for more information.
 
+### Node.js Web Crypto (globalThis.crypto) compatibility
+
+Some parts of the SDK (for example, JWT-based client authentication in `auth-extensions.ts` via `jose`) rely on the Web Crypto API exposed as `globalThis.crypto`.
+
+- **Node.js v19.0.0 and later**: `globalThis.crypto` is available by default.
+- **Node.js v18.x**: `globalThis.crypto` may not be defined by default; in this repository we polyfill it for tests (see `vitest.setup.ts`), and you should do the same in your app if it is missing - or alternatively, run Node with `--experimental-global-webcrypto` as per your
+  Node version documentation. (See https://nodejs.org/dist/latest-v18.x/docs/api/globals.html#crypto )
+
+If you run tests or applications on Node.js versions where `globalThis.crypto` is missing, you can polyfill it using the built-in `node:crypto` module, similar to the SDK's own `vitest.setup.ts`:
+
+```typescript
+import { webcrypto } from 'node:crypto';
+
+if (typeof globalThis.crypto === 'undefined') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).crypto = webcrypto as unknown as Crypto;
+}
+```
+
+For production use, you can either:
+
+- Run on a Node.js version where `globalThis.crypto` is available by default (recommended), or
+- Apply a similar polyfill early in your application's startup code when targeting older Node.js runtimes.
+
 ## Examples
 
 ### Echo Server
@@ -1635,6 +1659,64 @@ const result = await client.callTool({
     }
 });
 ```
+
+### OAuth client authentication helpers
+
+For OAuth-secured MCP servers, the client `auth` module exposes a generic `OAuthClientProvider` interface, and `src/client/auth-extensions.ts` provides ready-to-use implementations for common machine-to-machine authentication flows:
+
+- **ClientCredentialsProvider**: Uses the `client_credentials` grant with `client_secret_basic` authentication.
+- **PrivateKeyJwtProvider**: Uses the `client_credentials` grant with `private_key_jwt` client authentication, signing a JWT assertion on each token request.
+- **StaticPrivateKeyJwtProvider**: Similar to `PrivateKeyJwtProvider`, but accepts a pre-built JWT assertion string via `jwtBearerAssertion` and reuses it for token requests.
+
+You can use these providers with the `StreamableHTTPClientTransport` and the high-level `auth()` helper:
+
+```typescript
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { ClientCredentialsProvider, PrivateKeyJwtProvider, StaticPrivateKeyJwtProvider } from '@modelcontextprotocol/sdk/client/auth-extensions.js';
+import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+
+const serverUrl = new URL('https://mcp.example.com/');
+
+// Example: client_credentials with client_secret_basic
+const basicProvider = new ClientCredentialsProvider({
+    clientId: process.env.CLIENT_ID!,
+    clientSecret: process.env.CLIENT_SECRET!,
+    clientName: 'example-basic-client'
+});
+
+// Example: client_credentials with private_key_jwt (JWT signed locally)
+const privateKeyJwtProvider = new PrivateKeyJwtProvider({
+    clientId: process.env.CLIENT_ID!,
+    privateKey: process.env.CLIENT_PRIVATE_KEY_PEM!,
+    algorithm: 'RS256',
+    clientName: 'example-private-key-jwt-client',
+    jwtLifetimeSeconds: 300
+});
+
+// Example: client_credentials with a pre-built JWT assertion
+const staticJwtProvider = new StaticPrivateKeyJwtProvider({
+    clientId: process.env.CLIENT_ID!,
+    jwtBearerAssertion: process.env.CLIENT_ASSERTION!,
+    clientName: 'example-static-private-key-jwt-client'
+});
+
+const transport = new StreamableHTTPClientTransport(serverUrl, {
+    authProvider: privateKeyJwtProvider
+});
+
+const client = new Client({
+    name: 'example-client',
+    version: '1.0.0'
+});
+
+// Perform the OAuth flow (including dynamic client registration if needed)
+await auth(privateKeyJwtProvider, { serverUrl, fetchFn: transport.fetch });
+
+await client.connect(transport);
+```
+
+If you need lower-level control, you can also use `createPrivateKeyJwtAuth()` directly to implement `addClientAuthentication` on a custom `OAuthClientProvider`.
 
 ### Proxy Authorization Requests Upstream
 
