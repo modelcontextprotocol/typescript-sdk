@@ -219,22 +219,21 @@ export class StdioClientTransport implements Transport {
                 });
             });
 
+            try {
+                processToClose.stdin?.end();
+            } catch {
+                // ignore
+            }
+
             this._abortController.abort();
 
-            // waits the underlying process to exit cleanly otherwise after 1s kills it
-            await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 1_000).unref())]);
+            await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2_000).unref())]);
 
             if (processToClose.exitCode === null) {
                 try {
-                    processToClose.stdin?.end();
-                } catch {
-                    // ignore errors in trying to close stdin
-                }
-
-                try {
                     processToClose.kill('SIGKILL');
                 } catch {
-                    // we did our best
+                    // ignore
                 }
             }
         }
