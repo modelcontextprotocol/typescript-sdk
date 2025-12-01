@@ -209,7 +209,7 @@ describe('StreamableHTTPClientTransport', () => {
         const errorSpy = vi.fn();
         transport.onerror = errorSpy;
 
-        await expect(transport.send(message)).rejects.toThrow('Error POSTing to endpoint (HTTP 404)');
+        await expect(transport.send(message)).rejects.toThrow('Streamable HTTP error: Error POSTing to endpoint: Session not found');
         expect(errorSpy).toHaveBeenCalled();
     });
 
@@ -582,15 +582,109 @@ describe('StreamableHTTPClientTransport', () => {
                 ok: false,
                 status: 401,
                 statusText: 'Unauthorized',
-                headers: new Headers()
+                headers: new Headers(),
+                text: async () => Promise.reject('dont read my body')
             })
             .mockResolvedValue({
                 ok: false,
-                status: 404
+                status: 404,
+                text: async () => Promise.reject('dont read my body')
             });
 
         await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
         expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
+    });
+
+    it('attempts upscoping on 403 with WWW-Authenticate header', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        const fetchMock = global.fetch as Mock;
+        fetchMock
+            // First call: returns 403 with insufficient_scope
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({
+                    'WWW-Authenticate':
+                        'Bearer error="insufficient_scope", scope="new_scope", resource_metadata="http://example.com/resource"'
+                }),
+                text: () => Promise.resolve('Insufficient scope')
+            })
+            // Second call: successful after upscoping
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers()
+            });
+
+        // Spy on the imported auth function and mock successful authorization
+        const authModule = await import('./auth.js');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        authSpy.mockResolvedValue('AUTHORIZED');
+
+        await transport.send(message);
+
+        // Verify fetch was called twice
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+
+        // Verify auth was called with the new scope
+        expect(authSpy).toHaveBeenCalledWith(
+            mockAuthProvider,
+            expect.objectContaining({
+                scope: 'new_scope',
+                resourceMetadataUrl: new URL('http://example.com/resource')
+            })
+        );
+
+        authSpy.mockRestore();
+    });
+
+    it('prevents infinite upscoping on repeated 403', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        // Mock fetch calls to always return 403 with insufficient_scope
+        const fetchMock = global.fetch as Mock;
+        fetchMock.mockResolvedValue({
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+            headers: new Headers({
+                'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="new_scope"'
+            }),
+            text: () => Promise.resolve('Insufficient scope')
+        });
+
+        // Spy on the imported auth function and mock successful authorization
+        const authModule = await import('./auth.js');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        authSpy.mockResolvedValue('AUTHORIZED');
+
+        // First send: should trigger upscoping
+        await expect(transport.send(message)).rejects.toThrow('Server returned 403 after trying upscoping');
+
+        expect(fetchMock).toHaveBeenCalledTimes(2); // Initial call + one retry after auth
+        expect(authSpy).toHaveBeenCalledTimes(1); // Auth called once
+
+        // Second send: should fail immediately without re-calling auth
+        fetchMock.mockClear();
+        authSpy.mockClear();
+        await expect(transport.send(message)).rejects.toThrow('Server returned 403 after trying upscoping');
+
+        expect(fetchMock).toHaveBeenCalledTimes(1); // Only one fetch call
+        expect(authSpy).not.toHaveBeenCalled(); // Auth not called again
+
+        authSpy.mockRestore();
     });
 
     describe('Reconnection Logic', () => {
@@ -707,6 +801,121 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock).toHaveBeenCalledTimes(1);
             expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
         });
+
+        it('should reconnect a POST-initiated stream after receiving a priming event', async () => {
+            // ARRANGE
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 1,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            // Create a stream that sends a priming event (with ID) then closes
+            const streamWithPrimingEvent = new ReadableStream({
+                start(controller) {
+                    // Send a priming event with an ID - this enables reconnection
+                    controller.enqueue(
+                        new TextEncoder().encode('id: event-123\ndata: {"jsonrpc":"2.0","method":"notifications/message","params":{}}\n\n')
+                    );
+                    // Then close the stream (simulating server disconnect)
+                    controller.close();
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            // First call: POST returns streaming response with priming event
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: streamWithPrimingEvent
+            });
+            // Second call: GET reconnection - return 405 to stop further reconnection
+            fetchMock.mockResolvedValueOnce({
+                ok: false,
+                status: 405,
+                headers: new Headers()
+            });
+
+            const requestMessage: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'long_running_tool',
+                id: 'request-1',
+                params: {}
+            };
+
+            // ACT
+            await transport.start();
+            await transport.send(requestMessage);
+            // Wait for stream to process and reconnection to be scheduled
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT
+            // THE KEY ASSERTION: Fetch was called TWICE - POST then GET reconnection
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
+            expect(fetchMock.mock.calls[1][1]?.method).toBe('GET');
+            // Verify Last-Event-ID header was sent for reconnection
+            const reconnectHeaders = fetchMock.mock.calls[1][1]?.headers as Headers;
+            expect(reconnectHeaders.get('last-event-id')).toBe('event-123');
+        });
+
+        it('should not throw JSON parse error on priming events with empty data', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const resumptionTokenSpy = vi.fn();
+
+            // Create a stream that sends a priming event (ID only, empty data) then a real message
+            const streamWithPrimingEvent = new ReadableStream({
+                start(controller) {
+                    // Send a priming event with ID but empty data - this should NOT cause a JSON parse error
+                    controller.enqueue(new TextEncoder().encode('id: priming-123\ndata: \n\n'));
+                    // Send a real message
+                    controller.enqueue(
+                        new TextEncoder().encode('id: msg-456\ndata: {"jsonrpc":"2.0","result":{"tools":[]},"id":"req-1"}\n\n')
+                    );
+                    controller.close();
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: streamWithPrimingEvent
+            });
+
+            await transport.start();
+            transport.send(
+                {
+                    jsonrpc: '2.0',
+                    method: 'tools/list',
+                    id: 'req-1',
+                    params: {}
+                },
+                { resumptionToken: undefined, onresumptiontoken: resumptionTokenSpy }
+            );
+
+            await vi.advanceTimersByTimeAsync(50);
+
+            // No JSON parse errors should have occurred
+            expect(errorSpy).not.toHaveBeenCalledWith(
+                expect.objectContaining({ message: expect.stringContaining('Unexpected end of JSON') })
+            );
+            // Resumption token callback should have been called for both events with IDs
+            expect(resumptionTokenSpy).toHaveBeenCalledWith('priming-123');
+            expect(resumptionTokenSpy).toHaveBeenCalledWith('msg-456');
+        });
     });
 
     it('invalidates all credentials on InvalidClientError during auth', async () => {
@@ -727,7 +936,8 @@ describe('StreamableHTTPClientTransport', () => {
             ok: false,
             status: 401,
             statusText: 'Unauthorized',
-            headers: new Headers()
+            headers: new Headers(),
+            text: async () => Promise.reject('dont read my body')
         };
         (global.fetch as Mock)
             // Initial connection
@@ -780,7 +990,8 @@ describe('StreamableHTTPClientTransport', () => {
             ok: false,
             status: 401,
             statusText: 'Unauthorized',
-            headers: new Headers()
+            headers: new Headers(),
+            text: async () => Promise.reject('dont read my body')
         };
         (global.fetch as Mock)
             // Initial connection
@@ -806,7 +1017,8 @@ describe('StreamableHTTPClientTransport', () => {
             // Fallback should fail to complete the flow
             .mockResolvedValue({
                 ok: false,
-                status: 404
+                status: 404,
+                text: async () => Promise.reject('dont read my body')
             });
 
         await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
@@ -831,7 +1043,8 @@ describe('StreamableHTTPClientTransport', () => {
             ok: false,
             status: 401,
             statusText: 'Unauthorized',
-            headers: new Headers()
+            headers: new Headers(),
+            text: async () => Promise.reject('dont read my body')
         };
         (global.fetch as Mock)
             // Initial connection
@@ -857,7 +1070,8 @@ describe('StreamableHTTPClientTransport', () => {
             // Fallback should fail to complete the flow
             .mockResolvedValue({
                 ok: false,
-                status: 404
+                status: 404,
+                text: async () => Promise.reject('dont read my body')
             });
 
         await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
@@ -870,7 +1084,8 @@ describe('StreamableHTTPClientTransport', () => {
                 ok: false,
                 status: 401,
                 statusText: 'Unauthorized',
-                headers: new Headers()
+                headers: new Headers(),
+                text: async () => Promise.reject('dont read my body')
             };
 
             // Create custom fetch
@@ -1010,6 +1225,148 @@ describe('StreamableHTTPClientTransport', () => {
         });
     });
 
+    describe('SSE retry field handling', () => {
+        beforeEach(() => {
+            vi.useFakeTimers();
+            (global.fetch as Mock).mockReset();
+        });
+        afterEach(() => vi.useRealTimers());
+
+        it('should use server-provided retry value for reconnection delay', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 100,
+                    maxReconnectionDelay: 5000,
+                    reconnectionDelayGrowFactor: 2,
+                    maxRetries: 3
+                }
+            });
+
+            // Create a stream that sends a retry field
+            const encoder = new TextEncoder();
+            const stream = new ReadableStream({
+                start(controller) {
+                    // Send SSE event with retry field
+                    const event =
+                        'retry: 3000\nevent: message\nid: evt-1\ndata: {"jsonrpc": "2.0", "method": "notification", "params": {}}\n\n';
+                    controller.enqueue(encoder.encode(event));
+                    // Close stream to trigger reconnection
+                    controller.close();
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: stream
+            });
+
+            // Second request for reconnection
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream()
+            });
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+
+            // Wait for stream to close and reconnection to be scheduled
+            await vi.advanceTimersByTimeAsync(100);
+
+            // Verify the server retry value was captured
+            const transportInternal = transport as unknown as { _serverRetryMs?: number };
+            expect(transportInternal._serverRetryMs).toBe(3000);
+
+            // Verify the delay calculation uses server retry value
+            const getDelay = transport['_getNextReconnectionDelay'].bind(transport);
+            expect(getDelay(0)).toBe(3000); // Should use server value, not 100ms initial
+            expect(getDelay(5)).toBe(3000); // Should still use server value for any attempt
+        });
+
+        it('should fall back to exponential backoff when no server retry value', () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 100,
+                    maxReconnectionDelay: 5000,
+                    reconnectionDelayGrowFactor: 2,
+                    maxRetries: 3
+                }
+            });
+
+            // Without any SSE stream, _serverRetryMs should be undefined
+            const transportInternal = transport as unknown as { _serverRetryMs?: number };
+            expect(transportInternal._serverRetryMs).toBeUndefined();
+
+            // Should use exponential backoff
+            const getDelay = transport['_getNextReconnectionDelay'].bind(transport);
+            expect(getDelay(0)).toBe(100); // 100 * 2^0
+            expect(getDelay(1)).toBe(200); // 100 * 2^1
+            expect(getDelay(2)).toBe(400); // 100 * 2^2
+            expect(getDelay(10)).toBe(5000); // capped at max
+        });
+
+        it('should reconnect on graceful stream close', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                }
+            });
+
+            // Create a stream that closes gracefully after sending an event with ID
+            const encoder = new TextEncoder();
+            const stream = new ReadableStream({
+                start(controller) {
+                    // Send priming event with ID and retry field
+                    const event = 'id: evt-1\nretry: 100\ndata: \n\n';
+                    controller.enqueue(encoder.encode(event));
+                    // Graceful close
+                    controller.close();
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: stream
+            });
+
+            // Second request for reconnection
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream()
+            });
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+
+            // Wait for stream to process and close
+            await vi.advanceTimersByTimeAsync(50);
+
+            // Wait for reconnection delay (100ms from retry field)
+            await vi.advanceTimersByTimeAsync(150);
+
+            // Should have attempted reconnection
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            expect(fetchMock.mock.calls[0][1]?.method).toBe('GET');
+            expect(fetchMock.mock.calls[1][1]?.method).toBe('GET');
+
+            // Second call should include Last-Event-ID
+            const secondCallHeaders = fetchMock.mock.calls[1][1]?.headers;
+            expect(secondCallHeaders?.get('last-event-id')).toBe('evt-1');
+        });
+    });
+
     describe('prevent infinite recursion when server returns 401 after successful auth', () => {
         it('should throw error when server returns 401 after successful auth', async () => {
             const message: JSONRPCMessage = {
@@ -1030,7 +1387,8 @@ describe('StreamableHTTPClientTransport', () => {
                 ok: false,
                 status: 401,
                 statusText: 'Unauthorized',
-                headers: new Headers()
+                headers: new Headers(),
+                text: async () => Promise.reject('dont read my body')
             };
 
             (global.fetch as Mock)
