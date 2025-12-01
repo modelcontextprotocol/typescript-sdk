@@ -12,7 +12,6 @@ import {
     ListResourcesRequestSchema,
     ListToolsRequestSchema,
     ListToolsResultSchema,
-    ListPromptsRequestSchema,
     CallToolRequestSchema,
     CallToolResultSchema,
     CreateMessageRequestSchema,
@@ -1240,38 +1239,21 @@ test('should handle tool list changed notification with auto refresh', async () 
     // List changed notifications
     const notifications: [Error | null, Tool[] | null][] = [];
 
-    const server = new Server(
+    const server = new McpServer({
+        name: 'test-server',
+        version: '1.0.0'
+    });
+
+    // Register initial tool to enable the tools capability
+    server.registerTool(
+        'initial-tool',
         {
-            name: 'test-server',
-            version: '1.0.0'
+            description: 'Initial tool'
         },
-        {
-            capabilities: {
-                tools: {
-                    listChanged: true
-                }
-            }
-        }
+        async () => ({ content: [] })
     );
 
-    // Set up server handlers
-    server.setRequestHandler(InitializeRequestSchema, async request => ({
-        protocolVersion: request.params.protocolVersion,
-        capabilities: {
-            tools: {
-                listChanged: true
-            }
-        },
-        serverInfo: {
-            name: 'test-server',
-            version: '1.0.0'
-        }
-    }));
-
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
-        tools: []
-    }));
-
+    // Configure listChanged handler in constructor
     const client = new Client(
         {
             name: 'test-client',
@@ -1293,32 +1275,25 @@ test('should handle tool list changed notification with auto refresh', async () 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     const result1 = await client.listTools();
-    expect(result1.tools).toHaveLength(0);
+    expect(result1.tools).toHaveLength(1);
 
-    // Update the tools list
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
-        tools: [
-            {
-                name: 'test-tool',
-                description: 'A test tool',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-                // No outputSchema
-            }
-        ]
-    }));
-    await server.sendToolListChanged();
+    // Register another tool - this triggers listChanged notification
+    server.registerTool(
+        'test-tool',
+        {
+            description: 'A test tool'
+        },
+        async () => ({ content: [] })
+    );
 
     // Wait for the debounced notifications to be processed
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Should be 1 notification with 1 tool because autoRefresh is true
+    // Should be 1 notification with 2 tools because autoRefresh is true
     expect(notifications).toHaveLength(1);
     expect(notifications[0][0]).toBeNull();
-    expect(notifications[0][1]).toHaveLength(1);
-    expect(notifications[0][1]?.[0].name).toBe('test-tool');
+    expect(notifications[0][1]).toHaveLength(2);
+    expect(notifications[0][1]?.[1].name).toBe('test-tool');
 });
 
 /***
@@ -1328,38 +1303,15 @@ test('should handle tool list changed notification with manual refresh', async (
     // List changed notifications
     const notifications: [Error | null, Tool[] | null][] = [];
 
-    const server = new Server(
-        {
-            name: 'test-server',
-            version: '1.0.0'
-        },
-        {
-            capabilities: {
-                tools: {
-                    listChanged: true
-                }
-            }
-        }
-    );
+    const server = new McpServer({
+        name: 'test-server',
+        version: '1.0.0'
+    });
 
-    // Set up server handlers
-    server.setRequestHandler(InitializeRequestSchema, async request => ({
-        protocolVersion: request.params.protocolVersion,
-        capabilities: {
-            tools: {
-                listChanged: true
-            }
-        },
-        serverInfo: {
-            name: 'test-server',
-            version: '1.0.0'
-        }
-    }));
+    // Register initial tool to enable the tools capability
+    server.registerTool('initial-tool', {}, async () => ({ content: [] }));
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
-        tools: []
-    }));
-
+    // Configure listChanged handler with manual refresh (autoRefresh: false)
     const client = new Client(
         {
             name: 'test-client',
@@ -1383,23 +1335,16 @@ test('should handle tool list changed notification with manual refresh', async (
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     const result1 = await client.listTools();
-    expect(result1.tools).toHaveLength(0);
+    expect(result1.tools).toHaveLength(1);
 
-    // Update the tools list
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
-        tools: [
-            {
-                name: 'test-tool',
-                description: 'A test tool',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-                // No outputSchema
-            }
-        ]
-    }));
-    await server.sendToolListChanged();
+    // Register another tool - this triggers listChanged notification
+    server.registerTool(
+        'test-tool',
+        {
+            description: 'A test tool'
+        },
+        async () => ({ content: [] })
+    );
 
     // Wait for the notifications to be processed (no debounce)
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -1416,37 +1361,21 @@ test('should handle tool list changed notification with manual refresh', async (
 test('should handle prompt list changed notification with auto refresh', async () => {
     const notifications: [Error | null, Prompt[] | null][] = [];
 
-    const server = new Server(
+    const server = new McpServer({
+        name: 'test-server',
+        version: '1.0.0'
+    });
+
+    // Register initial prompt to enable the prompts capability
+    server.registerPrompt(
+        'initial-prompt',
         {
-            name: 'test-server',
-            version: '1.0.0'
+            description: 'Initial prompt'
         },
-        {
-            capabilities: {
-                prompts: {
-                    listChanged: true
-                }
-            }
-        }
+        async () => ({
+            messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }]
+        })
     );
-
-    // Set up server handlers
-    server.setRequestHandler(InitializeRequestSchema, async request => ({
-        protocolVersion: request.params.protocolVersion,
-        capabilities: {
-            prompts: {
-                listChanged: true
-            }
-        },
-        serverInfo: {
-            name: 'test-server',
-            version: '1.0.0'
-        }
-    }));
-
-    server.setRequestHandler(ListPromptsRequestSchema, async () => ({
-        prompts: []
-    }));
 
     // Configure listChanged handler in constructor
     const client = new Client(
@@ -1470,27 +1399,21 @@ test('should handle prompt list changed notification with auto refresh', async (
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     const result1 = await client.listPrompts();
-    expect(result1.prompts).toHaveLength(0);
+    expect(result1.prompts).toHaveLength(1);
 
-    // Update the prompts list
-    server.setRequestHandler(ListPromptsRequestSchema, async () => ({
-        prompts: [
-            {
-                name: 'test-prompt',
-                description: 'A test prompt'
-            }
-        ]
+    // Register another prompt - this triggers listChanged notification
+    server.registerPrompt('test-prompt', { description: 'A test prompt' }, async () => ({
+        messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }]
     }));
-    await server.sendPromptListChanged();
 
     // Wait for the debounced notifications to be processed
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Should be 1 notification with 1 prompt because autoRefresh is true
+    // Should be 1 notification with 2 prompts because autoRefresh is true
     expect(notifications).toHaveLength(1);
     expect(notifications[0][0]).toBeNull();
-    expect(notifications[0][1]).toHaveLength(1);
-    expect(notifications[0][1]?.[0].name).toBe('test-prompt');
+    expect(notifications[0][1]).toHaveLength(2);
+    expect(notifications[0][1]?.[1].name).toBe('test-prompt');
 });
 
 /***
@@ -1499,36 +1422,14 @@ test('should handle prompt list changed notification with auto refresh', async (
 test('should handle resource list changed notification with auto refresh', async () => {
     const notifications: [Error | null, Resource[] | null][] = [];
 
-    const server = new Server(
-        {
-            name: 'test-server',
-            version: '1.0.0'
-        },
-        {
-            capabilities: {
-                resources: {
-                    listChanged: true
-                }
-            }
-        }
-    );
+    const server = new McpServer({
+        name: 'test-server',
+        version: '1.0.0'
+    });
 
-    // Set up server handlers
-    server.setRequestHandler(InitializeRequestSchema, async request => ({
-        protocolVersion: request.params.protocolVersion,
-        capabilities: {
-            resources: {
-                listChanged: true
-            }
-        },
-        serverInfo: {
-            name: 'test-server',
-            version: '1.0.0'
-        }
-    }));
-
-    server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-        resources: []
+    // Register initial resource to enable the resources capability
+    server.registerResource('initial-resource', 'file:///initial.txt', {}, async () => ({
+        contents: [{ uri: 'file:///initial.txt', text: 'Hello' }]
     }));
 
     // Configure listChanged handler in constructor
@@ -1553,28 +1454,21 @@ test('should handle resource list changed notification with auto refresh', async
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     const result1 = await client.listResources();
-    expect(result1.resources).toHaveLength(0);
+    expect(result1.resources).toHaveLength(1);
 
-    // Update the resources list
-    server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-        resources: [
-            {
-                uri: 'file:///test.txt',
-                name: 'test-resource',
-                description: 'A test resource'
-            }
-        ]
+    // Register another resource - this triggers listChanged notification
+    server.registerResource('test-resource', 'file:///test.txt', {}, async () => ({
+        contents: [{ uri: 'file:///test.txt', text: 'Hello' }]
     }));
-    await server.sendResourceListChanged();
 
     // Wait for the debounced notifications to be processed
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Should be 1 notification with 1 resource because autoRefresh is true
+    // Should be 1 notification with 2 resources because autoRefresh is true
     expect(notifications).toHaveLength(1);
     expect(notifications[0][0]).toBeNull();
-    expect(notifications[0][1]).toHaveLength(1);
-    expect(notifications[0][1]?.[0].name).toBe('test-resource');
+    expect(notifications[0][1]).toHaveLength(2);
+    expect(notifications[0][1]?.[1].name).toBe('test-resource');
 });
 
 /***
@@ -1584,39 +1478,28 @@ test('should handle multiple list changed handlers configured together', async (
     const toolNotifications: [Error | null, Tool[] | null][] = [];
     const promptNotifications: [Error | null, Prompt[] | null][] = [];
 
-    const server = new Server(
+    const server = new McpServer({
+        name: 'test-server',
+        version: '1.0.0'
+    });
+
+    // Register initial tool and prompt to enable capabilities
+    server.registerTool(
+        'tool-1',
         {
-            name: 'test-server',
-            version: '1.0.0'
+            description: 'Tool 1'
         },
-        {
-            capabilities: {
-                tools: { listChanged: true },
-                prompts: { listChanged: true }
-            }
-        }
+        async () => ({ content: [] })
     );
-
-    // Set up server handlers
-    server.setRequestHandler(InitializeRequestSchema, async request => ({
-        protocolVersion: request.params.protocolVersion,
-        capabilities: {
-            tools: { listChanged: true },
-            prompts: { listChanged: true }
+    server.registerPrompt(
+        'prompt-1',
+        {
+            description: 'Prompt 1'
         },
-        serverInfo: {
-            name: 'test-server',
-            version: '1.0.0'
-        }
-    }));
-
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
-        tools: [{ name: 'tool-1', inputSchema: { type: 'object' } }]
-    }));
-
-    server.setRequestHandler(ListPromptsRequestSchema, async () => ({
-        prompts: [{ name: 'prompt-1' }]
-    }));
+        async () => ({
+            messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }]
+        })
+    );
 
     // Configure multiple listChanged handlers in constructor
     const client = new Client(
@@ -1646,19 +1529,33 @@ test('should handle multiple list changed handlers configured together', async (
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    // Send both notifications
-    await server.sendToolListChanged();
-    await server.sendPromptListChanged();
+    // Register another tool and prompt to trigger notifications
+    server.registerTool(
+        'tool-2',
+        {
+            description: 'Tool 2'
+        },
+        async () => ({ content: [] })
+    );
+    server.registerPrompt(
+        'prompt-2',
+        {
+            description: 'Prompt 2'
+        },
+        async () => ({
+            messages: [{ role: 'user', content: { type: 'text', text: 'Hello' } }]
+        })
+    );
 
     // Wait for notifications to be processed
     await new Promise(resolve => setTimeout(resolve, 100));
 
     // Both handlers should have received their respective notifications
     expect(toolNotifications).toHaveLength(1);
-    expect(toolNotifications[0][1]?.[0].name).toBe('tool-1');
+    expect(toolNotifications[0][1]).toHaveLength(2);
 
     expect(promptNotifications).toHaveLength(1);
-    expect(promptNotifications[0][1]?.[0].name).toBe('prompt-1');
+    expect(promptNotifications[0][1]).toHaveLength(2);
 });
 
 describe('outputSchema validation', () => {
