@@ -7,7 +7,7 @@ import { McpServer } from '../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../server/streamableHttp.js';
 import { CallToolResultSchema, LoggingMessageNotificationSchema } from '../types.js';
 import { InMemoryEventStore } from '../examples/shared/inMemoryEventStore.js';
-import { zodTestMatrix, type ZodMatrixEntry } from '../shared/zodTestMatrix.js';
+import { zodTestMatrix, type ZodMatrixEntry } from '../__fixtures__/zodTestMatrix.js';
 
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;
