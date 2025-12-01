@@ -633,3 +633,8 @@ export class Server<
         return this.notification({ method: 'notifications/prompts/list_changed' });
     }
 }
+
+// Re-export session store types and implementations
+export type { SessionStore, SessionData, SessionStorageMode } from './streamableHttp.js';
+export { RedisSessionStore, InMemorySessionStore } from './session-stores/redis.js';
+export type { RedisClient, RedisSessionStoreOptions } from './session-stores/redis.js';

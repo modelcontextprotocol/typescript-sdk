@@ -2814,3 +2814,506 @@ async function createTestServerWithDnsProtection(config: {
         baseUrl: serverUrl
     };
 }
+
+/**
+ * Tests for SessionStore support in StreamableHTTPServerTransport
+ * These tests validate the external session storage functionality for multi-pod deployments
+ */
+import { SessionStore, SessionData, SessionStorageMode } from './streamableHttp.js';
+import { InMemorySessionStore } from './session-stores/redis.js';
+
+describe('StreamableHTTPServerTransport with SessionStore', () => {
+    /**
+     * Mock SessionStore for testing
+     */
+    class MockSessionStore implements SessionStore {
+        private sessions = new Map<string, SessionData>();
+        public storeSessionCalls: Array<{ sessionId: string; data: SessionData }> = [];
+        public getSessionCalls: string[] = [];
+        public updateActivityCalls: string[] = [];
+        public deleteSessionCalls: string[] = [];
+        public sessionExistsCalls: string[] = [];
+
+        async storeSession(sessionId: string, data: SessionData): Promise<void> {
+            this.storeSessionCalls.push({ sessionId, data });
+            this.sessions.set(sessionId, { ...data });
+        }
+
+        async getSession(sessionId: string): Promise<SessionData | null> {
+            this.getSessionCalls.push(sessionId);
+            const data = this.sessions.get(sessionId);
+            return data ? { ...data } : null;
+        }
+
+        async updateSessionActivity(sessionId: string): Promise<void> {
+            this.updateActivityCalls.push(sessionId);
+            const data = this.sessions.get(sessionId);
+            if (data) {
+                data.lastActivity = Date.now();
+                this.sessions.set(sessionId, data);
+            }
+        }
+
+        async deleteSession(sessionId: string): Promise<void> {
+            this.deleteSessionCalls.push(sessionId);
+            this.sessions.delete(sessionId);
+        }
+
+        async sessionExists(sessionId: string): Promise<boolean> {
+            this.sessionExistsCalls.push(sessionId);
+            return this.sessions.has(sessionId);
+        }
+
+        // Helper for tests
+        clear(): void {
+            this.sessions.clear();
+            this.storeSessionCalls = [];
+            this.getSessionCalls = [];
+            this.updateActivityCalls = [];
+            this.deleteSessionCalls = [];
+            this.sessionExistsCalls = [];
+        }
+    }
+
+    describe('SessionStorageMode configuration', () => {
+        it('should default to memory mode when no sessionStore provided', () => {
+            const transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID()
+            });
+
+            expect(transport.sessionStorageMode).toBe('memory');
+            expect(transport.isUsingExternalSessionStore).toBe(false);
+        });
+
+        it('should use external mode when sessionStore is provided without explicit mode', () => {
+            const mockStore = new MockSessionStore();
+            const transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                sessionStore: mockStore
+            });
+
+            // When sessionStore is provided, mode should still default to 'memory'
+            // unless explicitly set to 'external'
+            expect(transport.sessionStorageMode).toBe('memory');
+        });
+
+        it('should use external mode when explicitly set with sessionStore', () => {
+            const mockStore = new MockSessionStore();
+            const transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                sessionStorageMode: 'external',
+                sessionStore: mockStore
+            });
+
+            expect(transport.sessionStorageMode).toBe('external');
+            expect(transport.isUsingExternalSessionStore).toBe(true);
+        });
+
+        it('should throw error when external mode is set without sessionStore', () => {
+            expect(() => {
+                new StreamableHTTPServerTransport({
+                    sessionIdGenerator: () => randomUUID(),
+                    sessionStorageMode: 'external'
+                    // No sessionStore provided
+                });
+            }).toThrow('SessionStore is required when sessionStorageMode is "external"');
+        });
+
+        it('should allow memory mode explicitly', () => {
+            const transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                sessionStorageMode: 'memory'
+            });
+
+            expect(transport.sessionStorageMode).toBe('memory');
+            expect(transport.isUsingExternalSessionStore).toBe(false);
+        });
+
+        it('should allow memory mode with sessionStore (for flexibility)', () => {
+            const mockStore = new MockSessionStore();
+            const transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                sessionStorageMode: 'memory',
+                sessionStore: mockStore // Provided but not used in memory mode
+            });
+
+            expect(transport.sessionStorageMode).toBe('memory');
+            expect(transport.isUsingExternalSessionStore).toBe(false);
+        });
+    });
+
+    describe('External session storage integration', () => {
+        let server: Server;
+        let transport: StreamableHTTPServerTransport;
+        let baseUrl: URL;
+        let mockStore: MockSessionStore;
+        let mcpServer: McpServer;
+
+        async function createTestServerWithSessionStore(): Promise<void> {
+            mockStore = new MockSessionStore();
+            mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+
+            transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                sessionStorageMode: 'external',
+                sessionStore: mockStore
+            });
+
+            await mcpServer.connect(transport);
+
+            server = createServer(async (req, res) => {
+                try {
+                    await transport.handleRequest(req, res);
+                } catch (error) {
+                    console.error('Error handling request:', error);
+                    if (!res.headersSent) res.writeHead(500).end();
+                }
+            });
+
+            baseUrl = await new Promise<URL>(resolve => {
+                server.listen(0, '127.0.0.1', () => {
+                    const addr = server.address() as AddressInfo;
+                    resolve(new URL(`http://127.0.0.1:${addr.port}`));
+                });
+            });
+        }
+
+        beforeEach(async () => {
+            await createTestServerWithSessionStore();
+        });
+
+        afterEach(async () => {
+            await transport.close();
+            server.close();
+        });
+
+        const TEST_INIT_MESSAGE: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: {
+                clientInfo: { name: 'test-client', version: '1.0' },
+                protocolVersion: '2025-03-26',
+                capabilities: {}
+            },
+            id: 'init-1'
+        };
+
+        it('should store session in external store on initialization', async () => {
+            const response = await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream'
+                },
+                body: JSON.stringify(TEST_INIT_MESSAGE)
+            });
+
+            expect(response.status).toBe(200);
+            const sessionId = response.headers.get('mcp-session-id');
+            expect(sessionId).toBeDefined();
+
+            // Verify session was stored in external store
+            expect(mockStore.storeSessionCalls.length).toBeGreaterThan(0);
+            const lastStoreCall = mockStore.storeSessionCalls[mockStore.storeSessionCalls.length - 1];
+            expect(lastStoreCall.sessionId).toBe(sessionId);
+            expect(lastStoreCall.data.initialized).toBe(true);
+            expect(lastStoreCall.data.sessionId).toBe(sessionId);
+        });
+
+        it('should validate session against external store', async () => {
+            // Initialize first
+            const initResponse = await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream'
+                },
+                body: JSON.stringify(TEST_INIT_MESSAGE)
+            });
+
+            const sessionId = initResponse.headers.get('mcp-session-id')!;
+
+            // Make a subsequent request
+            const toolsRequest: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/list',
+                params: {},
+                id: 'tools-1'
+            };
+
+            const response = await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-03-26'
+                },
+                body: JSON.stringify(toolsRequest)
+            });
+
+            expect(response.status).toBe(200);
+
+            // Verify getSession was called to validate
+            expect(mockStore.getSessionCalls).toContain(sessionId);
+        });
+
+        it('should update session activity on requests', async () => {
+            // Initialize first
+            const initResponse = await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream'
+                },
+                body: JSON.stringify(TEST_INIT_MESSAGE)
+            });
+
+            const sessionId = initResponse.headers.get('mcp-session-id')!;
+
+            // Make a subsequent request
+            const toolsRequest: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/list',
+                params: {},
+                id: 'tools-1'
+            };
+
+            await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-03-26'
+                },
+                body: JSON.stringify(toolsRequest)
+            });
+
+            // Verify updateSessionActivity was called
+            expect(mockStore.updateActivityCalls).toContain(sessionId);
+        });
+
+        it('should delete session from external store on DELETE', async () => {
+            // Initialize first
+            const initResponse = await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream'
+                },
+                body: JSON.stringify(TEST_INIT_MESSAGE)
+            });
+
+            const sessionId = initResponse.headers.get('mcp-session-id')!;
+
+            // DELETE the session
+            const deleteResponse = await fetch(baseUrl, {
+                method: 'DELETE',
+                headers: {
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-03-26'
+                }
+            });
+
+            expect(deleteResponse.status).toBe(200);
+
+            // Verify deleteSession was called
+            expect(mockStore.deleteSessionCalls).toContain(sessionId);
+        });
+
+        it('should reject requests with invalid session ID in external mode', async () => {
+            // Initialize to activate the server
+            await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream'
+                },
+                body: JSON.stringify(TEST_INIT_MESSAGE)
+            });
+
+            // Try with an invalid session ID
+            const toolsRequest: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/list',
+                params: {},
+                id: 'tools-1'
+            };
+
+            const response = await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream',
+                    'mcp-session-id': 'invalid-session-id',
+                    'mcp-protocol-version': '2025-03-26'
+                },
+                body: JSON.stringify(toolsRequest)
+            });
+
+            expect(response.status).toBe(404);
+            const errorData = await response.json();
+            expect(errorData.error.message).toMatch(/Session not found/);
+        });
+    });
+
+    describe('Cross-pod session recovery simulation', () => {
+        it('should recover session from external store (simulating different pod)', async () => {
+            // This test simulates what happens when a request comes to a different pod
+            // that doesn't have the session in memory but it exists in the external store
+
+            const mockStore = new MockSessionStore();
+            const sessionId = 'pre-existing-session-123';
+
+            // Pre-populate the external store (simulating session created on Pod A)
+            await mockStore.storeSession(sessionId, {
+                sessionId,
+                initialized: true,
+                createdAt: Date.now() - 60000, // Created 1 minute ago
+                lastActivity: Date.now() - 30000 // Last activity 30 seconds ago
+            });
+
+            // Create a new transport (simulating Pod B that never saw this session)
+            const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+
+            const transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                sessionStorageMode: 'external',
+                sessionStore: mockStore
+            });
+
+            await mcpServer.connect(transport);
+
+            const server = createServer(async (req, res) => {
+                try {
+                    await transport.handleRequest(req, res);
+                } catch (error) {
+                    console.error('Error handling request:', error);
+                    if (!res.headersSent) res.writeHead(500).end();
+                }
+            });
+
+            const baseUrl = await new Promise<URL>(resolve => {
+                server.listen(0, '127.0.0.1', () => {
+                    const addr = server.address() as AddressInfo;
+                    resolve(new URL(`http://127.0.0.1:${addr.port}`));
+                });
+            });
+
+            try {
+                // First initialize (required by protocol)
+                await fetch(baseUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json, text/event-stream'
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        method: 'initialize',
+                        params: {
+                            clientInfo: { name: 'test-client', version: '1.0' },
+                            protocolVersion: '2025-03-26',
+                            capabilities: {}
+                        },
+                        id: 'init-1'
+                    })
+                });
+
+                // Now try to use the pre-existing session
+                const toolsRequest: JSONRPCMessage = {
+                    jsonrpc: '2.0',
+                    method: 'tools/list',
+                    params: {},
+                    id: 'tools-1'
+                };
+
+                const response = await fetch(baseUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json, text/event-stream',
+                        'mcp-session-id': sessionId,
+                        'mcp-protocol-version': '2025-03-26'
+                    },
+                    body: JSON.stringify(toolsRequest)
+                });
+
+                // Session should be recovered from external store
+                expect(response.status).toBe(200);
+
+                // Verify the store was queried
+                expect(mockStore.getSessionCalls).toContain(sessionId);
+            } finally {
+                await transport.close();
+                server.close();
+            }
+        });
+    });
+
+    describe('InMemorySessionStore integration', () => {
+        it('should work with InMemorySessionStore for development/testing', async () => {
+            const inMemoryStore = new InMemorySessionStore(3600);
+
+            const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+
+            const transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                sessionStorageMode: 'external',
+                sessionStore: inMemoryStore
+            });
+
+            await mcpServer.connect(transport);
+
+            const server = createServer(async (req, res) => {
+                try {
+                    await transport.handleRequest(req, res);
+                } catch (error) {
+                    console.error('Error handling request:', error);
+                    if (!res.headersSent) res.writeHead(500).end();
+                }
+            });
+
+            const baseUrl = await new Promise<URL>(resolve => {
+                server.listen(0, '127.0.0.1', () => {
+                    const addr = server.address() as AddressInfo;
+                    resolve(new URL(`http://127.0.0.1:${addr.port}`));
+                });
+            });
+
+            try {
+                // Initialize
+                const initResponse = await fetch(baseUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json, text/event-stream'
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        method: 'initialize',
+                        params: {
+                            clientInfo: { name: 'test-client', version: '1.0' },
+                            protocolVersion: '2025-03-26',
+                            capabilities: {}
+                        },
+                        id: 'init-1'
+                    })
+                });
+
+                expect(initResponse.status).toBe(200);
+                const sessionId = initResponse.headers.get('mcp-session-id');
+                expect(sessionId).toBeDefined();
+
+                // Verify session exists in store
+                expect(await inMemoryStore.sessionExists(sessionId!)).toBe(true);
+                const sessionData = await inMemoryStore.getSession(sessionId!);
+                expect(sessionData?.initialized).toBe(true);
+            } finally {
+                await transport.close();
+                server.close();
+            }
+        });
+    });
+});

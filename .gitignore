@@ -129,7 +129,8 @@ out
 .pnp.*
 
 .DS_Store
-dist/
+# dist/ - Uncommented for GitHub installation support
+# dist/
 
 # IDE
 .idea/

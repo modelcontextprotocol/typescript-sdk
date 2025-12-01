@@ -1,15 +1,18 @@
 {
-    "name": "@modelcontextprotocol/sdk",
-    "version": "1.23.0",
-    "description": "Model Context Protocol implementation for TypeScript",
+    "name": "@anthropic-advisori/mcp-sdk",
+    "version": "1.23.0-sessionstore.1",
+    "description": "Model Context Protocol implementation for TypeScript - Fork with SessionStore support for distributed deployments",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
+    "contributors": [
+        "Advisori GmbH - SessionStore extension for multi-pod support"
+    ],
     "homepage": "https://modelcontextprotocol.io",
     "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
     "type": "module",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
+        "url": "git+https://github.com/anthropic-advisori/mcp-typescript-sdk.git"
     },
     "engines": {
         "node": ">=18"
@@ -50,6 +53,14 @@
         "./experimental/tasks": {
             "import": "./dist/esm/experimental/tasks/index.js",
             "require": "./dist/cjs/experimental/tasks/index.js"
+        },
+        "./server/session-stores": {
+            "import": "./dist/esm/server/session-stores/index.js",
+            "require": "./dist/cjs/server/session-stores/index.js"
+        },
+        "./server/session-stores/redis": {
+            "import": "./dist/esm/server/session-stores/redis.js",
+            "require": "./dist/cjs/server/session-stores/redis.js"
         },
         "./*": {
             "import": "./dist/esm/*",
