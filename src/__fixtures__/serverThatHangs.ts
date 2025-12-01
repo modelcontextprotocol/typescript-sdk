@@ -1,4 +1,4 @@
-import { setTimeout } from 'node:timers';
+import { setInterval } from 'node:timers';
 import process from 'node:process';
 import { McpServer } from '../server/mcp.js';
 import { StdioServerTransport } from '../server/stdio.js';
@@ -20,12 +20,22 @@ const server = new McpServer(
 
 await server.connect(transport);
 
+// Keep process alive even after stdin closes
+const keepAlive = setInterval(() => {}, 60_000);
+
+// Prevent transport close from exiting
+transport.onclose = () => {
+    // Intentionally ignore - we want to test the signal handling
+};
+
 const doNotExitImmediately = async (signal: NodeJS.Signals) => {
     await server.sendLoggingMessage({
         level: 'debug',
         data: `received signal ${signal}`
     });
-    setTimeout(() => process.exit(0), 30 * 1000);
+    // Clear keepalive but delay exit to simulate slow shutdown
+    clearInterval(keepAlive);
+    setInterval(() => {}, 30_000);
 };
 
 process.on('SIGINT', doNotExitImmediately);

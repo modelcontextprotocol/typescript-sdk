@@ -91,7 +91,6 @@ export function getDefaultEnvironment(): Record<string, string> {
  */
 export class StdioClientTransport implements Transport {
     private _process?: ChildProcess;
-    private _abortController: AbortController = new AbortController();
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _serverParams: StdioServerParameters;
     private _stderrStream: PassThrough | null = null;
@@ -126,17 +125,11 @@ export class StdioClientTransport implements Transport {
                 },
                 stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
                 shell: false,
-                signal: this._abortController.signal,
                 windowsHide: process.platform === 'win32' && isElectron(),
                 cwd: this._serverParams.cwd
             });
 
             this._process.on('error', error => {
-                if (error.name === 'AbortError') {
-                    // Expected when close() is called.
-                    return;
-                }
-
                 reject(error);
                 this.onerror?.(error);
             });
@@ -225,9 +218,17 @@ export class StdioClientTransport implements Transport {
                 // ignore
             }
 
-            this._abortController.abort();
-
             await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2_000).unref())]);
+
+            if (processToClose.exitCode === null) {
+                try {
+                    processToClose.kill('SIGTERM');
+                } catch {
+                    // ignore
+                }
+
+                await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2_000).unref())]);
+            }
 
             if (processToClose.exitCode === null) {
                 try {
