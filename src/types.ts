@@ -1835,7 +1835,7 @@ export const ElicitResultSchema = ResultSchema.extend({
      * We normalize null to undefined for leniency while maintaining type compatibility.
      */
     content: z.preprocess(
-        (val) => (val === null ? undefined : val),
+        val => (val === null ? undefined : val),
         z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional()
     )
 });
