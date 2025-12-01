@@ -20,7 +20,7 @@ import {
     ListRootsRequestSchema,
     ErrorCode,
     McpError,
-    CreateTaskResultSchema
+    CreateTaskResultSchema,
     Tool
 } from '../types.js';
 import { Transport } from '../shared/transport.js';

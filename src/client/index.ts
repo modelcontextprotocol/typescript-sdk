@@ -42,7 +42,7 @@ import {
     ElicitRequestSchema,
     CreateTaskResultSchema,
     CreateMessageRequestSchema,
-    CreateMessageResultSchema
+    CreateMessageResultSchema,
     ToolListChangedNotificationSchema,
     ToolListChangedOptions,
     ToolListChangedOptionsSchema
