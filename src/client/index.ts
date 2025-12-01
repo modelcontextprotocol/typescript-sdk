@@ -44,8 +44,11 @@ import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     ToolListChangedNotificationSchema,
-    ToolListChangedOptions,
-    ToolListChangedOptionsSchema
+    PromptListChangedNotificationSchema,
+    ResourceListChangedNotificationSchema,
+    ListChangedOptions,
+    ListChangedOptionsBaseSchema,
+    type ListChangedHandlers
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
@@ -168,42 +171,32 @@ export type ClientOptions = ProtocolOptions & {
     jsonSchemaValidator?: jsonSchemaValidator;
 
     /**
-     * Configure automatic refresh behavior for tool list changed notifications
-     *
-     * Here's an example of how to get the updated tool list when the tool list changed notification is received:
+     * Configure handlers for list changed notifications (tools, prompts, resources).
      *
      * @example
      * ```typescript
-     * {
-     *   onToolListChanged: (err, tools) => {
-     *     if (err) {
-     *       console.error('Failed to refresh tool list:', err);
-     *       return;
+     * const client = new Client(
+     *   { name: 'my-client', version: '1.0.0' },
+     *   {
+     *     listChanged: {
+     *       tools: {
+     *         onChanged: (error, tools) => {
+     *           if (error) {
+     *             console.error('Failed to refresh tools:', error);
+     *             return;
+     *           }
+     *           console.log('Tools updated:', tools);
+     *         }
+     *       },
+     *       prompts: {
+     *         onChanged: (error, prompts) => console.log('Prompts updated:', prompts)
+     *       }
      *     }
-     *     // Use the updated tool list
-     *     console.log('Tool list changed:', tools);
      *   }
-     * }
-     * ```
-     *
-     * Here is an example of how to manually refresh the tool list when the tool list changed notification is received:
-     *
-     * @example
-     * ```typescript
-     * {
-     *   autoRefresh: false,
-     *   debounceMs: 0,
-     *   onToolListChanged: (err, tools) => {
-     *     // err is always null when autoRefresh is false
-     *
-     *     // Manually refresh the tool list
-     *     const result = await this.listTools();
-     *     console.log('Tool list changed:', result.tools);
-     *   }
-     * }
+     * );
      * ```
      */
-    toolListChangedOptions?: ToolListChangedOptions;
+    listChanged?: ListChangedHandlers;
 };
 
 /**
@@ -245,8 +238,7 @@ export class Client<
     private _cachedKnownTaskTools: Set<string> = new Set();
     private _cachedRequiredTaskTools: Set<string> = new Set();
     private _experimental?: { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> };
-    private _toolListChangedOptions?: ToolListChangedOptions;
-    private _toolListChangedDebounceTimer?: ReturnType<typeof setTimeout>;
+    private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
     /**
      * Initializes this client with the given name and version information.
@@ -259,8 +251,37 @@ export class Client<
         this._capabilities = options?.capabilities ?? {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
 
-        // Set up tool list changed options
-        this.setToolListChangedOptions(options?.toolListChangedOptions || null);
+        // Set up list changed handlers if configured
+        if (options?.listChanged) {
+            this._setupListChangedHandlers(options.listChanged);
+        }
+    }
+
+    /**
+     * Set up handlers for list changed notifications based on config.
+     * @internal
+     */
+    private _setupListChangedHandlers(config: ListChangedHandlers): void {
+        if (config.tools) {
+            this._setupListChangedHandler('tools', ToolListChangedNotificationSchema, config.tools, async () => {
+                const result = await this.listTools();
+                return result.tools;
+            });
+        }
+
+        if (config.prompts) {
+            this._setupListChangedHandler('prompts', PromptListChangedNotificationSchema, config.prompts, async () => {
+                const result = await this.listPrompts();
+                return result.prompts;
+            });
+        }
+
+        if (config.resources) {
+            this._setupListChangedHandler('resources', ResourceListChangedNotificationSchema, config.resources, async () => {
+                const result = await this.listResources();
+                return result.resources;
+            });
+        }
     }
 
     /**
@@ -804,71 +825,63 @@ export class Client<
     }
 
     /**
-     * Updates the tool list changed options
-     *
-     * Set to null to disable tool list changed notifications
+     * Set up a single list changed handler.
+     * @internal
      */
-    public setToolListChangedOptions(options: ToolListChangedOptions | null): void {
-        // Set up tool list changed options and add notification handler
-        if (options) {
-            // Validate and apply defaults using Zod schema
-            const parseResult = ToolListChangedOptionsSchema.safeParse(options);
-            if (!parseResult.success) {
-                throw new Error(`Invalid toolListChangedOptions: ${parseResult.error.message}`);
+    private _setupListChangedHandler<T>(
+        listType: string,
+        notificationSchema: { shape: { method: { value: string } } },
+        options: ListChangedOptions<T>,
+        fetcher: () => Promise<T[]>
+    ): void {
+        // Validate options using Zod schema (validates autoRefresh and debounceMs)
+        const parseResult = ListChangedOptionsBaseSchema.safeParse(options);
+        if (!parseResult.success) {
+            throw new Error(`Invalid ${listType} listChanged options: ${parseResult.error.message}`);
+        }
+
+        // Validate callback
+        if (typeof options.onChanged !== 'function') {
+            throw new Error(`Invalid ${listType} listChanged options: onChanged must be a function`);
+        }
+
+        const { autoRefresh, debounceMs } = parseResult.data;
+        const { onChanged } = options;
+
+        const refresh = async () => {
+            if (!autoRefresh) {
+                onChanged(null, null);
+                return;
             }
 
-            const { autoRefresh, debounceMs, onToolListChanged } = parseResult.data;
-            this._toolListChangedOptions = options;
-
-            const refreshToolList = async () => {
-                // If autoRefresh is false, call the callback for the notification, but without tools data
-                if (!autoRefresh) {
-                    onToolListChanged(null, null);
-                    return;
-                }
-
-                let tools: Tool[] | null = null;
-                let error: Error | null = null;
-                try {
-                    const result = await this.listTools();
-                    tools = result.tools;
-                } catch (e) {
-                    error = e instanceof Error ? e : new Error(String(e));
-                }
-                onToolListChanged(error, tools);
-            };
-
-            this.setNotificationHandler(ToolListChangedNotificationSchema, () => {
-                if (debounceMs) {
-                    // Clear any pending debounce timer
-                    if (this._toolListChangedDebounceTimer) {
-                        clearTimeout(this._toolListChangedDebounceTimer);
-                    }
-
-                    // Set up debounced refresh
-                    this._toolListChangedDebounceTimer = setTimeout(refreshToolList, debounceMs);
-                } else {
-                    // No debounce, refresh immediately
-                    refreshToolList();
-                }
-            });
-        }
-        // Reset tool list changed options and remove notification handler
-        else {
-            this._toolListChangedOptions = undefined;
-            this.removeNotificationHandler(ToolListChangedNotificationSchema.shape.method.value);
-            if (this._toolListChangedDebounceTimer) {
-                clearTimeout(this._toolListChangedDebounceTimer);
-                this._toolListChangedDebounceTimer = undefined;
+            try {
+                const items = await fetcher();
+                onChanged(null, items);
+            } catch (e) {
+                const error = e instanceof Error ? e : new Error(String(e));
+                onChanged(error, null);
             }
-        }
-    }
+        };
 
-    /**
-     * Gets the current tool list changed options
-     */
-    public getToolListChangedOptions(): ToolListChangedOptions | undefined {
-        return this._toolListChangedOptions;
+        const handler = () => {
+            if (debounceMs) {
+                // Clear any pending debounce timer for this list type
+                const existingTimer = this._listChangedDebounceTimers.get(listType);
+                if (existingTimer) {
+                    clearTimeout(existingTimer);
+                }
+
+                // Set up debounced refresh
+                const timer = setTimeout(refresh, debounceMs);
+                this._listChangedDebounceTimers.set(listType, timer);
+            } else {
+                // No debounce, refresh immediately
+                refresh();
+            }
+        };
+
+        // Register notification handler
+        this.setNotificationHandler(notificationSchema as AnyObjectSchema, handler);
     }
 
     async sendRootsListChanged() {

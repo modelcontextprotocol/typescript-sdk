@@ -1382,41 +1382,80 @@ export const ToolListChangedNotificationSchema = NotificationSchema.extend({
 });
 
 /**
- * Callback type for tool list changed notifications.
+ * Callback type for list changed notifications.
  */
-export type ToolListChangedCallback = (error: Error | null, tools: Tool[] | null) => void;
+export type ListChangedCallback<T> = (error: Error | null, items: T[] | null) => void;
 
 /**
- * Client Options for tool list changed notifications.
+ * Base schema for list changed subscription options (without callback).
+ * Used internally for Zod validation of autoRefresh and debounceMs.
  */
-export const ToolListChangedOptionsSchema = z.object({
+export const ListChangedOptionsBaseSchema = z.object({
     /**
-     * If true, the tool list will be refreshed automatically when a tool list changed notification is received.
+     * If true, the list will be refreshed automatically when a list changed notification is received.
+     * The callback will be called with the updated list.
      *
-     * If `onToolListChanged` is also provided, it will be called after the tool list is auto refreshed.
+     * If false, the callback will be called with null items, allowing manual refresh.
      *
      * @default true
      */
     autoRefresh: z.boolean().default(true),
     /**
-     * Debounce time in milliseconds for tool list changed notification processing.
+     * Debounce time in milliseconds for list changed notification processing.
      *
      * Multiple notifications received within this timeframe will only trigger one refresh.
+     * Set to 0 to disable debouncing.
      *
      * @default 300
      */
-    debounceMs: z.number().int().nonnegative().default(300),
-    /**
-     * This callback is always called when the server sends a tool list changed notification.
-     *
-     * If `autoRefresh` is true, this callback will be called with updated tool list.
-     */
-    onToolListChanged: z.custom<ToolListChangedCallback>((val): val is ToolListChangedCallback => typeof val === 'function', {
-        message: 'onToolListChanged must be a function'
-    })
+    debounceMs: z.number().int().nonnegative().default(300)
 });
 
-export type ToolListChangedOptions = z.input<typeof ToolListChangedOptionsSchema>;
+/**
+ * Options for subscribing to list changed notifications.
+ *
+ * @typeParam T - The type of items in the list (Tool, Prompt, or Resource)
+ */
+export type ListChangedOptions<T> = {
+    /**
+     * If true, the list will be refreshed automatically when a list changed notification is received.
+     * @default true
+     */
+    autoRefresh?: boolean;
+    /**
+     * Debounce time in milliseconds. Set to 0 to disable.
+     * @default 300
+     */
+    debounceMs?: number;
+    /**
+     * Callback invoked when the list changes.
+     *
+     * If autoRefresh is true, items contains the updated list.
+     * If autoRefresh is false, items is null (caller should refresh manually).
+     */
+    onChanged: ListChangedCallback<T>;
+};
+
+/**
+ * Configuration for list changed notification handlers.
+ *
+ * Use this to configure handlers for tools, prompts, and resources list changes
+ * when creating a client.
+ */
+export type ListChangedHandlers = {
+    /**
+     * Handler for tool list changes.
+     */
+    tools?: ListChangedOptions<Tool>;
+    /**
+     * Handler for prompt list changes.
+     */
+    prompts?: ListChangedOptions<Prompt>;
+    /**
+     * Handler for resource list changes.
+     */
+    resources?: ListChangedOptions<Resource>;
+};
 
 /* Logging */
 /**
