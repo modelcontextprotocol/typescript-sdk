@@ -8,11 +8,11 @@ The SDK provides a high-level `Client` class that connects to MCP servers over d
 
 Runnable client examples live under:
 
-- `src/examples/client/simpleStreamableHttp.ts`
-- `src/examples/client/streamableHttpWithSseFallbackClient.ts`
-- `src/examples/client/ssePollingClient.ts`
-- `src/examples/client/multipleClientsParallel.ts`
-- `src/examples/client/parallelToolCallsClient.ts`
+- [`simpleStreamableHttp.ts`](../src/examples/client/simpleStreamableHttp.ts)
+- [`streamableHttpWithSseFallbackClient.ts`](../src/examples/client/streamableHttpWithSseFallbackClient.ts)
+- [`ssePollingClient.ts`](../src/examples/client/ssePollingClient.ts)
+- [`multipleClientsParallel.ts`](../src/examples/client/multipleClientsParallel.ts)
+- [`parallelToolCallsClient.ts`](../src/examples/client/parallelToolCallsClient.ts)
 
 ## Connecting and basic operations
 
@@ -25,7 +25,7 @@ A typical flow:
     - `listPrompts`, `getPrompt`
     - `listResources`, `readResource`
 
-See `src/examples/client/simpleStreamableHttp.ts` for an interactive CLI client that exercises these methods and shows how to handle notifications, elicitation and tasks.
+See [`simpleStreamableHttp.ts`](../src/examples/client/simpleStreamableHttp.ts) for an interactive CLI client that exercises these methods and shows how to handle notifications, elicitation and tasks.
 
 ## Transports and backwards compatibility
 
@@ -36,7 +36,7 @@ To support both modern Streamable HTTP and legacy SSE servers, use a client that
 
 Runnable example:
 
-- `src/examples/client/streamableHttpWithSseFallbackClient.ts`
+- [`streamableHttpWithSseFallbackClient.ts`](../src/examples/client/streamableHttpWithSseFallbackClient.ts)
 
 ## OAuth client authentication helpers
 
@@ -48,10 +48,10 @@ For OAuth-secured MCP servers, the client `auth` module exposes:
 
 Examples:
 
-- `src/examples/client/simpleOAuthClient.ts`
-- `src/examples/client/simpleOAuthClientProvider.ts`
-- `src/examples/client/simpleClientCredentials.ts`
-- Server-side auth demo: `src/examples/server/demoInMemoryOAuthProvider.ts`
+- [`simpleOAuthClient.ts`](../src/examples/client/simpleOAuthClient.ts)
+- [`simpleOAuthClientProvider.ts`](../src/examples/client/simpleOAuthClientProvider.ts)
+- [`simpleClientCredentials.ts`](../src/examples/client/simpleClientCredentials.ts)
+- Server-side auth demo: [`demoInMemoryOAuthProvider.ts`](../src/examples/server/demoInMemoryOAuthProvider.ts)
 
 These examples show how to:
 
