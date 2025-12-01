@@ -53,8 +53,8 @@ describe('Process cleanup', () => {
         });
 
         const transport = new StdioClientTransport({
-            command: 'npm',
-            args: ['exec', 'tsx', 'test-server.ts'],
+            command: 'node',
+            args: ['--import', 'tsx', 'test-server.ts'],
             cwd: __dirname
         });
 
@@ -80,8 +80,8 @@ describe('Process cleanup', () => {
         });
 
         const transport = new StdioClientTransport({
-            command: 'npm',
-            args: ['exec', 'tsx', 'server-that-hangs.ts'],
+            command: 'node',
+            args: ['--import', 'tsx', 'server-that-hangs.ts'],
             cwd: __dirname
         });
 
