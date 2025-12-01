@@ -2143,6 +2143,12 @@ export interface MessageExtraInfo {
      * Only available when using StreamableHTTPServerTransport with eventStore configured.
      */
     closeSSEStream?: () => void;
+
+    /**
+     * Callback to close the standalone GET SSE stream, triggering client reconnection.
+     * Only available when using StreamableHTTPServerTransport with eventStore configured.
+     */
+    closeStandaloneSSEStream?: () => void;
 }
 
 /* JSON-RPC types */

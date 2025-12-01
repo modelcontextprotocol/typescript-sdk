@@ -651,13 +651,17 @@ export class StreamableHTTPServerTransport implements Transport {
                 for (const message of messages) {
                     // Build closeSSEStream callback for requests when eventStore is configured
                     let closeSSEStream: (() => void) | undefined;
+                    let closeStandaloneSSEStream: (() => void) | undefined;
                     if (isJSONRPCRequest(message) && this._eventStore) {
                         closeSSEStream = () => {
                             this.closeSSEStream(message.id);
                         };
+                        closeStandaloneSSEStream = () => {
+                            this.closeStandaloneSSEStream();
+                        };
                     }
 
-                    this.onmessage?.(message, { authInfo, requestInfo, closeSSEStream });
+                    this.onmessage?.(message, { authInfo, requestInfo, closeSSEStream, closeStandaloneSSEStream });
                 }
                 // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
                 // This will be handled by the send() method when responses are ready
@@ -812,6 +816,14 @@ export class StreamableHTTPServerTransport implements Transport {
             stream.end();
             this._streamMapping.delete(streamId);
         }
+    }
+
+    /**
+     * Close the standalone GET SSE stream, triggering client reconnection.
+     * Use this to implement polling behavior for server-initiated notifications.
+     */
+    closeStandaloneSSEStream(): void {
+        // TODO: implement - currently does nothing, stream won't close
     }
 
     async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void> {
