@@ -651,13 +651,17 @@ export class StreamableHTTPServerTransport implements Transport {
                 for (const message of messages) {
                     // Build closeSSEStream callback for requests when eventStore is configured
                     let closeSSEStream: (() => void) | undefined;
+                    let closeStandaloneSSEStream: (() => void) | undefined;
                     if (isJSONRPCRequest(message) && this._eventStore) {
                         closeSSEStream = () => {
                             this.closeSSEStream(message.id);
                         };
+                        closeStandaloneSSEStream = () => {
+                            this.closeStandaloneSSEStream();
+                        };
                     }
 
-                    this.onmessage?.(message, { authInfo, requestInfo, closeSSEStream });
+                    this.onmessage?.(message, { authInfo, requestInfo, closeSSEStream, closeStandaloneSSEStream });
                 }
                 // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
                 // This will be handled by the send() method when responses are ready
@@ -814,6 +818,18 @@ export class StreamableHTTPServerTransport implements Transport {
         }
     }
 
+    /**
+     * Close the standalone GET SSE stream, triggering client reconnection.
+     * Use this to implement polling behavior for server-initiated notifications.
+     */
+    closeStandaloneSSEStream(): void {
+        const stream = this._streamMapping.get(this._standaloneSseStreamId);
+        if (stream) {
+            stream.end();
+            this._streamMapping.delete(this._standaloneSseStreamId);
+        }
+    }
+
     async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void> {
         let requestId = options?.relatedRequestId;
         if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
@@ -829,17 +845,19 @@ export class StreamableHTTPServerTransport implements Transport {
             if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
                 throw new Error('Cannot send a response on a standalone SSE stream unless resuming a previous client request');
             }
-            const standaloneSse = this._streamMapping.get(this._standaloneSseStreamId);
-            if (standaloneSse === undefined) {
-                // The spec says the server MAY send messages on the stream, so it's ok to discard if no stream
-                return;
-            }
 
             // Generate and store event ID if event store is provided
+            // Store even if stream is disconnected so events can be replayed on reconnect
             let eventId: string | undefined;
             if (this._eventStore) {
                 // Stores the event and gets the generated event ID
                 eventId = await this._eventStore.storeEvent(this._standaloneSseStreamId, message);
+            }
+
+            const standaloneSse = this._streamMapping.get(this._standaloneSseStreamId);
+            if (standaloneSse === undefined) {
+                // Stream is disconnected - event is stored for replay, nothing more to do
+                return;
             }
 
             // Send the message to the standalone SSE stream
