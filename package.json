@@ -121,6 +121,7 @@
         "@types/cross-spawn": "^6.0.6",
         "@types/eventsource": "^1.1.15",
         "@types/express": "^5.0.0",
+        "@types/express-serve-static-core": "^5.1.0",
         "@types/node": "^22.12.0",
         "@types/supertest": "^6.0.2",
         "@types/ws": "^8.5.12",
