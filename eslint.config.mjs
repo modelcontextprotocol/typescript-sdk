@@ -4,6 +4,14 @@ import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import eslintConfigPrettier from 'eslint-config-prettier/flat';
 import nodePlugin from 'eslint-plugin-n';
+import { fileNamingRule } from './eslint-rules/fileNaming.mjs';
+
+// Local plugin for custom rules
+const localPlugin = {
+    rules: {
+        'file-naming': fileNamingRule,
+    },
+};
 
 export default tseslint.config(
     eslint.configs.recommended,
@@ -13,11 +21,18 @@ export default tseslint.config(
             reportUnusedDisableDirectives: false
         },
         plugins: {
-            n: nodePlugin
+            n: nodePlugin,
+            local: localPlugin
         },
         rules: {
             '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-            'n/prefer-node-protocol': 'error'
+            'n/prefer-node-protocol': 'error',
+            'local/file-naming': ['warn', {
+                ignore: [
+                    '^spec\\.types',
+                    '^types\\.'
+                ]
+            }]
         }
     },
     {
