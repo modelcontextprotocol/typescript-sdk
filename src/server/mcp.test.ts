@@ -22,7 +22,7 @@ import {
 import { completable } from './completable.js';
 import { McpServer, ResourceTemplate } from './mcp.js';
 import { InMemoryTaskStore } from '../experimental/tasks/stores/in-memory.js';
-import { zodTestMatrix, type ZodMatrixEntry } from '../shared/zodTestMatrix.js';
+import { zodTestMatrix, type ZodMatrixEntry } from '../__fixtures__/zodTestMatrix.js';
 
 function createLatch() {
     let latch = false;
@@ -639,7 +639,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 async () => ({
                     content: [
                         {
-                            type: 'text' as const,
+                            type: 'text',
                             text: 'Test response'
                         }
                     ]
@@ -694,7 +694,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 async () => ({
                     content: [
                         {
-                            type: 'text' as const,
+                            type: 'text',
                             text: 'Test response'
                         }
                     ]
@@ -876,7 +876,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 async () => ({
-                    content: [{ type: 'text' as const, text: 'Test response' }]
+                    content: [{ type: 'text', text: 'Test response' }]
                 })
             );
 
@@ -1928,7 +1928,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     description: 'A valid tool name'
                 },
-                async () => ({ content: [{ type: 'text' as const, text: 'Success' }] })
+                async () => ({ content: [{ type: 'text', text: 'Success' }] })
             );
 
             // Test tool name with warnings (starts with dash)
@@ -1937,7 +1937,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     description: 'A tool name that generates warnings'
                 },
-                async () => ({ content: [{ type: 'text' as const, text: 'Success' }] })
+                async () => ({ content: [{ type: 'text', text: 'Success' }] })
             );
 
             // Test invalid tool name (contains spaces)
@@ -1946,7 +1946,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     description: 'An invalid tool name'
                 },
-                async () => ({ content: [{ type: 'text' as const, text: 'Success' }] })
+                async () => ({ content: [{ type: 'text', text: 'Success' }] })
             );
 
             // Verify that warnings were issued (both for warnings and validation failures)
@@ -3879,6 +3879,51 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.resources[0].description).toBe('Overridden description');
             expect(result.resources[0].mimeType).toBe('text/markdown');
         });
+
+        test('should support optional prompt arguments', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerPrompt(
+                'test-prompt',
+                {
+                    argsSchema: {
+                        name: z.string().optional()
+                    }
+                },
+                () => ({
+                    messages: []
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request(
+                {
+                    method: 'prompts/list'
+                },
+                ListPromptsResultSchema
+            );
+
+            expect(result.prompts).toHaveLength(1);
+            expect(result.prompts[0].name).toBe('test-prompt');
+            expect(result.prompts[0].arguments).toEqual([
+                {
+                    name: 'name',
+                    description: undefined,
+                    required: false
+                }
+            ]);
+        });
     });
 
     describe('Tool title precedence', () => {
@@ -3894,7 +3939,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Tool 1: Only name
             mcpServer.tool('tool_name_only', async () => ({
-                content: [{ type: 'text' as const, text: 'Response' }]
+                content: [{ type: 'text', text: 'Response' }]
             }));
 
             // Tool 2: Name and annotations.title
@@ -3905,7 +3950,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     title: 'Annotations Title'
                 },
                 async () => ({
-                    content: [{ type: 'text' as const, text: 'Response' }]
+                    content: [{ type: 'text', text: 'Response' }]
                 })
             );
 
@@ -3917,7 +3962,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     description: 'Tool with regular title'
                 },
                 async () => ({
-                    content: [{ type: 'text' as const, text: 'Response' }]
+                    content: [{ type: 'text', text: 'Response' }]
                 })
             );
 
@@ -3932,7 +3977,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 async () => ({
-                    content: [{ type: 'text' as const, text: 'Response' }]
+                    content: [{ type: 'text', text: 'Response' }]
                 })
             );
 
@@ -5009,7 +5054,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     description: 'Tool with regular title'
                 },
                 async () => ({
-                    content: [{ type: 'text' as const, text: 'Response' }]
+                    content: [{ type: 'text', text: 'Response' }]
                 })
             );
 
@@ -5024,7 +5069,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 async () => ({
-                    content: [{ type: 'text' as const, text: 'Response' }]
+                    content: [{ type: 'text', text: 'Response' }]
                 })
             );
 

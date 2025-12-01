@@ -5,5 +5,5 @@
         "moduleResolution": "node",
         "outDir": "./dist/cjs"
     },
-    "exclude": ["**/*.test.ts", "src/__mocks__/**/*"]
+    "exclude": ["**/*.test.ts", "src/__mocks__/**/*", "src/__fixtures__/**/*"]
 }
