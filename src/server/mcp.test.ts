@@ -22,7 +22,7 @@ import {
 import { completable } from './completable.js';
 import { McpServer, ResourceTemplate } from './mcp.js';
 import { InMemoryTaskStore } from '../experimental/tasks/stores/in-memory.js';
-import { zodTestMatrix, type ZodMatrixEntry } from '../shared/zodTestMatrix.js';
+import { zodTestMatrix, type ZodMatrixEntry } from '../__fixtures__/zodTestMatrix.js';
 
 function createLatch() {
     let latch = false;

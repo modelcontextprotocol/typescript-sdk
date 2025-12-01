@@ -1,9 +1,12 @@
+import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { Client } from '../client/index.js';
 import { StdioClientTransport } from '../client/stdio.js';
 import { Server } from '../server/index.js';
 import { StdioServerTransport } from '../server/stdio.js';
 import { LoggingMessageNotificationSchema } from '../types.js';
+
+const FIXTURES_DIR = path.resolve(__dirname, '../__fixtures__');
 
 describe('Process cleanup', () => {
     vi.setConfig({ testTimeout: 5000 }); // 5 second timeout
@@ -54,8 +57,8 @@ describe('Process cleanup', () => {
 
         const transport = new StdioClientTransport({
             command: 'node',
-            args: ['--import', 'tsx', 'test-server.ts'],
-            cwd: __dirname
+            args: ['--import', 'tsx', 'testServer.ts'],
+            cwd: FIXTURES_DIR
         });
 
         await client.connect(transport);
@@ -81,8 +84,8 @@ describe('Process cleanup', () => {
 
         const transport = new StdioClientTransport({
             command: 'node',
-            args: ['--import', 'tsx', 'server-that-hangs.ts'],
-            cwd: __dirname
+            args: ['--import', 'tsx', 'serverThatHangs.ts'],
+            cwd: FIXTURES_DIR
         });
 
         await client.connect(transport);

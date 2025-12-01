@@ -5,7 +5,7 @@ import { EventStore, StreamableHTTPServerTransport, EventId, StreamId } from './
 import { McpServer } from './mcp.js';
 import { CallToolResult, JSONRPCMessage } from '../types.js';
 import { AuthInfo } from './auth/types.js';
-import { zodTestMatrix, type ZodMatrixEntry } from '../shared/zodTestMatrix.js';
+import { zodTestMatrix, type ZodMatrixEntry } from '../__fixtures__/zodTestMatrix.js';
 
 async function getFreePort() {
     return new Promise(res => {
