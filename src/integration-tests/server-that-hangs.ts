@@ -28,18 +28,5 @@ const doNotExitImmediately = async (signal: NodeJS.Signals) => {
     setTimeout(() => process.exit(0), 30 * 1000);
 };
 
-transport.onclose = () => {
-    server.sendLoggingMessage({
-        level: 'debug',
-        data: 'transport: onclose called. This should never happen'
-    });
-};
-
-process.stdin.on('close', hadErr => {
-    server.sendLoggingMessage({
-        level: 'debug',
-        data: 'stdin closed. Error: ' + hadErr
-    });
-});
 process.on('SIGINT', doNotExitImmediately);
 process.on('SIGTERM', doNotExitImmediately);
