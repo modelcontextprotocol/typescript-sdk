@@ -31,7 +31,7 @@ export interface ZodV3Internal {
 export interface ZodV4Internal {
     _zod?: {
         def?: {
-            typeName?: string;
+            type?: string;
             value?: unknown;
             values?: unknown[];
             shape?: Record<string, AnySchema> | (() => Record<string, AnySchema>);
@@ -175,7 +175,7 @@ export function normalizeObjectSchema(schema: AnySchema | ZodRawShapeCompat | un
         // Check if it's a v4 object
         const v4Schema = schema as unknown as ZodV4Internal;
         const def = v4Schema._zod?.def;
-        if (def && (def.typeName === 'object' || def.shape !== undefined)) {
+        if (def && (def.type === 'object' || def.shape !== undefined)) {
             return schema as AnyObjectSchema;
         }
     } else {
@@ -238,7 +238,7 @@ export function getSchemaDescription(schema: AnySchema): string | undefined {
 export function isSchemaOptional(schema: AnySchema): boolean {
     if (isZ4Schema(schema)) {
         const v4Schema = schema as unknown as ZodV4Internal;
-        return v4Schema._zod?.def?.typeName === 'ZodOptional';
+        return v4Schema._zod?.def?.type === 'optional';
     }
     const v3Schema = schema as unknown as ZodV3Internal;
     // v3 has isOptional() method

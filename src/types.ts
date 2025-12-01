@@ -2137,6 +2137,12 @@ export interface MessageExtraInfo {
      * The authentication information.
      */
     authInfo?: AuthInfo;
+
+    /**
+     * Callback to close the SSE stream for this request, triggering client reconnection.
+     * Only available when using StreamableHTTPServerTransport with eventStore configured.
+     */
+    closeSSEStream?: () => void;
 }
 
 /* JSON-RPC types */

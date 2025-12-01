@@ -136,6 +136,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _hasCompletedAuthFlow = false; // Circuit breaker: detect auth success followed by immediate 401
     private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
+    private _reconnectionTimeout?: ReturnType<typeof setTimeout>;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -287,7 +288,7 @@ export class StreamableHTTPClientTransport implements Transport {
         const delay = this._getNextReconnectionDelay(attemptCount);
 
         // Schedule the reconnection
-        setTimeout(() => {
+        this._reconnectionTimeout = setTimeout(() => {
             // Use the last event ID to resume where we left off
             this._startOrAuthSse(options).catch(error => {
                 this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
@@ -307,6 +308,9 @@ export class StreamableHTTPClientTransport implements Transport {
         // Track whether we've received a priming event (event with ID)
         // Per spec, server SHOULD send a priming event with ID before closing
         let hasPrimingEvent = false;
+        // Track whether we've received a response - if so, no need to reconnect
+        // Reconnection is for when server disconnects BEFORE sending response
+        let receivedResponse = false;
         const processStream = async () => {
             // this is the closest we can get to trying to catch network errors
             // if something happens reader will throw
@@ -346,8 +350,12 @@ export class StreamableHTTPClientTransport implements Transport {
                     if (!event.event || event.event === 'message') {
                         try {
                             const message = JSONRPCMessageSchema.parse(JSON.parse(event.data));
-                            if (replayMessageId !== undefined && isJSONRPCResponse(message)) {
-                                message.id = replayMessageId;
+                            if (isJSONRPCResponse(message)) {
+                                // Mark that we received a response - no need to reconnect for this request
+                                receivedResponse = true;
+                                if (replayMessageId !== undefined) {
+                                    message.id = replayMessageId;
+                                }
                             }
                             this.onmessage?.(message);
                         } catch (error) {
@@ -359,8 +367,10 @@ export class StreamableHTTPClientTransport implements Transport {
                 // Handle graceful server-side disconnect
                 // Server may close connection after sending event ID and retry field
                 // Reconnect if: already reconnectable (GET stream) OR received a priming event (POST stream with event ID)
+                // BUT don't reconnect if we already received a response - the request is complete
                 const canResume = isReconnectable || hasPrimingEvent;
-                if (canResume && this._abortController && !this._abortController.signal.aborted) {
+                const needsReconnect = canResume && !receivedResponse;
+                if (needsReconnect && this._abortController && !this._abortController.signal.aborted) {
                     this._scheduleReconnection(
                         {
                             resumptionToken: lastEventId,
@@ -376,8 +386,10 @@ export class StreamableHTTPClientTransport implements Transport {
 
                 // Attempt to reconnect if the stream disconnects unexpectedly and we aren't closing
                 // Reconnect if: already reconnectable (GET stream) OR received a priming event (POST stream with event ID)
+                // BUT don't reconnect if we already received a response - the request is complete
                 const canResume = isReconnectable || hasPrimingEvent;
-                if (canResume && this._abortController && !this._abortController.signal.aborted) {
+                const needsReconnect = canResume && !receivedResponse;
+                if (needsReconnect && this._abortController && !this._abortController.signal.aborted) {
                     // Use the exponential backoff reconnection strategy
                     try {
                         this._scheduleReconnection(
@@ -428,9 +440,11 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     async close(): Promise<void> {
-        // Abort any pending requests
+        if (this._reconnectionTimeout) {
+            clearTimeout(this._reconnectionTimeout);
+            this._reconnectionTimeout = undefined;
+        }
         this._abortController?.abort();
-
         this.onclose?.();
     }
 

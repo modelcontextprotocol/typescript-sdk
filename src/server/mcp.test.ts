@@ -22,7 +22,7 @@ import {
 import { completable } from './completable.js';
 import { McpServer, ResourceTemplate } from './mcp.js';
 import { InMemoryTaskStore } from '../experimental/tasks/stores/in-memory.js';
-import { zodTestMatrix, type ZodMatrixEntry } from '../shared/zodTestMatrix.js';
+import { zodTestMatrix, type ZodMatrixEntry } from '../__fixtures__/zodTestMatrix.js';
 
 function createLatch() {
     let latch = false;
@@ -3878,6 +3878,51 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.resources[0].name).toBe('Overridden Name');
             expect(result.resources[0].description).toBe('Overridden description');
             expect(result.resources[0].mimeType).toBe('text/markdown');
+        });
+
+        test('should support optional prompt arguments', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerPrompt(
+                'test-prompt',
+                {
+                    argsSchema: {
+                        name: z.string().optional()
+                    }
+                },
+                () => ({
+                    messages: []
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request(
+                {
+                    method: 'prompts/list'
+                },
+                ListPromptsResultSchema
+            );
+
+            expect(result.prompts).toHaveLength(1);
+            expect(result.prompts[0].name).toBe('test-prompt');
+            expect(result.prompts[0].arguments).toEqual([
+                {
+                    name: 'name',
+                    description: undefined,
+                    required: false
+                }
+            ]);
         });
     });
 

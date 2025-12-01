@@ -31,6 +31,16 @@ import {
 import { FetchLike } from '../shared/transport.js';
 
 /**
+ * Function type for adding client authentication to token requests.
+ */
+export type AddClientAuthentication = (
+    headers: Headers,
+    params: URLSearchParams,
+    url: string | URL,
+    metadata?: AuthorizationServerMetadata
+) => void | Promise<void>;
+
+/**
  * Implements an end-to-end OAuth client to be used with one MCP server.
  *
  * This client relies upon a concept of an authorized "session," the exact
@@ -40,8 +50,10 @@ import { FetchLike } from '../shared/transport.js';
 export interface OAuthClientProvider {
     /**
      * The URL to redirect the user agent to after authorization.
+     * Return undefined for non-interactive flows that don't require user interaction
+     * (e.g., client_credentials, jwt-bearer).
      */
-    get redirectUrl(): string | URL;
+    get redirectUrl(): string | URL | undefined;
 
     /**
      * External URL the server should use to fetch client metadata document
@@ -122,12 +134,7 @@ export interface OAuthClientProvider {
      * @param url - The token endpoint URL being called
      * @param metadata - Optional OAuth metadata for the server, which may include supported authentication methods
      */
-    addClientAuthentication?(
-        headers: Headers,
-        params: URLSearchParams,
-        url: string | URL,
-        metadata?: AuthorizationServerMetadata
-    ): void | Promise<void>;
+    addClientAuthentication?: AddClientAuthentication;
 
     /**
      * If defined, overrides the selection and validation of the
@@ -144,6 +151,44 @@ export interface OAuthClientProvider {
      * This avoids requiring the user to intervene manually.
      */
     invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier'): void | Promise<void>;
+
+    /**
+     * Prepares grant-specific parameters for a token request.
+     *
+     * This optional method allows providers to customize the token request based on
+     * the grant type they support. When implemented, it returns the grant type and
+     * any grant-specific parameters needed for the token exchange.
+     *
+     * If not implemented, the default behavior depends on the flow:
+     * - For authorization code flow: uses code, code_verifier, and redirect_uri
+     * - For client_credentials: detected via grant_types in clientMetadata
+     *
+     * @param scope - Optional scope to request
+     * @returns Grant type and parameters, or undefined to use default behavior
+     *
+     * @example
+     * // For client_credentials grant:
+     * prepareTokenRequest(scope) {
+     *   return {
+     *     grantType: 'client_credentials',
+     *     params: scope ? { scope } : {}
+     *   };
+     * }
+     *
+     * @example
+     * // For authorization_code grant (default behavior):
+     * async prepareTokenRequest() {
+     *   return {
+     *     grantType: 'authorization_code',
+     *     params: {
+     *       code: this.authorizationCode,
+     *       code_verifier: await this.codeVerifier(),
+     *       redirect_uri: String(this.redirectUrl)
+     *     }
+     *   };
+     * }
+     */
+    prepareTokenRequest?(scope?: string): URLSearchParams | Promise<URLSearchParams | undefined> | undefined;
 }
 
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
@@ -419,18 +464,16 @@ async function authInternal(
         }
     }
 
-    // Exchange authorization code for tokens
-    if (authorizationCode !== undefined) {
-        const codeVerifier = await provider.codeVerifier();
-        const tokens = await exchangeAuthorization(authorizationServerUrl, {
+    // Non-interactive flows (e.g., client_credentials, jwt-bearer) don't need a redirect URL
+    const nonInteractiveFlow = !provider.redirectUrl;
+
+    // Exchange authorization code for tokens, or fetch tokens directly for non-interactive flows
+    if (authorizationCode !== undefined || nonInteractiveFlow) {
+        const tokens = await fetchToken(provider, authorizationServerUrl, {
             metadata,
-            clientInformation,
-            authorizationCode,
-            codeVerifier,
-            redirectUri: provider.redirectUrl,
             resource,
-            addClientAuthentication: provider.addClientAuthentication,
-            fetchFn: fetchFn
+            authorizationCode,
+            fetchFn
         });
 
         await provider.saveTokens(tokens);
@@ -967,6 +1010,84 @@ export async function startAuthorization(
 }
 
 /**
+ * Prepares token request parameters for an authorization code exchange.
+ *
+ * This is the default implementation used by fetchToken when the provider
+ * doesn't implement prepareTokenRequest.
+ *
+ * @param authorizationCode - The authorization code received from the authorization endpoint
+ * @param codeVerifier - The PKCE code verifier
+ * @param redirectUri - The redirect URI used in the authorization request
+ * @returns URLSearchParams for the authorization_code grant
+ */
+export function prepareAuthorizationCodeRequest(
+    authorizationCode: string,
+    codeVerifier: string,
+    redirectUri: string | URL
+): URLSearchParams {
+    return new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: authorizationCode,
+        code_verifier: codeVerifier,
+        redirect_uri: String(redirectUri)
+    });
+}
+
+/**
+ * Internal helper to execute a token request with the given parameters.
+ * Used by exchangeAuthorization, refreshAuthorization, and fetchToken.
+ */
+async function executeTokenRequest(
+    authorizationServerUrl: string | URL,
+    {
+        metadata,
+        tokenRequestParams,
+        clientInformation,
+        addClientAuthentication,
+        resource,
+        fetchFn
+    }: {
+        metadata?: AuthorizationServerMetadata;
+        tokenRequestParams: URLSearchParams;
+        clientInformation?: OAuthClientInformationMixed;
+        addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
+        resource?: URL;
+        fetchFn?: FetchLike;
+    }
+): Promise<OAuthTokens> {
+    const tokenUrl = metadata?.token_endpoint ? new URL(metadata.token_endpoint) : new URL('/token', authorizationServerUrl);
+
+    const headers = new Headers({
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json'
+    });
+
+    if (resource) {
+        tokenRequestParams.set('resource', resource.href);
+    }
+
+    if (addClientAuthentication) {
+        await addClientAuthentication(headers, tokenRequestParams, tokenUrl, metadata);
+    } else if (clientInformation) {
+        const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
+        const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
+        applyClientAuthentication(authMethod, clientInformation as OAuthClientInformation, headers, tokenRequestParams);
+    }
+
+    const response = await (fetchFn ?? fetch)(tokenUrl, {
+        method: 'POST',
+        headers,
+        body: tokenRequestParams
+    });
+
+    if (!response.ok) {
+        throw await parseErrorResponse(response);
+    }
+
+    return OAuthTokensSchema.parse(await response.json());
+}
+
+/**
  * Exchanges an authorization code for an access token with the given server.
  *
  * Supports multiple client authentication methods as specified in OAuth 2.1:
@@ -1000,51 +1121,16 @@ export async function exchangeAuthorization(
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
-    const grantType = 'authorization_code';
+    const tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, redirectUri);
 
-    const tokenUrl = metadata?.token_endpoint ? new URL(metadata.token_endpoint) : new URL('/token', authorizationServerUrl);
-
-    if (metadata?.grant_types_supported && !metadata.grant_types_supported.includes(grantType)) {
-        throw new Error(`Incompatible auth server: does not support grant type ${grantType}`);
-    }
-
-    // Exchange code for tokens
-    const headers = new Headers({
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Accept: 'application/json'
+    return executeTokenRequest(authorizationServerUrl, {
+        metadata,
+        tokenRequestParams,
+        clientInformation,
+        addClientAuthentication,
+        resource,
+        fetchFn
     });
-    const params = new URLSearchParams({
-        grant_type: grantType,
-        code: authorizationCode,
-        code_verifier: codeVerifier,
-        redirect_uri: String(redirectUri)
-    });
-
-    if (addClientAuthentication) {
-        addClientAuthentication(headers, params, authorizationServerUrl, metadata);
-    } else {
-        // Determine and apply client authentication method
-        const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
-        const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
-
-        applyClientAuthentication(authMethod, clientInformation, headers, params);
-    }
-
-    if (resource) {
-        params.set('resource', resource.href);
-    }
-
-    const response = await (fetchFn ?? fetch)(tokenUrl, {
-        method: 'POST',
-        headers,
-        body: params
-    });
-
-    if (!response.ok) {
-        throw await parseErrorResponse(response);
-    }
-
-    return OAuthTokensSchema.parse(await response.json());
 }
 
 /**
@@ -1077,52 +1163,96 @@ export async function refreshAuthorization(
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
-    const grantType = 'refresh_token';
-
-    let tokenUrl: URL;
-    if (metadata) {
-        tokenUrl = new URL(metadata.token_endpoint);
-
-        if (metadata.grant_types_supported && !metadata.grant_types_supported.includes(grantType)) {
-            throw new Error(`Incompatible auth server: does not support grant type ${grantType}`);
-        }
-    } else {
-        tokenUrl = new URL('/token', authorizationServerUrl);
-    }
-
-    // Exchange refresh token
-    const headers = new Headers({
-        'Content-Type': 'application/x-www-form-urlencoded'
-    });
-    const params = new URLSearchParams({
-        grant_type: grantType,
+    const tokenRequestParams = new URLSearchParams({
+        grant_type: 'refresh_token',
         refresh_token: refreshToken
     });
 
-    if (addClientAuthentication) {
-        addClientAuthentication(headers, params, authorizationServerUrl, metadata);
-    } else {
-        // Determine and apply client authentication method
-        const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
-        const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
-
-        applyClientAuthentication(authMethod, clientInformation, headers, params);
-    }
-
-    if (resource) {
-        params.set('resource', resource.href);
-    }
-
-    const response = await (fetchFn ?? fetch)(tokenUrl, {
-        method: 'POST',
-        headers,
-        body: params
+    const tokens = await executeTokenRequest(authorizationServerUrl, {
+        metadata,
+        tokenRequestParams,
+        clientInformation,
+        addClientAuthentication,
+        resource,
+        fetchFn
     });
-    if (!response.ok) {
-        throw await parseErrorResponse(response);
+
+    // Preserve original refresh token if server didn't return a new one
+    return { refresh_token: refreshToken, ...tokens };
+}
+
+/**
+ * Unified token fetching that works with any grant type via provider.prepareTokenRequest().
+ *
+ * This function provides a single entry point for obtaining tokens regardless of the
+ * OAuth grant type. The provider's prepareTokenRequest() method determines which grant
+ * to use and supplies the grant-specific parameters.
+ *
+ * @param provider - OAuth client provider that implements prepareTokenRequest()
+ * @param authorizationServerUrl - The authorization server's base URL
+ * @param options - Configuration for the token request
+ * @returns Promise resolving to OAuth tokens
+ * @throws {Error} When provider doesn't implement prepareTokenRequest or token fetch fails
+ *
+ * @example
+ * // Provider for client_credentials:
+ * class MyProvider implements OAuthClientProvider {
+ *   prepareTokenRequest(scope) {
+ *     const params = new URLSearchParams({ grant_type: 'client_credentials' });
+ *     if (scope) params.set('scope', scope);
+ *     return params;
+ *   }
+ *   // ... other methods
+ * }
+ *
+ * const tokens = await fetchToken(provider, authServerUrl, { metadata });
+ */
+export async function fetchToken(
+    provider: OAuthClientProvider,
+    authorizationServerUrl: string | URL,
+    {
+        metadata,
+        resource,
+        authorizationCode,
+        fetchFn
+    }: {
+        metadata?: AuthorizationServerMetadata;
+        resource?: URL;
+        /** Authorization code for the default authorization_code grant flow */
+        authorizationCode?: string;
+        fetchFn?: FetchLike;
+    } = {}
+): Promise<OAuthTokens> {
+    const scope = provider.clientMetadata.scope;
+
+    // Use provider's prepareTokenRequest if available, otherwise fall back to authorization_code
+    let tokenRequestParams: URLSearchParams | undefined;
+    if (provider.prepareTokenRequest) {
+        tokenRequestParams = await provider.prepareTokenRequest(scope);
     }
 
-    return OAuthTokensSchema.parse({ refresh_token: refreshToken, ...(await response.json()) });
+    // Default to authorization_code grant if no custom prepareTokenRequest
+    if (!tokenRequestParams) {
+        if (!authorizationCode) {
+            throw new Error('Either provider.prepareTokenRequest() or authorizationCode is required');
+        }
+        if (!provider.redirectUrl) {
+            throw new Error('redirectUrl is required for authorization_code flow');
+        }
+        const codeVerifier = await provider.codeVerifier();
+        tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, provider.redirectUrl);
+    }
+
+    const clientInformation = await provider.clientInformation();
+
+    return executeTokenRequest(authorizationServerUrl, {
+        metadata,
+        tokenRequestParams,
+        clientInformation: clientInformation ?? undefined,
+        addClientAuthentication: provider.addClientAuthentication,
+        resource,
+        fetchFn
+    });
 }
 
 /**

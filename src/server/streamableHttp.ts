@@ -649,7 +649,15 @@ export class StreamableHTTPServerTransport implements Transport {
 
                 // handle each message
                 for (const message of messages) {
-                    this.onmessage?.(message, { authInfo, requestInfo });
+                    // Build closeSSEStream callback for requests when eventStore is configured
+                    let closeSSEStream: (() => void) | undefined;
+                    if (isJSONRPCRequest(message) && this._eventStore) {
+                        closeSSEStream = () => {
+                            this.closeSSEStream(message.id);
+                        };
+                    }
+
+                    this.onmessage?.(message, { authInfo, requestInfo, closeSSEStream });
                 }
                 // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
                 // This will be handled by the send() method when responses are ready

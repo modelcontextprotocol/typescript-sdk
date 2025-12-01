@@ -1,6 +1,6 @@
 # MCP TypeScript SDK Examples
 
-This directory contains example implementations of MCP clients and servers using the TypeScript SDK.
+This directory contains example implementations of MCP clients and servers using the TypeScript SDK. For a high-level index of scenarios and where they live, see the **Examples** table in the root `README.md`.
 
 ## Table of Contents
 
@@ -40,6 +40,12 @@ Example client with OAuth:
 
 ```bash
 npx tsx src/examples/client/simpleOAuthClient.ts <optional-server-url> <optional-client-metadata-url>
+```
+
+Client credentials (machine-to-machine) example:
+
+```bash
+npx tsx src/examples/client/simpleClientCredentials.ts
 ```
 
 ### Backwards Compatible Client
