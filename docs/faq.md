@@ -1,8 +1,13 @@
 ## FAQ
 
+<details>
+<summary>Table of Contents</summary>
+
 - [General](#general)
 - [Clients](#clients)
 - [Servers](#servers)
+
+</details>
 
 ## General
 
