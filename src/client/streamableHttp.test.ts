@@ -480,6 +480,7 @@ describe('StreamableHTTPClientTransport', () => {
     it('should always send specified custom headers', async () => {
         const requestInit = {
             headers: {
+                Authorization: 'Bearer test-token',
                 'X-Custom-Header': 'CustomValue'
             }
         };
@@ -497,6 +498,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.start();
 
         await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer test-token');
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
 
         requestInit.headers['X-Custom-Header'] = 'SecondCustomValue';
@@ -510,6 +512,7 @@ describe('StreamableHTTPClientTransport', () => {
     it('should always send specified custom headers (Headers class)', async () => {
         const requestInit = {
             headers: new Headers({
+                Authorization: 'Bearer test-token',
                 'X-Custom-Header': 'CustomValue'
             })
         };
@@ -527,6 +530,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.start();
 
         await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer test-token');
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
 
         (requestInit.headers as Headers).set('X-Custom-Header', 'SecondCustomValue');
@@ -535,6 +539,30 @@ describe('StreamableHTTPClientTransport', () => {
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('SecondCustomValue');
 
         expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should always send specified custom headers (array of tuples)', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: {
+                headers: [
+                    ['Authorization', 'Bearer test-token'],
+                    ['X-Custom-Header', 'CustomValue']
+                ]
+            }
+        });
+
+        let actualReqInit: RequestInit = {};
+
+        (global.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+
+        await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer test-token');
+        expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
     });
 
     it('should have exponential backoff with configurable maxRetries', () => {
