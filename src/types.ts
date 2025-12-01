@@ -1382,6 +1382,11 @@ export const ToolListChangedNotificationSchema = NotificationSchema.extend({
 });
 
 /**
+ * Callback type for tool list changed notifications.
+ */
+export type ToolListChangedCallback = (error: Error | null, tools: Tool[] | null) => void;
+
+/**
  * Client Options for tool list changed notifications.
  */
 export const ToolListChangedOptionsSchema = z.object({
@@ -1400,13 +1405,15 @@ export const ToolListChangedOptionsSchema = z.object({
      *
      * @default 300
      */
-    debounceMs: z.number().int().default(300),
+    debounceMs: z.number().int().nonnegative().default(300),
     /**
      * This callback is always called when the server sends a tool list changed notification.
      *
      * If `autoRefresh` is true, this callback will be called with updated tool list.
      */
-    onToolListChanged: z.function(z.tuple([z.instanceof(Error).nullable(), z.array(ToolSchema).nullable()]), z.void())
+    onToolListChanged: z.custom<ToolListChangedCallback>((val): val is ToolListChangedCallback => typeof val === 'function', {
+        message: 'onToolListChanged must be a function'
+    })
 });
 
 export type ToolListChangedOptions = z.input<typeof ToolListChangedOptionsSchema>;

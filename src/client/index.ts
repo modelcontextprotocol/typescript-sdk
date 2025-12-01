@@ -811,18 +811,19 @@ export class Client<
     public setToolListChangedOptions(options: ToolListChangedOptions | null): void {
         // Set up tool list changed options and add notification handler
         if (options) {
+            // Validate and apply defaults using Zod schema
             const parseResult = ToolListChangedOptionsSchema.safeParse(options);
-            if (parseResult.error) {
-                throw new Error(`Tool List Changed options are invalid: ${parseResult.error.message}`);
+            if (!parseResult.success) {
+                throw new Error(`Invalid toolListChangedOptions: ${parseResult.error.message}`);
             }
 
-            const toolListChangedOptions = parseResult.data;
-            this._toolListChangedOptions = toolListChangedOptions;
+            const { autoRefresh, debounceMs, onToolListChanged } = parseResult.data;
+            this._toolListChangedOptions = options;
 
             const refreshToolList = async () => {
                 // If autoRefresh is false, call the callback for the notification, but without tools data
-                if (!toolListChangedOptions.autoRefresh) {
-                    toolListChangedOptions.onToolListChanged(null, null);
+                if (!autoRefresh) {
+                    onToolListChanged(null, null);
                     return;
                 }
 
@@ -834,18 +835,18 @@ export class Client<
                 } catch (e) {
                     error = e instanceof Error ? e : new Error(String(e));
                 }
-                toolListChangedOptions.onToolListChanged(error, tools);
+                onToolListChanged(error, tools);
             };
 
             this.setNotificationHandler(ToolListChangedNotificationSchema, () => {
-                if (toolListChangedOptions.debounceMs) {
+                if (debounceMs) {
                     // Clear any pending debounce timer
                     if (this._toolListChangedDebounceTimer) {
                         clearTimeout(this._toolListChangedDebounceTimer);
                     }
 
                     // Set up debounced refresh
-                    this._toolListChangedDebounceTimer = setTimeout(refreshToolList, toolListChangedOptions.debounceMs);
+                    this._toolListChangedDebounceTimer = setTimeout(refreshToolList, debounceMs);
                 } else {
                     // No debounce, refresh immediately
                     refreshToolList();
