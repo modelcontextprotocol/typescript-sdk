@@ -69,7 +69,7 @@ export type TransportSendOptions = {
     onresumptiontoken?: (token: string) => void;
 };
 /**
- * Describes the minimal contract for a MCP transport that a client or server can communicate over.
+ * Describes the minimal contract for an MCP transport that a client or server can communicate over.
  */
 export interface Transport {
     /**

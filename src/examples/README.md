@@ -1,6 +1,6 @@
 # MCP TypeScript SDK Examples
 
-This directory contains example implementations of MCP clients and servers using the TypeScript SDK.
+This directory contains example implementations of MCP clients and servers using the TypeScript SDK. For a high-level index of scenarios and where they live, see the **Examples** table in the root `README.md`.
 
 ## Table of Contents
 

@@ -5,7 +5,7 @@ import { JSONRPCMessage } from '../types.js';
 import { Transport } from '../shared/transport.js';
 
 /**
- * Server transport for stdio: this communicates with a MCP client by reading from the current process' stdin and writing to stdout.
+ * Server transport for stdio: this communicates with an MCP client by reading from the current process' stdin and writing to stdout.
  *
  * This transport is only available in Node.js environments.
  */

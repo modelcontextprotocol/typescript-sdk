@@ -1802,6 +1802,120 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // Clean up - resolve the tool promise
             toolResolve!();
         });
+
+        it('should provide closeSSEStream callback in extra when eventStore is configured', async () => {
+            const result = await createTestServer({
+                sessionIdGenerator: () => randomUUID(),
+                eventStore: createEventStore(),
+                retryInterval: 1000
+            });
+            server = result.server;
+            transport = result.transport;
+            baseUrl = result.baseUrl;
+            mcpServer = result.mcpServer;
+
+            // Track whether closeSSEStream callback was provided
+            let receivedCloseSSEStream: (() => void) | undefined;
+
+            // Register a tool that captures the extra.closeSSEStream callback
+            mcpServer.tool('test-callback-tool', 'Test tool', {}, async (_args, extra) => {
+                receivedCloseSSEStream = extra.closeSSEStream;
+                return { content: [{ type: 'text', text: 'Done' }] };
+            });
+
+            // Initialize to get session ID
+            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+            sessionId = initResponse.headers.get('mcp-session-id') as string;
+            expect(sessionId).toBeDefined();
+
+            // Call the tool
+            const toolCallRequest: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: 200,
+                method: 'tools/call',
+                params: { name: 'test-callback-tool', arguments: {} }
+            };
+
+            const postResponse = await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'text/event-stream, application/json',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-03-26'
+                },
+                body: JSON.stringify(toolCallRequest)
+            });
+
+            expect(postResponse.status).toBe(200);
+
+            // Read all events to completion
+            const reader = postResponse.body?.getReader();
+            while (true) {
+                const { done } = await reader!.read();
+                if (done) break;
+            }
+
+            // Verify closeSSEStream callback was provided
+            expect(receivedCloseSSEStream).toBeDefined();
+            expect(typeof receivedCloseSSEStream).toBe('function');
+        });
+
+        it('should NOT provide closeSSEStream callback when eventStore is NOT configured', async () => {
+            const result = await createTestServer({
+                sessionIdGenerator: () => randomUUID()
+                // No eventStore
+            });
+            server = result.server;
+            transport = result.transport;
+            baseUrl = result.baseUrl;
+            mcpServer = result.mcpServer;
+
+            // Track whether closeSSEStream callback was provided
+            let receivedCloseSSEStream: (() => void) | undefined;
+
+            // Register a tool that captures the extra.closeSSEStream callback
+            mcpServer.tool('test-no-callback-tool', 'Test tool', {}, async (_args, extra) => {
+                receivedCloseSSEStream = extra.closeSSEStream;
+                return { content: [{ type: 'text', text: 'Done' }] };
+            });
+
+            // Initialize to get session ID
+            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+            sessionId = initResponse.headers.get('mcp-session-id') as string;
+            expect(sessionId).toBeDefined();
+
+            // Call the tool
+            const toolCallRequest: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: 201,
+                method: 'tools/call',
+                params: { name: 'test-no-callback-tool', arguments: {} }
+            };
+
+            const postResponse = await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'text/event-stream, application/json',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-03-26'
+                },
+                body: JSON.stringify(toolCallRequest)
+            });
+
+            expect(postResponse.status).toBe(200);
+
+            // Read all events to completion
+            const reader = postResponse.body?.getReader();
+            while (true) {
+                const { done } = await reader!.read();
+                if (done) break;
+            }
+
+            // Verify closeSSEStream callback was NOT provided
+            expect(receivedCloseSSEStream).toBeUndefined();
+        });
     });
 
     // Test onsessionclosed callback

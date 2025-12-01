@@ -7,7 +7,7 @@
  * Key features:
  * - Configures `retryInterval` to tell clients how long to wait before reconnecting
  * - Uses `eventStore` to persist events for replay after reconnection
- * - Calls `closeSSEStream()` to gracefully disconnect clients mid-operation
+ * - Uses `extra.closeSSEStream()` callback to gracefully disconnect clients mid-operation
  *
  * Run with: npx tsx src/examples/server/ssePollingExample.ts
  * Test with: curl or the MCP Inspector
@@ -30,9 +30,6 @@ const server = new McpServer(
         capabilities: { logging: {} }
     }
 );
-
-// Track active transports by session ID for closeSSEStream access
-const transports = new Map<string, StreamableHTTPServerTransport>();
 
 // Register a long-running tool that demonstrates server-initiated disconnect
 server.tool(
@@ -65,11 +62,11 @@ server.tool(
         await sleep(1000);
 
         // Server decides to disconnect the client to free resources
-        // Client will reconnect via GET with Last-Event-ID after retryInterval
-        const transport = transports.get(extra.sessionId!);
-        if (transport) {
+        // Client will reconnect via GET with Last-Event-ID after the transport's retryInterval
+        // Use extra.closeSSEStream callback - available when eventStore is configured
+        if (extra.closeSSEStream) {
             console.log(`[${extra.sessionId}] Closing SSE stream to trigger client polling...`);
-            transport.closeSSEStream(extra.requestId);
+            extra.closeSSEStream();
         }
 
         // Continue processing while client is disconnected
@@ -112,6 +109,9 @@ app.use(cors());
 // Create event store for resumability
 const eventStore = new InMemoryEventStore();
 
+// Track transports by session ID for session reuse
+const transports = new Map<string, StreamableHTTPServerTransport>();
+
 // Handle all MCP requests - use express.json() only for this route
 app.all('/mcp', express.json(), async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
@@ -123,7 +123,7 @@ app.all('/mcp', express.json(), async (req: Request, res: Response) => {
         transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             eventStore,
-            retryInterval: 2000, // Client should reconnect after 2 seconds
+            retryInterval: 2000, // Default retry interval for priming events
             onsessioninitialized: id => {
                 console.log(`[${id}] Session initialized`);
                 transports.set(id, transport!);
