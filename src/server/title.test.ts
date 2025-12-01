@@ -2,7 +2,7 @@ import { Server } from './index.js';
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';
 import { McpServer, ResourceTemplate } from './mcp.js';
-import { zodTestMatrix, type ZodMatrixEntry } from '../shared/zodTestMatrix.js';
+import { zodTestMatrix, type ZodMatrixEntry } from '../__fixtures__/zodTestMatrix.js';
 
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;

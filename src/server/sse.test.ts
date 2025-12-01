@@ -6,7 +6,7 @@ import { McpServer } from './mcp.js';
 import { createServer, type Server } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { CallToolResult, JSONRPCMessage } from '../types.js';
-import { zodTestMatrix, type ZodMatrixEntry } from '../shared/zodTestMatrix.js';
+import { zodTestMatrix, type ZodMatrixEntry } from '../__fixtures__/zodTestMatrix.js';
 
 const createMockResponse = () => {
     const res = {
