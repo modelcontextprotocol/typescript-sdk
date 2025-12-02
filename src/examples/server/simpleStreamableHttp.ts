@@ -537,8 +537,9 @@ app.use(
 let authMiddleware = null;
 if (useOAuth) {
     // Create auth middleware for MCP endpoints
-    const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}/mcp`);
-    const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
+    const hostname = process.env.MCP_OAUTH_HOST || 'localhost';
+    const mcpServerUrl = new URL(`http://${hostname}:${MCP_PORT}/mcp`);
+    const authServerUrl = new URL(`http://${hostname}:${AUTH_PORT}`);
 
     const oauthMetadata: OAuthMetadata = setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: strictOAuth });
 
