@@ -1924,6 +1924,70 @@ describe('createMessage validation', () => {
     });
 });
 
+describe('createMessage backwards compatibility', () => {
+    test('createMessage without tools returns single content (backwards compat)', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+
+        // Mock client returns single text content
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'Hello from LLM' }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Call createMessage WITHOUT tools
+        const result = await server.createMessage({
+            messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+            maxTokens: 100
+        });
+
+        // Backwards compat: result.content should be single (not array)
+        expect(result.model).toBe('test-model');
+        expect(Array.isArray(result.content)).toBe(false);
+        expect(result.content.type).toBe('text');
+        if (result.content.type === 'text') {
+            expect(result.content.text).toBe('Hello from LLM');
+        }
+    });
+
+    test('createMessage with tools accepts request and returns result', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+
+        // Mock client returns text content (tool_use schema validation is tested in types.test.ts)
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'I will use the weather tool' },
+            stopReason: 'endTurn'
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Call createMessage WITH tools - verifies the overload works
+        const result = await server.createMessage({
+            messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+            maxTokens: 100,
+            tools: [{ name: 'get_weather', inputSchema: { type: 'object' } }]
+        });
+
+        // Verify result is returned correctly
+        expect(result.model).toBe('test-model');
+        expect(result.content.type).toBe('text');
+        // With tools param, result.content can be array (CreateMessageResultWithTools type)
+        // This would fail type-check if we used CreateMessageResult which doesn't allow arrays
+        const contentArray = Array.isArray(result.content) ? result.content : [result.content];
+        expect(contentArray.length).toBe(1);
+    });
+});
+
 test('should respect log level for transport with sessionId', async () => {
     const server = new Server(
         {
