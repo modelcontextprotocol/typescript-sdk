@@ -868,6 +868,12 @@ export const ResourceTemplateSchema = z.object({
      */
     mimeType: z.optional(z.string()),
 
+    
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
+
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
@@ -1061,6 +1067,11 @@ export const TextContentSchema = z.object({
     text: z.string(),
 
     /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
+
+    /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
@@ -1082,6 +1093,11 @@ export const ImageContentSchema = z.object({
     mimeType: z.string(),
 
     /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
+
+    /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
@@ -1101,6 +1117,11 @@ export const AudioContentSchema = z.object({
      * The MIME type of the audio. Different providers may support different audio types.
      */
     mimeType: z.string(),
+
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1145,6 +1166,10 @@ export const ToolUseContentSchema = z
 export const EmbeddedResourceSchema = z.object({
     type: z.literal('resource'),
     resource: z.union([TextResourceContentsSchema, BlobResourceContentsSchema]),
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
