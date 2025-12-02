@@ -1501,6 +1501,64 @@ describe('StreamableHTTPClientTransport', () => {
         });
     });
 
+    describe('Reconnection Logic with maxRetries 0', () => {
+ let transport: StreamableHTTPClientTransport;
+
+        // Use fake timers to control setTimeout and make the test instant.
+        beforeEach(() => vi.useFakeTimers());
+        afterEach(() => vi.useRealTimers());
+
+        it('should not retry forever with maxRetries 0', async () => {
+            // ARRANGE
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 0, // This should disable retries completely
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const failingStream = new ReadableStream({
+                start(controller) {
+                    controller.error(new Error('Network failure'));
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            // Mock the initial GET request, which will fail
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: failingStream
+            });
+
+            // ACT
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            
+            // Advance time to check if any retries were scheduled
+            await vi.advanceTimersByTimeAsync(100);
+
+            // ASSERT
+            // THE KEY ASSERTION: Fetch was only called ONCE. No retries with maxRetries: 0
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(fetchMock.mock.calls[0][1]?.method).toBe('GET');
+            
+            // Should still report the error but not retry
+            expect(errorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining('SSE stream disconnected: Error: Network failure')
+                })
+            );
+        });
+    });
+
+
     describe('prevent infinite recursion when server returns 401 after successful auth', () => {
         it('should throw error when server returns 401 after successful auth', async () => {
             const message: JSONRPCMessage = {
