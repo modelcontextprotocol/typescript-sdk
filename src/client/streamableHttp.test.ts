@@ -1502,7 +1502,7 @@ describe('StreamableHTTPClientTransport', () => {
     });
 
     describe('Reconnection Logic with maxRetries 0', () => {
- let transport: StreamableHTTPClientTransport;
+        let transport: StreamableHTTPClientTransport;
 
         // Use fake timers to control setTimeout and make the test instant.
         beforeEach(() => vi.useFakeTimers());
@@ -1540,7 +1540,7 @@ describe('StreamableHTTPClientTransport', () => {
             // ACT
             await transport.start();
             await transport['_startOrAuthSse']({});
-            
+
             // Advance time to check if any retries were scheduled
             await vi.advanceTimersByTimeAsync(100);
 
@@ -1548,7 +1548,7 @@ describe('StreamableHTTPClientTransport', () => {
             // THE KEY ASSERTION: Fetch was only called ONCE. No retries with maxRetries: 0
             expect(fetchMock).toHaveBeenCalledTimes(1);
             expect(fetchMock.mock.calls[0][1]?.method).toBe('GET');
-            
+
             // Should still report the error but not retry
             expect(errorSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -1557,7 +1557,6 @@ describe('StreamableHTTPClientTransport', () => {
             );
         });
     });
-
 
     describe('prevent infinite recursion when server returns 401 after successful auth', () => {
         it('should throw error when server returns 401 after successful auth', async () => {
