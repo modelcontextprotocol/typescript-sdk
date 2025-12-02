@@ -1508,7 +1508,7 @@ describe('StreamableHTTPClientTransport', () => {
         beforeEach(() => vi.useFakeTimers());
         afterEach(() => vi.useRealTimers());
 
-        it('should not retry forever with maxRetries 0', async () => {
+        it('should not schedule any reconnection attempts when maxRetries is 0', async () => {
             // ARRANGE
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
@@ -1522,39 +1522,44 @@ describe('StreamableHTTPClientTransport', () => {
             const errorSpy = vi.fn();
             transport.onerror = errorSpy;
 
-            const failingStream = new ReadableStream({
-                start(controller) {
-                    controller.error(new Error('Network failure'));
+            // ACT - directly call _scheduleReconnection which is the code path the fix affects
+            transport['_scheduleReconnection']({});
+
+            // ASSERT - should immediately report max retries exceeded, not schedule a retry
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: 'Maximum reconnection attempts (0) exceeded.'
+                })
+            );
+
+            // Verify no timeout was scheduled (no reconnection attempt)
+            expect(transport['_reconnectionTimeout']).toBeUndefined();
+        });
+
+        it('should schedule reconnection when maxRetries is greater than 0', async () => {
+            // ARRANGE
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 1, // Allow 1 retry
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
                 }
             });
 
-            const fetchMock = global.fetch as Mock;
-            // Mock the initial GET request, which will fail
-            fetchMock.mockResolvedValueOnce({
-                ok: true,
-                status: 200,
-                headers: new Headers({ 'content-type': 'text/event-stream' }),
-                body: failingStream
-            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
 
-            // ACT
-            await transport.start();
-            await transport['_startOrAuthSse']({});
+            // ACT - call _scheduleReconnection with attemptCount 0
+            transport['_scheduleReconnection']({});
 
-            // Advance time to check if any retries were scheduled
-            await vi.advanceTimersByTimeAsync(100);
+            // ASSERT - should schedule a reconnection, not report error yet
+            expect(errorSpy).not.toHaveBeenCalled();
+            expect(transport['_reconnectionTimeout']).toBeDefined();
 
-            // ASSERT
-            // THE KEY ASSERTION: Fetch was only called ONCE. No retries with maxRetries: 0
-            expect(fetchMock).toHaveBeenCalledTimes(1);
-            expect(fetchMock.mock.calls[0][1]?.method).toBe('GET');
-
-            // Should still report the error but not retry
-            expect(errorSpy).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    message: expect.stringContaining('SSE stream disconnected: Error: Network failure')
-                })
-            );
+            // Clean up the timeout to avoid test pollution
+            clearTimeout(transport['_reconnectionTimeout']);
         });
     });
 
