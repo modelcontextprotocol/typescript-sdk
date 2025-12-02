@@ -1,236 +1,228 @@
-import { Server } from "./index.js";
-import { Client } from "../client/index.js";
-import { InMemoryTransport } from "../inMemory.js";
-import { z } from "zod";
-import { McpServer, ResourceTemplate } from "./mcp.js";
+import { Server } from './index.js';
+import { Client } from '../client/index.js';
+import { InMemoryTransport } from '../inMemory.js';
+import { McpServer, ResourceTemplate } from './mcp.js';
+import { zodTestMatrix, type ZodMatrixEntry } from '../__fixtures__/zodTestMatrix.js';
 
-describe("Title field backwards compatibility", () => {
-  it("should work with tools that have title", async () => {
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
+    const { z } = entry;
 
-    const server = new McpServer(
-      { name: "test-server", version: "1.0.0" },
-      { capabilities: {} }
-    );
+    describe('Title field backwards compatibility', () => {
+        it('should work with tools that have title', async () => {
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-    // Register tool with title
-    server.registerTool(
-      "test-tool",
-      {
-        title: "Test Tool Display Name",
-        description: "A test tool",
-        inputSchema: {
-          value: z.string()
-        }
-      },
-      async () => ({ content: [{ type: "text", text: "result" }] })
-    );
+            const server = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
 
-    const client = new Client({ name: "test-client", version: "1.0.0" });
+            // Register tool with title
+            server.registerTool(
+                'test-tool',
+                {
+                    title: 'Test Tool Display Name',
+                    description: 'A test tool',
+                    inputSchema: {
+                        value: z.string()
+                    }
+                },
+                async () => ({ content: [{ type: 'text', text: 'result' }] })
+            );
 
-    await server.server.connect(serverTransport);
-    await client.connect(clientTransport);
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
 
-    const tools = await client.listTools();
-    expect(tools.tools).toHaveLength(1);
-    expect(tools.tools[0].name).toBe("test-tool");
-    expect(tools.tools[0].title).toBe("Test Tool Display Name");
-    expect(tools.tools[0].description).toBe("A test tool");
-  });
+            await server.server.connect(serverTransport);
+            await client.connect(clientTransport);
 
-  it("should work with tools without title", async () => {
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            const tools = await client.listTools();
+            expect(tools.tools).toHaveLength(1);
+            expect(tools.tools[0].name).toBe('test-tool');
+            expect(tools.tools[0].title).toBe('Test Tool Display Name');
+            expect(tools.tools[0].description).toBe('A test tool');
+        });
 
-    const server = new McpServer(
-      { name: "test-server", version: "1.0.0" },
-      { capabilities: {} }
-    );
+        it('should work with tools without title', async () => {
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-    // Register tool without title
-    server.tool(
-      "test-tool",
-      "A test tool",
-      { value: z.string() },
-      async () => ({ content: [{ type: "text", text: "result" }] })
-    );
+            const server = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
 
-    const client = new Client({ name: "test-client", version: "1.0.0" });
+            // Register tool without title
+            server.tool('test-tool', 'A test tool', { value: z.string() }, async () => ({ content: [{ type: 'text', text: 'result' }] }));
 
-    await server.server.connect(serverTransport);
-    await client.connect(clientTransport);
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
 
-    const tools = await client.listTools();
-    expect(tools.tools).toHaveLength(1);
-    expect(tools.tools[0].name).toBe("test-tool");
-    expect(tools.tools[0].title).toBeUndefined();
-    expect(tools.tools[0].description).toBe("A test tool");
-  });
+            await server.server.connect(serverTransport);
+            await client.connect(clientTransport);
 
-  it("should work with prompts that have title using update", async () => {
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            const tools = await client.listTools();
+            expect(tools.tools).toHaveLength(1);
+            expect(tools.tools[0].name).toBe('test-tool');
+            expect(tools.tools[0].title).toBeUndefined();
+            expect(tools.tools[0].description).toBe('A test tool');
+        });
 
-    const server = new McpServer(
-      { name: "test-server", version: "1.0.0" },
-      { capabilities: {} }
-    );
+        it('should work with prompts that have title using update', async () => {
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-    // Register prompt with title by updating after creation
-    const prompt = server.prompt(
-      "test-prompt",
-      "A test prompt",
-      async () => ({ messages: [{ role: "user", content: { type: "text", text: "test" } }] })
-    );
-    prompt.update({ title: "Test Prompt Display Name" });
+            const server = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
 
-    const client = new Client({ name: "test-client", version: "1.0.0" });
+            // Register prompt with title by updating after creation
+            const prompt = server.prompt('test-prompt', 'A test prompt', async () => ({
+                messages: [{ role: 'user', content: { type: 'text', text: 'test' } }]
+            }));
+            prompt.update({ title: 'Test Prompt Display Name' });
 
-    await server.server.connect(serverTransport);
-    await client.connect(clientTransport);
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
 
-    const prompts = await client.listPrompts();
-    expect(prompts.prompts).toHaveLength(1);
-    expect(prompts.prompts[0].name).toBe("test-prompt");
-    expect(prompts.prompts[0].title).toBe("Test Prompt Display Name");
-    expect(prompts.prompts[0].description).toBe("A test prompt");
-  });
+            await server.server.connect(serverTransport);
+            await client.connect(clientTransport);
 
-  it("should work with prompts using registerPrompt", async () => {
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            const prompts = await client.listPrompts();
+            expect(prompts.prompts).toHaveLength(1);
+            expect(prompts.prompts[0].name).toBe('test-prompt');
+            expect(prompts.prompts[0].title).toBe('Test Prompt Display Name');
+            expect(prompts.prompts[0].description).toBe('A test prompt');
+        });
 
-    const server = new McpServer(
-      { name: "test-server", version: "1.0.0" },
-      { capabilities: {} }
-    );
+        it('should work with prompts using registerPrompt', async () => {
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-    // Register prompt with title using registerPrompt
-    server.registerPrompt(
-      "test-prompt",
-      {
-        title: "Test Prompt Display Name",
-        description: "A test prompt",
-        argsSchema: { input: z.string() }
-      },
-      async ({ input }) => ({
-        messages: [{
-          role: "user",
-          content: { type: "text", text: `test: ${input}` }
-        }]
-      })
-    );
+            const server = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
 
-    const client = new Client({ name: "test-client", version: "1.0.0" });
+            // Register prompt with title using registerPrompt
+            server.registerPrompt(
+                'test-prompt',
+                {
+                    title: 'Test Prompt Display Name',
+                    description: 'A test prompt',
+                    argsSchema: { input: z.string() }
+                },
+                async ({ input }) => ({
+                    messages: [
+                        {
+                            role: 'user',
+                            content: { type: 'text', text: `test: ${input}` }
+                        }
+                    ]
+                })
+            );
 
-    await server.server.connect(serverTransport);
-    await client.connect(clientTransport);
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
 
-    const prompts = await client.listPrompts();
-    expect(prompts.prompts).toHaveLength(1);
-    expect(prompts.prompts[0].name).toBe("test-prompt");
-    expect(prompts.prompts[0].title).toBe("Test Prompt Display Name");
-    expect(prompts.prompts[0].description).toBe("A test prompt");
-    expect(prompts.prompts[0].arguments).toHaveLength(1);
-  });
+            await server.server.connect(serverTransport);
+            await client.connect(clientTransport);
 
-  it("should work with resources using registerResource", async () => {
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            const prompts = await client.listPrompts();
+            expect(prompts.prompts).toHaveLength(1);
+            expect(prompts.prompts[0].name).toBe('test-prompt');
+            expect(prompts.prompts[0].title).toBe('Test Prompt Display Name');
+            expect(prompts.prompts[0].description).toBe('A test prompt');
+            expect(prompts.prompts[0].arguments).toHaveLength(1);
+        });
 
-    const server = new McpServer(
-      { name: "test-server", version: "1.0.0" },
-      { capabilities: {} }
-    );
+        it('should work with resources using registerResource', async () => {
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-    // Register resource with title using registerResource
-    server.registerResource(
-      "test-resource",
-      "https://example.com/test",
-      {
-        title: "Test Resource Display Name",
-        description: "A test resource",
-        mimeType: "text/plain"
-      },
-      async () => ({
-        contents: [{
-          uri: "https://example.com/test",
-          text: "test content"
-        }]
-      })
-    );
+            const server = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
 
-    const client = new Client({ name: "test-client", version: "1.0.0" });
+            // Register resource with title using registerResource
+            server.registerResource(
+                'test-resource',
+                'https://example.com/test',
+                {
+                    title: 'Test Resource Display Name',
+                    description: 'A test resource',
+                    mimeType: 'text/plain'
+                },
+                async () => ({
+                    contents: [
+                        {
+                            uri: 'https://example.com/test',
+                            text: 'test content'
+                        }
+                    ]
+                })
+            );
 
-    await server.server.connect(serverTransport);
-    await client.connect(clientTransport);
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
 
-    const resources = await client.listResources();
-    expect(resources.resources).toHaveLength(1);
-    expect(resources.resources[0].name).toBe("test-resource");
-    expect(resources.resources[0].title).toBe("Test Resource Display Name");
-    expect(resources.resources[0].description).toBe("A test resource");
-    expect(resources.resources[0].mimeType).toBe("text/plain");
-  });
+            await server.server.connect(serverTransport);
+            await client.connect(clientTransport);
 
-  it("should work with dynamic resources using registerResource", async () => {
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            const resources = await client.listResources();
+            expect(resources.resources).toHaveLength(1);
+            expect(resources.resources[0].name).toBe('test-resource');
+            expect(resources.resources[0].title).toBe('Test Resource Display Name');
+            expect(resources.resources[0].description).toBe('A test resource');
+            expect(resources.resources[0].mimeType).toBe('text/plain');
+        });
 
-    const server = new McpServer(
-      { name: "test-server", version: "1.0.0" },
-      { capabilities: {} }
-    );
+        it('should work with dynamic resources using registerResource', async () => {
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-    // Register dynamic resource with title using registerResource
-    server.registerResource(
-      "user-profile",
-      new ResourceTemplate("users://{userId}/profile", { list: undefined }),
-      {
-        title: "User Profile",
-        description: "User profile information"
-      },
-      async (uri, { userId }, _extra) => ({
-        contents: [{
-          uri: uri.href,
-          text: `Profile data for user ${userId}`
-        }]
-      })
-    );
+            const server = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
 
-    const client = new Client({ name: "test-client", version: "1.0.0" });
+            // Register dynamic resource with title using registerResource
+            server.registerResource(
+                'user-profile',
+                new ResourceTemplate('users://{userId}/profile', { list: undefined }),
+                {
+                    title: 'User Profile',
+                    description: 'User profile information'
+                },
+                async (uri, { userId }, _extra) => ({
+                    contents: [
+                        {
+                            uri: uri.href,
+                            text: `Profile data for user ${userId}`
+                        }
+                    ]
+                })
+            );
 
-    await server.server.connect(serverTransport);
-    await client.connect(clientTransport);
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
 
-    const resourceTemplates = await client.listResourceTemplates();
-    expect(resourceTemplates.resourceTemplates).toHaveLength(1);
-    expect(resourceTemplates.resourceTemplates[0].name).toBe("user-profile");
-    expect(resourceTemplates.resourceTemplates[0].title).toBe("User Profile");
-    expect(resourceTemplates.resourceTemplates[0].description).toBe("User profile information");
-    expect(resourceTemplates.resourceTemplates[0].uriTemplate).toBe("users://{userId}/profile");
+            await server.server.connect(serverTransport);
+            await client.connect(clientTransport);
 
-    // Test reading the resource
-    const readResult = await client.readResource({ uri: "users://123/profile" });
-    expect(readResult.contents).toHaveLength(1);
-    expect(readResult.contents[0].text).toBe("Profile data for user 123");
-  });
+            const resourceTemplates = await client.listResourceTemplates();
+            expect(resourceTemplates.resourceTemplates).toHaveLength(1);
+            expect(resourceTemplates.resourceTemplates[0].name).toBe('user-profile');
+            expect(resourceTemplates.resourceTemplates[0].title).toBe('User Profile');
+            expect(resourceTemplates.resourceTemplates[0].description).toBe('User profile information');
+            expect(resourceTemplates.resourceTemplates[0].uriTemplate).toBe('users://{userId}/profile');
 
-  it("should support serverInfo with title", async () => {
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            // Test reading the resource
+            const readResult = await client.readResource({ uri: 'users://123/profile' });
+            expect(readResult.contents).toHaveLength(1);
+            expect(readResult.contents).toEqual(
+                expect.arrayContaining([
+                    {
+                        text: expect.stringContaining('Profile data for user 123'),
+                        uri: 'users://123/profile'
+                    }
+                ])
+            );
+        });
 
-    const server = new Server(
-      {
-        name: "test-server",
-        version: "1.0.0",
-        title: "Test Server Display Name"
-      },
-      { capabilities: {} }
-    );
+        it('should support serverInfo with title', async () => {
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-    const client = new Client({ name: "test-client", version: "1.0.0" });
+            const server = new Server(
+                {
+                    name: 'test-server',
+                    version: '1.0.0',
+                    title: 'Test Server Display Name'
+                },
+                { capabilities: {} }
+            );
 
-    await server.connect(serverTransport);
-    await client.connect(clientTransport);
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
 
-    const serverInfo = client.getServerVersion();
-    expect(serverInfo?.name).toBe("test-server");
-    expect(serverInfo?.version).toBe("1.0.0");
-    expect(serverInfo?.title).toBe("Test Server Display Name");
-  });
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const serverInfo = client.getServerVersion();
+            expect(serverInfo?.name).toBe('test-server');
+            expect(serverInfo?.version).toBe('1.0.0');
+            expect(serverInfo?.title).toBe('Test Server Display Name');
+        });
+    });
 });

@@ -1,9 +1,9 @@
 {
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "module": "commonjs",
-    "moduleResolution": "node",
-    "outDir": "./dist/cjs"
-  },
-  "exclude": ["**/*.test.ts", "src/__mocks__/**/*"]
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "module": "commonjs",
+        "moduleResolution": "node",
+        "outDir": "./dist/cjs"
+    },
+    "exclude": ["**/*.test.ts", "src/__mocks__/**/*", "src/__fixtures__/**/*"]
 }
