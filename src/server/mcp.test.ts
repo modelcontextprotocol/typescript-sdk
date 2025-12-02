@@ -4765,6 +4765,201 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
     });
 
+    describe('Tools with transformation schemas', () => {
+        test('should support z.preprocess() schemas', async () => {
+            const server = new McpServer({
+                name: 'test',
+                version: '1.0.0'
+            });
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            // z.preprocess() allows transforming input before validation
+            const preprocessSchema = z.preprocess(
+                input => {
+                    // Normalize input by trimming strings
+                    if (typeof input === 'object' && input !== null) {
+                        const obj = input as Record<string, unknown>;
+                        if (typeof obj.name === 'string') {
+                            return { ...obj, name: obj.name.trim() };
+                        }
+                    }
+                    return input;
+                },
+                z.object({ name: z.string() })
+            );
+
+            server.registerTool('preprocess-test', { inputSchema: preprocessSchema }, async args => {
+                return {
+                    content: [{ type: 'text' as const, text: `Hello, ${args.name}!` }]
+                };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            // Test with input that has leading/trailing whitespace
+            const result = await client.callTool({
+                name: 'preprocess-test',
+                arguments: { name: '  World  ' }
+            });
+
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Hello, World!'
+                }
+            ]);
+        });
+
+        test('should support z.transform() schemas', async () => {
+            const server = new McpServer({
+                name: 'test',
+                version: '1.0.0'
+            });
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            // z.transform() allows transforming validated output
+            const transformSchema = z
+                .object({
+                    firstName: z.string(),
+                    lastName: z.string()
+                })
+                .transform(data => ({
+                    ...data,
+                    fullName: `${data.firstName} ${data.lastName}`
+                }));
+
+            server.registerTool('transform-test', { inputSchema: transformSchema }, async args => {
+                return {
+                    content: [{ type: 'text' as const, text: `Full name: ${args.fullName}` }]
+                };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const result = await client.callTool({
+                name: 'transform-test',
+                arguments: { firstName: 'John', lastName: 'Doe' }
+            });
+
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Full name: John Doe'
+                }
+            ]);
+        });
+
+        test('should support z.pipe() schemas', async () => {
+            const server = new McpServer({
+                name: 'test',
+                version: '1.0.0'
+            });
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            // z.pipe() chains multiple schemas together
+            const pipeSchema = z
+                .object({ value: z.string() })
+                .transform(data => ({ ...data, processed: true }))
+                .pipe(z.object({ value: z.string(), processed: z.boolean() }));
+
+            server.registerTool('pipe-test', { inputSchema: pipeSchema }, async args => {
+                return {
+                    content: [{ type: 'text' as const, text: `Value: ${args.value}, Processed: ${args.processed}` }]
+                };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const result = await client.callTool({
+                name: 'pipe-test',
+                arguments: { value: 'test' }
+            });
+
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Value: test, Processed: true'
+                }
+            ]);
+        });
+
+        test('should support nested transformation schemas', async () => {
+            const server = new McpServer({
+                name: 'test',
+                version: '1.0.0'
+            });
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            // Complex schema with both preprocess and transform
+            const complexSchema = z.preprocess(
+                input => {
+                    if (typeof input === 'object' && input !== null) {
+                        const obj = input as Record<string, unknown>;
+                        // Convert string numbers to actual numbers
+                        if (typeof obj.count === 'string') {
+                            return { ...obj, count: parseInt(obj.count, 10) };
+                        }
+                    }
+                    return input;
+                },
+                z
+                    .object({
+                        name: z.string(),
+                        count: z.number()
+                    })
+                    .transform(data => ({
+                        ...data,
+                        doubled: data.count * 2
+                    }))
+            );
+
+            server.registerTool('complex-transform', { inputSchema: complexSchema }, async args => {
+                return {
+                    content: [{ type: 'text' as const, text: `${args.name}: ${args.count} -> ${args.doubled}` }]
+                };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            // Pass count as string, preprocess will convert it
+            const result = await client.callTool({
+                name: 'complex-transform',
+                arguments: { name: 'items', count: '5' }
+            });
+
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'items: 5 -> 10'
+                }
+            ]);
+        });
+    });
+
     describe('resource()', () => {
         /***
          * Test: Resource Registration with URI and Read Callback
