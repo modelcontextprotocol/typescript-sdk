@@ -2,7 +2,12 @@ import { mergeCapabilities, Protocol, type NotificationOptions, type ProtocolOpt
 import {
     type ClientCapabilities,
     type CreateMessageRequest,
+    type CreateMessageResult,
     CreateMessageResultSchema,
+    type CreateMessageResultWithTools,
+    CreateMessageResultWithToolsSchema,
+    type CreateMessageRequestParamsBase,
+    type CreateMessageRequestParamsWithTools,
     type ElicitRequestFormParams,
     type ElicitRequestURLParams,
     type ElicitResult,
@@ -467,7 +472,32 @@ export class Server<
         return this.request({ method: 'ping' }, EmptyResultSchema);
     }
 
-    async createMessage(params: CreateMessageRequest['params'], options?: RequestOptions) {
+    /**
+     * Request LLM sampling from the client (without tools).
+     * Returns single content block for backwards compatibility.
+     */
+    async createMessage(params: CreateMessageRequestParamsBase, options?: RequestOptions): Promise<CreateMessageResult>;
+
+    /**
+     * Request LLM sampling from the client with tool support.
+     * Returns content that may be a single block or array (for parallel tool calls).
+     */
+    async createMessage(params: CreateMessageRequestParamsWithTools, options?: RequestOptions): Promise<CreateMessageResultWithTools>;
+
+    /**
+     * Request LLM sampling from the client.
+     * When tools may or may not be present, returns the union type.
+     */
+    async createMessage(
+        params: CreateMessageRequest['params'],
+        options?: RequestOptions
+    ): Promise<CreateMessageResult | CreateMessageResultWithTools>;
+
+    // Implementation
+    async createMessage(
+        params: CreateMessageRequest['params'],
+        options?: RequestOptions
+    ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
         // Capability check - only required when tools/toolChoice are provided
         if (params.tools || params.toolChoice) {
             if (!this._clientCapabilities?.sampling?.tools) {
@@ -510,6 +540,10 @@ export class Server<
             }
         }
 
+        // Use different schemas based on whether tools are provided
+        if (params.tools) {
+            return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
+        }
         return this.request({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
