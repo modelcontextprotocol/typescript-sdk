@@ -1866,8 +1866,13 @@ export const ElicitResultSchema = ResultSchema.extend({
     /**
      * The submitted form data, only present when action is "accept".
      * Contains values matching the requested schema.
+     * Per MCP spec, content is "typically omitted" for decline/cancel actions.
+     * We normalize null to undefined for leniency while maintaining type compatibility.
      */
-    content: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional()
+    content: z.preprocess(
+        val => (val === null ? undefined : val),
+        z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional()
+    )
 });
 
 /* Autocomplete */
@@ -2179,6 +2184,12 @@ export interface MessageExtraInfo {
      * Only available when using StreamableHTTPServerTransport with eventStore configured.
      */
     closeSSEStream?: () => void;
+
+    /**
+     * Callback to close the standalone GET SSE stream, triggering client reconnection.
+     * Only available when using StreamableHTTPServerTransport with eventStore configured.
+     */
+    closeStandaloneSSEStream?: () => void;
 }
 
 /* JSON-RPC types */

@@ -290,6 +290,13 @@ export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT 
      * Use this to implement polling behavior during long-running operations.
      */
     closeSSEStream?: () => void;
+
+    /**
+     * Closes the standalone GET SSE stream, triggering client reconnection.
+     * Only available when using StreamableHTTPServerTransport with eventStore configured.
+     * Use this to implement polling behavior for server-initiated notifications.
+     */
+    closeStandaloneSSEStream?: () => void;
 };
 
 /**
@@ -736,7 +743,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             taskId: relatedTaskId,
             taskStore: taskStore,
             taskRequestedTtl: taskCreationParams?.ttl,
-            closeSSEStream: extra?.closeSSEStream
+            closeSSEStream: extra?.closeSSEStream,
+            closeStandaloneSSEStream: extra?.closeStandaloneSSEStream
         };
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
