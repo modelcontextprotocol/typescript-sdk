@@ -868,7 +868,6 @@ export const ResourceTemplateSchema = z.object({
      */
     mimeType: z.optional(z.string()),
 
-    
     /**
      * Optional annotations for the client.
      */
