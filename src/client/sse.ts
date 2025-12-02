@@ -281,6 +281,9 @@ export class SSEClientTransport implements Transport {
 
                 throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
             }
+
+            // Release connection - POST responses don't have content we need
+            await response.body?.cancel();
         } catch (error) {
             this.onerror?.(error as Error);
             throw error;

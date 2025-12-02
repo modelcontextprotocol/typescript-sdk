@@ -592,8 +592,12 @@ export class StreamableHTTPClientTransport implements Transport {
                         this.onmessage?.(msg);
                     }
                 } else {
+                    await response.body?.cancel();
                     throw new StreamableHTTPError(-1, `Unexpected content type: ${contentType}`);
                 }
+            } else {
+                // No requests in message but got 200 OK - still need to release connection
+                await response.body?.cancel();
             }
         } catch (error) {
             this.onerror?.(error as Error);
