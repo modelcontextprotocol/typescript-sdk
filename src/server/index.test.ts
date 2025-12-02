@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
+import supertest from 'supertest';
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';
 import type { Transport } from '../shared/transport.js';
+import { createMcpExpressApp } from './index.js';
 import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
@@ -2055,6 +2057,167 @@ test('should respect log level for transport with sessionId', async () => {
     // This one will, triggering the above test in clientTransport.onmessage
     await server.sendLoggingMessage(warningParams, SESSION_ID);
     expect(clientTransport.onmessage).toHaveBeenCalled();
+});
+
+describe('createMcpExpressApp', () => {
+    test('should create an Express app', () => {
+        const app = createMcpExpressApp();
+        expect(app).toBeDefined();
+    });
+
+    test('should parse JSON bodies', async () => {
+        const app = createMcpExpressApp({ host: '0.0.0.0' }); // Disable host validation for this test
+        app.post('/test', (req, res) => {
+            res.json({ received: req.body });
+        });
+
+        const response = await supertest(app).post('/test').send({ hello: 'world' }).set('Content-Type', 'application/json');
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ received: { hello: 'world' } });
+    });
+
+    test('should reject requests with invalid Host header by default', async () => {
+        const app = createMcpExpressApp();
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        const response = await supertest(app).post('/test').set('Host', 'evil.com:3000').send({});
+
+        expect(response.status).toBe(403);
+        expect(response.body).toEqual({
+            jsonrpc: '2.0',
+            error: {
+                code: -32000,
+                message: 'Invalid Host: evil.com'
+            },
+            id: null
+        });
+    });
+
+    test('should allow requests with localhost Host header', async () => {
+        const app = createMcpExpressApp();
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        const response = await supertest(app).post('/test').set('Host', 'localhost:3000').send({});
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+    });
+
+    test('should allow requests with 127.0.0.1 Host header', async () => {
+        const app = createMcpExpressApp();
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        const response = await supertest(app).post('/test').set('Host', '127.0.0.1:3000').send({});
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+    });
+
+    test('should not apply host validation when host is 0.0.0.0', async () => {
+        const app = createMcpExpressApp({ host: '0.0.0.0' });
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        // Should allow any host when bound to 0.0.0.0
+        const response = await supertest(app).post('/test').set('Host', 'any-host.com:3000').send({});
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+    });
+
+    test('should apply host validation when host is explicitly localhost', async () => {
+        const app = createMcpExpressApp({ host: 'localhost' });
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        // Should reject non-localhost hosts
+        const response = await supertest(app).post('/test').set('Host', 'evil.com:3000').send({});
+
+        expect(response.status).toBe(403);
+    });
+
+    test('should allow requests with IPv6 localhost Host header', async () => {
+        const app = createMcpExpressApp();
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        const response = await supertest(app).post('/test').set('Host', '[::1]:3000').send({});
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+    });
+
+    test('should apply host validation when host is ::1 (IPv6 localhost)', async () => {
+        const app = createMcpExpressApp({ host: '::1' });
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        // Should reject non-localhost hosts
+        const response = await supertest(app).post('/test').set('Host', 'evil.com:3000').send({});
+
+        expect(response.status).toBe(403);
+    });
+
+    test('should warn when binding to 0.0.0.0', () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        createMcpExpressApp({ host: '0.0.0.0' });
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('0.0.0.0'));
+        warnSpy.mockRestore();
+    });
+
+    test('should warn when binding to :: (IPv6 all interfaces)', () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        createMcpExpressApp({ host: '::' });
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('::'));
+        warnSpy.mockRestore();
+    });
+
+    test('should use custom allowedHosts when provided', async () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['myapp.local', 'localhost'] });
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        // Should not warn when allowedHosts is provided
+        expect(warnSpy).not.toHaveBeenCalled();
+        warnSpy.mockRestore();
+
+        // Should allow myapp.local
+        const allowedResponse = await supertest(app).post('/test').set('Host', 'myapp.local:3000').send({});
+        expect(allowedResponse.status).toBe(200);
+
+        // Should reject other hosts
+        const rejectedResponse = await supertest(app).post('/test').set('Host', 'evil.com:3000').send({});
+        expect(rejectedResponse.status).toBe(403);
+    });
+
+    test('should override default localhost validation when allowedHosts is provided', async () => {
+        // Even though host is localhost, we're using custom allowedHosts
+        const app = createMcpExpressApp({ host: 'localhost', allowedHosts: ['custom.local'] });
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        // Should reject localhost since it's not in allowedHosts
+        const response = await supertest(app).post('/test').set('Host', 'localhost:3000').send({});
+        expect(response.status).toBe(403);
+
+        // Should allow custom.local
+        const allowedResponse = await supertest(app).post('/test').set('Host', 'custom.local:3000').send({});
+        expect(allowedResponse.status).toBe(200);
+    });
 });
 
 describe('Task-based execution', () => {

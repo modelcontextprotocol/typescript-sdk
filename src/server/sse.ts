@@ -16,18 +16,24 @@ export interface SSEServerTransportOptions {
     /**
      * List of allowed host header values for DNS rebinding protection.
      * If not specified, host validation is disabled.
+     * @deprecated Use the `hostHeaderValidation` middleware from `@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js` instead,
+     * or use `createMcpExpressApp` from `@modelcontextprotocol/sdk/server/index.js` which includes localhost protection by default.
      */
     allowedHosts?: string[];
 
     /**
      * List of allowed origin header values for DNS rebinding protection.
      * If not specified, origin validation is disabled.
+     * @deprecated Use the `hostHeaderValidation` middleware from `@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js` instead,
+     * or use `createMcpExpressApp` from `@modelcontextprotocol/sdk/server/index.js` which includes localhost protection by default.
      */
     allowedOrigins?: string[];
 
     /**
      * Enable DNS rebinding protection (requires allowedHosts and/or allowedOrigins to be configured).
      * Default is false for backwards compatibility.
+     * @deprecated Use the `hostHeaderValidation` middleware from `@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js` instead,
+     * or use `createMcpExpressApp` from `@modelcontextprotocol/sdk/server/index.js` which includes localhost protection by default.
      */
     enableDnsRebindingProtection?: boolean;
 }

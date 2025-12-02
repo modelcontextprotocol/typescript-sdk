@@ -66,6 +66,34 @@ For a minimal “getting started” experience:
 
 For more detailed patterns (stateless vs stateful, JSON response mode, CORS, DNS rebind protection), see the examples above and the MCP spec sections on transports.
 
+## DNS rebinding protection
+
+MCP servers running on localhost are vulnerable to DNS rebinding attacks. Use `createMcpExpressApp()` to create an Express app with DNS rebinding protection enabled by default:
+
+```typescript
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/index.js';
+
+// Protection auto-enabled (default host is 127.0.0.1)
+const app = createMcpExpressApp();
+
+// Protection auto-enabled for localhost
+const app = createMcpExpressApp({ host: 'localhost' });
+
+// No auto protection when binding to all interfaces
+const app = createMcpExpressApp({ host: '0.0.0.0' });
+```
+
+For custom host validation, use the middleware directly:
+
+```typescript
+import express from 'express';
+import { hostHeaderValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js';
+
+const app = express();
+app.use(express.json());
+app.use(hostHeaderValidation(['localhost', '127.0.0.1', 'myhost.local']));
+```
+
 ## Tools, resources, and prompts
 
 ### Tools

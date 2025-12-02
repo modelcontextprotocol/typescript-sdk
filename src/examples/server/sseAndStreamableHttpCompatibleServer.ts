@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
@@ -6,7 +6,7 @@ import { SSEServerTransport } from '../../server/sse.js';
 import * as z from 'zod/v4';
 import { CallToolResult, isInitializeRequest } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
-import cors from 'cors';
+import { createMcpExpressApp } from '../../server/index.js';
 
 /**
  * This example server demonstrates backwards compatibility with both:
@@ -71,16 +71,7 @@ const getServer = () => {
 };
 
 // Create Express application
-const app = express();
-app.use(express.json());
-
-// Configure CORS to expose Mcp-Session-Id header for browser-based clients
-app.use(
-    cors({
-        origin: '*', // Allow all origins - adjust as needed for production
-        exposedHeaders: ['Mcp-Session-Id']
-    })
-);
+const app = createMcpExpressApp();
 
 // Store transports by session ID
 const transports: Record<string, StreamableHTTPServerTransport | SSEServerTransport> = {};

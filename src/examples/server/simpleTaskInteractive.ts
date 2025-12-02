@@ -9,9 +9,9 @@
  * creates a task, and the result is fetched via tasks/result endpoint.
  */
 
-import express, { Request, Response } from 'express';
+import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import { Server } from '../../server/index.js';
+import { createMcpExpressApp, Server } from '../../server/index.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import {
     CallToolResult,
@@ -630,8 +630,7 @@ const createServer = (): Server => {
 // Express App Setup
 // ============================================================================
 
-const app = express();
-app.use(express.json());
+const app = createMcpExpressApp();
 
 // Map to store transports by session ID
 const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
