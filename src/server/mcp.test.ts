@@ -2315,7 +2315,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
-            const mockDate = new Date().toISOString()
+            const mockDate = new Date().toISOString();
             mcpServer.resource(
                 'test',
                 'test://resource',
