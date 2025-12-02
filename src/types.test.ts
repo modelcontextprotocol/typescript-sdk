@@ -13,6 +13,7 @@ import {
     SamplingMessageSchema,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
+    CreateMessageResultWithToolsSchema,
     ClientCapabilitiesSchema
 } from './types.js';
 
@@ -787,7 +788,7 @@ describe('Types', () => {
             }
         });
 
-        test('should validate result with tool call', () => {
+        test('should validate result with tool call (using WithTools schema)', () => {
             const result = {
                 model: 'claude-3-5-sonnet-20241022',
                 role: 'assistant',
@@ -800,7 +801,8 @@ describe('Types', () => {
                 stopReason: 'toolUse'
             };
 
-            const parseResult = CreateMessageResultSchema.safeParse(result);
+            // Tool call results use CreateMessageResultWithToolsSchema
+            const parseResult = CreateMessageResultWithToolsSchema.safeParse(result);
             expect(parseResult.success).toBe(true);
             if (parseResult.success) {
                 expect(parseResult.data.stopReason).toBe('toolUse');
@@ -810,9 +812,13 @@ describe('Types', () => {
                     expect(content.type).toBe('tool_use');
                 }
             }
+
+            // Basic CreateMessageResultSchema should NOT accept tool_use content
+            const basicResult = CreateMessageResultSchema.safeParse(result);
+            expect(basicResult.success).toBe(false);
         });
 
-        test('should validate result with array content', () => {
+        test('should validate result with array content (using WithTools schema)', () => {
             const result = {
                 model: 'claude-3-5-sonnet-20241022',
                 role: 'assistant',
@@ -828,7 +834,8 @@ describe('Types', () => {
                 stopReason: 'toolUse'
             };
 
-            const parseResult = CreateMessageResultSchema.safeParse(result);
+            // Array content uses CreateMessageResultWithToolsSchema
+            const parseResult = CreateMessageResultWithToolsSchema.safeParse(result);
             expect(parseResult.success).toBe(true);
             if (parseResult.success) {
                 expect(parseResult.data.stopReason).toBe('toolUse');
@@ -840,6 +847,10 @@ describe('Types', () => {
                     expect(content[1].type).toBe('tool_use');
                 }
             }
+
+            // Basic CreateMessageResultSchema should NOT accept array content
+            const basicResult = CreateMessageResultSchema.safeParse(result);
+            expect(basicResult.success).toBe(false);
         });
 
         test('should validate all new stop reasons', () => {

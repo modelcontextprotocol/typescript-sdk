@@ -12,9 +12,10 @@
  * Run with: npx tsx src/examples/server/ssePollingExample.ts
  * Test with: curl or the MCP Inspector
  */
-import express, { Request, Response } from 'express';
+import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { McpServer } from '../../server/mcp.js';
+import { createMcpExpressApp } from '../../server/index.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { CallToolResult } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
@@ -103,7 +104,7 @@ server.tool(
 );
 
 // Set up Express app
-const app = express();
+const app = createMcpExpressApp();
 app.use(cors());
 
 // Create event store for resumability
@@ -112,8 +113,8 @@ const eventStore = new InMemoryEventStore();
 // Track transports by session ID for session reuse
 const transports = new Map<string, StreamableHTTPServerTransport>();
 
-// Handle all MCP requests - use express.json() only for this route
-app.all('/mcp', express.json(), async (req: Request, res: Response) => {
+// Handle all MCP requests
+app.all('/mcp', async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     // Reuse existing transport or create new one

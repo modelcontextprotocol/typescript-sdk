@@ -279,7 +279,7 @@ export class StreamableHTTPClientTransport implements Transport {
         const maxRetries = this._reconnectionOptions.maxRetries;
 
         // Check if we've exceeded maximum retry attempts
-        if (maxRetries > 0 && attemptCount >= maxRetries) {
+        if (attemptCount >= maxRetries) {
             this.onerror?.(new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`));
             return;
         }

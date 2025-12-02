@@ -1,9 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
+import supertest from 'supertest';
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';
 import type { Transport } from '../shared/transport.js';
 import { toArrayAsync, type ResponseMessage } from '../shared/responseMessage.js';
 import type { CreateMessageResult, ElicitResult, Task } from '../types.js';
+import { createMcpExpressApp } from './index.js';
 import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
@@ -2156,6 +2158,70 @@ describe('createMessageStream', () => {
     });
 });
 
+describe('createMessage backwards compatibility', () => {
+    test('createMessage without tools returns single content (backwards compat)', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+
+        // Mock client returns single text content
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'Hello from LLM' }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Call createMessage WITHOUT tools
+        const result = await server.createMessage({
+            messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+            maxTokens: 100
+        });
+
+        // Backwards compat: result.content should be single (not array)
+        expect(result.model).toBe('test-model');
+        expect(Array.isArray(result.content)).toBe(false);
+        expect(result.content.type).toBe('text');
+        if (result.content.type === 'text') {
+            expect(result.content.text).toBe('Hello from LLM');
+        }
+    });
+
+    test('createMessage with tools accepts request and returns result', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+
+        // Mock client returns text content (tool_use schema validation is tested in types.test.ts)
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'I will use the weather tool' },
+            stopReason: 'endTurn'
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Call createMessage WITH tools - verifies the overload works
+        const result = await server.createMessage({
+            messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+            maxTokens: 100,
+            tools: [{ name: 'get_weather', inputSchema: { type: 'object' } }]
+        });
+
+        // Verify result is returned correctly
+        expect(result.model).toBe('test-model');
+        expect(result.content.type).toBe('text');
+        // With tools param, result.content can be array (CreateMessageResultWithTools type)
+        // This would fail type-check if we used CreateMessageResult which doesn't allow arrays
+        const contentArray = Array.isArray(result.content) ? result.content : [result.content];
+        expect(contentArray.length).toBe(1);
+    });
+});
+
 test('should respect log level for transport with sessionId', async () => {
     const server = new Server(
         {
@@ -2223,6 +2289,167 @@ test('should respect log level for transport with sessionId', async () => {
     // This one will, triggering the above test in clientTransport.onmessage
     await server.sendLoggingMessage(warningParams, SESSION_ID);
     expect(clientTransport.onmessage).toHaveBeenCalled();
+});
+
+describe('createMcpExpressApp', () => {
+    test('should create an Express app', () => {
+        const app = createMcpExpressApp();
+        expect(app).toBeDefined();
+    });
+
+    test('should parse JSON bodies', async () => {
+        const app = createMcpExpressApp({ host: '0.0.0.0' }); // Disable host validation for this test
+        app.post('/test', (req, res) => {
+            res.json({ received: req.body });
+        });
+
+        const response = await supertest(app).post('/test').send({ hello: 'world' }).set('Content-Type', 'application/json');
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ received: { hello: 'world' } });
+    });
+
+    test('should reject requests with invalid Host header by default', async () => {
+        const app = createMcpExpressApp();
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        const response = await supertest(app).post('/test').set('Host', 'evil.com:3000').send({});
+
+        expect(response.status).toBe(403);
+        expect(response.body).toEqual({
+            jsonrpc: '2.0',
+            error: {
+                code: -32000,
+                message: 'Invalid Host: evil.com'
+            },
+            id: null
+        });
+    });
+
+    test('should allow requests with localhost Host header', async () => {
+        const app = createMcpExpressApp();
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        const response = await supertest(app).post('/test').set('Host', 'localhost:3000').send({});
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+    });
+
+    test('should allow requests with 127.0.0.1 Host header', async () => {
+        const app = createMcpExpressApp();
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        const response = await supertest(app).post('/test').set('Host', '127.0.0.1:3000').send({});
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+    });
+
+    test('should not apply host validation when host is 0.0.0.0', async () => {
+        const app = createMcpExpressApp({ host: '0.0.0.0' });
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        // Should allow any host when bound to 0.0.0.0
+        const response = await supertest(app).post('/test').set('Host', 'any-host.com:3000').send({});
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+    });
+
+    test('should apply host validation when host is explicitly localhost', async () => {
+        const app = createMcpExpressApp({ host: 'localhost' });
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        // Should reject non-localhost hosts
+        const response = await supertest(app).post('/test').set('Host', 'evil.com:3000').send({});
+
+        expect(response.status).toBe(403);
+    });
+
+    test('should allow requests with IPv6 localhost Host header', async () => {
+        const app = createMcpExpressApp();
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        const response = await supertest(app).post('/test').set('Host', '[::1]:3000').send({});
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+    });
+
+    test('should apply host validation when host is ::1 (IPv6 localhost)', async () => {
+        const app = createMcpExpressApp({ host: '::1' });
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        // Should reject non-localhost hosts
+        const response = await supertest(app).post('/test').set('Host', 'evil.com:3000').send({});
+
+        expect(response.status).toBe(403);
+    });
+
+    test('should warn when binding to 0.0.0.0', () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        createMcpExpressApp({ host: '0.0.0.0' });
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('0.0.0.0'));
+        warnSpy.mockRestore();
+    });
+
+    test('should warn when binding to :: (IPv6 all interfaces)', () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        createMcpExpressApp({ host: '::' });
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('::'));
+        warnSpy.mockRestore();
+    });
+
+    test('should use custom allowedHosts when provided', async () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['myapp.local', 'localhost'] });
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        // Should not warn when allowedHosts is provided
+        expect(warnSpy).not.toHaveBeenCalled();
+        warnSpy.mockRestore();
+
+        // Should allow myapp.local
+        const allowedResponse = await supertest(app).post('/test').set('Host', 'myapp.local:3000').send({});
+        expect(allowedResponse.status).toBe(200);
+
+        // Should reject other hosts
+        const rejectedResponse = await supertest(app).post('/test').set('Host', 'evil.com:3000').send({});
+        expect(rejectedResponse.status).toBe(403);
+    });
+
+    test('should override default localhost validation when allowedHosts is provided', async () => {
+        // Even though host is localhost, we're using custom allowedHosts
+        const app = createMcpExpressApp({ host: 'localhost', allowedHosts: ['custom.local'] });
+        app.post('/test', (_req, res) => {
+            res.json({ success: true });
+        });
+
+        // Should reject localhost since it's not in allowedHosts
+        const response = await supertest(app).post('/test').set('Host', 'localhost:3000').send({});
+        expect(response.status).toBe(403);
+
+        // Should allow custom.local
+        const allowedResponse = await supertest(app).post('/test').set('Host', 'custom.local:3000').send({});
+        expect(allowedResponse.status).toBe(200);
+    });
 });
 
 describe('Task-based execution', () => {
