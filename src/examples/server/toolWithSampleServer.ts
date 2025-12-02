@@ -33,7 +33,7 @@ mcpServer.registerTool(
             maxTokens: 500
         });
 
-        // Since we're not using tools, response.content is guaranteed to be single content
+        // Since we're not passing tools param to createMessage, response.content is single content
         return {
             content: [
                 {
