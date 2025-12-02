@@ -36,9 +36,9 @@ The SDK is organized into three main layers:
 2. **Protocol Layer** (`src/shared/protocol.ts`) - The abstract `Protocol` class that handles JSON-RPC message routing, request/response correlation, capability negotiation, and transport management. Both `Client` and `Server` extend this class.
 
 3. **High-Level APIs**:
-   - `Client` (`src/client/index.ts`) - Low-level client extending Protocol with typed methods for all MCP operations
-   - `Server` (`src/server/index.ts`) - Low-level server extending Protocol with request handler registration
-   - `McpServer` (`src/server/mcp.ts`) - High-level server API with simplified resource/tool/prompt registration
+    - `Client` (`src/client/index.ts`) - Low-level client extending Protocol with typed methods for all MCP operations
+    - `Server` (`src/server/index.ts`) - Low-level server extending Protocol with request handler registration
+    - `McpServer` (`src/server/mcp.ts`) - High-level server API with simplified resource/tool/prompt registration
 
 ### Transport System
 
@@ -65,23 +65,27 @@ Transports (`src/shared/transport.ts`) provide the communication layer:
 ### Experimental Features
 
 Located in `src/experimental/`:
+
 - **Tasks**: Long-running task support with polling/resumption (`src/experimental/tasks/`)
 
 ### Zod Compatibility
 
 The SDK uses `zod/v4` internally but supports both v3 and v4 APIs. Compatibility utilities:
+
 - `src/server/zod-compat.ts` - Schema parsing helpers that work across versions
 - `src/server/zod-json-schema-compat.ts` - Converts Zod schemas to JSON Schema
 
 ### Validation
 
 Pluggable JSON Schema validation (`src/validation/`):
+
 - `ajv-provider.ts` - Default Ajv-based validator
 - `cfworker-provider.ts` - Cloudflare Workers-compatible alternative
 
 ### Examples
 
 Runnable examples in `src/examples/`:
+
 - `server/` - Various server configurations (stateful, stateless, OAuth, etc.)
 - `client/` - Client examples (basic, OAuth, parallel calls, etc.)
 - `shared/` - Shared utilities like in-memory event store
@@ -105,11 +109,11 @@ When code calls `client.callTool()` or `server.createMessage()`:
 
 1. **High-level method** (e.g., `Client.callTool()`) calls `this.request()`
 2. **`Protocol.request()`**:
-   - Assigns unique message ID
-   - Checks capabilities via `assertCapabilityForMethod()` (abstract, implemented by Client/Server)
-   - Creates response handler promise
-   - Calls `transport.send()` with JSON-RPC request
-   - Waits for response handler to resolve
+    - Assigns unique message ID
+    - Checks capabilities via `assertCapabilityForMethod()` (abstract, implemented by Client/Server)
+    - Creates response handler promise
+    - Calls `transport.send()` with JSON-RPC request
+    - Waits for response handler to resolve
 3. **Transport** serializes and sends over wire (HTTP, stdio, etc.)
 4. **`Protocol._onresponse()`** resolves the promise when response arrives
 
@@ -120,9 +124,9 @@ When a request arrives from the remote side:
 1. **Transport** receives message, calls `transport.onmessage()`
 2. **`Protocol.connect()`** routes to `_onrequest()`, `_onresponse()`, or `_onnotification()`
 3. **`Protocol._onrequest()`**:
-   - Looks up handler in `_requestHandlers` map (keyed by method name)
-   - Creates `RequestHandlerExtra` with `signal`, `sessionId`, `sendNotification`, `sendRequest`
-   - Invokes handler, sends JSON-RPC response back via transport
+    - Looks up handler in `_requestHandlers` map (keyed by method name)
+    - Creates `RequestHandlerExtra` with `signal`, `sessionId`, `sendNotification`, `sendRequest`
+    - Invokes handler, sends JSON-RPC response back via transport
 4. **Handler** was registered via `setRequestHandler(Schema, handler)`
 
 ### Handler Registration
@@ -144,6 +148,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 ### Request Handler Extra
 
 The `extra` parameter in handlers (`RequestHandlerExtra`) provides:
+
 - `signal`: AbortSignal for cancellation
 - `sessionId`: Transport session identifier
 - `authInfo`: Validated auth token info (if authenticated)
@@ -190,27 +195,32 @@ client.setRequestHandler(CreateMessageRequestSchema, async (request, extra) => {
 ## Key Patterns
 
 ### Request Handler Registration (Low-Level Server)
+
 ```typescript
 server.setRequestHandler(SomeRequestSchema, async (request, extra) => {
-  // extra contains sessionId, authInfo, sendNotification, etc.
-  return { /* result */ };
+    // extra contains sessionId, authInfo, sendNotification, etc.
+    return {
+        /* result */
+    };
 });
 ```
 
 ### Tool Registration (High-Level McpServer)
+
 ```typescript
-mcpServer.tool("tool-name", { param: z.string() }, async ({ param }, extra) => {
-  return { content: [{ type: "text", text: "result" }] };
+mcpServer.tool('tool-name', { param: z.string() }, async ({ param }, extra) => {
+    return { content: [{ type: 'text', text: 'result' }] };
 });
 ```
 
 ### Transport Connection
+
 ```typescript
 // Server
 const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
 await server.connect(transport);
 
 // Client
-const transport = new StreamableHTTPClientTransport(new URL("http://localhost:3000/mcp"));
+const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'));
 await client.connect(transport);
 ```
