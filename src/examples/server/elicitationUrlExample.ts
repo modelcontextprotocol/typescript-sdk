@@ -11,6 +11,7 @@ import express, { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { McpServer } from '../../server/mcp.js';
+import { createMcpExpressApp } from '../../server/index.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';
 import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
@@ -214,8 +215,7 @@ function completeURLElicitation(elicitationId: string) {
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 3000;
 const AUTH_PORT = process.env.MCP_AUTH_PORT ? parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
 
-const app = express();
-app.use(express.json());
+const app = createMcpExpressApp();
 
 // Allow CORS all domains, expose the Mcp-Session-Id header
 app.use(

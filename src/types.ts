@@ -1496,6 +1496,12 @@ export const ToolResultContentSchema = z
     .passthrough();
 
 /**
+ * Basic content types for sampling responses (without tool use).
+ * Used for backwards-compatible CreateMessageResult when tools are not used.
+ */
+export const SamplingContentSchema = z.discriminatedUnion('type', [TextContentSchema, ImageContentSchema, AudioContentSchema]);
+
+/**
  * Content block types allowed in sampling messages.
  * This includes text, image, audio, tool use requests, and tool results.
  */
@@ -1576,9 +1582,38 @@ export const CreateMessageRequestSchema = RequestSchema.extend({
 });
 
 /**
- * The client's response to a sampling/create_message request from the server. The client should inform the user before returning the sampled message, to allow them to inspect the response (human in the loop) and decide whether to allow the server to see it.
+ * The client's response to a sampling/create_message request from the server.
+ * This is the backwards-compatible version that returns single content (no arrays).
+ * Used when the request does not include tools.
  */
 export const CreateMessageResultSchema = ResultSchema.extend({
+    /**
+     * The name of the model that generated the message.
+     */
+    model: z.string(),
+    /**
+     * The reason why sampling stopped, if known.
+     *
+     * Standard values:
+     * - "endTurn": Natural end of the assistant's turn
+     * - "stopSequence": A stop sequence was encountered
+     * - "maxTokens": Maximum token limit was reached
+     *
+     * This field is an open string to allow for provider-specific stop reasons.
+     */
+    stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens']).or(z.string())),
+    role: z.enum(['user', 'assistant']),
+    /**
+     * Response content. Single content block (text, image, or audio).
+     */
+    content: SamplingContentSchema
+});
+
+/**
+ * The client's response to a sampling/create_message request when tools were provided.
+ * This version supports array content for tool use flows.
+ */
+export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
     /**
      * The name of the model that generated the message.
      */
@@ -1597,7 +1632,7 @@ export const CreateMessageResultSchema = ResultSchema.extend({
     stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens', 'toolUse']).or(z.string())),
     role: z.enum(['user', 'assistant']),
     /**
-     * Response content. May be ToolUseContent if stopReason is "toolUse".
+     * Response content. May be a single block or array. May include ToolUseContent if stopReason is "toolUse".
      */
     content: z.union([SamplingMessageContentBlockSchema, z.array(SamplingMessageContentBlockSchema)])
 });
@@ -2010,6 +2045,7 @@ export const ClientNotificationSchema = z.union([
 export const ClientResultSchema = z.union([
     EmptyResultSchema,
     CreateMessageResultSchema,
+    CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
     ListRootsResultSchema,
     GetTaskResultSchema,
@@ -2285,11 +2321,26 @@ export type LoggingMessageNotification = Infer<typeof LoggingMessageNotification
 export type ToolChoice = Infer<typeof ToolChoiceSchema>;
 export type ModelHint = Infer<typeof ModelHintSchema>;
 export type ModelPreferences = Infer<typeof ModelPreferencesSchema>;
+export type SamplingContent = Infer<typeof SamplingContentSchema>;
 export type SamplingMessageContentBlock = Infer<typeof SamplingMessageContentBlockSchema>;
 export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
 export type CreateMessageRequestParams = Infer<typeof CreateMessageRequestParamsSchema>;
 export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
 export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
+export type CreateMessageResultWithTools = Infer<typeof CreateMessageResultWithToolsSchema>;
+
+/**
+ * CreateMessageRequestParams without tools - for backwards-compatible overload.
+ * Excludes tools/toolChoice to indicate they should not be provided.
+ */
+export type CreateMessageRequestParamsBase = Omit<CreateMessageRequestParams, 'tools' | 'toolChoice'>;
+
+/**
+ * CreateMessageRequestParams with required tools - for tool-enabled overload.
+ */
+export interface CreateMessageRequestParamsWithTools extends CreateMessageRequestParams {
+    tools: Tool[];
+}
 
 /* Elicitation */
 export type BooleanSchema = Infer<typeof BooleanSchemaSchema>;

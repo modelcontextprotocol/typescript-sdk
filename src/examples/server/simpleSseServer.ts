@@ -1,8 +1,9 @@
-import express, { Request, Response } from 'express';
+import { Request, Response } from 'express';
 import { McpServer } from '../../server/mcp.js';
 import { SSEServerTransport } from '../../server/sse.js';
 import * as z from 'zod/v4';
 import { CallToolResult } from '../../types.js';
+import { createMcpExpressApp } from '../../server/index.js';
 
 /**
  * This example server demonstrates the deprecated HTTP+SSE transport
@@ -75,8 +76,7 @@ const getServer = () => {
     return server;
 };
 
-const app = express();
-app.use(express.json());
+const app = createMcpExpressApp();
 
 // Store transports by session ID
 const transports: Record<string, SSEServerTransport> = {};
