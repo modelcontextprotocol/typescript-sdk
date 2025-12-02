@@ -547,6 +547,27 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     expect(mockHandleRes.end).toHaveBeenCalledWith('Accepted');
                 });
 
+                it('should accept requests without origin headers', async () => {
+                    const mockRes = createMockResponse();
+                    const transport = new SSEServerTransport('/messages', mockRes, {
+                        allowedOrigins: ['http://localhost:3000', 'https://example.com'],
+                        enableDnsRebindingProtection: true
+                    });
+                    await transport.start();
+
+                    const mockReq = createMockRequest({
+                        headers: {
+                            'content-type': 'application/json'
+                        }
+                    });
+                    const mockHandleRes = createMockResponse();
+
+                    await transport.handlePostMessage(mockReq, mockHandleRes, { jsonrpc: '2.0', method: 'test' });
+
+                    expect(mockHandleRes.writeHead).toHaveBeenCalledWith(202);
+                    expect(mockHandleRes.end).toHaveBeenCalledWith('Accepted');
+                });
+
                 it('should reject requests with disallowed origin headers', async () => {
                     const mockRes = createMockResponse();
                     const transport = new SSEServerTransport('/messages', mockRes, {
