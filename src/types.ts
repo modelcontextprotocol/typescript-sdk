@@ -1,9 +1,9 @@
 import * as z from 'zod/v4';
 import { AuthInfo } from './server/auth/types.js';
 
-export const LATEST_PROTOCOL_VERSION = '2025-06-18';
+export const LATEST_PROTOCOL_VERSION = '2025-11-25';
 export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = '2025-03-26';
-export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-03-26', '2024-11-05', '2024-10-07'];
+export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'];
 
 export const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
 
