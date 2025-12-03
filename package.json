@@ -133,7 +133,7 @@
         "supertest": "^7.0.0",
         "tsx": "^4.16.5",
         "typescript": "^5.5.4",
-        "typescript-eslint": "^8.0.0",
+        "typescript-eslint": "^8.48.1",
         "vitest": "^4.0.8",
         "ws": "^8.18.0"
     },
