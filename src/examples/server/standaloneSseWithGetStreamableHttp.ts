@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { isInitializeRequest, ReadResourceResult } from '../../types.js';
-import { createMcpExpressApp } from '../../server/index.js';
+import { createMcpExpressApp } from '../../server/express.js';
 
 // Create an MCP server with implementation details
 const server = new McpServer({
