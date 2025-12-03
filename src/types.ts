@@ -791,13 +791,18 @@ export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
 });
 
 /**
+ * The sender or recipient of messages and data in a conversation.
+ */
+export const RoleSchema = z.enum(['user', 'assistant']);
+
+/**
  * Optional annotations providing clients additional context about a resource.
  */
 export const AnnotationsSchema = z.object({
     /**
      * Intended audience(s) for the resource.
      */
-    audience: z.array(z.enum(['user', 'assistant'])).optional(),
+    audience: z.array(RoleSchema).optional(),
 
     /**
      * Importance hint for the resource, from 0 (least) to 1 (most).
@@ -1200,7 +1205,7 @@ export const ContentBlockSchema = z.union([
  * Describes a message returned as part of a prompt.
  */
 export const PromptMessageSchema = z.object({
-    role: z.enum(['user', 'assistant']),
+    role: RoleSchema,
     content: ContentBlockSchema
 });
 
@@ -1567,7 +1572,7 @@ export const SamplingMessageContentBlockSchema = z.discriminatedUnion('type', [
  */
 export const SamplingMessageSchema = z
     .object({
-        role: z.enum(['user', 'assistant']),
+        role: RoleSchema,
         content: z.union([SamplingMessageContentBlockSchema, z.array(SamplingMessageContentBlockSchema)]),
         /**
          * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1651,7 +1656,7 @@ export const CreateMessageResultSchema = ResultSchema.extend({
      * This field is an open string to allow for provider-specific stop reasons.
      */
     stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens']).or(z.string())),
-    role: z.enum(['user', 'assistant']),
+    role: RoleSchema,
     /**
      * Response content. Single content block (text, image, or audio).
      */
@@ -1679,7 +1684,7 @@ export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
      * This field is an open string to allow for provider-specific stop reasons.
      */
     stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens', 'toolUse']).or(z.string())),
-    role: z.enum(['user', 'assistant']),
+    role: RoleSchema,
     /**
      * Response content. May be a single block or array. May include ToolUseContent if stopReason is "toolUse".
      */
@@ -2269,6 +2274,7 @@ export type Icon = Infer<typeof IconSchema>;
 export type Icons = Infer<typeof IconsSchema>;
 export type BaseMetadata = Infer<typeof BaseMetadataSchema>;
 export type Annotations = Infer<typeof AnnotationsSchema>;
+export type Role = Infer<typeof RoleSchema>;
 
 /* Initialization */
 export type Implementation = Infer<typeof ImplementationSchema>;
