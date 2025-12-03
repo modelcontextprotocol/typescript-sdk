@@ -1,3 +1,6 @@
+// The following @ts-ignore comment needs to be a doc comment or else it'll be stripped from the build output.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+/** @ts-ignore This is a peer dependency - if it is not installed, the Schema type will degrade to any */
 import type { Schema } from '@cfworker/json-schema';
 
 /**
