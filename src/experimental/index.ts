@@ -5,9 +5,11 @@
  * Import experimental features from this module:
  * ```typescript
  * import { TaskStore, InMemoryTaskStore } from '@modelcontextprotocol/sdk/experimental';
+ * import { FetchStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/experimental';
  * ```
  *
  * @experimental
  */
 
 export * from './tasks/index.js';
+export * from './fetch-streamable-http/index.js';

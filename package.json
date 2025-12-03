@@ -115,6 +115,8 @@
     },
     "devDependencies": {
         "@cfworker/json-schema": "^4.1.1",
+        "@hono/node-server": "^1.19.6",
+        "hono": "^4.10.7",
         "@eslint/js": "^9.39.1",
         "@types/content-type": "^1.1.8",
         "@types/cors": "^2.8.17",
