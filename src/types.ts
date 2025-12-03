@@ -791,6 +791,26 @@ export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
 });
 
 /**
+ * Optional annotations providing clients additional context about a resource.
+ */
+export const AnnotationsSchema = z.object({
+    /**
+     * Intended audience(s) for the resource.
+     */
+    audience: z.array(z.enum(['user', 'assistant'])).optional(),
+
+    /**
+     * Importance hint for the resource, from 0 (least) to 1 (most).
+     */
+    priority: z.number().min(0).max(1).optional(),
+
+    /**
+     * ISO 8601 timestamp for the most recent modification.
+     */
+    lastModified: z.iso.datetime({ offset: true }).optional()
+});
+
+/**
  * A known resource that the server is capable of reading.
  */
 export const ResourceSchema = z.object({
@@ -812,6 +832,11 @@ export const ResourceSchema = z.object({
      * The MIME type of this resource, if known.
      */
     mimeType: z.optional(z.string()),
+
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -842,6 +867,11 @@ export const ResourceTemplateSchema = z.object({
      * The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
      */
     mimeType: z.optional(z.string()),
+
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1036,6 +1066,11 @@ export const TextContentSchema = z.object({
     text: z.string(),
 
     /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
+
+    /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
@@ -1057,6 +1092,11 @@ export const ImageContentSchema = z.object({
     mimeType: z.string(),
 
     /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
+
+    /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
@@ -1076,6 +1116,11 @@ export const AudioContentSchema = z.object({
      * The MIME type of the audio. Different providers may support different audio types.
      */
     mimeType: z.string(),
+
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1120,6 +1165,10 @@ export const ToolUseContentSchema = z
 export const EmbeddedResourceSchema = z.object({
     type: z.literal('resource'),
     resource: z.union([TextResourceContentsSchema, BlobResourceContentsSchema]),
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
@@ -2219,6 +2268,7 @@ export type CancelledNotification = Infer<typeof CancelledNotificationSchema>;
 export type Icon = Infer<typeof IconSchema>;
 export type Icons = Infer<typeof IconsSchema>;
 export type BaseMetadata = Infer<typeof BaseMetadataSchema>;
+export type Annotations = Infer<typeof AnnotationsSchema>;
 
 /* Initialization */
 export type Implementation = Infer<typeof ImplementationSchema>;

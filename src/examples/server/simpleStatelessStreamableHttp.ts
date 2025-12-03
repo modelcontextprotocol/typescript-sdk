@@ -3,7 +3,7 @@ import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import * as z from 'zod/v4';
 import { CallToolResult, GetPromptResult, ReadResourceResult } from '../../types.js';
-import { createMcpExpressApp } from '../../server/index.js';
+import { createMcpExpressApp } from '../../server/express.js';
 
 const getServer = () => {
     // Create an MCP server with implementation details

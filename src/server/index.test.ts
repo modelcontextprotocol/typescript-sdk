@@ -5,7 +5,7 @@ import { InMemoryTransport } from '../inMemory.js';
 import type { Transport } from '../shared/transport.js';
 import { toArrayAsync, type ResponseMessage } from '../shared/responseMessage.js';
 import type { CreateMessageResult, ElicitResult, Task } from '../types.js';
-import { createMcpExpressApp } from './index.js';
+import { createMcpExpressApp } from './express.js';
 import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
