@@ -13,21 +13,23 @@ import {
     SamplingMessageSchema,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
+    CreateMessageResultWithToolsSchema,
     ClientCapabilitiesSchema
 } from './types.js';
 
 describe('Types', () => {
     test('should have correct latest protocol version', () => {
         expect(LATEST_PROTOCOL_VERSION).toBeDefined();
-        expect(LATEST_PROTOCOL_VERSION).toBe('2025-06-18');
+        expect(LATEST_PROTOCOL_VERSION).toBe('2025-11-25');
     });
     test('should have correct supported protocol versions', () => {
         expect(SUPPORTED_PROTOCOL_VERSIONS).toBeDefined();
         expect(SUPPORTED_PROTOCOL_VERSIONS).toBeInstanceOf(Array);
         expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(LATEST_PROTOCOL_VERSION);
+        expect(SUPPORTED_PROTOCOL_VERSIONS).toContain('2025-06-18');
+        expect(SUPPORTED_PROTOCOL_VERSIONS).toContain('2025-03-26');
         expect(SUPPORTED_PROTOCOL_VERSIONS).toContain('2024-11-05');
         expect(SUPPORTED_PROTOCOL_VERSIONS).toContain('2024-10-07');
-        expect(SUPPORTED_PROTOCOL_VERSIONS).toContain('2025-03-26');
     });
 
     describe('ResourceLink', () => {
@@ -93,68 +95,118 @@ describe('Types', () => {
 
     describe('ContentBlock', () => {
         test('should validate text content', () => {
+            const mockDate = new Date().toISOString();
             const textContent = {
                 type: 'text',
-                text: 'Hello, world!'
+                text: 'Hello, world!',
+                annotations: {
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                }
             };
 
             const result = ContentBlockSchema.safeParse(textContent);
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('text');
+                expect(result.data.annotations).toEqual({
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                });
             }
         });
 
         test('should validate image content', () => {
+            const mockDate = new Date().toISOString();
             const imageContent = {
                 type: 'image',
                 data: 'aGVsbG8=', // base64 encoded "hello"
-                mimeType: 'image/png'
+                mimeType: 'image/png',
+                annotations: {
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                }
             };
 
             const result = ContentBlockSchema.safeParse(imageContent);
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('image');
+                expect(result.data.annotations).toEqual({
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                });
             }
         });
 
         test('should validate audio content', () => {
+            const mockDate = new Date().toISOString();
             const audioContent = {
                 type: 'audio',
                 data: 'aGVsbG8=', // base64 encoded "hello"
-                mimeType: 'audio/mp3'
+                mimeType: 'audio/mp3',
+                annotations: {
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                }
             };
 
             const result = ContentBlockSchema.safeParse(audioContent);
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('audio');
+                expect(result.data.annotations).toEqual({
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                });
             }
         });
 
         test('should validate resource link content', () => {
+            const mockDate = new Date().toISOString();
             const resourceLink = {
                 type: 'resource_link',
                 uri: 'file:///path/to/file.txt',
                 name: 'file.txt',
-                mimeType: 'text/plain'
+                mimeType: 'text/plain',
+                annotations: {
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: new Date().toISOString()
+                }
             };
 
             const result = ContentBlockSchema.safeParse(resourceLink);
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('resource_link');
+                expect(result.data.annotations).toEqual({
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                });
             }
         });
 
         test('should validate embedded resource content', () => {
+            const mockDate = new Date().toISOString();
             const embeddedResource = {
                 type: 'resource',
                 resource: {
                     uri: 'file:///path/to/file.txt',
                     mimeType: 'text/plain',
                     text: 'File contents'
+                },
+                annotations: {
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
                 }
             };
 
@@ -162,6 +214,11 @@ describe('Types', () => {
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('resource');
+                expect(result.data.annotations).toEqual({
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                });
             }
         });
     });
@@ -787,7 +844,7 @@ describe('Types', () => {
             }
         });
 
-        test('should validate result with tool call', () => {
+        test('should validate result with tool call (using WithTools schema)', () => {
             const result = {
                 model: 'claude-3-5-sonnet-20241022',
                 role: 'assistant',
@@ -800,7 +857,8 @@ describe('Types', () => {
                 stopReason: 'toolUse'
             };
 
-            const parseResult = CreateMessageResultSchema.safeParse(result);
+            // Tool call results use CreateMessageResultWithToolsSchema
+            const parseResult = CreateMessageResultWithToolsSchema.safeParse(result);
             expect(parseResult.success).toBe(true);
             if (parseResult.success) {
                 expect(parseResult.data.stopReason).toBe('toolUse');
@@ -810,9 +868,13 @@ describe('Types', () => {
                     expect(content.type).toBe('tool_use');
                 }
             }
+
+            // Basic CreateMessageResultSchema should NOT accept tool_use content
+            const basicResult = CreateMessageResultSchema.safeParse(result);
+            expect(basicResult.success).toBe(false);
         });
 
-        test('should validate result with array content', () => {
+        test('should validate result with array content (using WithTools schema)', () => {
             const result = {
                 model: 'claude-3-5-sonnet-20241022',
                 role: 'assistant',
@@ -828,7 +890,8 @@ describe('Types', () => {
                 stopReason: 'toolUse'
             };
 
-            const parseResult = CreateMessageResultSchema.safeParse(result);
+            // Array content uses CreateMessageResultWithToolsSchema
+            const parseResult = CreateMessageResultWithToolsSchema.safeParse(result);
             expect(parseResult.success).toBe(true);
             if (parseResult.success) {
                 expect(parseResult.data.stopReason).toBe('toolUse');
@@ -840,6 +903,10 @@ describe('Types', () => {
                     expect(content[1].type).toBe('tool_use');
                 }
             }
+
+            // Basic CreateMessageResultSchema should NOT accept array content
+            const basicResult = CreateMessageResultSchema.safeParse(result);
+            expect(basicResult.success).toBe(false);
         });
 
         test('should validate all new stop reasons', () => {

@@ -80,6 +80,21 @@ type FixSpecInitializeRequest<T> = T extends { params: infer P } ? Omit<T, 'para
 
 type FixSpecClientRequest<T> = T extends { params: infer P } ? Omit<T, 'params'> & { params: FixSpecInitializeRequestParams<P> } : T;
 
+// Targeted fix: CreateMessageResult in SDK uses single content for v1.x backwards compat.
+// The full array-capable type is CreateMessageResultWithTools.
+// This will be aligned with schema in v2.0.
+// Narrows content from SamplingMessageContentBlock (includes tool types) to basic content types only.
+type NarrowToBasicContent<C> = C extends { type: 'text' | 'image' | 'audio' } ? C : never;
+type FixSpecCreateMessageResult<T> = T extends { content: infer C; role: infer R; model: infer M }
+    ? {
+          _meta?: { [key: string]: unknown };
+          model: M;
+          role: R;
+          stopReason?: string;
+          content: C extends (infer U)[] ? NarrowToBasicContent<U> : NarrowToBasicContent<C>;
+      }
+    : T;
+
 const sdkTypeChecks = {
     RequestParams: (sdk: RemovePassthrough<SDKTypes.RequestParams>, spec: SpecTypes.RequestParams) => {
         sdk = spec;
@@ -369,7 +384,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    CreateMessageResult: (sdk: RemovePassthrough<SDKTypes.CreateMessageResult>, spec: SpecTypes.CreateMessageResult) => {
+    CreateMessageResult: (
+        sdk: RemovePassthrough<SDKTypes.CreateMessageResult>,
+        spec: FixSpecCreateMessageResult<SpecTypes.CreateMessageResult>
+    ) => {
         sdk = spec;
         spec = sdk;
     },
@@ -638,6 +656,10 @@ const sdkTypeChecks = {
     ) => {
         sdk = spec;
         spec = sdk;
+    },
+    Annotations: (sdk: SDKTypes.Annotations, spec: SpecTypes.Annotations) => {
+        sdk = spec;
+        spec = sdk;
     }
 };
 
@@ -649,10 +671,7 @@ const MISSING_SDK_TYPES = [
     // These are inlined in the SDK:
     'Role',
     'Error', // The inner error object of a JSONRPCError
-    'URLElicitationRequiredError', // In the SDK, but with a custom definition
-    // These aren't supported by the SDK yet:
-    // TODO: Add definitions to the SDK
-    'Annotations'
+    'URLElicitationRequiredError' // In the SDK, but with a custom definition
 ];
 
 function extractExportedTypes(source: string): string[] {

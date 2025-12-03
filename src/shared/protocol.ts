@@ -283,6 +283,20 @@ export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT 
      * This is used by certain transports to correctly associate related messages.
      */
     sendRequest: <U extends AnySchema>(request: SendRequestT, resultSchema: U, options?: TaskRequestOptions) => Promise<SchemaOutput<U>>;
+
+    /**
+     * Closes the SSE stream for this request, triggering client reconnection.
+     * Only available when using StreamableHTTPServerTransport with eventStore configured.
+     * Use this to implement polling behavior during long-running operations.
+     */
+    closeSSEStream?: () => void;
+
+    /**
+     * Closes the standalone GET SSE stream, triggering client reconnection.
+     * Only available when using StreamableHTTPServerTransport with eventStore configured.
+     * Use this to implement polling behavior for server-initiated notifications.
+     */
+    closeStandaloneSSEStream?: () => void;
 };
 
 /**
@@ -728,7 +742,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             requestInfo: extra?.requestInfo,
             taskId: relatedTaskId,
             taskStore: taskStore,
-            taskRequestedTtl: taskCreationParams?.ttl
+            taskRequestedTtl: taskCreationParams?.ttl,
+            closeSSEStream: extra?.closeSSEStream,
+            closeStandaloneSSEStream: extra?.closeStandaloneSSEStream
         };
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.

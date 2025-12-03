@@ -1312,17 +1312,9 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
     properties: {}
 };
 
-// Helper to check if an object is a Zod schema (ZodRawShapeCompat)
-function isZodRawShapeCompat(obj: unknown): obj is ZodRawShapeCompat {
-    if (typeof obj !== 'object' || obj === null) return false;
-
-    const isEmptyObject = Object.keys(obj).length === 0;
-
-    // Check if object is empty or at least one property is a ZodType instance
-    // Note: use heuristic check to avoid instanceof failure across different Zod versions
-    return isEmptyObject || Object.values(obj as object).some(isZodTypeLike);
-}
-
+/**
+ * Checks if a value looks like a Zod schema by checking for parse/safeParse methods.
+ */
 function isZodTypeLike(value: unknown): value is AnySchema {
     return (
         value !== null &&
@@ -1332,6 +1324,46 @@ function isZodTypeLike(value: unknown): value is AnySchema {
         'safeParse' in value &&
         typeof value.safeParse === 'function'
     );
+}
+
+/**
+ * Checks if an object is a Zod schema instance (v3 or v4).
+ *
+ * Zod schemas have internal markers:
+ * - v3: `_def` property
+ * - v4: `_zod` property
+ *
+ * This includes transformed schemas like z.preprocess(), z.transform(), z.pipe().
+ */
+function isZodSchemaInstance(obj: object): boolean {
+    return '_def' in obj || '_zod' in obj || isZodTypeLike(obj);
+}
+
+/**
+ * Checks if an object is a "raw shape" - a plain object where values are Zod schemas.
+ *
+ * Raw shapes are used as shorthand: `{ name: z.string() }` instead of `z.object({ name: z.string() })`.
+ *
+ * IMPORTANT: This must NOT match actual Zod schema instances (like z.preprocess, z.pipe),
+ * which have internal properties that could be mistaken for schema values.
+ */
+function isZodRawShapeCompat(obj: unknown): obj is ZodRawShapeCompat {
+    if (typeof obj !== 'object' || obj === null) {
+        return false;
+    }
+
+    // If it's already a Zod schema instance, it's NOT a raw shape
+    if (isZodSchemaInstance(obj)) {
+        return false;
+    }
+
+    // Empty objects are valid raw shapes (tools with no parameters)
+    if (Object.keys(obj).length === 0) {
+        return true;
+    }
+
+    // A raw shape has at least one property that is a Zod schema
+    return Object.values(obj).some(isZodTypeLike);
 }
 
 /**

@@ -33,12 +33,14 @@ mcpServer.registerTool(
             maxTokens: 500
         });
 
-        const contents = Array.isArray(response.content) ? response.content : [response.content];
+        // Since we're not passing tools param to createMessage, response.content is single content
         return {
-            content: contents.map(content => ({
-                type: 'text',
-                text: content.type === 'text' ? content.text : 'Unable to generate summary'
-            }))
+            content: [
+                {
+                    type: 'text',
+                    text: response.content.type === 'text' ? response.content.text : 'Unable to generate summary'
+                }
+            ]
         };
     }
 );

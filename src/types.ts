@@ -1,9 +1,9 @@
 import z from 'zod/v4';
 import { AuthInfo } from './server/auth/types.js';
 
-export const LATEST_PROTOCOL_VERSION = '2025-06-18';
+export const LATEST_PROTOCOL_VERSION = '2025-11-25';
 export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = '2025-03-26';
-export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-03-26', '2024-11-05', '2024-10-07'];
+export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'];
 
 export const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
 
@@ -791,6 +791,26 @@ export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
 });
 
 /**
+ * Optional annotations providing clients additional context about a resource.
+ */
+export const AnnotationsSchema = z.object({
+    /**
+     * Intended audience(s) for the resource.
+     */
+    audience: z.array(z.enum(['user', 'assistant'])).optional(),
+
+    /**
+     * Importance hint for the resource, from 0 (least) to 1 (most).
+     */
+    priority: z.number().min(0).max(1).optional(),
+
+    /**
+     * ISO 8601 timestamp for the most recent modification.
+     */
+    lastModified: z.iso.datetime({ offset: true }).optional()
+});
+
+/**
  * A known resource that the server is capable of reading.
  */
 export const ResourceSchema = z.object({
@@ -812,6 +832,11 @@ export const ResourceSchema = z.object({
      * The MIME type of this resource, if known.
      */
     mimeType: z.optional(z.string()),
+
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -842,6 +867,11 @@ export const ResourceTemplateSchema = z.object({
      * The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
      */
     mimeType: z.optional(z.string()),
+
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1036,6 +1066,11 @@ export const TextContentSchema = z.object({
     text: z.string(),
 
     /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
+
+    /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
@@ -1057,6 +1092,11 @@ export const ImageContentSchema = z.object({
     mimeType: z.string(),
 
     /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
+
+    /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
@@ -1076,6 +1116,11 @@ export const AudioContentSchema = z.object({
      * The MIME type of the audio. Different providers may support different audio types.
      */
     mimeType: z.string(),
+
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1120,6 +1165,10 @@ export const ToolUseContentSchema = z
 export const EmbeddedResourceSchema = z.object({
     type: z.literal('resource'),
     resource: z.union([TextResourceContentsSchema, BlobResourceContentsSchema]),
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
@@ -1496,6 +1545,12 @@ export const ToolResultContentSchema = z
     .passthrough();
 
 /**
+ * Basic content types for sampling responses (without tool use).
+ * Used for backwards-compatible CreateMessageResult when tools are not used.
+ */
+export const SamplingContentSchema = z.discriminatedUnion('type', [TextContentSchema, ImageContentSchema, AudioContentSchema]);
+
+/**
  * Content block types allowed in sampling messages.
  * This includes text, image, audio, tool use requests, and tool results.
  */
@@ -1576,9 +1631,38 @@ export const CreateMessageRequestSchema = RequestSchema.extend({
 });
 
 /**
- * The client's response to a sampling/create_message request from the server. The client should inform the user before returning the sampled message, to allow them to inspect the response (human in the loop) and decide whether to allow the server to see it.
+ * The client's response to a sampling/create_message request from the server.
+ * This is the backwards-compatible version that returns single content (no arrays).
+ * Used when the request does not include tools.
  */
 export const CreateMessageResultSchema = ResultSchema.extend({
+    /**
+     * The name of the model that generated the message.
+     */
+    model: z.string(),
+    /**
+     * The reason why sampling stopped, if known.
+     *
+     * Standard values:
+     * - "endTurn": Natural end of the assistant's turn
+     * - "stopSequence": A stop sequence was encountered
+     * - "maxTokens": Maximum token limit was reached
+     *
+     * This field is an open string to allow for provider-specific stop reasons.
+     */
+    stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens']).or(z.string())),
+    role: z.enum(['user', 'assistant']),
+    /**
+     * Response content. Single content block (text, image, or audio).
+     */
+    content: SamplingContentSchema
+});
+
+/**
+ * The client's response to a sampling/create_message request when tools were provided.
+ * This version supports array content for tool use flows.
+ */
+export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
     /**
      * The name of the model that generated the message.
      */
@@ -1597,7 +1681,7 @@ export const CreateMessageResultSchema = ResultSchema.extend({
     stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens', 'toolUse']).or(z.string())),
     role: z.enum(['user', 'assistant']),
     /**
-     * Response content. May be ToolUseContent if stopReason is "toolUse".
+     * Response content. May be a single block or array. May include ToolUseContent if stopReason is "toolUse".
      */
     content: z.union([SamplingMessageContentBlockSchema, z.array(SamplingMessageContentBlockSchema)])
 });
@@ -1831,8 +1915,13 @@ export const ElicitResultSchema = ResultSchema.extend({
     /**
      * The submitted form data, only present when action is "accept".
      * Contains values matching the requested schema.
+     * Per MCP spec, content is "typically omitted" for decline/cancel actions.
+     * We normalize null to undefined for leniency while maintaining type compatibility.
      */
-    content: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional()
+    content: z.preprocess(
+        val => (val === null ? undefined : val),
+        z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional()
+    )
 });
 
 /* Autocomplete */
@@ -2005,6 +2094,7 @@ export const ClientNotificationSchema = z.union([
 export const ClientResultSchema = z.union([
     EmptyResultSchema,
     CreateMessageResultSchema,
+    CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
     ListRootsResultSchema,
     GetTaskResultSchema,
@@ -2137,6 +2227,18 @@ export interface MessageExtraInfo {
      * The authentication information.
      */
     authInfo?: AuthInfo;
+
+    /**
+     * Callback to close the SSE stream for this request, triggering client reconnection.
+     * Only available when using StreamableHTTPServerTransport with eventStore configured.
+     */
+    closeSSEStream?: () => void;
+
+    /**
+     * Callback to close the standalone GET SSE stream, triggering client reconnection.
+     * Only available when using StreamableHTTPServerTransport with eventStore configured.
+     */
+    closeStandaloneSSEStream?: () => void;
 }
 
 /* JSON-RPC types */
@@ -2166,6 +2268,7 @@ export type CancelledNotification = Infer<typeof CancelledNotificationSchema>;
 export type Icon = Infer<typeof IconSchema>;
 export type Icons = Infer<typeof IconsSchema>;
 export type BaseMetadata = Infer<typeof BaseMetadataSchema>;
+export type Annotations = Infer<typeof AnnotationsSchema>;
 
 /* Initialization */
 export type Implementation = Infer<typeof ImplementationSchema>;
@@ -2268,11 +2371,26 @@ export type LoggingMessageNotification = Infer<typeof LoggingMessageNotification
 export type ToolChoice = Infer<typeof ToolChoiceSchema>;
 export type ModelHint = Infer<typeof ModelHintSchema>;
 export type ModelPreferences = Infer<typeof ModelPreferencesSchema>;
+export type SamplingContent = Infer<typeof SamplingContentSchema>;
 export type SamplingMessageContentBlock = Infer<typeof SamplingMessageContentBlockSchema>;
 export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
 export type CreateMessageRequestParams = Infer<typeof CreateMessageRequestParamsSchema>;
 export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
 export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
+export type CreateMessageResultWithTools = Infer<typeof CreateMessageResultWithToolsSchema>;
+
+/**
+ * CreateMessageRequestParams without tools - for backwards-compatible overload.
+ * Excludes tools/toolChoice to indicate they should not be provided.
+ */
+export type CreateMessageRequestParamsBase = Omit<CreateMessageRequestParams, 'tools' | 'toolChoice'>;
+
+/**
+ * CreateMessageRequestParams with required tools - for tool-enabled overload.
+ */
+export interface CreateMessageRequestParamsWithTools extends CreateMessageRequestParams {
+    tools: Tool[];
+}
 
 /* Elicitation */
 export type BooleanSchema = Infer<typeof BooleanSchemaSchema>;

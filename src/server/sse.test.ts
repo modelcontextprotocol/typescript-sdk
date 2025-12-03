@@ -6,7 +6,7 @@ import { McpServer } from './mcp.js';
 import { createServer, type Server } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { CallToolResult, JSONRPCMessage } from '../types.js';
-import { zodTestMatrix, type ZodMatrixEntry } from '../shared/zodTestMatrix.js';
+import { zodTestMatrix, type ZodMatrixEntry } from '../__fixtures__/zodTestMatrix.js';
 
 const createMockResponse = () => {
     const res = {
@@ -536,6 +536,27 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     const mockReq = createMockRequest({
                         headers: {
                             origin: 'http://localhost:3000',
+                            'content-type': 'application/json'
+                        }
+                    });
+                    const mockHandleRes = createMockResponse();
+
+                    await transport.handlePostMessage(mockReq, mockHandleRes, { jsonrpc: '2.0', method: 'test' });
+
+                    expect(mockHandleRes.writeHead).toHaveBeenCalledWith(202);
+                    expect(mockHandleRes.end).toHaveBeenCalledWith('Accepted');
+                });
+
+                it('should accept requests without origin headers', async () => {
+                    const mockRes = createMockResponse();
+                    const transport = new SSEServerTransport('/messages', mockRes, {
+                        allowedOrigins: ['http://localhost:3000', 'https://example.com'],
+                        enableDnsRebindingProtection: true
+                    });
+                    await transport.start();
+
+                    const mockReq = createMockRequest({
+                        headers: {
                             'content-type': 'application/json'
                         }
                     });
