@@ -33,3 +33,10 @@ test('should be reusable after clearing', () => {
     readBuffer.append(Buffer.from('\n'));
     expect(readBuffer.readMessage()).toEqual(testMessage);
 });
+
+test('should override invalid messages and return null', () => {
+    const readBuffer = new ReadBuffer();
+
+    readBuffer.append(Buffer.from('invalid message\n'));
+    expect(readBuffer.readMessage()).toBeNull();
+});
