@@ -1,10 +1,11 @@
-import express, { Request, Response } from 'express';
+import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import * as z from 'zod/v4';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';
 import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
+import { createMcpExpressApp } from '../../server/index.js';
 import {
     CallToolResult,
     ElicitResultSchema,
@@ -19,8 +20,6 @@ import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../../experimental/
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from '../../shared/auth.js';
 import { checkResourceAllowed } from '../../shared/auth-utils.js';
-
-import cors from 'cors';
 
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
@@ -507,16 +506,7 @@ const getServer = () => {
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 3000;
 const AUTH_PORT = process.env.MCP_AUTH_PORT ? parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
 
-const app = express();
-app.use(express.json());
-
-// Allow CORS all domains, expose the Mcp-Session-Id header
-app.use(
-    cors({
-        origin: '*', // Allow all origins
-        exposedHeaders: ['Mcp-Session-Id']
-    })
-);
+const app = createMcpExpressApp();
 
 // Set up OAuth if enabled
 let authMiddleware = null;

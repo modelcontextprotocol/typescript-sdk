@@ -2678,6 +2678,29 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 const body = await response.json();
                 expect(body.error.message).toBe('Invalid Origin header: http://evil.com');
             });
+
+            it('should accept requests without origin headers', async () => {
+                const result = await createTestServerWithDnsProtection({
+                    sessionIdGenerator: undefined,
+                    allowedOrigins: ['http://localhost:3000', 'https://example.com'],
+                    enableDnsRebindingProtection: true
+                });
+                server = result.server;
+                transport = result.transport;
+                baseUrl = result.baseUrl;
+
+                const response = await fetch(baseUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json, text/event-stream'
+                    },
+                    body: JSON.stringify(TEST_MESSAGES.initialize)
+                });
+
+                // Should pass even with no Origin headers because requests that do not come from browsers may not have Origin and DNS rebinding attacks can only be performed via browsers
+                expect(response.status).toBe(200);
+            });
         });
 
         describe('enableDnsRebindingProtection option', () => {

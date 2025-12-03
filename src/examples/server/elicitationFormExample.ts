@@ -8,11 +8,11 @@
 // to collect *sensitive* user input via a browser.
 
 import { randomUUID } from 'node:crypto';
-import cors from 'cors';
-import express, { type Request, type Response } from 'express';
+import { type Request, type Response } from 'express';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { isInitializeRequest } from '../../types.js';
+import { createMcpExpressApp } from '../../server/index.js';
 
 // Create MCP server - it will automatically use AjvJsonSchemaValidator with sensible defaults
 // The validator supports format validation (email, date, etc.) if ajv-formats is installed
@@ -320,16 +320,7 @@ mcpServer.registerTool(
 async function main() {
     const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-    const app = express();
-    app.use(express.json());
-
-    // Allow CORS for all domains, expose the Mcp-Session-Id header
-    app.use(
-        cors({
-            origin: '*',
-            exposedHeaders: ['Mcp-Session-Id']
-        })
-    );
+    const app = createMcpExpressApp();
 
     // Map to store transports by session ID
     const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
