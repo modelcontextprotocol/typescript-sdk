@@ -656,6 +656,10 @@ const sdkTypeChecks = {
     ) => {
         sdk = spec;
         spec = sdk;
+    },
+    Annotations: (sdk: SDKTypes.Annotations, spec: SpecTypes.Annotations) => {
+        sdk = spec;
+        spec = sdk;
     }
 };
 
@@ -667,10 +671,7 @@ const MISSING_SDK_TYPES = [
     // These are inlined in the SDK:
     'Role',
     'Error', // The inner error object of a JSONRPCError
-    'URLElicitationRequiredError', // In the SDK, but with a custom definition
-    // These aren't supported by the SDK yet:
-    // TODO: Add definitions to the SDK
-    'Annotations'
+    'URLElicitationRequiredError' // In the SDK, but with a custom definition
 ];
 
 function extractExportedTypes(source: string): string[] {

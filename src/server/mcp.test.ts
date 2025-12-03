@@ -2315,12 +2315,18 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 version: '1.0'
             });
 
+            const mockDate = new Date().toISOString();
             mcpServer.resource(
                 'test',
                 'test://resource',
                 {
                     description: 'Test resource',
-                    mimeType: 'text/plain'
+                    mimeType: 'text/plain',
+                    annotations: {
+                        audience: ['user'],
+                        priority: 0.5,
+                        lastModified: mockDate
+                    }
                 },
                 async () => ({
                     contents: [
@@ -2346,6 +2352,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.resources).toHaveLength(1);
             expect(result.resources[0].description).toBe('Test resource');
             expect(result.resources[0].mimeType).toBe('text/plain');
+            expect(result.resources[0].annotations).toEqual({
+                audience: ['user'],
+                priority: 0.5,
+                lastModified: mockDate
+            });
         });
 
         /***
