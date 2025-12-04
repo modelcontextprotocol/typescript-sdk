@@ -1,7 +1,8 @@
-import { z } from 'zod';
-import { completable } from './completable.js';
+import { completable, getCompleter } from './completable.js';
+import { zodTestMatrix, type ZodMatrixEntry } from '../__fixtures__/zodTestMatrix.js';
 
-describe('completable', () => {
+describe.each(zodTestMatrix)('completable with $zodVersionLabel', (entry: ZodMatrixEntry) => {
+    const { z } = entry;
     it('preserves types and values of underlying schema', () => {
         const baseSchema = z.string();
         const schema = completable(baseSchema, () => []);
@@ -14,27 +15,35 @@ describe('completable', () => {
         const completions = ['foo', 'bar', 'baz'];
         const schema = completable(z.string(), () => completions);
 
-        expect(await schema._def.complete('')).toEqual(completions);
+        const completer = getCompleter(schema);
+        expect(completer).toBeDefined();
+        expect(await completer!('')).toEqual(completions);
     });
 
     it('allows async completion functions', async () => {
         const completions = ['foo', 'bar', 'baz'];
         const schema = completable(z.string(), async () => completions);
 
-        expect(await schema._def.complete('')).toEqual(completions);
+        const completer = getCompleter(schema);
+        expect(completer).toBeDefined();
+        expect(await completer!('')).toEqual(completions);
     });
 
     it('passes current value to completion function', async () => {
         const schema = completable(z.string(), value => [value + '!']);
 
-        expect(await schema._def.complete('test')).toEqual(['test!']);
+        const completer = getCompleter(schema);
+        expect(completer).toBeDefined();
+        expect(await completer!('test')).toEqual(['test!']);
     });
 
     it('works with number schemas', async () => {
         const schema = completable(z.number(), () => [1, 2, 3]);
 
         expect(schema.parse(1)).toBe(1);
-        expect(await schema._def.complete(0)).toEqual([1, 2, 3]);
+        const completer = getCompleter(schema);
+        expect(completer).toBeDefined();
+        expect(await completer!(0)).toEqual([1, 2, 3]);
     });
 
     it('preserves schema description', () => {

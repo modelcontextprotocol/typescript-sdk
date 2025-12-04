@@ -1,50 +1,49 @@
-import { ZodTypeAny, ZodTypeDef, ZodType, ParseInput, ParseReturnType, RawCreateParams, ZodErrorMap, ProcessedCreateParams } from 'zod';
+import { AnySchema, SchemaInput } from './zod-compat.js';
 
-export enum McpZodTypeKind {
-    Completable = 'McpCompletable'
-}
+export const COMPLETABLE_SYMBOL: unique symbol = Symbol.for('mcp.completable');
 
-export type CompleteCallback<T extends ZodTypeAny = ZodTypeAny> = (
-    value: T['_input'],
+export type CompleteCallback<T extends AnySchema = AnySchema> = (
+    value: SchemaInput<T>,
     context?: {
         arguments?: Record<string, string>;
     }
-) => T['_input'][] | Promise<T['_input'][]>;
+) => SchemaInput<T>[] | Promise<SchemaInput<T>[]>;
 
-export interface CompletableDef<T extends ZodTypeAny = ZodTypeAny> extends ZodTypeDef {
-    type: T;
+export type CompletableMeta<T extends AnySchema = AnySchema> = {
     complete: CompleteCallback<T>;
-    typeName: McpZodTypeKind.Completable;
+};
+
+export type CompletableSchema<T extends AnySchema> = T & {
+    [COMPLETABLE_SYMBOL]: CompletableMeta<T>;
+};
+
+/**
+ * Wraps a Zod type to provide autocompletion capabilities. Useful for, e.g., prompt arguments in MCP.
+ * Works with both Zod v3 and v4 schemas.
+ */
+export function completable<T extends AnySchema>(schema: T, complete: CompleteCallback<T>): CompletableSchema<T> {
+    Object.defineProperty(schema as object, COMPLETABLE_SYMBOL, {
+        value: { complete } as CompletableMeta<T>,
+        enumerable: false,
+        writable: false,
+        configurable: false
+    });
+    return schema as CompletableSchema<T>;
 }
 
-export class Completable<T extends ZodTypeAny> extends ZodType<T['_output'], CompletableDef<T>, T['_input']> {
-    _parse(input: ParseInput): ParseReturnType<this['_output']> {
-        const { ctx } = this._processInputParams(input);
-        const data = ctx.data;
-        return this._def.type._parse({
-            data,
-            path: ctx.path,
-            parent: ctx
-        });
-    }
+/**
+ * Checks if a schema is completable (has completion metadata).
+ */
+export function isCompletable(schema: unknown): schema is CompletableSchema<AnySchema> {
+    return !!schema && typeof schema === 'object' && COMPLETABLE_SYMBOL in (schema as object);
+}
 
-    unwrap() {
-        return this._def.type;
-    }
-
-    static create = <T extends ZodTypeAny>(
-        type: T,
-        params: RawCreateParams & {
-            complete: CompleteCallback<T>;
-        }
-    ): Completable<T> => {
-        return new Completable({
-            type,
-            typeName: McpZodTypeKind.Completable,
-            complete: params.complete,
-            ...processCreateParams(params)
-        });
-    };
+/**
+ * Gets the completer callback from a completable schema, if it exists.
+ */
+export function getCompleter<T extends AnySchema>(schema: T): CompleteCallback<T> | undefined {
+    const meta = (schema as unknown as { [COMPLETABLE_SYMBOL]?: CompletableMeta<T> })[COMPLETABLE_SYMBOL];
+    return meta?.complete as CompleteCallback<T> | undefined;
 }
 
 // Runtime type guard to detect Completable-wrapped Zod types across versions
@@ -55,32 +54,21 @@ export function isCompletable<T extends ZodTypeAny = ZodTypeAny>(value: unknown)
 }
 
 /**
- * Wraps a Zod type to provide autocompletion capabilities. Useful for, e.g., prompt arguments in MCP.
+ * Unwraps a completable schema to get the underlying schema.
+ * For backward compatibility with code that called `.unwrap()`.
  */
-export function completable<T extends ZodTypeAny>(schema: T, complete: CompleteCallback<T>): Completable<T> {
-    return Completable.create(schema, { ...schema._def, complete });
+export function unwrapCompletable<T extends AnySchema>(schema: CompletableSchema<T>): T {
+    return schema;
 }
 
-// Not sure why this isn't exported from Zod:
-// https://github.com/colinhacks/zod/blob/f7ad26147ba291cb3fb257545972a8e00e767470/src/types.ts#L130
-function processCreateParams(params: RawCreateParams): ProcessedCreateParams {
-    if (!params) return {};
-    const { errorMap, invalid_type_error, required_error, description } = params;
-    if (errorMap && (invalid_type_error || required_error)) {
-        throw new Error(`Can't use "invalid_type_error" or "required_error" in conjunction with custom error map.`);
-    }
-    if (errorMap) return { errorMap: errorMap, description };
-    const customMap: ZodErrorMap = (iss, ctx) => {
-        const { message } = params;
+// Legacy exports for backward compatibility
+// These types are deprecated but kept for existing code
+export enum McpZodTypeKind {
+    Completable = 'McpCompletable'
+}
 
-        if (iss.code === 'invalid_enum_value') {
-            return { message: message ?? ctx.defaultError };
-        }
-        if (typeof ctx.data === 'undefined') {
-            return { message: message ?? required_error ?? ctx.defaultError };
-        }
-        if (iss.code !== 'invalid_type') return { message: ctx.defaultError };
-        return { message: message ?? invalid_type_error ?? ctx.defaultError };
-    };
-    return { errorMap: customMap, description };
+export interface CompletableDef<T extends AnySchema = AnySchema> {
+    type: T;
+    complete: CompleteCallback<T>;
+    typeName: McpZodTypeKind.Completable;
 }

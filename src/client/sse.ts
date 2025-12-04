@@ -1,5 +1,5 @@
 import { EventSource, type ErrorEvent, type EventSourceInit } from 'eventsource';
-import { Transport, FetchLike } from '../shared/transport.js';
+import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../shared/transport.js';
 import { JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 
@@ -70,6 +70,7 @@ export class SSEClientTransport implements Transport {
     private _requestInit?: RequestInit;
     private _authProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
+    private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
 
     onclose?: () => void;
@@ -84,6 +85,7 @@ export class SSEClientTransport implements Transport {
         this._requestInit = opts?.requestInit;
         this._authProvider = opts?.authProvider;
         this._fetch = opts?.fetch;
+        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
     }
 
     private async _authThenStart(): Promise<void> {
@@ -97,7 +99,7 @@ export class SSEClientTransport implements Transport {
                 serverUrl: this._url,
                 resourceMetadataUrl: this._resourceMetadataUrl,
                 scope: this._scope,
-                fetchFn: this._fetch
+                fetchFn: this._fetchWithInit
             });
         } catch (error) {
             this.onerror?.(error as Error);
@@ -112,7 +114,7 @@ export class SSEClientTransport implements Transport {
     }
 
     private async _commonHeaders(): Promise<Headers> {
-        const headers: HeadersInit = {};
+        const headers: HeadersInit & Record<string, string> = {};
         if (this._authProvider) {
             const tokens = await this._authProvider.tokens();
             if (tokens) {
@@ -123,7 +125,12 @@ export class SSEClientTransport implements Transport {
             headers['mcp-protocol-version'] = this._protocolVersion;
         }
 
-        return new Headers({ ...headers, ...this._requestInit?.headers });
+        const extraHeaders = normalizeHeaders(this._requestInit?.headers);
+
+        return new Headers({
+            ...headers,
+            ...extraHeaders
+        });
     }
 
     private _startOrAuth(): Promise<void> {
@@ -220,7 +227,7 @@ export class SSEClientTransport implements Transport {
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
-            fetchFn: this._fetch
+            fetchFn: this._fetchWithInit
         });
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');
@@ -251,6 +258,8 @@ export class SSEClientTransport implements Transport {
 
             const response = await (this._fetch ?? fetch)(this._endpoint, init);
             if (!response.ok) {
+                const text = await response.text().catch(() => null);
+
                 if (response.status === 401 && this._authProvider) {
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                     this._resourceMetadataUrl = resourceMetadataUrl;
@@ -260,7 +269,7 @@ export class SSEClientTransport implements Transport {
                         serverUrl: this._url,
                         resourceMetadataUrl: this._resourceMetadataUrl,
                         scope: this._scope,
-                        fetchFn: this._fetch
+                        fetchFn: this._fetchWithInit
                     });
                     if (result !== 'AUTHORIZED') {
                         throw new UnauthorizedError();
@@ -270,9 +279,11 @@ export class SSEClientTransport implements Transport {
                     return this.send(message);
                 }
 
-                const text = await response.text().catch(() => null);
                 throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
             }
+
+            // Release connection - POST responses don't have content we need
+            await response.body?.cancel();
         } catch (error) {
             this.onerror?.(error as Error);
             throw error;
