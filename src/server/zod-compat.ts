@@ -32,6 +32,7 @@ export interface ZodV4Internal {
     _zod?: {
         def?: {
             type?: string;
+            typeName?: string;
             value?: unknown;
             values?: unknown[];
             shape?: Record<string, AnySchema> | (() => Record<string, AnySchema>);
@@ -236,15 +237,16 @@ export function getSchemaDescription(schema: AnySchema): string | undefined {
  * Works with both Zod v3 and v4.
  */
 export function isSchemaOptional(schema: AnySchema): boolean {
-    if (isZ4Schema(schema)) {
-        const v4Schema = schema as unknown as ZodV4Internal;
-        return v4Schema._zod?.def?.type === 'optional';
-    }
-    const v3Schema = schema as unknown as ZodV3Internal;
-    // v3 has isOptional() method
+    // Check for isOptional method first (works for both v3 and v4 usually)
     if (typeof (schema as { isOptional?: () => boolean }).isOptional === 'function') {
         return (schema as { isOptional: () => boolean }).isOptional();
     }
+
+    if (isZ4Schema(schema)) {
+        const v4Schema = schema as unknown as ZodV4Internal;
+        return v4Schema._zod?.def?.type === 'optional' || v4Schema._zod?.def?.typeName === 'ZodOptional';
+    }
+    const v3Schema = schema as unknown as ZodV3Internal;
     return v3Schema._def?.typeName === 'ZodOptional';
 }
 
