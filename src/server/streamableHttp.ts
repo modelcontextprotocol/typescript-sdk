@@ -276,10 +276,18 @@ export class StreamableHTTPServerTransport implements Transport {
 
     /**
      * Writes a priming event to establish resumption capability.
-     * Only sends if eventStore is configured (opt-in for resumability).
+     * Only sends if eventStore is configured (opt-in for resumability) and
+     * the client's protocol version supports empty SSE data (>= 2025-11-25).
      */
-    private async _maybeWritePrimingEvent(res: ServerResponse, streamId: string): Promise<void> {
+    private async _maybeWritePrimingEvent(res: ServerResponse, streamId: string, protocolVersion: string): Promise<void> {
         if (!this._eventStore) {
+            return;
+        }
+
+        // Priming events have empty data which older clients cannot handle.
+        // Only send priming events to clients with protocol version >= 2025-11-25
+        // which includes the fix for handling empty SSE data.
+        if (protocolVersion < '2025-11-25') {
             return;
         }
 
@@ -619,6 +627,15 @@ export class StreamableHTTPServerTransport implements Transport {
                 // The default behavior is to use SSE streaming
                 // but in some cases server will return JSON responses
                 const streamId = randomUUID();
+
+                // Extract protocol version for priming event decision.
+                // For initialize requests, get from request params.
+                // For other requests, get from header (already validated).
+                const initRequest = messages.find(m => isInitializeRequest(m));
+                const clientProtocolVersion = initRequest
+                    ? initRequest.params.protocolVersion
+                    : ((req.headers['mcp-protocol-version'] as string) ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
+
                 if (!this._enableJsonResponse) {
                     const headers: Record<string, string> = {
                         'Content-Type': 'text/event-stream',
@@ -633,7 +650,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
                     res.writeHead(200, headers);
 
-                    await this._maybeWritePrimingEvent(res, streamId);
+                    await this._maybeWritePrimingEvent(res, streamId, clientProtocolVersion);
                 }
                 // Store the response for this request to send messages back through this connection
                 // We need to track by request ID to maintain the connection
@@ -656,9 +673,12 @@ export class StreamableHTTPServerTransport implements Transport {
                 // handle each message
                 for (const message of messages) {
                     // Build closeSSEStream callback for requests when eventStore is configured
+                    // AND client supports resumability (protocol version >= 2025-11-25).
+                    // Old clients can't resume if the stream is closed early because they
+                    // didn't receive a priming event with an event ID.
                     let closeSSEStream: (() => void) | undefined;
                     let closeStandaloneSSEStream: (() => void) | undefined;
-                    if (isJSONRPCRequest(message) && this._eventStore) {
+                    if (isJSONRPCRequest(message) && this._eventStore && clientProtocolVersion >= '2025-11-25') {
                         closeSSEStream = () => {
                             this.closeSSEStream(message.id);
                         };
