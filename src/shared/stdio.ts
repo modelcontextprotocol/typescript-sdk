@@ -1,4 +1,3 @@
-import { ZodError } from 'zod';
 import { JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
 
 /**
@@ -35,8 +34,8 @@ export function deserializeMessage(line: string): JSONRPCMessage | null {
     try {
         return JSONRPCMessageSchema.parse(JSON.parse(line));
     } catch (error: unknown) {
-        // When Non JSONRPC message is received (parsing error or schema validation error), return null
-        if (error instanceof ZodError || error instanceof SyntaxError) {
+        // When non-JSON messages are received, we simply ignore them.
+        if (error instanceof SyntaxError) {
             return null;
         }
         throw error;
