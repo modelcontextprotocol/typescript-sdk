@@ -407,6 +407,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                                 const message = queuedMessage.message;
                                 const requestId = message.id;
 
+                                // Per JSON-RPC spec, error responses may have null/undefined id if the id couldn't be determined
+                                if (requestId === undefined) {
+                                    continue;
+                                }
+
                                 // Lookup resolver in _requestResolvers map
                                 const resolver = this._requestResolvers.get(requestId);
 
@@ -547,7 +552,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
         // Handle request cancellation
-        const controller = this._requestHandlerAbortControllers.get(notification.params.requestId);
+        // requestId is optional per spec - if not provided, this is a task cancellation
+        // which should use tasks/cancel request instead
+        const requestId = notification.params.requestId;
+        if (requestId === undefined) {
+            return;
+        }
+        const controller = this._requestHandlerAbortControllers.get(requestId);
         controller?.abort(notification.params.reason);
     }
 

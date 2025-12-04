@@ -188,7 +188,7 @@ export enum ErrorCode {
 export const JSONRPCErrorSchema = z
     .object({
         jsonrpc: z.literal(JSONRPC_VERSION),
-        id: RequestIdSchema,
+        id: RequestIdSchema.optional(),
         error: z.object({
             /**
              * The error type that occurred.
@@ -221,8 +221,10 @@ export const CancelledNotificationParamsSchema = NotificationsParamsSchema.exten
      * The ID of the request to cancel.
      *
      * This MUST correspond to the ID of a request previously issued in the same direction.
+     * This MUST be provided for cancelling non-task requests.
+     * This MUST NOT be used for cancelling tasks (use the `tasks/cancel` request instead).
      */
-    requestId: RequestIdSchema,
+    requestId: RequestIdSchema.optional(),
     /**
      * An optional string describing the reason for the cancellation. This MAY be logged or presented to the user.
      */
