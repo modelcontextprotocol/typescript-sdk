@@ -3,7 +3,7 @@ import { McpServer } from '../../server/mcp.js';
 import { SSEServerTransport } from '../../server/sse.js';
 import * as z from 'zod/v4';
 import { CallToolResult } from '../../types.js';
-import { createMcpExpressApp } from '../../server/index.js';
+import { createMcpExpressApp } from '../../server/express.js';
 
 /**
  * This example server demonstrates the deprecated HTTP+SSE transport
