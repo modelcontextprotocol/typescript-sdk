@@ -12,6 +12,7 @@ import {
     ListResourcesRequestSchema,
     ListToolsRequestSchema,
     ListToolsResultSchema,
+    ListPromptsRequestSchema,
     CallToolRequestSchema,
     CallToolResultSchema,
     CreateMessageRequestSchema,
@@ -1556,6 +1557,225 @@ test('should handle multiple list changed handlers configured together', async (
 
     expect(promptNotifications).toHaveLength(1);
     expect(promptNotifications[0][1]).toHaveLength(2);
+});
+
+/***
+ * Test: Handler not activated when server doesn't advertise listChanged capability
+ */
+test('should not activate listChanged handler when server does not advertise capability', async () => {
+    const notifications: [Error | null, Tool[] | null][] = [];
+
+    // Server with tools capability but WITHOUT listChanged
+    const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+
+    server.setRequestHandler(InitializeRequestSchema, async request => ({
+        protocolVersion: request.params.protocolVersion,
+        capabilities: { tools: {} }, // No listChanged: true
+        serverInfo: { name: 'test-server', version: '1.0.0' }
+    }));
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        tools: [{ name: 'test-tool', inputSchema: { type: 'object' } }]
+    }));
+
+    // Configure listChanged handler that should NOT be activated
+    const client = new Client(
+        { name: 'test-client', version: '1.0.0' },
+        {
+            listChanged: {
+                tools: {
+                    debounceMs: 0,
+                    onChanged: (err, tools) => {
+                        notifications.push([err, tools]);
+                    }
+                }
+            }
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Verify server doesn't have tools.listChanged capability
+    expect(client.getServerCapabilities()?.tools?.listChanged).toBeFalsy();
+
+    // Send a tool list changed notification manually
+    await server.notification({ method: 'notifications/tools/list_changed' });
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Handler should NOT have been activated because server didn't advertise listChanged
+    expect(notifications).toHaveLength(0);
+});
+
+/***
+ * Test: Handler activated when server advertises listChanged capability
+ */
+test('should activate listChanged handler when server advertises capability', async () => {
+    const notifications: [Error | null, Tool[] | null][] = [];
+
+    // Server with tools.listChanged: true capability
+    const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: { listChanged: true } } });
+
+    server.setRequestHandler(InitializeRequestSchema, async request => ({
+        protocolVersion: request.params.protocolVersion,
+        capabilities: { tools: { listChanged: true } },
+        serverInfo: { name: 'test-server', version: '1.0.0' }
+    }));
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        tools: [{ name: 'test-tool', inputSchema: { type: 'object' } }]
+    }));
+
+    // Configure listChanged handler that SHOULD be activated
+    const client = new Client(
+        { name: 'test-client', version: '1.0.0' },
+        {
+            listChanged: {
+                tools: {
+                    debounceMs: 0,
+                    onChanged: (err, tools) => {
+                        notifications.push([err, tools]);
+                    }
+                }
+            }
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Verify server has tools.listChanged capability
+    expect(client.getServerCapabilities()?.tools?.listChanged).toBe(true);
+
+    // Send a tool list changed notification
+    await server.notification({ method: 'notifications/tools/list_changed' });
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Handler SHOULD have been called
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0][0]).toBeNull();
+    expect(notifications[0][1]).toHaveLength(1);
+});
+
+/***
+ * Test: No handlers activated when server has no listChanged capabilities
+ */
+test('should not activate any handlers when server has no listChanged capabilities', async () => {
+    const toolNotifications: [Error | null, Tool[] | null][] = [];
+    const promptNotifications: [Error | null, Prompt[] | null][] = [];
+    const resourceNotifications: [Error | null, Resource[] | null][] = [];
+
+    // Server with capabilities but NO listChanged for any
+    const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: {}, prompts: {}, resources: {} } });
+
+    server.setRequestHandler(InitializeRequestSchema, async request => ({
+        protocolVersion: request.params.protocolVersion,
+        capabilities: { tools: {}, prompts: {}, resources: {} },
+        serverInfo: { name: 'test-server', version: '1.0.0' }
+    }));
+
+    // Configure listChanged handlers for all three types
+    const client = new Client(
+        { name: 'test-client', version: '1.0.0' },
+        {
+            listChanged: {
+                tools: {
+                    debounceMs: 0,
+                    onChanged: (err, tools) => toolNotifications.push([err, tools])
+                },
+                prompts: {
+                    debounceMs: 0,
+                    onChanged: (err, prompts) => promptNotifications.push([err, prompts])
+                },
+                resources: {
+                    debounceMs: 0,
+                    onChanged: (err, resources) => resourceNotifications.push([err, resources])
+                }
+            }
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Verify server has no listChanged capabilities
+    const caps = client.getServerCapabilities();
+    expect(caps?.tools?.listChanged).toBeFalsy();
+    expect(caps?.prompts?.listChanged).toBeFalsy();
+    expect(caps?.resources?.listChanged).toBeFalsy();
+
+    // Send notifications for all three types
+    await server.notification({ method: 'notifications/tools/list_changed' });
+    await server.notification({ method: 'notifications/prompts/list_changed' });
+    await server.notification({ method: 'notifications/resources/list_changed' });
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // No handlers should have been activated
+    expect(toolNotifications).toHaveLength(0);
+    expect(promptNotifications).toHaveLength(0);
+    expect(resourceNotifications).toHaveLength(0);
+});
+
+/***
+ * Test: Partial capability support - some handlers activated, others not
+ */
+test('should handle partial listChanged capability support', async () => {
+    const toolNotifications: [Error | null, Tool[] | null][] = [];
+    const promptNotifications: [Error | null, Prompt[] | null][] = [];
+
+    // Server with tools.listChanged: true but prompts without listChanged
+    const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: { listChanged: true }, prompts: {} } });
+
+    server.setRequestHandler(InitializeRequestSchema, async request => ({
+        protocolVersion: request.params.protocolVersion,
+        capabilities: { tools: { listChanged: true }, prompts: {} },
+        serverInfo: { name: 'test-server', version: '1.0.0' }
+    }));
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        tools: [{ name: 'tool-1', inputSchema: { type: 'object' } }]
+    }));
+
+    server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+        prompts: [{ name: 'prompt-1' }]
+    }));
+
+    const client = new Client(
+        { name: 'test-client', version: '1.0.0' },
+        {
+            listChanged: {
+                tools: {
+                    debounceMs: 0,
+                    onChanged: (err, tools) => toolNotifications.push([err, tools])
+                },
+                prompts: {
+                    debounceMs: 0,
+                    onChanged: (err, prompts) => promptNotifications.push([err, prompts])
+                }
+            }
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Verify capability state
+    expect(client.getServerCapabilities()?.tools?.listChanged).toBe(true);
+    expect(client.getServerCapabilities()?.prompts?.listChanged).toBeFalsy();
+
+    // Send notifications for both
+    await server.notification({ method: 'notifications/tools/list_changed' });
+    await server.notification({ method: 'notifications/prompts/list_changed' });
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Tools handler should have been called
+    expect(toolNotifications).toHaveLength(1);
+    // Prompts handler should NOT have been called (no prompts.listChanged)
+    expect(promptNotifications).toHaveLength(0);
 });
 
 describe('outputSchema validation', () => {

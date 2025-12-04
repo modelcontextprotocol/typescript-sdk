@@ -1490,6 +1490,10 @@ export type ListChangedOptions<T> = {
  *
  * Use this to configure handlers for tools, prompts, and resources list changes
  * when creating a client.
+ *
+ * Note: Handlers are only activated if the server advertises the corresponding
+ * `listChanged` capability (e.g., `tools.listChanged: true`). If the server
+ * doesn't advertise this capability, the handler will not be set up.
  */
 export type ListChangedHandlers = {
     /**

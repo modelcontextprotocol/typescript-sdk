@@ -239,6 +239,7 @@ export class Client<
     private _cachedRequiredTaskTools: Set<string> = new Set();
     private _experimental?: { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> };
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+    private _pendingListChangedConfig?: ListChangedHandlers;
 
     /**
      * Initializes this client with the given name and version information.
@@ -251,32 +252,34 @@ export class Client<
         this._capabilities = options?.capabilities ?? {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
 
-        // Set up list changed handlers if configured
+        // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
-            this._setupListChangedHandlers(options.listChanged);
+            this._pendingListChangedConfig = options.listChanged;
         }
     }
 
     /**
-     * Set up handlers for list changed notifications based on config.
+     * Set up handlers for list changed notifications based on config and server capabilities.
+     * This should only be called after initialization when server capabilities are known.
+     * Handlers are silently skipped if the server doesn't advertise the corresponding listChanged capability.
      * @internal
      */
     private _setupListChangedHandlers(config: ListChangedHandlers): void {
-        if (config.tools) {
+        if (config.tools && this._serverCapabilities?.tools?.listChanged) {
             this._setupListChangedHandler('tools', ToolListChangedNotificationSchema, config.tools, async () => {
                 const result = await this.listTools();
                 return result.tools;
             });
         }
 
-        if (config.prompts) {
+        if (config.prompts && this._serverCapabilities?.prompts?.listChanged) {
             this._setupListChangedHandler('prompts', PromptListChangedNotificationSchema, config.prompts, async () => {
                 const result = await this.listPrompts();
                 return result.prompts;
             });
         }
 
-        if (config.resources) {
+        if (config.resources && this._serverCapabilities?.resources?.listChanged) {
             this._setupListChangedHandler('resources', ResourceListChangedNotificationSchema, config.resources, async () => {
                 const result = await this.listResources();
                 return result.resources;
@@ -509,6 +512,12 @@ export class Client<
             await this.notification({
                 method: 'notifications/initialized'
             });
+
+            // Set up list changed handlers now that we know server capabilities
+            if (this._pendingListChangedConfig) {
+                this._setupListChangedHandlers(this._pendingListChangedConfig);
+                this._pendingListChangedConfig = undefined;
+            }
         } catch (error) {
             // Disconnect if initialization fails.
             void this.close();
