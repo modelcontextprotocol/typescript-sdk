@@ -660,6 +660,10 @@ const sdkTypeChecks = {
     Annotations: (sdk: SDKTypes.Annotations, spec: SpecTypes.Annotations) => {
         sdk = spec;
         spec = sdk;
+    },
+    Role: (sdk: SDKTypes.Role, spec: SpecTypes.Role) => {
+        sdk = spec;
+        spec = sdk;
     }
 };
 
@@ -669,7 +673,6 @@ const SDK_TYPES_FILE = 'src/types.ts';
 
 const MISSING_SDK_TYPES = [
     // These are inlined in the SDK:
-    'Role',
     'Error', // The inner error object of a JSONRPCError
     'URLElicitationRequiredError' // In the SDK, but with a custom definition
 ];
