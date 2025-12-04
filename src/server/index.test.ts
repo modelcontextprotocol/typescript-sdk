@@ -3,7 +3,7 @@ import supertest from 'supertest';
 import { Client } from '../client/index.js';
 import { InMemoryTransport } from '../inMemory.js';
 import type { Transport } from '../shared/transport.js';
-import { createMcpExpressApp } from './index.js';
+import { createMcpExpressApp } from './express.js';
 import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,

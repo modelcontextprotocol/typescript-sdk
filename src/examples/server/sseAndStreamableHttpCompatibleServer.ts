@@ -6,7 +6,7 @@ import { SSEServerTransport } from '../../server/sse.js';
 import * as z from 'zod/v4';
 import { CallToolResult, isInitializeRequest } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
-import { createMcpExpressApp } from '../../server/index.js';
+import { createMcpExpressApp } from '../../server/express.js';
 
 /**
  * This example server demonstrates backwards compatibility with both:

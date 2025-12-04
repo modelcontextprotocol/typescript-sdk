@@ -1435,6 +1435,86 @@ export const ToolListChangedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/tools/list_changed')
 });
 
+/**
+ * Callback type for list changed notifications.
+ */
+export type ListChangedCallback<T> = (error: Error | null, items: T[] | null) => void;
+
+/**
+ * Base schema for list changed subscription options (without callback).
+ * Used internally for Zod validation of autoRefresh and debounceMs.
+ */
+export const ListChangedOptionsBaseSchema = z.object({
+    /**
+     * If true, the list will be refreshed automatically when a list changed notification is received.
+     * The callback will be called with the updated list.
+     *
+     * If false, the callback will be called with null items, allowing manual refresh.
+     *
+     * @default true
+     */
+    autoRefresh: z.boolean().default(true),
+    /**
+     * Debounce time in milliseconds for list changed notification processing.
+     *
+     * Multiple notifications received within this timeframe will only trigger one refresh.
+     * Set to 0 to disable debouncing.
+     *
+     * @default 300
+     */
+    debounceMs: z.number().int().nonnegative().default(300)
+});
+
+/**
+ * Options for subscribing to list changed notifications.
+ *
+ * @typeParam T - The type of items in the list (Tool, Prompt, or Resource)
+ */
+export type ListChangedOptions<T> = {
+    /**
+     * If true, the list will be refreshed automatically when a list changed notification is received.
+     * @default true
+     */
+    autoRefresh?: boolean;
+    /**
+     * Debounce time in milliseconds. Set to 0 to disable.
+     * @default 300
+     */
+    debounceMs?: number;
+    /**
+     * Callback invoked when the list changes.
+     *
+     * If autoRefresh is true, items contains the updated list.
+     * If autoRefresh is false, items is null (caller should refresh manually).
+     */
+    onChanged: ListChangedCallback<T>;
+};
+
+/**
+ * Configuration for list changed notification handlers.
+ *
+ * Use this to configure handlers for tools, prompts, and resources list changes
+ * when creating a client.
+ *
+ * Note: Handlers are only activated if the server advertises the corresponding
+ * `listChanged` capability (e.g., `tools.listChanged: true`). If the server
+ * doesn't advertise this capability, the handler will not be set up.
+ */
+export type ListChangedHandlers = {
+    /**
+     * Handler for tool list changes.
+     */
+    tools?: ListChangedOptions<Tool>;
+    /**
+     * Handler for prompt list changes.
+     */
+    prompts?: ListChangedOptions<Prompt>;
+    /**
+     * Handler for resource list changes.
+     */
+    resources?: ListChangedOptions<Resource>;
+};
+
 /* Logging */
 /**
  * The severity of a log message.
