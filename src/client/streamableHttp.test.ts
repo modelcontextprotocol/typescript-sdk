@@ -1501,6 +1501,68 @@ describe('StreamableHTTPClientTransport', () => {
         });
     });
 
+    describe('Reconnection Logic with maxRetries 0', () => {
+        let transport: StreamableHTTPClientTransport;
+
+        // Use fake timers to control setTimeout and make the test instant.
+        beforeEach(() => vi.useFakeTimers());
+        afterEach(() => vi.useRealTimers());
+
+        it('should not schedule any reconnection attempts when maxRetries is 0', async () => {
+            // ARRANGE
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 0, // This should disable retries completely
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            // ACT - directly call _scheduleReconnection which is the code path the fix affects
+            transport['_scheduleReconnection']({});
+
+            // ASSERT - should immediately report max retries exceeded, not schedule a retry
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: 'Maximum reconnection attempts (0) exceeded.'
+                })
+            );
+
+            // Verify no timeout was scheduled (no reconnection attempt)
+            expect(transport['_reconnectionTimeout']).toBeUndefined();
+        });
+
+        it('should schedule reconnection when maxRetries is greater than 0', async () => {
+            // ARRANGE
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 1, // Allow 1 retry
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            // ACT - call _scheduleReconnection with attemptCount 0
+            transport['_scheduleReconnection']({});
+
+            // ASSERT - should schedule a reconnection, not report error yet
+            expect(errorSpy).not.toHaveBeenCalled();
+            expect(transport['_reconnectionTimeout']).toBeDefined();
+
+            // Clean up the timeout to avoid test pollution
+            clearTimeout(transport['_reconnectionTimeout']);
+        });
+    });
+
     describe('prevent infinite recursion when server returns 401 after successful auth', () => {
         it('should throw error when server returns 401 after successful auth', async () => {
             const message: JSONRPCMessage = {
