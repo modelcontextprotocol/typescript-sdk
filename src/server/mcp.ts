@@ -1104,7 +1104,7 @@ export class McpServer {
     removeTool(name: string) {
         const tool = this._registeredTools[name];
         if (tool) {
-            tool.update({ name: null });
+            tool.remove();
         }
     }
 
