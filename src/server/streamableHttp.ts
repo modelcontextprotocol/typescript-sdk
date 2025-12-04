@@ -270,20 +270,15 @@ export class StreamableHTTPServerTransport implements Transport {
 
     /**
      * Writes a priming event to establish resumption capability.
-     * Only sends if eventStore is configured (opt-in for resumability).
+     *
+     * DISABLED in 1.23.1: Priming events have empty SSE data which clients
+     * in the 1.23.x line cannot handle (they crash trying to JSON.parse("")).
+     * This feature is disabled to prevent breaking existing clients.
+     * Priming events will be re-enabled in 1.24.x with proper protocol version gating.
      */
-    private async _maybeWritePrimingEvent(res: ServerResponse, streamId: string): Promise<void> {
-        if (!this._eventStore) {
-            return;
-        }
-
-        const primingEventId = await this._eventStore.storeEvent(streamId, {} as JSONRPCMessage);
-
-        let primingEvent = `id: ${primingEventId}\ndata: \n\n`;
-        if (this._retryInterval !== undefined) {
-            primingEvent = `id: ${primingEventId}\nretry: ${this._retryInterval}\ndata: \n\n`;
-        }
-        res.write(primingEvent);
+    private async _maybeWritePrimingEvent(_res: ServerResponse, _streamId: string): Promise<void> {
+        // Priming events disabled in 1.23.x - see docstring above
+        return;
     }
 
     /**

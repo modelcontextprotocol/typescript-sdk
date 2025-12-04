@@ -1592,12 +1592,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     });
 
     // Test SSE priming events for POST streams
-    describe('StreamableHTTPServerTransport POST SSE priming events', () => {
+    // NOTE: Priming events are DISABLED in 1.23.1 to fix backwards compatibility issues.
+    // Clients in the 1.23.x line cannot handle empty SSE data (they crash on JSON.parse("")).
+    describe('StreamableHTTPServerTransport POST SSE priming events (DISABLED in 1.23.1)', () => {
         let server: Server;
         let transport: StreamableHTTPServerTransport;
         let baseUrl: URL;
         let sessionId: string;
-        let mcpServer: McpServer;
 
         // Simple eventStore for priming event tests
         const createEventStore = (): EventStore => {
@@ -1641,7 +1642,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             }
         });
 
-        it('should send priming event with retry field on POST SSE stream', async () => {
+        it('should NOT send priming events (disabled in 1.23.1 for backwards compatibility)', async () => {
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
@@ -1650,7 +1651,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             server = result.server;
             transport = result.transport;
             baseUrl = result.baseUrl;
-            mcpServer = result.mcpServer;
 
             // Initialize to get session ID
             const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
@@ -1671,7 +1671,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     'Content-Type': 'application/json',
                     Accept: 'text/event-stream, application/json',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-06-18'
                 },
                 body: JSON.stringify(toolCallRequest)
             });
@@ -1679,128 +1679,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(postResponse.status).toBe(200);
             expect(postResponse.headers.get('content-type')).toBe('text/event-stream');
 
-            // Read the priming event
+            // Read the first chunk - should be the actual response, not a priming event
             const reader = postResponse.body?.getReader();
             const { value } = await reader!.read();
             const text = new TextDecoder().decode(value);
 
-            // Verify priming event has id and retry field
-            expect(text).toContain('id: ');
-            expect(text).toContain('retry: 5000');
-            expect(text).toContain('data: ');
-        });
-
-        it('should send priming event without retry field when retryInterval is not configured', async () => {
-            const result = await createTestServer({
-                sessionIdGenerator: () => randomUUID(),
-                eventStore: createEventStore()
-                // No retryInterval
-            });
-            server = result.server;
-            transport = result.transport;
-            baseUrl = result.baseUrl;
-            mcpServer = result.mcpServer;
-
-            // Initialize to get session ID
-            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
-            sessionId = initResponse.headers.get('mcp-session-id') as string;
-            expect(sessionId).toBeDefined();
-
-            // Send a tool call request
-            const toolCallRequest: JSONRPCMessage = {
-                jsonrpc: '2.0',
-                id: 100,
-                method: 'tools/call',
-                params: { name: 'greet', arguments: { name: 'Test' } }
-            };
-
-            const postResponse = await fetch(baseUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Accept: 'text/event-stream, application/json',
-                    'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
-                },
-                body: JSON.stringify(toolCallRequest)
-            });
-
-            expect(postResponse.status).toBe(200);
-
-            // Read the priming event
-            const reader = postResponse.body?.getReader();
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
-
-            // Priming event should have id field but NOT retry field
-            expect(text).toContain('id: ');
-            expect(text).toContain('data: ');
-            expect(text).not.toContain('retry:');
-        });
-
-        it('should close POST SSE stream when closeSseStream is called', async () => {
-            const result = await createTestServer({
-                sessionIdGenerator: () => randomUUID(),
-                eventStore: createEventStore(),
-                retryInterval: 1000
-            });
-            server = result.server;
-            transport = result.transport;
-            baseUrl = result.baseUrl;
-            mcpServer = result.mcpServer;
-
-            // Track tool execution state
-            let toolResolve: () => void;
-            const toolPromise = new Promise<void>(resolve => {
-                toolResolve = resolve;
-            });
-
-            // Register a blocking tool
-            mcpServer.tool('blocking-tool', 'A blocking tool', {}, async () => {
-                await toolPromise;
-                return { content: [{ type: 'text', text: 'Done' }] };
-            });
-
-            // Initialize to get session ID
-            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
-            sessionId = initResponse.headers.get('mcp-session-id') as string;
-            expect(sessionId).toBeDefined();
-
-            // Send a tool call request
-            const toolCallRequest: JSONRPCMessage = {
-                jsonrpc: '2.0',
-                id: 100,
-                method: 'tools/call',
-                params: { name: 'blocking-tool', arguments: {} }
-            };
-
-            const postResponse = await fetch(baseUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Accept: 'text/event-stream, application/json',
-                    'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
-                },
-                body: JSON.stringify(toolCallRequest)
-            });
-
-            expect(postResponse.status).toBe(200);
-
-            const reader = postResponse.body?.getReader();
-
-            // Read the priming event
-            await reader!.read();
-
-            // Close the SSE stream
-            transport.closeSSEStream(100);
-
-            // Stream should now be closed
-            const { done } = await reader!.read();
-            expect(done).toBe(true);
-
-            // Clean up - resolve the tool promise
-            toolResolve!();
+            // Should NOT contain a priming event (which would have empty data)
+            // The first message should be the actual tool result with event: message
+            expect(text).toContain('event: message');
+            expect(text).toContain('"result"');
         });
     });
 
