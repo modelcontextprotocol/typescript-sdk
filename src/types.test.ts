@@ -477,16 +477,17 @@ describe('Types', () => {
             expect(result.success).toBe(false);
         });
 
-        test('should still require type: object at root for outputSchema', () => {
+        test('should accept outputSchema with type: array', () => {
             const tool = {
                 name: 'test',
                 inputSchema: { type: 'object' },
                 outputSchema: {
-                    type: 'array'
+                    type: 'array',
+                    items: { type: 'string' }
                 }
             };
             const result = ToolSchema.safeParse(tool);
-            expect(result.success).toBe(false);
+            expect(result.success).toBe(true);
         });
 
         test('should accept simple minimal schema (backward compatibility)', () => {

@@ -1321,16 +1321,8 @@ export const ToolSchema = z.object({
     /**
      * An optional JSON Schema 2020-12 object defining the structure of the tool's output
      * returned in the structuredContent field of a CallToolResult.
-     * Must have type: 'object' at the root level per MCP spec.
      */
-    outputSchema: z
-        .object({
-            type: z.literal('object'),
-            properties: z.record(z.string(), AssertObjectSchema).optional(),
-            required: z.array(z.string()).optional()
-        })
-        .catchall(z.unknown())
-        .optional(),
+    outputSchema: z.record(z.string(), z.unknown()).optional(),
     /**
      * Optional additional tool information.
      */
