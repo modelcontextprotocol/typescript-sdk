@@ -481,6 +481,95 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
+         * Test: Updating Tool with outputSchema
+         */
+        test('should update tool with outputSchema', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const notifications: Notification[] = [];
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+            client.fallbackNotificationHandler = async notification => {
+                notifications.push(notification);
+            };
+
+            // Register initial tool
+            const tool = mcpServer.registerTool(
+                'test',
+                {
+                    outputSchema: {
+                        result: z.number()
+                    }
+                },
+                async () => ({
+                    content: [{ type: 'text', text: '' }],
+                    structuredContent: {
+                        result: 42
+                    }
+                })
+            );
+
+            // Update the tool with a different outputSchema
+            tool.update({
+                outputSchema: {
+                    result: z.number(),
+                    sum: z.number()
+                },
+                callback: async () => ({
+                    content: [{ type: 'text', text: '' }],
+                    structuredContent: {
+                        result: 42,
+                        sum: 100
+                    }
+                })
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            // Verify the outputSchema was updated
+            const listResult = await client.request(
+                {
+                    method: 'tools/list'
+                },
+                ListToolsResultSchema
+            );
+
+            expect(listResult.tools[0].outputSchema).toMatchObject({
+                type: 'object',
+                properties: {
+                    result: { type: 'number' },
+                    sum: { type: 'number' }
+                }
+            });
+
+            // Call the tool to verify it works with the updated outputSchema
+            const callResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'test',
+                        arguments: {}
+                    }
+                },
+                CallToolResultSchema
+            );
+
+            expect(callResult.structuredContent).toEqual({
+                result: 42,
+                sum: 100
+            });
+
+            // Update happened before transport was connected, so no notifications should be expected
+            expect(notifications).toHaveLength(0);
+        });
+
+        /***
          * Test: Tool List Changed Notifications
          */
         test('should send tool list changed notifications when connected', async () => {
@@ -2670,6 +2759,41 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
+         * Test: Registering a resource template without a complete callback should not update server capabilities to advertise support for completion
+         */
+        test('should not advertise support for completion when a resource template without a complete callback is defined', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.resource(
+                'test',
+                new ResourceTemplate('test://resource/{category}', {
+                    list: undefined
+                }),
+                async () => ({
+                    contents: [
+                        {
+                            uri: 'test://resource/test',
+                            text: 'Test content'
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            expect(client.getServerCapabilities()).not.toHaveProperty('completions');
+        });
+
+        /***
          * Test: Registering a resource template with a complete callback should update server capabilities to advertise support for completion
          */
         test('should advertise support for completion when a resource template with a complete callback is defined', async () => {
@@ -3546,6 +3670,46 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     GetPromptResultSchema
                 )
             ).rejects.toThrow(/Prompt nonexistent-prompt not found/);
+        });
+
+        /***
+         * Test: Registering a prompt without a completable argument should not update server capabilities to advertise support for completion
+         */
+        test('should not advertise support for completion when a prompt without a completable argument is defined', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.prompt(
+                'test-prompt',
+                {
+                    name: z.string()
+                },
+                async ({ name }) => ({
+                    messages: [
+                        {
+                            role: 'assistant',
+                            content: {
+                                type: 'text',
+                                text: `Hello ${name}`
+                            }
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities() || {};
+            const keys = Object.keys(capabilities);
+            expect(keys).not.toContain('completions');
         });
 
         /***
