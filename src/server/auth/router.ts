@@ -82,33 +82,33 @@ export const createOAuthMetadata = (options: {
     scopesSupported?: string[];
 }): OAuthMetadata => {
     const issuer = options.issuerUrl;
-    const baseUrl = options.baseUrl;
+    const baseUrl = options.baseUrl || issuer;
 
     checkIssuerUrl(issuer);
 
-    const authorization_endpoint = '/authorize';
-    const token_endpoint = '/token';
-    const registration_endpoint = options.provider.clientsStore.registerClient ? '/register' : undefined;
-    const revocation_endpoint = options.provider.revokeToken ? '/revoke' : undefined;
+    const basePath = baseUrl.pathname.endsWith('/') ? baseUrl.pathname.slice(0, -1) : baseUrl.pathname;
+
+    const registration_endpoint = options.provider.clientsStore.registerClient ? new URL(`${basePath}/register`, baseUrl).href : undefined;
+    const revocation_endpoint = options.provider.revokeToken ? new URL(`${basePath}/revoke`, baseUrl).href : undefined;
 
     const metadata: OAuthMetadata = {
         issuer: issuer.href,
         service_documentation: options.serviceDocumentationUrl?.href,
 
-        authorization_endpoint: new URL(authorization_endpoint, baseUrl || issuer).href,
+        authorization_endpoint: new URL(`${basePath}/authorize`, baseUrl).href,
         response_types_supported: ['code'],
         code_challenge_methods_supported: ['S256'],
 
-        token_endpoint: new URL(token_endpoint, baseUrl || issuer).href,
+        token_endpoint: new URL(`${basePath}/token`, baseUrl).href,
         token_endpoint_auth_methods_supported: ['client_secret_post', 'none'],
         grant_types_supported: ['authorization_code', 'refresh_token'],
 
         scopes_supported: options.scopesSupported,
 
-        revocation_endpoint: revocation_endpoint ? new URL(revocation_endpoint, baseUrl || issuer).href : undefined,
+        revocation_endpoint,
         revocation_endpoint_auth_methods_supported: revocation_endpoint ? ['client_secret_post'] : undefined,
 
-        registration_endpoint: registration_endpoint ? new URL(registration_endpoint, baseUrl || issuer).href : undefined
+        registration_endpoint
     };
 
     return metadata;
@@ -141,6 +141,7 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
     router.use(
         mcpAuthMetadataRouter({
             oauthMetadata,
+            baseUrl: options.baseUrl,
             // Prefer explicit RS; otherwise fall back to AS baseUrl, then to issuer (back-compat)
             resourceServerUrl: options.resourceServerUrl ?? options.baseUrl ?? new URL(oauthMetadata.issuer),
             serviceDocumentationUrl: options.serviceDocumentationUrl,
@@ -175,6 +176,13 @@ export type AuthMetadataOptions = {
      * this MCP server relies on
      */
     oauthMetadata: OAuthMetadata;
+
+    /**
+     * The base URL of the authorization server to use for the metadata endpoints.
+     *
+     * If not provided, the issuer URL will be used as the base URL.
+     */
+    baseUrl?: URL;
 
     /**
      * The url of the MCP server, for use in protected resource metadata
@@ -217,7 +225,8 @@ export function mcpAuthMetadataRouter(options: AuthMetadataOptions): express.Rou
     router.use(`/.well-known/oauth-protected-resource${rsPath === '/' ? '' : rsPath}`, metadataHandler(protectedResourceMetadata));
 
     // Always add this for OAuth Authorization Server metadata per RFC 8414
-    router.use('/.well-known/oauth-authorization-server', metadataHandler(options.oauthMetadata));
+    const asPath = new URL(options.baseUrl || options.oauthMetadata.issuer).pathname;
+    router.use(`/.well-known/oauth-authorization-server${asPath === '/' ? '' : asPath}`, metadataHandler(options.oauthMetadata));
 
     return router;
 }
