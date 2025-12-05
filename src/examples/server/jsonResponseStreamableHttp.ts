@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
-import * as z from 'zod/v4';
+import z from 'zod/v4';
 import { CallToolResult, isInitializeRequest } from '../../types.js';
 import { createMcpExpressApp } from '../../server/express.js';
 

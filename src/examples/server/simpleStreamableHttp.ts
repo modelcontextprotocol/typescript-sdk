@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import * as z from 'zod/v4';
+import z from 'zod/v4';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';

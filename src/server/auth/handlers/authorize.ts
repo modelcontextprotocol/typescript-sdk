@@ -1,5 +1,5 @@
 import { RequestHandler } from 'express';
-import * as z from 'zod/v4';
+import z from 'zod/v4';
 import express from 'express';
 import { OAuthServerProvider } from '../provider.js';
 import { rateLimit, Options as RateLimitOptions } from 'express-rate-limit';
