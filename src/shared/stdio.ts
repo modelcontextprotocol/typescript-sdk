@@ -7,7 +7,7 @@ export class ReadBuffer {
     private _buffer?: Buffer;
 
     append(chunk: Buffer): void {
-        this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;
+        this._buffer = filterNonJsonLines(this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk);
     }
 
     readMessage(): JSONRPCMessage | null {
@@ -30,18 +30,47 @@ export class ReadBuffer {
     }
 }
 
-export function deserializeMessage(line: string): JSONRPCMessage | null {
-    try {
-        return JSONRPCMessageSchema.parse(JSON.parse(line));
-    } catch (error: unknown) {
-        // When non-JSON messages are received, we simply ignore them.
-        if (error instanceof SyntaxError) {
-            return null;
-        }
-        throw error;
-    }
+/**
+ * Filters out any lines that are not valid JSON objects from the given buffer.
+ * Retains the last line in case it is incomplete.
+ * @param buffer The buffer to filter.
+ * @returns A new buffer containing only valid JSON object lines and the last line.
+ */
+function filterNonJsonLines(buffer: Buffer): Buffer {
+    const text = buffer.toString('utf8');
+    const lines = text.split('\n');
+
+    // Pop the last line - it may be incomplete (no trailing newline yet)
+    const incompleteLine = lines.pop() ?? '';
+
+    // Filter complete lines to only keep those that look like JSON objects
+    const validLines = lines.filter(looksLikeJson);
+
+    // Reconstruct: valid JSON lines + incomplete line
+    const filteredText = validLines.length > 0 ? validLines.join('\n') + '\n' + incompleteLine : incompleteLine;
+
+    return Buffer.from(filteredText, 'utf8');
 }
 
+function looksLikeJson(line: string): boolean {
+    const trimmed = line.trim();
+    return trimmed.startsWith('{') && trimmed.endsWith('}');
+}
+
+/**
+ *  Deserializes a JSON-RPC message from a string.
+ * @param line  The string to deserialize.
+ * @returns The deserialized JSON-RPC message.
+ */
+export function deserializeMessage(line: string): JSONRPCMessage | null {
+    return JSONRPCMessageSchema.parse(JSON.parse(line));
+}
+
+/**
+ *  Serializes a JSON-RPC message to a string.
+ * @param message The JSON-RPC message to serialize.
+ * @returns The serialized JSON-RPC message string.
+ */
 export function serializeMessage(message: JSONRPCMessage): string {
     return JSON.stringify(message) + '\n';
 }
