@@ -5,7 +5,7 @@ import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';
 import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
-import { createMcpExpressApp } from '../../server/index.js';
+import { createMcpExpressApp } from '../../server/express.js';
 import {
     CallToolResult,
     ElicitResultSchema,

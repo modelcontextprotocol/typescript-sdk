@@ -1671,7 +1671,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     'Content-Type': 'application/json',
                     Accept: 'text/event-stream, application/json',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 },
                 body: JSON.stringify(toolCallRequest)
             });
@@ -1688,6 +1688,57 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(text).toContain('id: ');
             expect(text).toContain('retry: 5000');
             expect(text).toContain('data: ');
+        });
+
+        it('should NOT send priming event for old protocol versions (backwards compatibility)', async () => {
+            const result = await createTestServer({
+                sessionIdGenerator: () => randomUUID(),
+                eventStore: createEventStore(),
+                retryInterval: 5000
+            });
+            server = result.server;
+            transport = result.transport;
+            baseUrl = result.baseUrl;
+            mcpServer = result.mcpServer;
+
+            // Initialize to get session ID
+            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+            sessionId = initResponse.headers.get('mcp-session-id') as string;
+            expect(sessionId).toBeDefined();
+
+            // Send a tool call request with OLD protocol version
+            const toolCallRequest: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: 100,
+                method: 'tools/call',
+                params: { name: 'greet', arguments: { name: 'Test' } }
+            };
+
+            const postResponse = await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'text/event-stream, application/json',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-06-18'
+                },
+                body: JSON.stringify(toolCallRequest)
+            });
+
+            expect(postResponse.status).toBe(200);
+            expect(postResponse.headers.get('content-type')).toBe('text/event-stream');
+
+            // Read the first chunk - should be the actual response, not a priming event
+            const reader = postResponse.body?.getReader();
+            const { value } = await reader!.read();
+            const text = new TextDecoder().decode(value);
+
+            // Should NOT contain a priming event (empty data line before the response)
+            // The first message should be the actual tool result
+            expect(text).toContain('event: message');
+            expect(text).toContain('"result"');
+            // Should NOT have a separate priming event line with empty data
+            expect(text).not.toMatch(/^id:.*\ndata:\s*\n\n/);
         });
 
         it('should send priming event without retry field when retryInterval is not configured', async () => {
@@ -1720,7 +1771,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     'Content-Type': 'application/json',
                     Accept: 'text/event-stream, application/json',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 },
                 body: JSON.stringify(toolCallRequest)
             });
@@ -1786,7 +1837,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     'Content-Type': 'application/json',
                     Accept: 'text/event-stream, application/json',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 },
                 body: JSON.stringify(toolCallRequest)
             });
@@ -1849,7 +1900,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     'Content-Type': 'application/json',
                     Accept: 'text/event-stream, application/json',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 },
                 body: JSON.stringify(toolCallRequest)
             });
@@ -1866,6 +1917,67 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // Verify closeSSEStream callback was provided
             expect(receivedCloseSSEStream).toBeDefined();
             expect(typeof receivedCloseSSEStream).toBe('function');
+        });
+
+        it('should NOT provide closeSSEStream callback for old protocol versions (backwards compatibility)', async () => {
+            const result = await createTestServer({
+                sessionIdGenerator: () => randomUUID(),
+                eventStore: createEventStore(),
+                retryInterval: 1000
+            });
+            server = result.server;
+            transport = result.transport;
+            baseUrl = result.baseUrl;
+            mcpServer = result.mcpServer;
+
+            // Track whether closeSSEStream callback was provided
+            let receivedCloseSSEStream: (() => void) | undefined;
+            let receivedCloseStandaloneSSEStream: (() => void) | undefined;
+
+            // Register a tool that captures the extra.closeSSEStream callback
+            mcpServer.tool('test-old-version-tool', 'Test tool', {}, async (_args, extra) => {
+                receivedCloseSSEStream = extra.closeSSEStream;
+                receivedCloseStandaloneSSEStream = extra.closeStandaloneSSEStream;
+                return { content: [{ type: 'text', text: 'Done' }] };
+            });
+
+            // Initialize to get session ID
+            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+            sessionId = initResponse.headers.get('mcp-session-id') as string;
+            expect(sessionId).toBeDefined();
+
+            // Call the tool with OLD protocol version
+            const toolCallRequest: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: 200,
+                method: 'tools/call',
+                params: { name: 'test-old-version-tool', arguments: {} }
+            };
+
+            const postResponse = await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'text/event-stream, application/json',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-06-18'
+                },
+                body: JSON.stringify(toolCallRequest)
+            });
+
+            expect(postResponse.status).toBe(200);
+
+            // Read all events to completion
+            const reader = postResponse.body?.getReader();
+            while (true) {
+                const { done } = await reader!.read();
+                if (done) break;
+            }
+
+            // Verify closeSSEStream callbacks were NOT provided for old protocol version
+            // even though eventStore is configured
+            expect(receivedCloseSSEStream).toBeUndefined();
+            expect(receivedCloseStandaloneSSEStream).toBeUndefined();
         });
 
         it('should NOT provide closeSSEStream callback when eventStore is NOT configured', async () => {
@@ -1963,7 +2075,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     'Content-Type': 'application/json',
                     Accept: 'text/event-stream, application/json',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 },
                 body: JSON.stringify(toolCallRequest)
             });
@@ -2010,7 +2122,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 headers: {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
             expect(sseResponse.status).toBe(200);
@@ -2040,7 +2152,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     'Content-Type': 'application/json',
                     Accept: 'text/event-stream, application/json',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 },
                 body: JSON.stringify(toolCallRequest)
             });
@@ -2091,7 +2203,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 headers: {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
             expect(sseResponse.status).toBe(200);
@@ -2122,7 +2234,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     'Content-Type': 'application/json',
                     Accept: 'text/event-stream, application/json',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 },
                 body: JSON.stringify(toolCallRequest)
             });
@@ -2152,7 +2264,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 headers: {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26',
+                    'mcp-protocol-version': '2025-11-25',
                     'last-event-id': lastEventId
                 }
             });

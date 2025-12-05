@@ -67,8 +67,19 @@ jobs:
               id: npm-tag
               run: |
                   VERSION=$(node -p "require('./package.json').version")
+                  # Check if this is a beta release
                   if [[ "$VERSION" == *"-beta"* ]]; then
                     echo "tag=--tag beta" >> $GITHUB_OUTPUT
+                  # Check if this release is from a non-main branch (patch/maintenance release)
+                  elif [[ "${{ github.event.release.target_commitish }}" != "main" ]]; then
+                    # Use "release-X.Y" as tag for old branch releases (e.g., "release-1.23" for 1.23.x)
+                    # npm tags are mutable pointers to versions (like "latest" pointing to 1.24.3).
+                    # Using "release-1.23" means users can `npm install @modelcontextprotocol/sdk@release-1.23`
+                    # to get the latest patch on that minor version, and the tag updates if we
+                    # release 1.23.2, 1.23.3, etc.
+                    # Note: Can't use "v1.23" because npm rejects tags that look like semver ranges.
+                    MAJOR_MINOR=$(echo "$VERSION" | cut -d. -f1,2)
+                    echo "tag=--tag release-${MAJOR_MINOR}" >> $GITHUB_OUTPUT
                   else
                     echo "tag=" >> $GITHUB_OUTPUT
                   fi

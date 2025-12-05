@@ -62,6 +62,7 @@ import { Transport } from '../shared/transport.js';
 import { validateAndWarnToolName } from '../shared/toolNameValidation.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcp-server.js';
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
+import { ZodOptional } from 'zod';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -557,8 +558,6 @@ export class McpServer {
             throw new McpError(ErrorCode.InvalidParams, `Resource ${uri} not found`);
         });
 
-        this.setCompletionRequestHandler();
-
         this._resourceHandlersInitialized = true;
     }
 
@@ -622,8 +621,6 @@ export class McpServer {
                 return await Promise.resolve((cb as any)(extra));
             }
         });
-
-        this.setCompletionRequestHandler();
 
         this._promptHandlersInitialized = true;
     }
@@ -815,6 +812,14 @@ export class McpServer {
             }
         };
         this._registeredResourceTemplates[name] = registeredResourceTemplate;
+
+        // If the resource template has any completion callbacks, enable completions capability
+        const variableNames = template.uriTemplate.variableNames;
+        const hasCompleter = Array.isArray(variableNames) && variableNames.some(v => !!template.completeCallback(v));
+        if (hasCompleter) {
+            this.setCompletionRequestHandler();
+        }
+
         return registeredResourceTemplate;
     }
 
@@ -848,6 +853,18 @@ export class McpServer {
             }
         };
         this._registeredPrompts[name] = registeredPrompt;
+
+        // If any argument uses a Completable schema, enable completions capability
+        if (argsSchema) {
+            const hasCompletable = Object.values(argsSchema).some(field => {
+                const inner: unknown = field instanceof ZodOptional ? field._def?.innerType : field;
+                return isCompletable(inner);
+            });
+            if (hasCompletable) {
+                this.setCompletionRequestHandler();
+            }
+        }
+
         return registeredPrompt;
     }
 

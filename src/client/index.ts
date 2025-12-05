@@ -42,7 +42,13 @@ import {
     ElicitRequestSchema,
     CreateTaskResultSchema,
     CreateMessageRequestSchema,
-    CreateMessageResultSchema
+    CreateMessageResultSchema,
+    ToolListChangedNotificationSchema,
+    PromptListChangedNotificationSchema,
+    ResourceListChangedNotificationSchema,
+    ListChangedOptions,
+    ListChangedOptionsBaseSchema,
+    type ListChangedHandlers
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
@@ -163,6 +169,34 @@ export type ClientOptions = ProtocolOptions & {
      * ```
      */
     jsonSchemaValidator?: jsonSchemaValidator;
+
+    /**
+     * Configure handlers for list changed notifications (tools, prompts, resources).
+     *
+     * @example
+     * ```typescript
+     * const client = new Client(
+     *   { name: 'my-client', version: '1.0.0' },
+     *   {
+     *     listChanged: {
+     *       tools: {
+     *         onChanged: (error, tools) => {
+     *           if (error) {
+     *             console.error('Failed to refresh tools:', error);
+     *             return;
+     *           }
+     *           console.log('Tools updated:', tools);
+     *         }
+     *       },
+     *       prompts: {
+     *         onChanged: (error, prompts) => console.log('Prompts updated:', prompts)
+     *       }
+     *     }
+     *   }
+     * );
+     * ```
+     */
+    listChanged?: ListChangedHandlers;
 };
 
 /**
@@ -204,6 +238,8 @@ export class Client<
     private _cachedKnownTaskTools: Set<string> = new Set();
     private _cachedRequiredTaskTools: Set<string> = new Set();
     private _experimental?: { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> };
+    private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+    private _pendingListChangedConfig?: ListChangedHandlers;
 
     /**
      * Initializes this client with the given name and version information.
@@ -215,6 +251,40 @@ export class Client<
         super(options);
         this._capabilities = options?.capabilities ?? {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new AjvJsonSchemaValidator();
+
+        // Store list changed config for setup after connection (when we know server capabilities)
+        if (options?.listChanged) {
+            this._pendingListChangedConfig = options.listChanged;
+        }
+    }
+
+    /**
+     * Set up handlers for list changed notifications based on config and server capabilities.
+     * This should only be called after initialization when server capabilities are known.
+     * Handlers are silently skipped if the server doesn't advertise the corresponding listChanged capability.
+     * @internal
+     */
+    private _setupListChangedHandlers(config: ListChangedHandlers): void {
+        if (config.tools && this._serverCapabilities?.tools?.listChanged) {
+            this._setupListChangedHandler('tools', ToolListChangedNotificationSchema, config.tools, async () => {
+                const result = await this.listTools();
+                return result.tools;
+            });
+        }
+
+        if (config.prompts && this._serverCapabilities?.prompts?.listChanged) {
+            this._setupListChangedHandler('prompts', PromptListChangedNotificationSchema, config.prompts, async () => {
+                const result = await this.listPrompts();
+                return result.prompts;
+            });
+        }
+
+        if (config.resources && this._serverCapabilities?.resources?.listChanged) {
+            this._setupListChangedHandler('resources', ResourceListChangedNotificationSchema, config.resources, async () => {
+                const result = await this.listResources();
+                return result.resources;
+            });
+        }
     }
 
     /**
@@ -442,6 +512,12 @@ export class Client<
             await this.notification({
                 method: 'notifications/initialized'
             });
+
+            // Set up list changed handlers now that we know server capabilities
+            if (this._pendingListChangedConfig) {
+                this._setupListChangedHandlers(this._pendingListChangedConfig);
+                this._pendingListChangedConfig = undefined;
+            }
         } catch (error) {
             // Disconnect if initialization fails.
             void this.close();
@@ -755,6 +831,66 @@ export class Client<
         this.cacheToolMetadata(result.tools);
 
         return result;
+    }
+
+    /**
+     * Set up a single list changed handler.
+     * @internal
+     */
+    private _setupListChangedHandler<T>(
+        listType: string,
+        notificationSchema: { shape: { method: { value: string } } },
+        options: ListChangedOptions<T>,
+        fetcher: () => Promise<T[]>
+    ): void {
+        // Validate options using Zod schema (validates autoRefresh and debounceMs)
+        const parseResult = ListChangedOptionsBaseSchema.safeParse(options);
+        if (!parseResult.success) {
+            throw new Error(`Invalid ${listType} listChanged options: ${parseResult.error.message}`);
+        }
+
+        // Validate callback
+        if (typeof options.onChanged !== 'function') {
+            throw new Error(`Invalid ${listType} listChanged options: onChanged must be a function`);
+        }
+
+        const { autoRefresh, debounceMs } = parseResult.data;
+        const { onChanged } = options;
+
+        const refresh = async () => {
+            if (!autoRefresh) {
+                onChanged(null, null);
+                return;
+            }
+
+            try {
+                const items = await fetcher();
+                onChanged(null, items);
+            } catch (e) {
+                const error = e instanceof Error ? e : new Error(String(e));
+                onChanged(error, null);
+            }
+        };
+
+        const handler = () => {
+            if (debounceMs) {
+                // Clear any pending debounce timer for this list type
+                const existingTimer = this._listChangedDebounceTimers.get(listType);
+                if (existingTimer) {
+                    clearTimeout(existingTimer);
+                }
+
+                // Set up debounced refresh
+                const timer = setTimeout(refresh, debounceMs);
+                this._listChangedDebounceTimers.set(listType, timer);
+            } else {
+                // No debounce, refresh immediately
+                refresh();
+            }
+        };
+
+        // Register notification handler
+        this.setNotificationHandler(notificationSchema as AnyObjectSchema, handler);
     }
 
     async sendRootsListChanged() {
