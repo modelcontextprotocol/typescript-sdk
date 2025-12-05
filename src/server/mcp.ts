@@ -1079,6 +1079,53 @@ export class McpServer {
     }
 
     /**
+     * Enables a tool from the server by name.
+     * Does nothing if the tool is not registered.
+     */
+    enableTool(name: string) {
+        const tool = this._registeredTools[name];
+        if (tool) {
+            tool.enable();
+        }
+    }
+
+    /**
+     * Disables a tool from the server by name.
+     * Does nothing if the tool is not registered.
+     */
+    disableTool(name: string) {
+        const tool = this._registeredTools[name];
+        if (tool) {
+            tool.disable();
+        }
+    }
+
+    /**
+     * Updates a tool from the server by name.
+     * Does nothing if the tool is not registered.
+     */
+    updateTool<InputArgs extends ZodRawShapeCompat, OutputArgs extends ZodRawShapeCompat>(
+        name: string,
+        updates: ToolUpdates<InputArgs, OutputArgs>
+    ) {
+        const tool = this._registeredTools[name];
+        if (tool) {
+            tool.update(updates);
+        }
+    }
+
+    /**
+     * Removes a tool from the server by name.
+     * Does nothing if the tool is not registered.
+     */
+    removeTool(name: string) {
+        const tool = this._registeredTools[name];
+        if (tool) {
+            tool.remove();
+        }
+    }
+
+    /**
      * Registers a zero-argument prompt `name`, which will run the given function when the client calls it.
      * @deprecated Use `registerPrompt` instead.
      */
@@ -1298,6 +1345,18 @@ export type ToolCallback<Args extends undefined | ZodRawShapeCompat | AnySchema 
  */
 export type AnyToolHandler<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
 
+export type ToolUpdates<InputArgs extends ZodRawShapeCompat, OutputArgs extends ZodRawShapeCompat> = {
+    name?: string | null;
+    title?: string;
+    description?: string;
+    paramsSchema?: InputArgs;
+    outputSchema?: OutputArgs;
+    annotations?: ToolAnnotations;
+    _meta?: Record<string, unknown>;
+    callback?: ToolCallback<InputArgs>;
+    enabled?: boolean;
+};
+
 export type RegisteredTool = {
     title?: string;
     description?: string;
@@ -1310,17 +1369,7 @@ export type RegisteredTool = {
     enabled: boolean;
     enable(): void;
     disable(): void;
-    update<InputArgs extends ZodRawShapeCompat, OutputArgs extends ZodRawShapeCompat>(updates: {
-        name?: string | null;
-        title?: string;
-        description?: string;
-        paramsSchema?: InputArgs;
-        outputSchema?: OutputArgs;
-        annotations?: ToolAnnotations;
-        _meta?: Record<string, unknown>;
-        callback?: ToolCallback<InputArgs>;
-        enabled?: boolean;
-    }): void;
+    update<InputArgs extends ZodRawShapeCompat, OutputArgs extends ZodRawShapeCompat>(updates: ToolUpdates<InputArgs, OutputArgs>): void;
     remove(): void;
 };
 
