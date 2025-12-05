@@ -1,12 +1,14 @@
-import express, { Request, Response } from 'express';
+import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';
 import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
+import { createMcpExpressApp } from '../../server/express.js';
 import {
     CallToolResult,
+    ElicitResultSchema,
     GetPromptResult,
     isInitializeRequest,
     PrimitiveSchemaDefinition,
@@ -14,15 +16,17 @@ import {
     ResourceLink
 } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../../experimental/tasks/stores/in-memory.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
-import { OAuthMetadata } from 'src/shared/auth.js';
-import { checkResourceAllowed } from 'src/shared/auth-utils.js';
-
-import cors from 'cors';
+import { OAuthMetadata } from '../../shared/auth.js';
+import { checkResourceAllowed } from '../../shared/auth-utils.js';
 
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
 const strictOAuth = process.argv.includes('--oauth-strict');
+
+// Create shared task store for demonstration
+const taskStore = new InMemoryTaskStore();
 
 // Create an MCP server with implementation details
 const getServer = () => {
@@ -33,7 +37,11 @@ const getServer = () => {
             icons: [{ src: './mcp.svg', sizes: ['512x512'], mimeType: 'image/svg+xml' }],
             websiteUrl: 'https://github.com/modelcontextprotocol/typescript-sdk'
         },
-        { capabilities: { logging: {} } }
+        {
+            capabilities: { logging: {}, tasks: { requests: { tools: { call: {} } } } },
+            taskStore, // Enable task support
+            taskMessageQueue: new InMemoryTaskMessageQueue()
+        }
     );
 
     // Register a simple tool that returns a greeting
@@ -111,15 +119,15 @@ const getServer = () => {
             };
         }
     );
-    // Register a tool that demonstrates elicitation (user input collection)
+    // Register a tool that demonstrates form elicitation (user input collection with a schema)
     // This creates a closure that captures the server instance
     server.tool(
         'collect-user-info',
-        'A tool that collects user information through elicitation',
+        'A tool that collects user information through form elicitation',
         {
             infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect')
         },
-        async ({ infoType }): Promise<CallToolResult> => {
+        async ({ infoType }, extra): Promise<CallToolResult> => {
             let message: string;
             let requestedSchema: {
                 type: 'object';
@@ -214,11 +222,18 @@ const getServer = () => {
             }
 
             try {
-                // Use the underlying server instance to elicit input from the client
-                const result = await server.server.elicitInput({
-                    message,
-                    requestedSchema
-                });
+                // Use sendRequest through the extra parameter to elicit input
+                const result = await extra.sendRequest(
+                    {
+                        method: 'elicitation/create',
+                        params: {
+                            mode: 'form',
+                            message,
+                            requestedSchema
+                        }
+                    },
+                    ElicitResultSchema
+                );
 
                 if (result.action === 'accept') {
                     return {
@@ -439,22 +454,59 @@ const getServer = () => {
         }
     );
 
+    // Register a long-running tool that demonstrates task execution
+    // Using the experimental tasks API - WARNING: may change without notice
+    server.experimental.tasks.registerToolTask(
+        'delay',
+        {
+            title: 'Delay',
+            description: 'A simple tool that delays for a specified duration, useful for testing task execution',
+            inputSchema: {
+                duration: z.number().describe('Duration in milliseconds').default(5000)
+            }
+        },
+        {
+            async createTask({ duration }, { taskStore, taskRequestedTtl }) {
+                // Create the task
+                const task = await taskStore.createTask({
+                    ttl: taskRequestedTtl
+                });
+
+                // Simulate out-of-band work
+                (async () => {
+                    await new Promise(resolve => setTimeout(resolve, duration));
+                    await taskStore.storeTaskResult(task.taskId, 'completed', {
+                        content: [
+                            {
+                                type: 'text',
+                                text: `Completed ${duration}ms delay`
+                            }
+                        ]
+                    });
+                })();
+
+                // Return CreateTaskResult with the created task
+                return {
+                    task
+                };
+            },
+            async getTask(_args, { taskId, taskStore }) {
+                return await taskStore.getTask(taskId);
+            },
+            async getTaskResult(_args, { taskId, taskStore }) {
+                const result = await taskStore.getTaskResult(taskId);
+                return result as CallToolResult;
+            }
+        }
+    );
+
     return server;
 };
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 3000;
 const AUTH_PORT = process.env.MCP_AUTH_PORT ? parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
 
-const app = express();
-app.use(express.json());
-
-// Allow CORS all domains, expose the Mcp-Session-Id header
-app.use(
-    cors({
-        origin: '*', // Allow all origins
-        exposedHeaders: ['Mcp-Session-Id']
-    })
-);
+const app = createMcpExpressApp();
 
 // Set up OAuth if enabled
 let authMiddleware = null;
@@ -484,7 +536,8 @@ if (useOAuth) {
             });
 
             if (!response.ok) {
-                throw new Error(`Invalid or expired token: ${await response.text()}`);
+                const text = await response.text().catch(() => null);
+                throw new Error(`Invalid or expired token: ${text}`);
             }
 
             const data = await response.json();

@@ -1,10 +1,11 @@
-import { createServer, ServerResponse, type IncomingMessage, type Server } from 'http';
-import { AddressInfo } from 'net';
+import { createServer, ServerResponse, type IncomingMessage, type Server } from 'node:http';
+import { AddressInfo } from 'node:net';
 import { JSONRPCMessage } from '../types.js';
 import { SSEClientTransport } from './sse.js';
 import { OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { OAuthTokens } from '../shared/auth.js';
 import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '../server/auth/errors.js';
+import { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
 describe('SSEClientTransport', () => {
     let resourceServer: Server;
@@ -15,7 +16,7 @@ describe('SSEClientTransport', () => {
     let lastServerRequest: IncomingMessage;
     let sendServerMessage: ((message: string) => void) | null = null;
 
-    beforeEach(done => {
+    beforeEach(async () => {
         // Reset state
         lastServerRequest = null as unknown as IncomingMessage;
         sendServerMessage = null;
@@ -74,13 +75,15 @@ describe('SSEClientTransport', () => {
         });
 
         // Start server on random port
-        resourceServer.listen(0, '127.0.0.1', () => {
-            const addr = resourceServer.address() as AddressInfo;
-            resourceBaseUrl = new URL(`http://127.0.0.1:${addr.port}`);
-            done();
+        await new Promise<void>(resolve => {
+            resourceServer.listen(0, '127.0.0.1', () => {
+                const addr = resourceServer.address() as AddressInfo;
+                resourceBaseUrl = new URL(`http://127.0.0.1:${addr.port}`);
+                resolve();
+            });
         });
 
-        jest.spyOn(console, 'error').mockImplementation(() => {});
+        vi.spyOn(console, 'error').mockImplementation(() => {});
     });
 
     afterEach(async () => {
@@ -88,7 +91,7 @@ describe('SSEClientTransport', () => {
         await resourceServer.close();
         await authServer.close();
 
-        jest.clearAllMocks();
+        vi.clearAllMocks();
     });
 
     describe('connection handling', () => {
@@ -262,7 +265,7 @@ describe('SSEClientTransport', () => {
         it('uses custom fetch implementation from options', async () => {
             const authToken = 'Bearer custom-token';
 
-            const fetchWithAuth = jest.fn((url: string | URL, init?: RequestInit) => {
+            const fetchWithAuth = vi.fn((url: string | URL, init?: RequestInit) => {
                 const headers = new Headers(init?.headers);
                 headers.set('Authorization', authToken);
                 return fetch(url.toString(), { ...init, headers });
@@ -305,14 +308,9 @@ describe('SSEClientTransport', () => {
 
             await transport.start();
 
-            // Store original fetch
             const originalFetch = global.fetch;
-
             try {
-                // Mock fetch for the message sending test
-                global.fetch = jest.fn().mockResolvedValue({
-                    ok: true
-                });
+                global.fetch = vi.fn().mockResolvedValue({ ok: true });
 
                 const message: JSONRPCMessage = {
                     jsonrpc: '2.0',
@@ -323,20 +321,88 @@ describe('SSEClientTransport', () => {
 
                 await transport.send(message);
 
-                // Verify fetch was called with correct headers
-                expect(global.fetch).toHaveBeenCalledWith(
-                    expect.any(URL),
-                    expect.objectContaining({
-                        headers: expect.any(Headers)
-                    })
-                );
+                const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
+                expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
+                expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
+                expect(calledHeaders.get('content-type')).toBe('application/json');
 
-                const calledHeaders = (global.fetch as jest.Mock).mock.calls[0][1].headers;
-                expect(calledHeaders.get('Authorization')).toBe(customHeaders.Authorization);
-                expect(calledHeaders.get('X-Custom-Header')).toBe(customHeaders['X-Custom-Header']);
+                customHeaders['X-Custom-Header'] = 'updated-value';
+
+                await transport.send(message);
+
+                const updatedHeaders = (global.fetch as Mock).mock.calls[1][1].headers;
+                expect(updatedHeaders.get('X-Custom-Header')).toBe('updated-value');
+            } finally {
+                global.fetch = originalFetch;
+            }
+        });
+
+        it('passes custom headers to fetch requests (Headers class)', async () => {
+            const customHeaders = new Headers({
+                Authorization: 'Bearer test-token',
+                'X-Custom-Header': 'custom-value'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                requestInit: {
+                    headers: customHeaders
+                }
+            });
+
+            await transport.start();
+
+            const originalFetch = global.fetch;
+            try {
+                global.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+                const message: JSONRPCMessage = {
+                    jsonrpc: '2.0',
+                    id: '1',
+                    method: 'test',
+                    params: {}
+                };
+
+                await transport.send(message);
+
+                const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
+                expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
+                expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
+                expect(calledHeaders.get('content-type')).toBe('application/json');
+
+                customHeaders.set('X-Custom-Header', 'updated-value');
+
+                await transport.send(message);
+
+                const updatedHeaders = (global.fetch as Mock).mock.calls[1][1].headers;
+                expect(updatedHeaders.get('X-Custom-Header')).toBe('updated-value');
+            } finally {
+                global.fetch = originalFetch;
+            }
+        });
+
+        it('passes custom headers to fetch requests (array of tuples)', async () => {
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                requestInit: {
+                    headers: [
+                        ['Authorization', 'Bearer test-token'],
+                        ['X-Custom-Header', 'custom-value']
+                    ]
+                }
+            });
+
+            await transport.start();
+
+            const originalFetch = global.fetch;
+            try {
+                global.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+                await transport.send({ jsonrpc: '2.0', id: '1', method: 'test', params: {} });
+
+                const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
+                expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
+                expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
                 expect(calledHeaders.get('content-type')).toBe('application/json');
             } finally {
-                // Restore original fetch
                 global.fetch = originalFetch;
             }
         });
@@ -345,7 +411,7 @@ describe('SSEClientTransport', () => {
     describe('auth handling', () => {
         const authServerMetadataUrls = ['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration'];
 
-        let mockAuthProvider: jest.Mocked<OAuthClientProvider>;
+        let mockAuthProvider: Mocked<OAuthClientProvider>;
 
         beforeEach(() => {
             mockAuthProvider = {
@@ -355,13 +421,13 @@ describe('SSEClientTransport', () => {
                 get clientMetadata() {
                     return { redirect_uris: ['http://localhost/callback'] };
                 },
-                clientInformation: jest.fn(() => ({ client_id: 'test-client-id', client_secret: 'test-client-secret' })),
-                tokens: jest.fn(),
-                saveTokens: jest.fn(),
-                redirectToAuthorization: jest.fn(),
-                saveCodeVerifier: jest.fn(),
-                codeVerifier: jest.fn(),
-                invalidateCredentials: jest.fn()
+                clientInformation: vi.fn(() => ({ client_id: 'test-client-id', client_secret: 'test-client-secret' })),
+                tokens: vi.fn(),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn(),
+                invalidateCredentials: vi.fn()
             };
         });
 
@@ -1122,19 +1188,10 @@ describe('SSEClientTransport', () => {
     });
 
     describe('custom fetch in auth code paths', () => {
-        let customFetch: jest.MockedFunction<typeof fetch>;
-        let globalFetchSpy: jest.SpyInstance;
-        let mockAuthProvider: jest.Mocked<OAuthClientProvider>;
-        let resourceServerHandler: jest.Mock<
-            void,
-            [
-                IncomingMessage,
-                ServerResponse<IncomingMessage> & {
-                    req: IncomingMessage;
-                }
-            ],
-            void
-        >;
+        let customFetch: MockedFunction<typeof fetch>;
+        let globalFetchSpy: MockInstance;
+        let mockAuthProvider: Mocked<OAuthClientProvider>;
+        let resourceServerHandler: Mock;
 
         /**
          * Helper function to create a mock auth provider with configurable behavior
@@ -1147,7 +1204,7 @@ describe('SSEClientTransport', () => {
                 clientRegistered?: boolean;
                 authorizationCode?: string;
             } = {}
-        ): jest.Mocked<OAuthClientProvider> => {
+        ): Mocked<OAuthClientProvider> => {
             const tokens = config.hasTokens
                 ? {
                       access_token: config.tokensExpired ? 'expired-token' : 'valid-token',
@@ -1173,13 +1230,13 @@ describe('SSEClientTransport', () => {
                         client_name: 'Test Client'
                     };
                 },
-                clientInformation: jest.fn().mockResolvedValue(clientInfo),
-                tokens: jest.fn().mockResolvedValue(tokens),
-                saveTokens: jest.fn(),
-                redirectToAuthorization: jest.fn(),
-                saveCodeVerifier: jest.fn(),
-                codeVerifier: jest.fn().mockResolvedValue('test-verifier'),
-                invalidateCredentials: jest.fn()
+                clientInformation: vi.fn().mockResolvedValue(clientInfo),
+                tokens: vi.fn().mockResolvedValue(tokens),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn().mockResolvedValue('test-verifier'),
+                invalidateCredentials: vi.fn()
             };
         };
 
@@ -1279,12 +1336,12 @@ describe('SSEClientTransport', () => {
             const originalFetch = fetch;
 
             // Create custom fetch spy that delegates to real fetch
-            customFetch = jest.fn((url, init) => {
+            customFetch = vi.fn((url, init) => {
                 return originalFetch(url.toString(), init);
             });
 
             // Spy on global fetch to detect unauthorized usage
-            globalFetchSpy = jest.spyOn(global, 'fetch');
+            globalFetchSpy = vi.spyOn(global, 'fetch');
 
             // Create mock auth provider with default configuration
             mockAuthProvider = createMockAuthProvider({
@@ -1296,7 +1353,7 @@ describe('SSEClientTransport', () => {
             await createCustomFetchMockAuthServer();
 
             // Set up resource server
-            resourceServerHandler = jest.fn(
+            resourceServerHandler = vi.fn(
                 (
                     _req: IncomingMessage,
                     res: ServerResponse<IncomingMessage> & {
@@ -1315,7 +1372,7 @@ describe('SSEClientTransport', () => {
 
         it('uses custom fetch during auth flow on SSE connection 401 - no global fetch fallback', async () => {
             // Set up resource server that returns 401 on SSE connection and provides OAuth metadata
-            resourceServerHandler.mockImplementation((req, res) => {
+            resourceServerHandler.mockImplementation((req: IncomingMessage, res: ServerResponse) => {
                 if (req.url === '/') {
                     // Return 401 to trigger auth flow
                     res.writeHead(401, {
@@ -1359,7 +1416,7 @@ describe('SSEClientTransport', () => {
 
         it('uses custom fetch during auth flow on POST request 401 - no global fetch fallback', async () => {
             // Set up resource server that accepts SSE connection but returns 401 on POST
-            resourceServerHandler.mockImplementation((req, res) => {
+            resourceServerHandler.mockImplementation((req: IncomingMessage, res: ServerResponse) => {
                 switch (req.method) {
                     case 'GET':
                         if (req.url === '/') {
