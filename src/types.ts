@@ -791,6 +791,31 @@ export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
 });
 
 /**
+ * The sender or recipient of messages and data in a conversation.
+ */
+export const RoleSchema = z.enum(['user', 'assistant']);
+
+/**
+ * Optional annotations providing clients additional context about a resource.
+ */
+export const AnnotationsSchema = z.object({
+    /**
+     * Intended audience(s) for the resource.
+     */
+    audience: z.array(RoleSchema).optional(),
+
+    /**
+     * Importance hint for the resource, from 0 (least) to 1 (most).
+     */
+    priority: z.number().min(0).max(1).optional(),
+
+    /**
+     * ISO 8601 timestamp for the most recent modification.
+     */
+    lastModified: z.iso.datetime({ offset: true }).optional()
+});
+
+/**
  * A known resource that the server is capable of reading.
  */
 export const ResourceSchema = z.object({
@@ -812,6 +837,11 @@ export const ResourceSchema = z.object({
      * The MIME type of this resource, if known.
      */
     mimeType: z.optional(z.string()),
+
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -842,6 +872,11 @@ export const ResourceTemplateSchema = z.object({
      * The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
      */
     mimeType: z.optional(z.string()),
+
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1036,6 +1071,11 @@ export const TextContentSchema = z.object({
     text: z.string(),
 
     /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
+
+    /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
@@ -1057,6 +1097,11 @@ export const ImageContentSchema = z.object({
     mimeType: z.string(),
 
     /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
+
+    /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
@@ -1076,6 +1121,11 @@ export const AudioContentSchema = z.object({
      * The MIME type of the audio. Different providers may support different audio types.
      */
     mimeType: z.string(),
+
+    /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1121,6 +1171,10 @@ export const EmbeddedResourceSchema = z.object({
     type: z.literal('resource'),
     resource: z.union([TextResourceContentsSchema, BlobResourceContentsSchema]),
     /**
+     * Optional annotations for the client.
+     */
+    annotations: AnnotationsSchema.optional(),
+    /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
@@ -1151,7 +1205,7 @@ export const ContentBlockSchema = z.union([
  * Describes a message returned as part of a prompt.
  */
 export const PromptMessageSchema = z.object({
-    role: z.enum(['user', 'assistant']),
+    role: RoleSchema,
     content: ContentBlockSchema
 });
 
@@ -1381,6 +1435,86 @@ export const ToolListChangedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/tools/list_changed')
 });
 
+/**
+ * Callback type for list changed notifications.
+ */
+export type ListChangedCallback<T> = (error: Error | null, items: T[] | null) => void;
+
+/**
+ * Base schema for list changed subscription options (without callback).
+ * Used internally for Zod validation of autoRefresh and debounceMs.
+ */
+export const ListChangedOptionsBaseSchema = z.object({
+    /**
+     * If true, the list will be refreshed automatically when a list changed notification is received.
+     * The callback will be called with the updated list.
+     *
+     * If false, the callback will be called with null items, allowing manual refresh.
+     *
+     * @default true
+     */
+    autoRefresh: z.boolean().default(true),
+    /**
+     * Debounce time in milliseconds for list changed notification processing.
+     *
+     * Multiple notifications received within this timeframe will only trigger one refresh.
+     * Set to 0 to disable debouncing.
+     *
+     * @default 300
+     */
+    debounceMs: z.number().int().nonnegative().default(300)
+});
+
+/**
+ * Options for subscribing to list changed notifications.
+ *
+ * @typeParam T - The type of items in the list (Tool, Prompt, or Resource)
+ */
+export type ListChangedOptions<T> = {
+    /**
+     * If true, the list will be refreshed automatically when a list changed notification is received.
+     * @default true
+     */
+    autoRefresh?: boolean;
+    /**
+     * Debounce time in milliseconds. Set to 0 to disable.
+     * @default 300
+     */
+    debounceMs?: number;
+    /**
+     * Callback invoked when the list changes.
+     *
+     * If autoRefresh is true, items contains the updated list.
+     * If autoRefresh is false, items is null (caller should refresh manually).
+     */
+    onChanged: ListChangedCallback<T>;
+};
+
+/**
+ * Configuration for list changed notification handlers.
+ *
+ * Use this to configure handlers for tools, prompts, and resources list changes
+ * when creating a client.
+ *
+ * Note: Handlers are only activated if the server advertises the corresponding
+ * `listChanged` capability (e.g., `tools.listChanged: true`). If the server
+ * doesn't advertise this capability, the handler will not be set up.
+ */
+export type ListChangedHandlers = {
+    /**
+     * Handler for tool list changes.
+     */
+    tools?: ListChangedOptions<Tool>;
+    /**
+     * Handler for prompt list changes.
+     */
+    prompts?: ListChangedOptions<Prompt>;
+    /**
+     * Handler for resource list changes.
+     */
+    resources?: ListChangedOptions<Resource>;
+};
+
 /* Logging */
 /**
  * The severity of a log message.
@@ -1518,7 +1652,7 @@ export const SamplingMessageContentBlockSchema = z.discriminatedUnion('type', [
  */
 export const SamplingMessageSchema = z
     .object({
-        role: z.enum(['user', 'assistant']),
+        role: RoleSchema,
         content: z.union([SamplingMessageContentBlockSchema, z.array(SamplingMessageContentBlockSchema)]),
         /**
          * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1602,7 +1736,7 @@ export const CreateMessageResultSchema = ResultSchema.extend({
      * This field is an open string to allow for provider-specific stop reasons.
      */
     stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens']).or(z.string())),
-    role: z.enum(['user', 'assistant']),
+    role: RoleSchema,
     /**
      * Response content. Single content block (text, image, or audio).
      */
@@ -1630,7 +1764,7 @@ export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
      * This field is an open string to allow for provider-specific stop reasons.
      */
     stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens', 'toolUse']).or(z.string())),
-    role: z.enum(['user', 'assistant']),
+    role: RoleSchema,
     /**
      * Response content. May be a single block or array. May include ToolUseContent if stopReason is "toolUse".
      */
@@ -2219,6 +2353,8 @@ export type CancelledNotification = Infer<typeof CancelledNotificationSchema>;
 export type Icon = Infer<typeof IconSchema>;
 export type Icons = Infer<typeof IconsSchema>;
 export type BaseMetadata = Infer<typeof BaseMetadataSchema>;
+export type Annotations = Infer<typeof AnnotationsSchema>;
+export type Role = Infer<typeof RoleSchema>;
 
 /* Initialization */
 export type Implementation = Infer<typeof ImplementationSchema>;

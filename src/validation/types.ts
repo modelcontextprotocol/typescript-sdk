@@ -1,4 +1,17 @@
-import type { Schema } from '@cfworker/json-schema';
+// Using the main export which points to draft-2020-12 by default
+import type { JSONSchema } from 'json-schema-typed';
+
+/**
+ * JSON Schema type definition (JSON Schema Draft 2020-12)
+ *
+ * This uses the object form of JSON Schema (excluding boolean schemas).
+ * While `true` and `false` are valid JSON Schemas, this SDK uses the
+ * object form for practical type safety.
+ *
+ * Re-exported from json-schema-typed for convenience.
+ * @see https://json-schema.org/draft/2020-12/json-schema-core.html
+ */
+export type JsonSchemaType = JSONSchema.Interface;
 
 /**
  * Result of a JSON Schema validation operation
@@ -48,5 +61,3 @@ export interface jsonSchemaValidator {
      */
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
 }
-
-export type JsonSchemaType = Schema;

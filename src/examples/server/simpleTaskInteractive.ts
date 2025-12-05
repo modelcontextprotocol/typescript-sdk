@@ -11,7 +11,8 @@
 
 import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import { createMcpExpressApp, Server } from '../../server/index.js';
+import { Server } from '../../server/index.js';
+import { createMcpExpressApp } from '../../server/express.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import {
     CallToolResult,

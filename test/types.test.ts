@@ -95,68 +95,118 @@ describe('Types', () => {
 
     describe('ContentBlock', () => {
         test('should validate text content', () => {
+            const mockDate = new Date().toISOString();
             const textContent = {
                 type: 'text',
-                text: 'Hello, world!'
+                text: 'Hello, world!',
+                annotations: {
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                }
             };
 
             const result = ContentBlockSchema.safeParse(textContent);
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('text');
+                expect(result.data.annotations).toEqual({
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                });
             }
         });
 
         test('should validate image content', () => {
+            const mockDate = new Date().toISOString();
             const imageContent = {
                 type: 'image',
                 data: 'aGVsbG8=', // base64 encoded "hello"
-                mimeType: 'image/png'
+                mimeType: 'image/png',
+                annotations: {
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                }
             };
 
             const result = ContentBlockSchema.safeParse(imageContent);
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('image');
+                expect(result.data.annotations).toEqual({
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                });
             }
         });
 
         test('should validate audio content', () => {
+            const mockDate = new Date().toISOString();
             const audioContent = {
                 type: 'audio',
                 data: 'aGVsbG8=', // base64 encoded "hello"
-                mimeType: 'audio/mp3'
+                mimeType: 'audio/mp3',
+                annotations: {
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                }
             };
 
             const result = ContentBlockSchema.safeParse(audioContent);
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('audio');
+                expect(result.data.annotations).toEqual({
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                });
             }
         });
 
         test('should validate resource link content', () => {
+            const mockDate = new Date().toISOString();
             const resourceLink = {
                 type: 'resource_link',
                 uri: 'file:///path/to/file.txt',
                 name: 'file.txt',
-                mimeType: 'text/plain'
+                mimeType: 'text/plain',
+                annotations: {
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: new Date().toISOString()
+                }
             };
 
             const result = ContentBlockSchema.safeParse(resourceLink);
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('resource_link');
+                expect(result.data.annotations).toEqual({
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                });
             }
         });
 
         test('should validate embedded resource content', () => {
+            const mockDate = new Date().toISOString();
             const embeddedResource = {
                 type: 'resource',
                 resource: {
                     uri: 'file:///path/to/file.txt',
                     mimeType: 'text/plain',
                     text: 'File contents'
+                },
+                annotations: {
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
                 }
             };
 
@@ -164,6 +214,11 @@ describe('Types', () => {
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('resource');
+                expect(result.data.annotations).toEqual({
+                    audience: ['user'],
+                    priority: 0.5,
+                    lastModified: mockDate
+                });
             }
         });
     });

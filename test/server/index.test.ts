@@ -3,7 +3,6 @@ import supertest from 'supertest';
 import { Client } from '../../src/client/index.js';
 import { InMemoryTransport } from '../../src/inMemory.js';
 import type { Transport } from '../../src/shared/transport.js';
-import { createMcpExpressApp } from '../../src/server/index.js';
 import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
@@ -32,6 +31,7 @@ import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '.
 import type { AnyObjectSchema } from '../../src/server/zod-compat.js';
 import * as z3 from 'zod/v3';
 import * as z4 from 'zod/v4';
+import { createMcpExpressApp } from '../../src/server/express.js';
 
 describe('Zod v3', () => {
     /*

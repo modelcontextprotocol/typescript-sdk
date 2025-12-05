@@ -12,7 +12,7 @@ import { type Request, type Response } from 'express';
 import { McpServer } from '../../server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
 import { isInitializeRequest } from '../../types.js';
-import { createMcpExpressApp } from '../../server/index.js';
+import { createMcpExpressApp } from '../../server/express.js';
 
 // Create MCP server - it will automatically use AjvJsonSchemaValidator with sensible defaults
 // The validator supports format validation (email, date, etc.) if ajv-formats is installed
