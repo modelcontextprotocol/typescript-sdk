@@ -39,9 +39,7 @@ describe('non-JSON line filtering', () => {
         const readBuffer = new ReadBuffer();
 
         // Append debug output followed by a valid JSON message
-        const mixedContent = 'Debug: Starting server\n' +
-            'Warning: Something happened\n' +
-            JSON.stringify(testMessage) + '\n';
+        const mixedContent = 'Debug: Starting server\n' + 'Warning: Something happened\n' + JSON.stringify(testMessage) + '\n';
 
         readBuffer.append(Buffer.from(mixedContent));
 
@@ -56,11 +54,14 @@ describe('non-JSON line filtering', () => {
         const message1: JSONRPCMessage = { jsonrpc: '2.0', method: 'method1' };
         const message2: JSONRPCMessage = { jsonrpc: '2.0', method: 'method2' };
 
-        const mixedContent = 'Debug line 1\n' +
-            JSON.stringify(message1) + '\n' +
+        const mixedContent =
+            'Debug line 1\n' +
+            JSON.stringify(message1) +
+            '\n' +
             'Debug line 2\n' +
             'Another non-JSON line\n' +
-            JSON.stringify(message2) + '\n';
+            JSON.stringify(message2) +
+            '\n';
 
         readBuffer.append(Buffer.from(mixedContent));
 
@@ -88,8 +89,7 @@ describe('non-JSON line filtering', () => {
     test('should handle lines that start with { but do not end with }', () => {
         const readBuffer = new ReadBuffer();
 
-        const content = '{incomplete\n' +
-            JSON.stringify(testMessage) + '\n';
+        const content = '{incomplete\n' + JSON.stringify(testMessage) + '\n';
 
         readBuffer.append(Buffer.from(content));
 
@@ -101,8 +101,7 @@ describe('non-JSON line filtering', () => {
     test('should handle lines that end with } but do not start with {', () => {
         const readBuffer = new ReadBuffer();
 
-        const content = 'incomplete}\n' +
-            JSON.stringify(testMessage) + '\n';
+        const content = 'incomplete}\n' + JSON.stringify(testMessage) + '\n';
 
         readBuffer.append(Buffer.from(content));
 
@@ -121,5 +120,4 @@ describe('non-JSON line filtering', () => {
 
         expect(readBuffer.readMessage()).toEqual(message);
     });
-
 });
