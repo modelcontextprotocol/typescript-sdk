@@ -33,7 +33,7 @@ describe('InMemoryTransport', () => {
         };
 
         await clientTransport.send(message);
-        expect(receivedMessage).toEqual(message);
+        expect(receivedMessage).toStrictEqual(message);
     });
 
     test('should send message with auth info from client to server', async () => {
@@ -58,8 +58,8 @@ describe('InMemoryTransport', () => {
         };
 
         await clientTransport.send(message, { authInfo });
-        expect(receivedMessage).toEqual(message);
-        expect(receivedAuthInfo).toEqual(authInfo);
+        expect(receivedMessage).toStrictEqual(message);
+        expect(receivedAuthInfo).toStrictEqual(authInfo);
     });
 
     test('should send message from server to client', async () => {
@@ -75,7 +75,7 @@ describe('InMemoryTransport', () => {
         };
 
         await serverTransport.send(message);
-        expect(receivedMessage).toEqual(message);
+        expect(receivedMessage).toStrictEqual(message);
     });
 
     test('should handle close', async () => {
@@ -114,6 +114,6 @@ describe('InMemoryTransport', () => {
 
         await clientTransport.send(message);
         await serverTransport.start();
-        expect(receivedMessage).toEqual(message);
+        expect(receivedMessage).toStrictEqual(message);
     });
 });
