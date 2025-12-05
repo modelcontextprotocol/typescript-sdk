@@ -6,7 +6,7 @@
  * eval and new Function.
  */
 
-import { type Schema, Validator } from '@cfworker/json-schema';
+import { Validator } from '@cfworker/json-schema';
 import type { JsonSchemaType, JsonSchemaValidator, JsonSchemaValidatorResult, jsonSchemaValidator } from './types.js';
 
 /**
@@ -53,8 +53,8 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
      * @returns A validator function that validates input data
      */
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
-        const cfSchema = schema as unknown as Schema;
-        const validator = new Validator(cfSchema, this.draft, this.shortcircuit);
+        // Cast to the cfworker Schema type - our JsonSchemaType is structurally compatible
+        const validator = new Validator(schema as ConstructorParameters<typeof Validator>[0], this.draft, this.shortcircuit);
 
         return (input: unknown): JsonSchemaValidatorResult<T> => {
             const result = validator.validate(input);

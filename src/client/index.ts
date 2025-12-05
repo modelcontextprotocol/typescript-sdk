@@ -87,14 +87,20 @@ function applyElicitationDefaults(schema: JsonSchemaType | undefined, data: unkn
 
     if (Array.isArray(schema.anyOf)) {
         for (const sub of schema.anyOf) {
-            applyElicitationDefaults(sub, data);
+            // Skip boolean schemas (true/false are valid JSON Schemas but have no defaults)
+            if (typeof sub !== 'boolean') {
+                applyElicitationDefaults(sub, data);
+            }
         }
     }
 
     // Combine schemas
     if (Array.isArray(schema.oneOf)) {
         for (const sub of schema.oneOf) {
-            applyElicitationDefaults(sub, data);
+            // Skip boolean schemas (true/false are valid JSON Schemas but have no defaults)
+            if (typeof sub !== 'boolean') {
+                applyElicitationDefaults(sub, data);
+            }
         }
     }
 }
