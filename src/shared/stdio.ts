@@ -23,7 +23,7 @@ export class ReadBuffer {
         this._validLines = [];
         this._lastIncompleteLine = '';
     }
-    
+
     private _processChunk(newChunk: Buffer): void {
         // Combine any previously incomplete line with the new chunk
         const combinedText = this._lastIncompleteLine + newChunk.toString('utf8');
