@@ -20,46 +20,46 @@
     ],
     "exports": {
         ".": {
-            "import": "./dist/esm/index.js",
-            "require": "./dist/cjs/index.js"
+            "import": "./dist/esm/src/index.js",
+            "require": "./dist/cjs/src/index.js"
         },
         "./client": {
-            "import": "./dist/esm/client/index.js",
-            "require": "./dist/cjs/client/index.js"
+            "import": "./dist/esm/src/client/index.js",
+            "require": "./dist/cjs/src/client/index.js"
         },
         "./server": {
-            "import": "./dist/esm/server/index.js",
-            "require": "./dist/cjs/server/index.js"
+            "import": "./dist/esm/src/server/index.js",
+            "require": "./dist/cjs/src/server/index.js"
         },
         "./validation": {
-            "import": "./dist/esm/validation/index.js",
-            "require": "./dist/cjs/validation/index.js"
+            "import": "./dist/esm/src/validation/index.js",
+            "require": "./dist/cjs/src/validation/index.js"
         },
         "./validation/ajv": {
-            "import": "./dist/esm/validation/ajv-provider.js",
-            "require": "./dist/cjs/validation/ajv-provider.js"
+            "import": "./dist/esm/src/validation/ajv-provider.js",
+            "require": "./dist/cjs/src/validation/ajv-provider.js"
         },
         "./validation/cfworker": {
-            "import": "./dist/esm/validation/cfworker-provider.js",
-            "require": "./dist/cjs/validation/cfworker-provider.js"
+            "import": "./dist/esm/src/validation/cfworker-provider.js",
+            "require": "./dist/cjs/src/validation/cfworker-provider.js"
         },
         "./experimental": {
-            "import": "./dist/esm/experimental/index.js",
-            "require": "./dist/cjs/experimental/index.js"
+            "import": "./dist/esm/src/experimental/index.js",
+            "require": "./dist/cjs/src/experimental/index.js"
         },
         "./experimental/tasks": {
-            "import": "./dist/esm/experimental/tasks/index.js",
-            "require": "./dist/cjs/experimental/tasks/index.js"
+            "import": "./dist/esm/src/experimental/tasks/index.js",
+            "require": "./dist/cjs/src/experimental/tasks/index.js"
         },
         "./*": {
-            "import": "./dist/esm/*",
-            "require": "./dist/cjs/*"
+            "import": "./dist/esm/src/*",
+            "require": "./dist/cjs/src/*"
         }
     },
     "typesVersions": {
         "*": {
             "*": [
-                "./dist/esm/*"
+                "./dist/esm/src/*"
             ]
         }
     },
