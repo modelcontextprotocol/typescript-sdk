@@ -22,13 +22,11 @@ import {
     JSONRPCRequest,
     JSONRPCResponse,
     McpError,
-    Notification,
     PingRequestSchema,
     Progress,
     ProgressNotification,
     ProgressNotificationSchema,
     RELATED_TASK_META_KEY,
-    Request,
     RequestId,
     Result,
     ServerCapabilities,
@@ -41,7 +39,9 @@ import {
     CancelledNotification,
     Task,
     TaskStatusNotification,
-    TaskStatusNotificationSchema
+    TaskStatusNotificationSchema,
+    RequestGeneric,
+    NotificationGeneric
 } from '../types.js';
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
@@ -232,7 +232,7 @@ export interface RequestTaskStore {
 /**
  * Extra data given to request handlers.
  */
-export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT extends Notification> = {
+export type RequestHandlerExtra<SendRequestT extends RequestGeneric, SendNotificationT extends NotificationGeneric> = {
     /**
      * An abort signal used to communicate if the request was cancelled from the sender's side.
      */
@@ -315,7 +315,11 @@ type TimeoutInfo = {
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
  */
-export abstract class Protocol<SendRequestT extends Request, SendNotificationT extends Notification, SendResultT extends Result> {
+export abstract class Protocol<
+    SendRequestT extends RequestGeneric,
+    SendNotificationT extends NotificationGeneric,
+    SendResultT extends Result
+> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<
@@ -359,7 +363,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * A handler to invoke for any notification types that do not have their own handler installed.
      */
-    fallbackNotificationHandler?: (notification: Notification) => Promise<void>;
+    fallbackNotificationHandler?: (notification: NotificationGeneric) => Promise<void>;
 
     constructor(private _options?: ProtocolOptions) {
         this.setNotificationHandler(CancelledNotificationSchema, notification => {

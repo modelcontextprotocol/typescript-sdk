@@ -5,7 +5,6 @@
 
 import {
     Task,
-    Request,
     RequestId,
     Result,
     JSONRPCRequest,
@@ -16,7 +15,8 @@ import {
     ServerNotification,
     CallToolResult,
     GetTaskResult,
-    ToolExecution
+    ToolExecution,
+    RequestGeneric
 } from '../../types.js';
 import { CreateTaskResult } from './types.js';
 import type { RequestHandlerExtra, RequestTaskStore } from '../../shared/protocol.js';
@@ -226,7 +226,7 @@ export interface TaskStore {
      * @param sessionId - Optional session ID for binding the task to a specific session
      * @returns The created task object
      */
-    createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request, sessionId?: string): Promise<Task>;
+    createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: RequestGeneric, sessionId?: string): Promise<Task>;
 
     /**
      * Gets the current status of a task.

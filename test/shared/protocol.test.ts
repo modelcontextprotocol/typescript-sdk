@@ -5,14 +5,14 @@ import {
     ErrorCode,
     JSONRPCMessage,
     McpError,
-    Notification,
     RELATED_TASK_META_KEY,
-    Request,
     RequestId,
-    Result,
     ServerCapabilities,
     Task,
-    TaskCreationParams
+    TaskCreationParams,
+    type RequestGeneric,
+    type NotificationGeneric,
+    type Result
 } from '../../src/types.js';
 import { Protocol, mergeCapabilities } from '../../src/shared/protocol.js';
 import { Transport, TransportSendOptions } from '../../src/shared/transport.js';
@@ -29,11 +29,11 @@ interface TestProtocol {
     _responseHandlers: Map<RequestId, (response: JSONRPCResponse | Error) => void>;
     _taskProgressTokens: Map<string, number>;
     _clearTaskQueue: (taskId: string, sessionId?: string) => Promise<void>;
-    requestTaskStore: (request: Request, authInfo: unknown) => TaskStore;
+    requestTaskStore: (request: RequestGeneric, authInfo: unknown) => TaskStore;
     // Protected task methods (exposed for testing)
     listTasks: (params?: { cursor?: string }) => Promise<{ tasks: Task[]; nextCursor?: string }>;
     cancelTask: (params: { taskId: string }) => Promise<Result>;
-    requestStream: <T extends Result>(request: Request, schema: ZodType<T>, options?: unknown) => AsyncGenerator<ResponseMessage<T>>;
+    requestStream: <T extends Result>(request: RequestGeneric, schema: ZodType<T>, options?: unknown) => AsyncGenerator<ResponseMessage<T>>;
 }
 
 // Mock Transport class
@@ -139,14 +139,14 @@ function assertQueuedRequest(o?: QueuedMessage): asserts o is QueuedRequest {
 }
 
 describe('protocol tests', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<RequestGeneric, NotificationGeneric, Result>;
     let transport: MockTransport;
     let sendSpy: MockInstance;
 
     beforeEach(() => {
         transport = new MockTransport();
         sendSpy = vi.spyOn(transport, 'send');
-        protocol = new (class extends Protocol<Request, Notification, Result> {
+        protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
@@ -620,7 +620,7 @@ describe('protocol tests', () => {
 
         it('should NOT debounce a notification that has parameters', async () => {
             // ARRANGE
-            protocol = new (class extends Protocol<Request, Notification, Result> {
+            protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -643,7 +643,7 @@ describe('protocol tests', () => {
 
         it('should NOT debounce a notification that has a relatedRequestId', async () => {
             // ARRANGE
-            protocol = new (class extends Protocol<Request, Notification, Result> {
+            protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -664,7 +664,7 @@ describe('protocol tests', () => {
 
         it('should clear pending debounced notifications on connection close', async () => {
             // ARRANGE
-            protocol = new (class extends Protocol<Request, Notification, Result> {
+            protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -690,7 +690,7 @@ describe('protocol tests', () => {
 
         it('should debounce multiple synchronous calls when params property is omitted', async () => {
             // ARRANGE
-            protocol = new (class extends Protocol<Request, Notification, Result> {
+            protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -719,7 +719,7 @@ describe('protocol tests', () => {
 
         it('should debounce calls when params is explicitly undefined', async () => {
             // ARRANGE
-            protocol = new (class extends Protocol<Request, Notification, Result> {
+            protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -746,7 +746,7 @@ describe('protocol tests', () => {
 
         it('should send non-debounced notifications immediately and multiple times', async () => {
             // ARRANGE
-            protocol = new (class extends Protocol<Request, Notification, Result> {
+            protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -781,7 +781,7 @@ describe('protocol tests', () => {
 
         it('should handle sequential batches of debounced notifications correctly', async () => {
             // ARRANGE
-            protocol = new (class extends Protocol<Request, Notification, Result> {
+            protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -993,14 +993,14 @@ describe('mergeCapabilities', () => {
 });
 
 describe('Task-based execution', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<RequestGeneric, NotificationGeneric, Result>;
     let transport: MockTransport;
     let sendSpy: MockInstance;
 
     beforeEach(() => {
         transport = new MockTransport();
         sendSpy = vi.spyOn(transport, 'send');
-        protocol = new (class extends Protocol<Request, Notification, Result> {
+        protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
@@ -1247,7 +1247,7 @@ describe('Task-based execution', () => {
             // rather than in _meta, and that task management is handled by tool implementors
             const mockTaskStore = createMockTaskStore();
 
-            protocol = new (class extends Protocol<Request, Notification, Result> {
+            protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -1316,7 +1316,7 @@ describe('Task-based execution', () => {
                 }
             );
 
-            protocol = new (class extends Protocol<Request, Notification, Result> {
+            protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -1377,7 +1377,7 @@ describe('Task-based execution', () => {
                 }
             );
 
-            protocol = new (class extends Protocol<Request, Notification, Result> {
+            protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -1423,7 +1423,7 @@ describe('Task-based execution', () => {
                 onList: () => listedTasks.releaseLatch()
             });
 
-            protocol = new (class extends Protocol<Request, Notification, Result> {
+            protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -1456,7 +1456,7 @@ describe('Task-based execution', () => {
             const mockTaskStore = createMockTaskStore();
             mockTaskStore.listTasks.mockRejectedValue(new Error('Invalid cursor: bad-cursor'));
 
-            protocol = new (class extends Protocol<Request, Notification, Result> {
+            protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -1590,7 +1590,7 @@ describe('Task-based execution', () => {
                 throw new Error('Task not found');
             });
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+            const serverProtocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -1632,7 +1632,7 @@ describe('Task-based execution', () => {
 
             mockTaskStore.getTask.mockResolvedValue(null);
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+            const serverProtocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -1680,7 +1680,7 @@ describe('Task-based execution', () => {
             mockTaskStore.updateTaskStatus.mockClear();
             mockTaskStore.getTask.mockResolvedValue(completedTask);
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+            const serverProtocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -1762,7 +1762,7 @@ describe('Task-based execution', () => {
                 params: {}
             });
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+            const serverProtocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -1812,7 +1812,7 @@ describe('Task-based execution', () => {
                 params: {}
             });
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+            const serverProtocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -1861,7 +1861,7 @@ describe('Task-based execution', () => {
                 params: {}
             });
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+            const serverProtocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -1898,7 +1898,7 @@ describe('Task-based execution', () => {
                 params: {}
             });
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+            const serverProtocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -1943,7 +1943,7 @@ describe('Task-based execution', () => {
 
             await mockTaskStore.storeTaskResult(task.taskId, 'completed', testResult);
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+            const serverProtocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -1986,7 +1986,7 @@ describe('Task-based execution', () => {
         it('should propagate related-task metadata to handler sendRequest and sendNotification', async () => {
             const mockTaskStore = createMockTaskStore();
 
-            const serverProtocol = new (class extends Protocol<Request, Notification, Result> {
+            const serverProtocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -2062,14 +2062,14 @@ describe('Task-based execution', () => {
 });
 
 describe('Request Cancellation vs Task Cancellation', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<RequestGeneric, NotificationGeneric, Result>;
     let transport: MockTransport;
     let taskStore: TaskStore;
 
     beforeEach(() => {
         transport = new MockTransport();
         taskStore = createMockTaskStore();
-        protocol = new (class extends Protocol<Request, Notification, Result> {
+        protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
@@ -2355,14 +2355,14 @@ describe('Request Cancellation vs Task Cancellation', () => {
 });
 
 describe('Progress notification support for tasks', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<RequestGeneric, NotificationGeneric, Result>;
     let transport: MockTransport;
     let sendSpy: MockInstance;
 
     beforeEach(() => {
         transport = new MockTransport();
         sendSpy = vi.spyOn(transport, 'send');
-        protocol = new (class extends Protocol<Request, Notification, Result> {
+        protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
@@ -2373,7 +2373,7 @@ describe('Progress notification support for tasks', () => {
 
     it('should maintain progress token association after CreateTaskResult is returned', async () => {
         const taskStore = createMockTaskStore();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
+        const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
@@ -2466,7 +2466,7 @@ describe('Progress notification support for tasks', () => {
 
     it('should stop progress notifications when task reaches terminal status (completed)', async () => {
         const taskStore = createMockTaskStore();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
+        const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
@@ -2601,7 +2601,7 @@ describe('Progress notification support for tasks', () => {
 
     it('should stop progress notifications when task reaches terminal status (failed)', async () => {
         const taskStore = createMockTaskStore();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
+        const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
@@ -2699,7 +2699,7 @@ describe('Progress notification support for tasks', () => {
 
     it('should stop progress notifications when task is cancelled', async () => {
         const taskStore = createMockTaskStore();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
+        const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
@@ -2794,7 +2794,7 @@ describe('Progress notification support for tasks', () => {
 
     it('should use the same progressToken throughout task lifetime', async () => {
         const taskStore = createMockTaskStore();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
+        const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
@@ -3063,7 +3063,7 @@ describe('Message interception for task-related notifications', () => {
     it('should queue notifications with io.modelcontextprotocol/related-task metadata', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
+        const server = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(_method: string): void {}
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
@@ -3100,7 +3100,7 @@ describe('Message interception for task-related notifications', () => {
     it('should not queue notifications without related-task metadata', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
+        const server = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(_method: string): void {}
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
@@ -3127,7 +3127,7 @@ describe('Message interception for task-related notifications', () => {
     it('should propagate queue overflow errors without failing the task', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
+        const server = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(_method: string): void {}
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
@@ -3174,7 +3174,7 @@ describe('Message interception for task-related notifications', () => {
     it('should extract task ID correctly from metadata', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
+        const server = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(_method: string): void {}
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
@@ -3207,7 +3207,7 @@ describe('Message interception for task-related notifications', () => {
     it('should preserve message order when queuing multiple notifications', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
+        const server = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(_method: string): void {}
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
@@ -3249,7 +3249,7 @@ describe('Message interception for task-related requests', () => {
     it('should queue requests with io.modelcontextprotocol/related-task metadata', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
+        const server = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(_method: string): void {}
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
@@ -3301,7 +3301,7 @@ describe('Message interception for task-related requests', () => {
     it('should not queue requests without related-task metadata', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
+        const server = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(_method: string): void {}
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
@@ -3340,7 +3340,7 @@ describe('Message interception for task-related requests', () => {
     it('should store request resolver for response routing', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
+        const server = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(_method: string): void {}
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
@@ -3393,7 +3393,7 @@ describe('Message interception for task-related requests', () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
         const queue = new InMemoryTaskMessageQueue();
-        const server = new (class extends Protocol<Request, Notification, Result> {
+        const server = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(_method: string): void {}
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
@@ -3458,7 +3458,7 @@ describe('Message interception for task-related requests', () => {
     it('should log error when resolver is missing for side-channeled request', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
+        const server = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(_method: string): void {}
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
@@ -3534,7 +3534,7 @@ describe('Message interception for task-related requests', () => {
     it('should propagate queue overflow errors for requests without failing the task', async () => {
         const taskStore = createMockTaskStore();
         const transport = new MockTransport();
-        const server = new (class extends Protocol<Request, Notification, Result> {
+        const server = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(_method: string): void {}
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
@@ -3588,14 +3588,14 @@ describe('Message interception for task-related requests', () => {
 });
 
 describe('Message Interception', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<RequestGeneric, NotificationGeneric, Result>;
     let transport: MockTransport;
     let mockTaskStore: TaskStore & { [K in keyof TaskStore]: MockInstance };
 
     beforeEach(() => {
         transport = new MockTransport();
         mockTaskStore = createMockTaskStore();
-        protocol = new (class extends Protocol<Request, Notification, Result> {
+        protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
@@ -4129,14 +4129,14 @@ describe('Message Interception', () => {
 });
 
 describe('Queue lifecycle management', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<RequestGeneric, NotificationGeneric, Result>;
     let transport: MockTransport;
     let mockTaskStore: TaskStore & { [K in keyof TaskStore]: MockInstance };
 
     beforeEach(() => {
         transport = new MockTransport();
         mockTaskStore = createMockTaskStore();
-        protocol = new (class extends Protocol<Request, Notification, Result> {
+        protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
@@ -4450,7 +4450,7 @@ describe('requestStream() method', () => {
 
     test('should yield result immediately for non-task requests', async () => {
         const transport = new MockTransport();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
+        const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
@@ -4493,7 +4493,7 @@ describe('requestStream() method', () => {
 
     test('should yield error message on request failure', async () => {
         const transport = new MockTransport();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
+        const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
@@ -4539,7 +4539,7 @@ describe('requestStream() method', () => {
 
     test('should handle cancellation via AbortSignal', async () => {
         const transport = new MockTransport();
-        const protocol = new (class extends Protocol<Request, Notification, Result> {
+        const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
             protected assertRequestHandlerCapability(): void {}
@@ -4577,7 +4577,7 @@ describe('requestStream() method', () => {
     describe('Error responses', () => {
         test('should yield error as terminal message for server error response', async () => {
             const transport = new MockTransport();
-            const protocol = new (class extends Protocol<Request, Notification, Result> {
+            const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -4619,7 +4619,7 @@ describe('requestStream() method', () => {
             vi.useFakeTimers();
             try {
                 const transport = new MockTransport();
-                const protocol = new (class extends Protocol<Request, Notification, Result> {
+                const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                     protected assertCapabilityForMethod(): void {}
                     protected assertNotificationCapability(): void {}
                     protected assertRequestHandlerCapability(): void {}
@@ -4657,7 +4657,7 @@ describe('requestStream() method', () => {
 
         test('should yield error as terminal message for cancellation', async () => {
             const transport = new MockTransport();
-            const protocol = new (class extends Protocol<Request, Notification, Result> {
+            const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -4690,7 +4690,7 @@ describe('requestStream() method', () => {
 
         test('should not yield any messages after error message', async () => {
             const transport = new MockTransport();
-            const protocol = new (class extends Protocol<Request, Notification, Result> {
+            const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -4742,7 +4742,7 @@ describe('requestStream() method', () => {
         test('should yield error as terminal message for task failure', async () => {
             const transport = new MockTransport();
             const mockTaskStore = createMockTaskStore();
-            const protocol = new (class extends Protocol<Request, Notification, Result> {
+            const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -4802,7 +4802,7 @@ describe('requestStream() method', () => {
 
         test('should yield error as terminal message for network error', async () => {
             const transport = new MockTransport();
-            const protocol = new (class extends Protocol<Request, Notification, Result> {
+            const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -4830,7 +4830,7 @@ describe('requestStream() method', () => {
 
         test('should ensure error is always the final message', async () => {
             const transport = new MockTransport();
-            const protocol = new (class extends Protocol<Request, Notification, Result> {
+            const protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
                 protected assertCapabilityForMethod(): void {}
                 protected assertNotificationCapability(): void {}
                 protected assertRequestHandlerCapability(): void {}
@@ -4875,7 +4875,7 @@ describe('requestStream() method', () => {
 });
 
 describe('Error handling for missing resolvers', () => {
-    let protocol: Protocol<Request, Notification, Result>;
+    let protocol: Protocol<RequestGeneric, NotificationGeneric, Result>;
     let transport: MockTransport;
     let taskStore: TaskStore & { [K in keyof TaskStore]: MockInstance };
     let taskMessageQueue: TaskMessageQueue;
@@ -4886,7 +4886,7 @@ describe('Error handling for missing resolvers', () => {
         taskMessageQueue = new InMemoryTaskMessageQueue();
         errorHandler = vi.fn();
 
-        protocol = new (class extends Protocol<Request, Notification, Result> {
+        protocol = new (class extends Protocol<RequestGeneric, NotificationGeneric, Result> {
             protected assertCapabilityForMethod(_method: string): void {}
             protected assertNotificationCapability(_method: string): void {}
             protected assertRequestHandlerCapability(_method: string): void {}
