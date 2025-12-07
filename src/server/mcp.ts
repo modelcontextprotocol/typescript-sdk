@@ -1136,7 +1136,7 @@ export class McpServer {
     /**
      * Registers a prompt with a config object and callback.
      */
-    registerPrompt<Args extends PromptArgsRawShape>(
+    registerPrompt<Args extends undefined | PromptArgsRawShape = undefined>(
         name: string,
         config: {
             title?: string;

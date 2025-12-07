@@ -146,7 +146,7 @@ export class Context<RequestT extends Request = Request, NotificationT extends N
      * This is used by certain transports to correctly associate related messages.
      */
     public sendNotification = (notification: NotificationT | ServerNotification): Promise<void> => {
-        return this.server.notification(notification);
+        return this.requestCtx.sendNotification(notification);
     };
 
     /**
@@ -159,7 +159,7 @@ export class Context<RequestT extends Request = Request, NotificationT extends N
         resultSchema: U,
         options?: RequestOptions
     ): Promise<SchemaOutput<U>> => {
-        return this.server.request(request, resultSchema, { ...options, relatedRequestId: this.requestId });
+        return this.requestCtx.sendRequest(request, resultSchema, { ...options, relatedRequestId: this.requestId });
     };
 
     /**

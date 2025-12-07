@@ -13,7 +13,6 @@ import {
 } from '../../src/types.js';
 import { InMemoryTransport } from '../../src/inMemory.js';
 import { RequestHandlerExtra } from '../../src/shared/protocol.js';
-import { ShapeOutput, ZodRawShapeCompat } from '../../src/server/zod-compat.js';
 
 describe('Context', () => {
     /***
@@ -243,15 +242,11 @@ describe('Context', () => {
                 'prompt',
                 (mcpServer, seen) => {
                     // The test is to ensure that the extra is compatible with the RequestHandlerExtra type
-                    mcpServer.registerPrompt(
-                        'ctx-prompt',
-                        {},
-                        async (args: ShapeOutput<ZodRawShapeCompat>, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => {
-                            seen.isContext = extra instanceof Context;
-                            seen.hasRequestId = !!extra.requestId;
-                            return { messages: [] };
-                        }
-                    );
+                    mcpServer.registerPrompt('ctx-prompt', {}, async (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => {
+                        seen.isContext = extra instanceof Context;
+                        seen.hasRequestId = !!extra.requestId;
+                        return { messages: [] };
+                    });
                 },
                 client => client.request({ method: 'prompts/get', params: { name: 'ctx-prompt', arguments: {} } }, GetPromptResultSchema)
             ]
