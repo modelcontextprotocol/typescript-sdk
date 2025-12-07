@@ -63,6 +63,7 @@ import { validateAndWarnToolName } from '../shared/toolNameValidation.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcp-server.js';
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ZodOptional } from 'zod';
+import { ContextInterface } from './context.js';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -324,7 +325,7 @@ export class McpServer {
     private async executeToolHandler(
         tool: RegisteredTool,
         args: unknown,
-        extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+        extra: ContextInterface<ServerRequest, ServerNotification>
     ): Promise<CallToolResult | CreateTaskResult> {
         const handler = tool.handler as AnyToolHandler<ZodRawShapeCompat | undefined>;
         const isTaskHandler = 'createTask' in handler;
@@ -1270,7 +1271,7 @@ export class ResourceTemplate {
 
 export type BaseToolCallback<
     SendResultT extends Result,
-    Extra extends RequestHandlerExtra<ServerRequest, ServerNotification>,
+    Extra extends ContextInterface<ServerRequest, ServerNotification>,
     Args extends undefined | ZodRawShapeCompat | AnySchema
 > = Args extends ZodRawShapeCompat
     ? (args: ShapeOutput<Args>, extra: Extra) => SendResultT | Promise<SendResultT>
@@ -1290,7 +1291,7 @@ export type BaseToolCallback<
  */
 export type ToolCallback<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> = BaseToolCallback<
     CallToolResult,
-    RequestHandlerExtra<ServerRequest, ServerNotification>,
+    ContextInterface<ServerRequest, ServerNotification>,
     Args
 >;
 
@@ -1409,7 +1410,7 @@ export type ResourceMetadata = Omit<Resource, 'uri' | 'name'>;
  * Callback to list all resources matching a given template.
  */
 export type ListResourcesCallback = (
-    extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+    extra: ContextInterface<ServerRequest, ServerNotification>
 ) => ListResourcesResult | Promise<ListResourcesResult>;
 
 /**
@@ -1417,7 +1418,7 @@ export type ListResourcesCallback = (
  */
 export type ReadResourceCallback = (
     uri: URL,
-    extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+    extra: ContextInterface<ServerRequest, ServerNotification>
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 export type RegisteredResource = {
@@ -1445,7 +1446,7 @@ export type RegisteredResource = {
 export type ReadResourceTemplateCallback = (
     uri: URL,
     variables: Variables,
-    extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+    extra: ContextInterface<ServerRequest, ServerNotification>
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 export type RegisteredResourceTemplate = {
@@ -1470,8 +1471,8 @@ export type RegisteredResourceTemplate = {
 type PromptArgsRawShape = ZodRawShapeCompat;
 
 export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefined> = Args extends PromptArgsRawShape
-    ? (args: ShapeOutput<Args>, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>
-    : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
+    ? (args: ShapeOutput<Args>, extra: ContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>
+    : (extra: ContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
 
 export type RegisteredPrompt = {
     title?: string;

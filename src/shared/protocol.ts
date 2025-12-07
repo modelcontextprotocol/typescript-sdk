@@ -231,6 +231,8 @@ export interface RequestTaskStore {
 
 /**
  * Extra data given to request handlers.
+ *
+ * @deprecated Use {@link ContextInterface} from {@link Context} instead. Future major versions will remove this type.
  */
 export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT extends Notification> = {
     /**
@@ -709,7 +711,15 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const taskCreationParams = request.params?.task;
         const taskStore = this._taskStore ? this.requestTaskStore(request, capturedTransport?.sessionId) : undefined;
 
-        const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = this.createRequestExtra({ request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra });
+        const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = this.createRequestExtra({
+            request,
+            taskStore,
+            relatedTaskId,
+            taskCreationParams,
+            abortController,
+            capturedTransport,
+            extra
+        });
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         Promise.resolve()
@@ -791,17 +801,15 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * Creates the RequestHandlerExtra passed to handlers. Subclasses may override to
      * provide a richer context object as long as it satisfies the same structural contract.
      */
-    protected createRequestExtra(
-        args: {
-            request: JSONRPCRequest,
-            taskStore: TaskStore | undefined,
-            relatedTaskId: string | undefined,
-            taskCreationParams: TaskCreationParams | undefined,
-            abortController: AbortController,
-            capturedTransport: Transport | undefined,
-            extra?: MessageExtraInfo
-        }
-    ): RequestHandlerExtra<SendRequestT, SendNotificationT> {
+    protected createRequestExtra(args: {
+        request: JSONRPCRequest;
+        taskStore: TaskStore | undefined;
+        relatedTaskId: string | undefined;
+        taskCreationParams: TaskCreationParams | undefined;
+        abortController: AbortController;
+        capturedTransport: Transport | undefined;
+        extra?: MessageExtraInfo;
+    }): RequestHandlerExtra<SendRequestT, SendNotificationT> {
         const { request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra } = args;
 
         return {

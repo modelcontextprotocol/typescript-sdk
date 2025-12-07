@@ -4,6 +4,7 @@ import {
     ElicitRequest,
     ElicitResult,
     ElicitResultSchema,
+    JSONRPCRequest,
     LoggingMessageNotification,
     Notification,
     Request,
@@ -12,16 +13,15 @@ import {
     RequestMeta,
     Result,
     ServerNotification,
-    ServerRequest,
-    ServerResult
+    ServerRequest
 } from '../types.js';
 import { RequestHandlerExtra, RequestOptions, RequestTaskStore } from '../shared/protocol.js';
 import { Server } from './index.js';
-import { RequestContext } from './requestContext.js';
 import { AuthInfo } from './auth/types.js';
 import { AnySchema, SchemaOutput } from './zod-compat.js';
 
-export interface ContextInterface<RequestT extends Request = Request, NotificationT extends Notification = Notification> extends RequestHandlerExtra<ServerRequest | RequestT, NotificationT | ServerNotification> {
+export interface ContextInterface<RequestT extends Request = Request, NotificationT extends Notification = Notification>
+    extends RequestHandlerExtra<ServerRequest | RequestT, NotificationT | ServerNotification> {
     elicit(params: ElicitRequest['params'], options?: RequestOptions): Promise<ElicitResult>;
     requestSampling: (params: CreateMessageRequest['params'], options?: RequestOptions) => Promise<CreateMessageResult>;
     log(params: LoggingMessageNotification['params'], sessionId?: string): Promise<void>;
@@ -35,11 +35,8 @@ export interface ContextInterface<RequestT extends Request = Request, Notificati
  *
  * Implements the RequestHandlerExtra interface for backwards compatibility.
  */
-export class Context<
-    RequestT extends Request = Request,
-    NotificationT extends Notification = Notification,
-    ResultT extends Result = Result
-> implements ContextInterface<RequestT, NotificationT>
+export class Context<RequestT extends Request = Request, NotificationT extends Notification = Notification, ResultT extends Result = Result>
+    implements ContextInterface<RequestT, NotificationT>
 {
     private readonly server: Server<RequestT, NotificationT, ResultT>;
 
@@ -47,20 +44,52 @@ export class Context<
      * The request context.
      * A type-safe context that is passed to request handlers.
      */
-    public readonly requestCtx: RequestContext< 
-        RequestT | ServerRequest,
-        NotificationT | ServerNotification,
-        ResultT | ServerResult
-    >;
+    private readonly requestCtx: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>;
+
+    /**
+     * The MCP context - Contains information about the current MCP request and session.
+     */
+    public readonly mcpContext: {
+        /**
+         * The JSON-RPC ID of the request being handled.
+         * This can be useful for tracking or logging purposes.
+         */
+        requestId: RequestId;
+        /**
+         * The method of the request.
+         */
+        method: string;
+        /**
+         * The metadata of the request.
+         */
+        _meta?: RequestMeta;
+        /**
+         * The session ID of the request.
+         */
+        sessionId?: string;
+    };
 
     constructor(args: {
         server: Server<RequestT, NotificationT, ResultT>;
-        requestCtx: RequestContext<RequestT | ServerRequest, NotificationT | ServerNotification, ResultT | ServerResult>;
+        request: JSONRPCRequest;
+        requestCtx: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>;
     }) {
         this.server = args.server;
         this.requestCtx = args.requestCtx;
+        this.mcpContext = {
+            requestId: args.requestCtx.requestId,
+            method: args.request.method,
+            _meta: args.requestCtx._meta,
+            sessionId: args.requestCtx.sessionId
+        };
     }
 
+    /**
+     * The JSON-RPC ID of the request being handled.
+     * This can be useful for tracking or logging purposes.
+     *
+     * @deprecated Use {@link mcpContext.requestId} instead.
+     */
     public get requestId(): RequestId {
         return this.requestCtx.requestId;
     }
@@ -77,12 +106,18 @@ export class Context<
         return this.requestCtx.requestInfo;
     }
 
+    /**
+     * @deprecated Use {@link mcpContext._meta} instead.
+     */
     public get _meta(): RequestMeta | undefined {
         return this.requestCtx._meta;
     }
 
+    /**
+     * @deprecated Use {@link mcpContext.sessionId} instead.
+     */
     public get sessionId(): string | undefined {
-        return this.requestCtx.sessionId;
+        return this.mcpContext.sessionId;
     }
 
     public get taskId(): string | undefined {
@@ -97,12 +132,12 @@ export class Context<
         return this.requestCtx.taskRequestedTtl ?? undefined;
     }
 
-    public closeSSEStream = (): void => {
-        return this.requestCtx?.closeSSEStream();
+    public get closeSSEStream(): (() => void) | undefined {
+        return this.requestCtx.closeSSEStream;
     }
 
-    public closeStandaloneSSEStream = (): void => {
-        return this.requestCtx?.closeStandaloneSSEStream();
+    public get closeStandaloneSSEStream(): (() => void) | undefined {
+        return this.requestCtx.closeStandaloneSSEStream;
     }
 
     /**
@@ -111,7 +146,7 @@ export class Context<
      * This is used by certain transports to correctly associate related messages.
      */
     public sendNotification = (notification: NotificationT | ServerNotification): Promise<void> => {
-        return this.requestCtx.sendNotification(notification);
+        return this.server.notification(notification);
     };
 
     /**
@@ -124,7 +159,7 @@ export class Context<
         resultSchema: U,
         options?: RequestOptions
     ): Promise<SchemaOutput<U>> => {
-        return this.requestCtx.sendRequest(request, resultSchema, { ...options, relatedRequestId: this.requestId });
+        return this.server.request(request, resultSchema, { ...options, relatedRequestId: this.requestId });
     };
 
     /**
