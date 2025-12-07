@@ -709,43 +709,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const taskCreationParams = request.params?.task;
         const taskStore = this._taskStore ? this.requestTaskStore(request, capturedTransport?.sessionId) : undefined;
 
-        const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
-            signal: abortController.signal,
-            sessionId: capturedTransport?.sessionId,
-            _meta: request.params?._meta,
-            sendNotification: async notification => {
-                // Include related-task metadata if this request is part of a task
-                const notificationOptions: NotificationOptions = { relatedRequestId: request.id };
-                if (relatedTaskId) {
-                    notificationOptions.relatedTask = { taskId: relatedTaskId };
-                }
-                await this.notification(notification, notificationOptions);
-            },
-            sendRequest: async (r, resultSchema, options?) => {
-                // Include related-task metadata if this request is part of a task
-                const requestOptions: RequestOptions = { ...options, relatedRequestId: request.id };
-                if (relatedTaskId && !requestOptions.relatedTask) {
-                    requestOptions.relatedTask = { taskId: relatedTaskId };
-                }
-
-                // Set task status to input_required when sending a request within a task context
-                // Use the taskId from options (explicit) or fall back to relatedTaskId (inherited)
-                const effectiveTaskId = requestOptions.relatedTask?.taskId ?? relatedTaskId;
-                if (effectiveTaskId && taskStore) {
-                    await taskStore.updateTaskStatus(effectiveTaskId, 'input_required');
-                }
-
-                return await this.request(r, resultSchema, requestOptions);
-            },
-            authInfo: extra?.authInfo,
-            requestId: request.id,
-            requestInfo: extra?.requestInfo,
-            taskId: relatedTaskId,
-            taskStore: taskStore,
-            taskRequestedTtl: taskCreationParams?.ttl,
-            closeSSEStream: extra?.closeSSEStream,
-            closeStandaloneSSEStream: extra?.closeStandaloneSSEStream
-        };
+        const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = this.createRequestExtra({ request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra });
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         Promise.resolve()
@@ -821,6 +785,62 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             .finally(() => {
                 this._requestHandlerAbortControllers.delete(request.id);
             });
+    }
+
+    /**
+     * Creates the RequestHandlerExtra passed to handlers. Subclasses may override to
+     * provide a richer context object as long as it satisfies the same structural contract.
+     */
+    protected createRequestExtra(
+        args: {
+            request: JSONRPCRequest,
+            taskStore: TaskStore | undefined,
+            relatedTaskId: string | undefined,
+            taskCreationParams: TaskCreationParams | undefined,
+            abortController: AbortController,
+            capturedTransport: Transport | undefined,
+            extra?: MessageExtraInfo
+        }
+    ): RequestHandlerExtra<SendRequestT, SendNotificationT> {
+        const { request, taskStore, relatedTaskId, taskCreationParams, abortController, capturedTransport, extra } = args;
+
+        return {
+            signal: abortController.signal,
+            sessionId: capturedTransport?.sessionId,
+            _meta: request.params?._meta,
+            sendNotification: async notification => {
+                // Include related-task metadata if this request is part of a task
+                const notificationOptions: NotificationOptions = { relatedRequestId: request.id };
+                if (relatedTaskId) {
+                    notificationOptions.relatedTask = { taskId: relatedTaskId };
+                }
+                await this.notification(notification, notificationOptions);
+            },
+            sendRequest: async (r, resultSchema, options?) => {
+                // Include related-task metadata if this request is part of a task
+                const requestOptions: RequestOptions = { ...options, relatedRequestId: request.id };
+                if (relatedTaskId && !requestOptions.relatedTask) {
+                    requestOptions.relatedTask = { taskId: relatedTaskId };
+                }
+
+                // Set task status to input_required when sending a request within a task context
+                // Use the taskId from options (explicit) or fall back to relatedTaskId (inherited)
+                const effectiveTaskId = requestOptions.relatedTask?.taskId ?? relatedTaskId;
+                if (effectiveTaskId && taskStore) {
+                    await taskStore.updateTaskStatus(effectiveTaskId, 'input_required');
+                }
+
+                return await this.request(r, resultSchema, requestOptions);
+            },
+            authInfo: extra?.authInfo,
+            requestId: request.id,
+            requestInfo: extra?.requestInfo,
+            taskId: relatedTaskId,
+            taskStore: taskStore,
+            taskRequestedTtl: taskCreationParams?.ttl,
+            closeSSEStream: extra?.closeSSEStream,
+            closeStandaloneSSEStream: extra?.closeStandaloneSSEStream
+        } as RequestHandlerExtra<SendRequestT, SendNotificationT>;
     }
 
     private _onprogress(notification: ProgressNotification): void {
