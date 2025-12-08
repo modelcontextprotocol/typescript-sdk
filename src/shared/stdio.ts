@@ -4,7 +4,7 @@ import { JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
  * Buffers a continuous stdio stream into discrete JSON-RPC messages.
  */
 export class ReadBuffer {
-    private _validLines: string[] = [];
+    private _validLines: object[] = [];
     private _lastIncompleteLine: string = '';
 
     append(chunk: Buffer): void {
@@ -31,28 +31,31 @@ export class ReadBuffer {
 
         // The last element may be incomplete, so store it for the next chunk
         this._lastIncompleteLine = newLines.pop() ?? '';
-        const completedLines = newLines.filter(looksLikeJson);
+        const completedLines = newLines.map(safeJsonParse).filter(Boolean) as object[];
         this._validLines.push(...completedLines);
     }
 }
 
 /**
- *  Checks if a line looks like a JSON object.
- * @param line  The line to check.
- * @returns True if the line looks like a JSON object, false otherwise.
+ *  Safely parses a JSON string, returning false if parsing fails.
+ * @param line The JSON string to parse.
+ * @returns The parsed object, or false if parsing failed.
  */
-function looksLikeJson(line: string): boolean {
-    const trimmed = line.trim();
-    return trimmed.startsWith('{') && trimmed.endsWith('}');
+function safeJsonParse(line: string): object | false {
+    try {
+        return JSON.parse(line);
+    } catch {
+        return false;
+    }
 }
 
 /**
- *  Deserializes a JSON-RPC message from a string.
- * @param line  The string to deserialize.
+ *  Deserializes a JSON-RPC message from object.
+ * @param line  The object to deserialize.
  * @returns The deserialized JSON-RPC message.
  */
-export function deserializeMessage(line: string): JSONRPCMessage | null {
-    return JSONRPCMessageSchema.parse(JSON.parse(line));
+export function deserializeMessage(line: object): JSONRPCMessage | null {
+    return JSONRPCMessageSchema.parse(line);
 }
 
 /**

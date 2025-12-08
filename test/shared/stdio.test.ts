@@ -110,6 +110,17 @@ describe('non-JSON line filtering', () => {
         expect(readBuffer.readMessage()).toBeNull();
     });
 
+    test('should filter out lines which looks like JSON but are not valid JSON', () => {
+        const readBuffer = new ReadBuffer();
+
+        const content = '{invalidJson: true}\n' + JSON.stringify(testMessage) + '\n';
+        readBuffer.append(Buffer.from(content));
+
+        // Should only get the valid message, invalid JSON line filtered out
+        expect(readBuffer.readMessage()).toEqual(testMessage);
+        expect(readBuffer.readMessage()).toBeNull();
+    });
+
     test('should handle lines with leading/trailing whitespace around valid JSON', () => {
         const readBuffer = new ReadBuffer();
 
