@@ -51,7 +51,7 @@ Examples:
 - [`simpleOAuthClient.ts`](../src/examples/client/simpleOAuthClient.ts)
 - [`simpleOAuthClientProvider.ts`](../src/examples/client/simpleOAuthClientProvider.ts)
 - [`simpleClientCredentials.ts`](../src/examples/client/simpleClientCredentials.ts)
-- Server-side auth demo: [`demoInMemoryOAuthProvider.ts`](../src/examples/server/demoInMemoryOAuthProvider.ts)
+- Server-side auth demo: [`demoInMemoryOAuthProvider.ts`](../src/examples/server/demoInMemoryOAuthProvider.ts) (tests live under `test/examples/server/demoInMemoryOAuthProvider.test.ts`)
 
 These examples show how to:
 
