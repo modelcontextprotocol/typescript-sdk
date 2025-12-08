@@ -184,7 +184,6 @@ export class StreamableHTTPServerTransport implements Transport {
     private _allowedOrigins?: string[];
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
-    private _protocolVersion?: string;
 
     sessionId?: string;
     onclose?: () => void;
@@ -212,21 +211,6 @@ export class StreamableHTTPServerTransport implements Transport {
             throw new Error('Transport already started');
         }
         this._started = true;
-    }
-
-    /**
-     * Sets the protocol version after negotiation during initialization.
-     * This is called by the Server class after the initialize handshake completes.
-     */
-    setProtocolVersion(version: string): void {
-        this._protocolVersion = version;
-    }
-
-    /**
-     * Gets the negotiated protocol version, if set.
-     */
-    get protocolVersion(): string | undefined {
-        return this._protocolVersion;
     }
 
     /**
