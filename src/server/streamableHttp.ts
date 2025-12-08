@@ -794,19 +794,32 @@ export class StreamableHTTPServerTransport implements Transport {
         return true;
     }
 
+    /**
+     * Validates the MCP-Protocol-Version header on incoming requests.
+     *
+     * For initialization: Version negotiation handles unknown versions gracefully
+     * (server responds with its supported version).
+     *
+     * For subsequent requests with MCP-Protocol-Version header:
+     * - Accept if in supported list
+     * - 400 if unsupported
+     *
+     * For HTTP requests without the MCP-Protocol-Version header:
+     * - Accept and default to the version negotiated at initialization
+     */
     private validateProtocolVersion(req: IncomingMessage, res: ServerResponse): boolean {
-        let protocolVersion = req.headers['mcp-protocol-version'] ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION;
+        let protocolVersion = req.headers['mcp-protocol-version'];
         if (Array.isArray(protocolVersion)) {
             protocolVersion = protocolVersion[protocolVersion.length - 1];
         }
 
-        if (!SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)) {
+        if (protocolVersion !== undefined && !SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)) {
             res.writeHead(400).end(
                 JSON.stringify({
                     jsonrpc: '2.0',
                     error: {
                         code: -32000,
-                        message: `Bad Request: Unsupported protocol version (supported versions: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')})`
+                        message: `Bad Request: Unsupported protocol version: ${protocolVersion} (supported versions: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')})`
                     },
                     id: null
                 })

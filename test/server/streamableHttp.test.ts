@@ -55,10 +55,21 @@ const TEST_MESSAGES = {
         method: 'initialize',
         params: {
             clientInfo: { name: 'test-client', version: '1.0' },
-            protocolVersion: '2025-03-26',
+            protocolVersion: '2025-11-25',
             capabilities: {}
         },
+        id: 'init-1'
+    } as JSONRPCMessage,
 
+    // Initialize message with an older protocol version for backward compatibility tests
+    initializeOldVersion: {
+        jsonrpc: '2.0',
+        method: 'initialize',
+        params: {
+            clientInfo: { name: 'test-client', version: '1.0' },
+            protocolVersion: '2025-06-18',
+            capabilities: {}
+        },
         id: 'init-1'
     } as JSONRPCMessage,
 
@@ -98,8 +109,7 @@ async function sendPostRequest(
 
     if (sessionId) {
         headers['mcp-session-id'] = sessionId;
-        // After initialization, include the protocol version header
-        headers['mcp-protocol-version'] = '2025-03-26';
+        headers['mcp-protocol-version'] = '2025-11-25';
     }
 
     return fetch(baseUrl, {
@@ -460,7 +470,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 headers: {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -501,7 +511,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 headers: {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -533,7 +543,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 headers: {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -545,7 +555,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 headers: {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -564,7 +574,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 headers: {
                     Accept: 'application/json',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -758,7 +768,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 headers: {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -796,7 +806,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 method: 'DELETE',
                 headers: {
                     'mcp-session-id': tempSessionId || '',
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -815,7 +825,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 method: 'DELETE',
                 headers: {
                     'mcp-session-id': 'invalid-session-id',
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -869,14 +879,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
                 expect(response.status).toBe(400);
                 const errorData = await response.json();
-                expectErrorResponse(errorData, -32000, /Bad Request: Unsupported protocol version \(supported versions: .+\)/);
+                expectErrorResponse(errorData, -32000, /Bad Request: Unsupported protocol version: .+ \(supported versions: .+\)/);
             });
 
             it('should accept when protocol version differs from negotiated version', async () => {
                 sessionId = await initializeServer();
-
-                // Spy on console.warn to verify warning is logged
-                const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
                 // Send request with different but supported protocol version
                 const response = await fetch(baseUrl, {
@@ -892,11 +899,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
                 // Request should still succeed
                 expect(response.status).toBe(200);
-
-                warnSpy.mockRestore();
             });
 
-            it('should handle protocol version validation for GET requests', async () => {
+            it('should reject unsupported protocol version on GET requests', async () => {
                 sessionId = await initializeServer();
 
                 // GET request with unsupported protocol version
@@ -905,16 +910,16 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     headers: {
                         Accept: 'text/event-stream',
                         'mcp-session-id': sessionId,
-                        'mcp-protocol-version': 'invalid-version'
+                        'mcp-protocol-version': '1999-01-01' // Unsupported version
                     }
                 });
 
                 expect(response.status).toBe(400);
                 const errorData = await response.json();
-                expectErrorResponse(errorData, -32000, /Bad Request: Unsupported protocol version \(supported versions: .+\)/);
+                expectErrorResponse(errorData, -32000, /Bad Request: Unsupported protocol version/);
             });
 
-            it('should handle protocol version validation for DELETE requests', async () => {
+            it('should reject unsupported protocol version on DELETE requests', async () => {
                 sessionId = await initializeServer();
 
                 // DELETE request with unsupported protocol version
@@ -922,13 +927,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     method: 'DELETE',
                     headers: {
                         'mcp-session-id': sessionId,
-                        'mcp-protocol-version': 'invalid-version'
+                        'mcp-protocol-version': '1999-01-01' // Unsupported version
                     }
                 });
 
                 expect(response.status).toBe(400);
                 const errorData = await response.json();
-                expectErrorResponse(errorData, -32000, /Bad Request: Unsupported protocol version \(supported versions: .+\)/);
+                expectErrorResponse(errorData, -32000, /Bad Request: Unsupported protocol version/);
             });
         });
     });
@@ -1325,7 +1330,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 headers: {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -1370,7 +1375,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 headers: {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
             expect(sseResponse.status).toBe(200);
@@ -1404,7 +1409,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 headers: {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26',
+                    'mcp-protocol-version': '2025-11-25',
                     'last-event-id': firstEventId
                 }
             });
@@ -1428,7 +1433,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 headers: {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
             expect(sseResponse.status).toBe(200);
@@ -1461,7 +1466,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 headers: {
                     Accept: 'text/event-stream',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26',
+                    'mcp-protocol-version': '2025-11-25',
                     'last-event-id': lastEventId
                 }
             });
@@ -1565,7 +1570,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 method: 'GET',
                 headers: {
                     Accept: 'text/event-stream',
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
             expect(stream1.status).toBe(200);
@@ -1575,7 +1580,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 method: 'GET',
                 headers: {
                     Accept: 'text/event-stream',
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
             expect(stream2.status).toBe(409); // Conflict - only one stream allowed
@@ -1692,12 +1697,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             baseUrl = result.baseUrl;
             mcpServer = result.mcpServer;
 
-            // Initialize to get session ID
-            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+            // Initialize with OLD protocol version to get session ID
+            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initializeOldVersion);
             sessionId = initResponse.headers.get('mcp-session-id') as string;
             expect(sessionId).toBeDefined();
 
-            // Send a tool call request with OLD protocol version
+            // Send a tool call request with the same OLD protocol version
             const toolCallRequest: JSONRPCMessage = {
                 jsonrpc: '2.0',
                 id: 100,
@@ -1932,12 +1937,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 return { content: [{ type: 'text', text: 'Done' }] };
             });
 
-            // Initialize to get session ID
-            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+            // Initialize with OLD protocol version to get session ID
+            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initializeOldVersion);
             sessionId = initResponse.headers.get('mcp-session-id') as string;
             expect(sessionId).toBeDefined();
 
-            // Call the tool with OLD protocol version
+            // Call the tool with the same OLD protocol version
             const toolCallRequest: JSONRPCMessage = {
                 jsonrpc: '2.0',
                 id: 200,
@@ -2009,7 +2014,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     'Content-Type': 'application/json',
                     Accept: 'text/event-stream, application/json',
                     'mcp-session-id': sessionId,
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 },
                 body: JSON.stringify(toolCallRequest)
             });
@@ -2307,7 +2312,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 method: 'DELETE',
                 headers: {
                     'mcp-session-id': tempSessionId || '',
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -2367,7 +2372,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 method: 'DELETE',
                 headers: {
                     'mcp-session-id': 'invalid-session-id',
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -2415,7 +2420,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 method: 'DELETE',
                 headers: {
                     'mcp-session-id': sessionId1 || '',
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -2428,7 +2433,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 method: 'DELETE',
                 headers: {
                     'mcp-session-id': sessionId2 || '',
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -2527,7 +2532,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 method: 'DELETE',
                 headers: {
                     'mcp-session-id': tempSessionId || '',
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -2588,7 +2593,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 method: 'DELETE',
                 headers: {
                     'mcp-session-id': tempSessionId || '',
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
@@ -2632,7 +2637,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 method: 'DELETE',
                 headers: {
                     'mcp-session-id': tempSessionId || '',
-                    'mcp-protocol-version': '2025-03-26'
+                    'mcp-protocol-version': '2025-11-25'
                 }
             });
 
