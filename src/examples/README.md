@@ -155,7 +155,7 @@ npx tsx src/examples/client/elicitationUrlExample.ts
 
 #### Deprecated SSE Transport
 
-A server that implements the deprecated HTTP+SSE transport (protocol version 2024-11-05). This example only used for testing backwards compatibility for clients.
+A server that implements the deprecated HTTP+SSE transport (protocol version 2024-11-05). This example is only used for testing backwards compatibility for clients.
 
 - Two separate endpoints: `/mcp` for the SSE stream (GET) and `/messages` for client messages (POST)
 - Tool implementation with a `start-notification-stream` tool that demonstrates sending periodic notifications
