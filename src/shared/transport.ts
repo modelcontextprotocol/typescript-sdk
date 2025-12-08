@@ -122,7 +122,14 @@ export interface Transport {
     sessionId?: string;
 
     /**
-     * Sets the protocol version used for the connection (called when the initialize response is received).
+     * Sets the protocol version after negotiation during initialization.
+     * This is called by the Server/Client class after the initialize handshake completes.
      */
     setProtocolVersion?: (version: string) => void;
+
+    /**
+     * Gets the negotiated protocol version, if set.
+     * Available after initialization completes.
+     */
+    protocolVersion?: string;
 }

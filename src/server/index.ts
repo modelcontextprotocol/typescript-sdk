@@ -442,6 +442,12 @@ export class Server<
 
         const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion) ? requestedVersion : LATEST_PROTOCOL_VERSION;
 
+        // Inform the transport of the negotiated protocol version.
+        // This allows the transport to validate subsequent request headers.
+        if (this.transport?.setProtocolVersion) {
+            this.transport.setProtocolVersion(protocolVersion);
+        }
+
         return {
             protocolVersion,
             capabilities: this.getCapabilities(),
