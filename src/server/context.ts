@@ -179,20 +179,22 @@ export class Context<RequestT extends Request = Request, NotificationT extends N
           }
         | undefined;
 
-    public readonly stream: {
-        /**
-         * Closes the SSE stream for this request, triggering client reconnection.
-         * Only available when using StreamableHTTPServerTransport with eventStore configured.
-         * Use this to implement polling behavior during long-running operations.
-         */
-        closeSSEStream: (() => void) | undefined;
-        /**
-         * Closes the standalone GET SSE stream, triggering client reconnection.
-         * Only available when using StreamableHTTPServerTransport with eventStore configured.
-         * Use this to implement polling behavior for server-initiated notifications.
-         */
-        closeStandaloneSSEStream: (() => void) | undefined;
-    } | undefined;
+    public readonly stream:
+        | {
+              /**
+               * Closes the SSE stream for this request, triggering client reconnection.
+               * Only available when using StreamableHTTPServerTransport with eventStore configured.
+               * Use this to implement polling behavior during long-running operations.
+               */
+              closeSSEStream: (() => void) | undefined;
+              /**
+               * Closes the standalone GET SSE stream, triggering client reconnection.
+               * Only available when using StreamableHTTPServerTransport with eventStore configured.
+               * Use this to implement polling behavior for server-initiated notifications.
+               */
+              closeStandaloneSSEStream: (() => void) | undefined;
+          }
+        | undefined;
 
     public readonly logger: LoggingMessageSenderInterface;
 
