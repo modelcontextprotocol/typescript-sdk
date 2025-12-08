@@ -58,7 +58,6 @@ const TEST_MESSAGES = {
             protocolVersion: '2025-11-25',
             capabilities: {}
         },
-
         id: 'init-1'
     } as JSONRPCMessage,
 
@@ -71,7 +70,6 @@ const TEST_MESSAGES = {
             protocolVersion: '2025-06-18',
             capabilities: {}
         },
-
         id: 'init-1'
     } as JSONRPCMessage,
 
@@ -106,13 +104,12 @@ async function sendPostRequest(
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         Accept: 'application/json, text/event-stream',
-        // Include protocol version header (best practice per spec)
-        'mcp-protocol-version': '2025-11-25',
         ...extraHeaders
     };
 
     if (sessionId) {
         headers['mcp-session-id'] = sessionId;
+        headers['mcp-protocol-version'] = '2025-11-25';
     }
 
     return fetch(baseUrl, {
