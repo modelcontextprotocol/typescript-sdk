@@ -138,8 +138,8 @@ describe('Context', () => {
         });
 
         mcpServer.registerTool('ctx-log-test', { inputSchema: z.object({ name: z.string() }) }, async (_args: { name: string }, extra) => {
-            await extra.logger[level]('Test message', { test: 'test' }, 'sample-session-id');
-            await extra.logger.log(
+            await extra.loggingNotification[level]('Test message', { test: 'test' }, 'sample-session-id');
+            await extra.loggingNotification.log(
                 {
                     level,
                     data: 'Test message',

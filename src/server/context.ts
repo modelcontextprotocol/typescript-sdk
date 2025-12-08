@@ -23,7 +23,7 @@ import { AnySchema, SchemaOutput } from './zod-compat.js';
 /**
  * Interface for sending logging messages to the client via {@link LoggingMessageNotification}.
  */
-export interface LoggingMessageSenderInterface {
+export interface LoggingMessageNotificationSenderInterface {
     /**
      * Sends a logging message to the client.
      */
@@ -46,7 +46,7 @@ export interface LoggingMessageSenderInterface {
     error(message: string, extraLogData?: Record<string, unknown>, sessionId?: string): Promise<void>;
 }
 
-export class ServerLogger implements LoggingMessageSenderInterface {
+export class ServerLogger implements LoggingMessageNotificationSenderInterface {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(private readonly server: Server<any, any, any>) {}
 
@@ -130,7 +130,7 @@ export interface ContextInterface<RequestT extends Request = Request, Notificati
     extends RequestHandlerExtra<ServerRequest | RequestT, NotificationT | ServerNotification> {
     elicitInput(params: ElicitRequest['params'], options?: RequestOptions): Promise<ElicitResult>;
     requestSampling: (params: CreateMessageRequest['params'], options?: RequestOptions) => Promise<CreateMessageResult>;
-    logger: LoggingMessageSenderInterface;
+    loggingNotification: LoggingMessageNotificationSenderInterface;
 }
 /**
  * A context object that is passed to request handlers.
@@ -196,7 +196,7 @@ export class Context<RequestT extends Request = Request, NotificationT extends N
           }
         | undefined;
 
-    public readonly logger: LoggingMessageSenderInterface;
+    public readonly loggingNotification: LoggingMessageNotificationSenderInterface;
 
     constructor(args: {
         server: Server<RequestT, NotificationT, ResultT>;
@@ -218,7 +218,7 @@ export class Context<RequestT extends Request = Request, NotificationT extends N
             requestedTtl: args.requestCtx.taskRequestedTtl
         };
 
-        this.logger = new ServerLogger(args.server);
+        this.loggingNotification = new ServerLogger(args.server);
 
         this.stream = {
             closeSSEStream: args.requestCtx.closeSSEStream,
