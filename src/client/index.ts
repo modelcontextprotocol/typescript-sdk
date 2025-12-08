@@ -46,8 +46,8 @@ import {
     ListChangedOptions,
     ListChangedOptionsBaseSchema,
     type ListChangedHandlers,
-    type RequestGeneric,
-    type NotificationGeneric,
+    type Request,
+    type Notification,
     type Result
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
@@ -231,8 +231,8 @@ export type ClientOptions = ProtocolOptions & {
  * ```
  */
 export class Client<
-    RequestT extends RequestGeneric = RequestGeneric,
-    NotificationT extends NotificationGeneric = NotificationGeneric,
+    RequestT extends Request = Request,
+    NotificationT extends Notification = Notification,
     ResultT extends Result = Result
 > extends Protocol<ClientRequest | RequestT, ClientNotification | NotificationT, ClientResult | ResultT> {
     private _serverCapabilities?: ServerCapabilities;

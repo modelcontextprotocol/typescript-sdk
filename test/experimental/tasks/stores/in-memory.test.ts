@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../../../../src/experimental/tasks/stores/in-memory.js';
-import { TaskCreationParams, RequestGeneric } from '../../../../src/types.js';
+import { TaskCreationParams, Request } from '../../../../src/types.js';
 import { QueuedMessage } from '../../../../src/experimental/tasks/interfaces.js';
 
 describe('InMemoryTaskStore', () => {
@@ -19,7 +19,7 @@ describe('InMemoryTaskStore', () => {
             const taskParams: TaskCreationParams = {
                 ttl: 60000
             };
-            const request: RequestGeneric = {
+            const request: Request = {
                 method: 'tools/call',
                 params: { name: 'test-tool' }
             };
@@ -39,7 +39,7 @@ describe('InMemoryTaskStore', () => {
 
         it('should create task without ttl', async () => {
             const taskParams: TaskCreationParams = {};
-            const request: RequestGeneric = {
+            const request: Request = {
                 method: 'tools/call',
                 params: {}
             };
@@ -52,7 +52,7 @@ describe('InMemoryTaskStore', () => {
 
         it('should generate unique taskIds', async () => {
             const taskParams: TaskCreationParams = {};
-            const request: RequestGeneric = {
+            const request: Request = {
                 method: 'tools/call',
                 params: {}
             };
@@ -72,7 +72,7 @@ describe('InMemoryTaskStore', () => {
 
         it('should return task state', async () => {
             const taskParams: TaskCreationParams = {};
-            const request: RequestGeneric = {
+            const request: Request = {
                 method: 'tools/call',
                 params: {}
             };

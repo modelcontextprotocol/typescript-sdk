@@ -521,7 +521,11 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    JSONRPCError: (sdk: SDKTypes.JSONRPCError, spec: SpecTypes.JSONRPCError) => {
+    JSONRPCErrorResponse: (sdk: SDKTypes.JSONRPCErrorResponse, spec: SpecTypes.JSONRPCErrorResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    JSONRPCResultResponse: (sdk: SDKTypes.JSONRPCResultResponse, spec: SpecTypes.JSONRPCResultResponse) => {
         sdk = spec;
         spec = sdk;
     },
@@ -614,6 +618,74 @@ const sdkTypeChecks = {
     Role: (sdk: SDKTypes.Role, spec: SpecTypes.Role) => {
         sdk = spec;
         spec = sdk;
+    },
+    TaskAugmentedRequestParams: (sdk: SDKTypes.TaskAugmentedRequestParams, spec: SpecTypes.TaskAugmentedRequestParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ToolExecution: (sdk: SDKTypes.ToolExecution, spec: SpecTypes.ToolExecution) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    TaskStatus: (sdk: SDKTypes.TaskStatus, spec: SpecTypes.TaskStatus) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    TaskMetadata: (sdk: SDKTypes.TaskMetadata, spec: SpecTypes.TaskMetadata) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    RelatedTaskMetadata: (sdk: SDKTypes.RelatedTaskMetadata, spec: SpecTypes.RelatedTaskMetadata) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    Task: (sdk: SDKTypes.Task, spec: SpecTypes.Task) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CreateTaskResult: (sdk: SDKTypes.CreateTaskResult, spec: SpecTypes.CreateTaskResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    GetTaskResult: (sdk: SDKTypes.GetTaskResult, spec: SpecTypes.GetTaskResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    GetTaskPayloadRequest: (sdk: WithJSONRPCRequest<SDKTypes.GetTaskPayloadRequest>, spec: SpecTypes.GetTaskPayloadRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListTasksRequest: (sdk: WithJSONRPCRequest<SDKTypes.ListTasksRequest>, spec: SpecTypes.ListTasksRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListTasksResult: (sdk: SDKTypes.ListTasksResult, spec: SpecTypes.ListTasksResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CancelTaskRequest: (sdk: WithJSONRPCRequest<SDKTypes.CancelTaskRequest>, spec: SpecTypes.CancelTaskRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CancelTaskResult: (sdk: SDKTypes.CancelTaskResult, spec: SpecTypes.CancelTaskResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    GetTaskRequest: (sdk: WithJSONRPCRequest<SDKTypes.GetTaskRequest>, spec: SpecTypes.GetTaskRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    GetTaskPayloadResult: (sdk: SDKTypes.GetTaskPayloadResult, spec: SpecTypes.GetTaskPayloadResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    TaskStatusNotificationParams: (sdk: SDKTypes.TaskStatusNotificationParams, spec: SpecTypes.TaskStatusNotificationParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    TaskStatusNotification: (sdk: WithJSONRPC<SDKTypes.TaskStatusNotification>, spec: SpecTypes.TaskStatusNotification) => {
+        sdk = spec;
+        spec = sdk;
     }
 };
 
@@ -639,7 +711,7 @@ describe('Spec Types', () => {
     it('should define some expected types', () => {
         expect(specTypes).toContain('JSONRPCNotification');
         expect(specTypes).toContain('ElicitResult');
-        expect(specTypes).toHaveLength(127);
+        expect(specTypes).toHaveLength(145);
     });
 
     it('should have up to date list of missing sdk types', () => {
@@ -657,6 +729,7 @@ describe('Spec Types', () => {
             }
         }
 
+        console.log(missingTests);
         expect(missingTests).toHaveLength(0);
     });
 

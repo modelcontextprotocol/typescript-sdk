@@ -9,14 +9,14 @@ import {
     Result,
     JSONRPCRequest,
     JSONRPCNotification,
-    JSONRPCResponse,
-    JSONRPCError,
+    JSONRPCResultResponse,
+    JSONRPCErrorResponse,
     ServerRequest,
     ServerNotification,
     CallToolResult,
     GetTaskResult,
     ToolExecution,
-    RequestGeneric
+    Request
 } from '../../types.js';
 import { CreateTaskResult } from './types.js';
 import type { RequestHandlerExtra, RequestTaskStore } from '../../shared/protocol.js';
@@ -124,13 +124,13 @@ export interface QueuedNotification extends BaseQueuedMessage {
 export interface QueuedResponse extends BaseQueuedMessage {
     type: 'response';
     /** The actual JSONRPC response */
-    message: JSONRPCResponse;
+    message: JSONRPCResultResponse;
 }
 
 export interface QueuedError extends BaseQueuedMessage {
     type: 'error';
     /** The actual JSONRPC error */
-    message: JSONRPCError;
+    message: JSONRPCErrorResponse;
 }
 
 /**
@@ -226,7 +226,7 @@ export interface TaskStore {
      * @param sessionId - Optional session ID for binding the task to a specific session
      * @returns The created task object
      */
-    createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: RequestGeneric, sessionId?: string): Promise<Task>;
+    createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request, sessionId?: string): Promise<Task>;
 
     /**
      * Gets the current status of a task.

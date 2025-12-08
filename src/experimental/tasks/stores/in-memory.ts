@@ -5,13 +5,13 @@
  * @experimental
  */
 
-import { Task, RequestId, Result, RequestGeneric } from '../../../types.js';
+import { Task, RequestId, Result, Request } from '../../../types.js';
 import { TaskStore, isTerminal, TaskMessageQueue, QueuedMessage, CreateTaskOptions } from '../interfaces.js';
 import { randomBytes } from 'node:crypto';
 
 interface StoredTask {
     task: Task;
-    request: RequestGeneric;
+    request: Request;
     requestId: RequestId;
     result?: Result;
 }
@@ -39,7 +39,7 @@ export class InMemoryTaskStore implements TaskStore {
         return randomBytes(16).toString('hex');
     }
 
-    async createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: RequestGeneric, _sessionId?: string): Promise<Task> {
+    async createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request, _sessionId?: string): Promise<Task> {
         // Generate a unique task ID
         const taskId = this.generateTaskId();
 

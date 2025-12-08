@@ -38,8 +38,8 @@ import {
     CallToolRequestSchema,
     CallToolResultSchema,
     CreateTaskResultSchema,
-    type RequestGeneric,
-    type NotificationGeneric,
+    type Request,
+    type Notification,
     type Result
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
@@ -127,8 +127,8 @@ export type ServerOptions = ProtocolOptions & {
  * @deprecated Use `McpServer` instead for the high-level API. Only use `Server` for advanced use cases.
  */
 export class Server<
-    RequestT extends RequestGeneric = RequestGeneric,
-    NotificationT extends NotificationGeneric = NotificationGeneric,
+    RequestT extends Request = Request,
+    NotificationT extends Notification = Notification,
     ResultT extends Result = Result
 > extends Protocol<ServerRequest | RequestT, ServerNotification | NotificationT, ServerResult | ResultT> {
     private _clientCapabilities?: ClientCapabilities;

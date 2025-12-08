@@ -13,11 +13,11 @@ import {
     ListTasksResultSchema,
     CancelTaskRequestSchema,
     CancelTaskResultSchema,
-    isJSONRPCError,
+    isJSONRPCErrorResponse,
     isJSONRPCRequest,
-    isJSONRPCResponse,
+    isJSONRPCResultResponse,
     isJSONRPCNotification,
-    JSONRPCError,
+    JSONRPCErrorResponse,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
@@ -40,8 +40,10 @@ import {
     Task,
     TaskStatusNotification,
     TaskStatusNotificationSchema,
-    RequestGeneric,
-    NotificationGeneric
+    Request,
+    Notification,
+    JSONRPCResultResponse,
+    isTaskAugmentedRequestParams
 } from '../types.js';
 import { Transport, TransportSendOptions } from './transport.js';
 import { AuthInfo } from '../server/auth/types.js';
@@ -232,7 +234,7 @@ export interface RequestTaskStore {
 /**
  * Extra data given to request handlers.
  */
-export type RequestHandlerExtra<SendRequestT extends RequestGeneric, SendNotificationT extends NotificationGeneric> = {
+export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT extends Notification> = {
     /**
      * An abort signal used to communicate if the request was cancelled from the sender's side.
      */
@@ -315,11 +317,7 @@ type TimeoutInfo = {
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
  */
-export abstract class Protocol<
-    SendRequestT extends RequestGeneric,
-    SendNotificationT extends NotificationGeneric,
-    SendResultT extends Result
-> {
+export abstract class Protocol<SendRequestT extends Request, SendNotificationT extends Notification, SendResultT extends Result> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<
@@ -328,7 +326,7 @@ export abstract class Protocol<
     > = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
-    private _responseHandlers: Map<number, (response: JSONRPCResponse | Error) => void> = new Map();
+    private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
@@ -339,7 +337,7 @@ export abstract class Protocol<
     private _taskStore?: TaskStore;
     private _taskMessageQueue?: TaskMessageQueue;
 
-    private _requestResolvers: Map<RequestId, (response: JSONRPCResponse | Error) => void> = new Map();
+    private _requestResolvers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void> = new Map();
 
     /**
      * Callback for when the connection is closed for any reason.
@@ -363,7 +361,7 @@ export abstract class Protocol<
     /**
      * A handler to invoke for any notification types that do not have their own handler installed.
      */
-    fallbackNotificationHandler?: (notification: NotificationGeneric) => Promise<void>;
+    fallbackNotificationHandler?: (notification: Notification) => Promise<void>;
 
     constructor(private _options?: ProtocolOptions) {
         this.setNotificationHandler(CancelledNotificationSchema, notification => {
@@ -412,18 +410,18 @@ export abstract class Protocol<
                                 const requestId = message.id;
 
                                 // Lookup resolver in _requestResolvers map
-                                const resolver = this._requestResolvers.get(requestId);
+                                const resolver = this._requestResolvers.get(requestId as RequestId);
 
                                 if (resolver) {
                                     // Remove resolver from map after invocation
-                                    this._requestResolvers.delete(requestId);
+                                    this._requestResolvers.delete(requestId as RequestId);
 
                                     // Invoke resolver with response or error
                                     if (queuedMessage.type === 'response') {
-                                        resolver(message as JSONRPCResponse);
+                                        resolver(message as JSONRPCResultResponse);
                                     } else {
                                         // Convert JSONRPCError to McpError
-                                        const errorMessage = message as JSONRPCError;
+                                        const errorMessage = message as JSONRPCErrorResponse;
                                         const error = new McpError(
                                             errorMessage.error.code,
                                             errorMessage.error.message,
@@ -550,6 +548,9 @@ export abstract class Protocol<
     }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
+        if (!notification.params.requestId) {
+            return;
+        }
         // Handle request cancellation
         const controller = this._requestHandlerAbortControllers.get(notification.params.requestId);
         controller?.abort(notification.params.reason);
@@ -620,7 +621,7 @@ export abstract class Protocol<
         const _onmessage = this._transport?.onmessage;
         this._transport.onmessage = (message, extra) => {
             _onmessage?.(message, extra);
-            if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
+            if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
                 this._onresponse(message);
             } else if (isJSONRPCRequest(message)) {
                 this._onrequest(message, extra);
@@ -679,7 +680,7 @@ export abstract class Protocol<
         const relatedTaskId = request.params?._meta?.[RELATED_TASK_META_KEY]?.taskId;
 
         if (handler === undefined) {
-            const errorResponse: JSONRPCError = {
+            const errorResponse: JSONRPCErrorResponse = {
                 jsonrpc: '2.0',
                 id: request.id,
                 error: {
@@ -710,7 +711,7 @@ export abstract class Protocol<
         const abortController = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abortController);
 
-        const taskCreationParams = request.params?.task;
+        const taskCreationParams = isTaskAugmentedRequestParams(request.params) ? request.params.task : undefined;
         const taskStore = this._taskStore ? this.requestTaskStore(request, capturedTransport?.sessionId) : undefined;
 
         const fullExtra: RequestHandlerExtra<SendRequestT, SendNotificationT> = {
@@ -795,7 +796,7 @@ export abstract class Protocol<
                         return;
                     }
 
-                    const errorResponse: JSONRPCError = {
+                    const errorResponse: JSONRPCErrorResponse = {
                         jsonrpc: '2.0',
                         id: request.id,
                         error: {
@@ -856,14 +857,14 @@ export abstract class Protocol<
         handler(params);
     }
 
-    private _onresponse(response: JSONRPCResponse | JSONRPCError): void {
+    private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
         const messageId = Number(response.id);
 
         // Check if this is a response to a queued request
         const resolver = this._requestResolvers.get(messageId);
         if (resolver) {
             this._requestResolvers.delete(messageId);
-            if (isJSONRPCResponse(response)) {
+            if (isJSONRPCResultResponse(response)) {
                 resolver(response);
             } else {
                 const error = new McpError(response.error.code, response.error.message, response.error.data);
@@ -883,7 +884,7 @@ export abstract class Protocol<
 
         // Keep progress handler alive for CreateTaskResult responses
         let isTaskResponse = false;
-        if (isJSONRPCResponse(response) && response.result && typeof response.result === 'object') {
+        if (isJSONRPCResultResponse(response) && response.result && typeof response.result === 'object') {
             const result = response.result as Record<string, unknown>;
             if (result.task && typeof result.task === 'object') {
                 const task = result.task as Record<string, unknown>;
@@ -898,7 +899,7 @@ export abstract class Protocol<
             this._progressHandlers.delete(messageId);
         }
 
-        if (isJSONRPCResponse(response)) {
+        if (isJSONRPCResultResponse(response)) {
             handler(response);
         } else {
             const error = McpError.fromError(response.error.code, response.error.message, response.error.data);
@@ -1195,7 +1196,7 @@ export abstract class Protocol<
             const relatedTaskId = relatedTask?.taskId;
             if (relatedTaskId) {
                 // Store the response resolver for this request so responses can be routed back
-                const responseResolver = (response: JSONRPCResponse | Error) => {
+                const responseResolver = (response: JSONRPCResultResponse | Error) => {
                     const handler = this._responseHandlers.get(messageId);
                     if (handler) {
                         handler(response);
