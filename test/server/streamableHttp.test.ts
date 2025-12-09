@@ -2285,7 +2285,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Verify we received the notification that was sent while disconnected
             expect(allText).toContain('Missed while disconnected');
-        }, 15000);
+        }, 10000);
     });
 
     // Test onsessionclosed callback

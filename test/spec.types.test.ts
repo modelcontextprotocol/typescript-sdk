@@ -729,7 +729,6 @@ describe('Spec Types', () => {
             }
         }
 
-        console.log(missingTests);
         expect(missingTests).toHaveLength(0);
     });
 
