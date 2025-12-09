@@ -4,14 +4,14 @@ import {
     MessageExtraInfo,
     RequestInfo,
     isInitializeRequest,
-    isJSONRPCError,
     isJSONRPCRequest,
-    isJSONRPCResponse,
+    isJSONRPCResultResponse,
     JSONRPCMessage,
     JSONRPCMessageSchema,
     RequestId,
     SUPPORTED_PROTOCOL_VERSIONS,
-    DEFAULT_NEGOTIATED_PROTOCOL_VERSION
+    DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+    isJSONRPCErrorResponse
 } from '../types.js';
 import getRawBody from 'raw-body';
 import contentType from 'content-type';
@@ -871,7 +871,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
     async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void> {
         let requestId = options?.relatedRequestId;
-        if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
+        if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
             // If the message is a response, use the request ID from the message
             requestId = message.id;
         }
@@ -881,7 +881,7 @@ export class StreamableHTTPServerTransport implements Transport {
         // Those will be sent via dedicated response SSE streams
         if (requestId === undefined) {
             // For standalone SSE streams, we can only send requests and notifications
-            if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
+            if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
                 throw new Error('Cannot send a response on a standalone SSE stream unless resuming a previous client request');
             }
 
@@ -924,7 +924,7 @@ export class StreamableHTTPServerTransport implements Transport {
             }
         }
 
-        if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
+        if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
             this._requestResponseMap.set(requestId, message);
             const relatedIds = Array.from(this._requestToStreamMapping.entries())
                 .filter(([_, streamId]) => this._streamMapping.get(streamId) === response)

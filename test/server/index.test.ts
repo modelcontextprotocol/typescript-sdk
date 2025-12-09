@@ -1982,11 +1982,8 @@ describe('createMessage backwards compatibility', () => {
 
         // Verify result is returned correctly
         expect(result.model).toBe('test-model');
-        expect(result.content.type).toBe('text');
-        // With tools param, result.content can be array (CreateMessageResultWithTools type)
-        // This would fail type-check if we used CreateMessageResult which doesn't allow arrays
-        const contentArray = Array.isArray(result.content) ? result.content : [result.content];
-        expect(contentArray.length).toBe(1);
+        expect(result.content).toMatchObject({ type: 'text', text: 'I will use the weather tool' });
+        expect(result.content).not.toBeInstanceOf(Array);
     });
 });
 

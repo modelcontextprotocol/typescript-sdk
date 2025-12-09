@@ -28,11 +28,8 @@ import {
     ListToolsResultSchema,
     type LoggingLevel,
     McpError,
-    type Notification,
     type ReadResourceRequest,
     ReadResourceResultSchema,
-    type Request,
-    type Result,
     type ServerCapabilities,
     SUPPORTED_PROTOCOL_VERSIONS,
     type SubscribeRequest,
@@ -48,7 +45,10 @@ import {
     ResourceListChangedNotificationSchema,
     ListChangedOptions,
     ListChangedOptionsBaseSchema,
-    type ListChangedHandlers
+    type ListChangedHandlers,
+    type Request,
+    type Notification,
+    type Result
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
@@ -368,14 +368,14 @@ export class Client<
                 }
 
                 const { params } = validatedRequest.data;
-                const mode = params.mode ?? 'form';
+                params.mode = params.mode ?? 'form';
                 const { supportsFormMode, supportsUrlMode } = getSupportedElicitationModes(this._capabilities.elicitation);
 
-                if (mode === 'form' && !supportsFormMode) {
+                if (params.mode === 'form' && !supportsFormMode) {
                     throw new McpError(ErrorCode.InvalidParams, 'Client does not support form-mode elicitation requests');
                 }
 
-                if (mode === 'url' && !supportsUrlMode) {
+                if (params.mode === 'url' && !supportsUrlMode) {
                     throw new McpError(ErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
                 }
 
@@ -404,9 +404,9 @@ export class Client<
                 }
 
                 const validatedResult = validationResult.data;
-                const requestedSchema = mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
+                const requestedSchema = params.mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
 
-                if (mode === 'form' && validatedResult.action === 'accept' && validatedResult.content && requestedSchema) {
+                if (params.mode === 'form' && validatedResult.action === 'accept' && validatedResult.content && requestedSchema) {
                     if (this._capabilities.elicitation?.form?.applyDefaults) {
                         try {
                             applyElicitationDefaults(requestedSchema, validatedResult.content);

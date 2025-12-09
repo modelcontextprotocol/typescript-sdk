@@ -26,10 +26,7 @@ import {
     LoggingLevelSchema,
     type LoggingMessageNotification,
     McpError,
-    type Notification,
-    type Request,
     type ResourceUpdatedNotification,
-    type Result,
     type ServerCapabilities,
     type ServerNotification,
     type ServerRequest,
@@ -43,7 +40,10 @@ import {
     CreateTaskResultSchema,
     JSONRPCRequest,
     TaskCreationParams,
-    MessageExtraInfo
+    MessageExtraInfo,
+    type Request,
+    type Notification,
+    type Result
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';

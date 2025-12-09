@@ -5,28 +5,28 @@ import {
     ErrorCode,
     JSONRPCMessage,
     McpError,
-    Notification,
     RELATED_TASK_META_KEY,
-    Request,
     RequestId,
-    Result,
     ServerCapabilities,
     Task,
-    TaskCreationParams
+    TaskCreationParams,
+    type Request,
+    type Notification,
+    type Result
 } from '../../src/types.js';
 import { Protocol, mergeCapabilities } from '../../src/shared/protocol.js';
 import { Transport, TransportSendOptions } from '../../src/shared/transport.js';
 import { TaskStore, TaskMessageQueue, QueuedMessage, QueuedNotification, QueuedRequest } from '../../src/experimental/tasks/interfaces.js';
 import { MockInstance, vi } from 'vitest';
-import { JSONRPCResponse, JSONRPCRequest, JSONRPCError } from '../../src/types.js';
+import { JSONRPCResultResponse, JSONRPCRequest, JSONRPCErrorResponse } from '../../src/types.js';
 import { ErrorMessage, ResponseMessage, toArrayAsync } from '../../src/shared/responseMessage.js';
 import { InMemoryTaskMessageQueue } from '../../src/experimental/tasks/stores/in-memory.js';
 
 // Type helper for accessing private/protected Protocol properties in tests
 interface TestProtocol {
     _taskMessageQueue?: TaskMessageQueue;
-    _requestResolvers: Map<RequestId, (response: JSONRPCResponse | Error) => void>;
-    _responseHandlers: Map<RequestId, (response: JSONRPCResponse | Error) => void>;
+    _requestResolvers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void>;
+    _responseHandlers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void>;
     _taskProgressTokens: Map<string, number>;
     _clearTaskQueue: (taskId: string, sessionId?: string) => Promise<void>;
     requestTaskStore: (request: Request, authInfo: unknown) => TaskStore;
@@ -1620,7 +1620,7 @@ describe('Task-based execution', () => {
                 'Client cancelled task execution.',
                 undefined
             );
-            const sentMessage = sendSpy.mock.calls[0][0] as unknown as JSONRPCResponse;
+            const sentMessage = sendSpy.mock.calls[0][0] as unknown as JSONRPCResultResponse;
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(5);
             expect(sentMessage.result._meta).toBeDefined();
@@ -1658,7 +1658,7 @@ describe('Task-based execution', () => {
             taskDeleted.releaseLatch();
 
             expect(mockTaskStore.getTask).toHaveBeenCalledWith('non-existent', undefined);
-            const sentMessage = sendSpy.mock.calls[0][0] as unknown as JSONRPCError;
+            const sentMessage = sendSpy.mock.calls[0][0] as unknown as JSONRPCErrorResponse;
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(6);
             expect(sentMessage.error).toBeDefined();
@@ -1706,7 +1706,7 @@ describe('Task-based execution', () => {
 
             expect(mockTaskStore.getTask).toHaveBeenCalledWith(completedTask.taskId, undefined);
             expect(mockTaskStore.updateTaskStatus).not.toHaveBeenCalled();
-            const sentMessage = sendSpy.mock.calls[0][0] as unknown as JSONRPCError;
+            const sentMessage = sendSpy.mock.calls[0][0] as unknown as JSONRPCErrorResponse;
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(7);
             expect(sentMessage.error).toBeDefined();
@@ -3877,7 +3877,7 @@ describe('Message Interception', () => {
             expect(queue).toBeDefined();
 
             // Clean up the pending request
-            const requestId = (sendSpy.mock.calls[0][0] as JSONRPCResponse).id;
+            const requestId = (sendSpy.mock.calls[0][0] as JSONRPCResultResponse).id;
             transport.onmessage?.({
                 jsonrpc: '2.0',
                 id: requestId,
@@ -4931,7 +4931,7 @@ describe('Error handling for missing resolvers', () => {
 
             // Manually trigger the response handling logic
             if (queuedMessage && queuedMessage.type === 'response') {
-                const responseMessage = queuedMessage.message as JSONRPCResponse;
+                const responseMessage = queuedMessage.message as JSONRPCResultResponse;
                 const requestId = responseMessage.id as RequestId;
                 const resolver = testProtocol._requestResolvers.get(requestId);
 
@@ -5137,7 +5137,7 @@ describe('Error handling for missing resolvers', () => {
             const messageId = 123;
 
             // Create a response resolver without a corresponding response handler
-            const responseResolver = (response: JSONRPCResponse | Error) => {
+            const responseResolver = (response: JSONRPCResultResponse | Error) => {
                 const handler = testProtocol._responseHandlers.get(messageId);
                 if (handler) {
                     handler(response);
@@ -5147,7 +5147,7 @@ describe('Error handling for missing resolvers', () => {
             };
 
             // Simulate the resolver being called without a handler
-            const mockResponse: JSONRPCResponse = {
+            const mockResponse: JSONRPCResultResponse = {
                 jsonrpc: '2.0',
                 id: messageId,
                 result: { content: [] }
@@ -5185,7 +5185,7 @@ describe('Error handling for missing resolvers', () => {
                 const msg = await taskMessageQueue.dequeue(task.taskId);
                 if (msg && msg.type === 'response') {
                     const testProtocol = protocol as unknown as TestProtocol;
-                    const responseMessage = msg.message as JSONRPCResponse;
+                    const responseMessage = msg.message as JSONRPCResultResponse;
                     const requestId = responseMessage.id as RequestId;
                     const resolver = testProtocol._requestResolvers.get(requestId);
                     if (!resolver) {
@@ -5253,7 +5253,7 @@ describe('Error handling for missing resolvers', () => {
 
             // Manually trigger the error handling logic
             if (queuedMessage && queuedMessage.type === 'error') {
-                const errorMessage = queuedMessage.message as JSONRPCError;
+                const errorMessage = queuedMessage.message as JSONRPCErrorResponse;
                 const reqId = errorMessage.id as RequestId;
                 const resolver = testProtocol._requestResolvers.get(reqId);
 
@@ -5301,7 +5301,7 @@ describe('Error handling for missing resolvers', () => {
             // Manually trigger the error handling logic
             if (queuedMessage && queuedMessage.type === 'error') {
                 const testProtocol = protocol as unknown as TestProtocol;
-                const errorMessage = queuedMessage.message as JSONRPCError;
+                const errorMessage = queuedMessage.message as JSONRPCErrorResponse;
                 const requestId = errorMessage.id as RequestId;
                 const resolver = testProtocol._requestResolvers.get(requestId);
 
@@ -5348,7 +5348,7 @@ describe('Error handling for missing resolvers', () => {
             const queuedMessage = await taskMessageQueue.dequeue(task.taskId);
 
             if (queuedMessage && queuedMessage.type === 'error') {
-                const errorMessage = queuedMessage.message as JSONRPCError;
+                const errorMessage = queuedMessage.message as JSONRPCErrorResponse;
                 const reqId = errorMessage.id as RequestId;
                 const resolver = testProtocol._requestResolvers.get(reqId);
 
@@ -5390,7 +5390,7 @@ describe('Error handling for missing resolvers', () => {
                 const msg = await taskMessageQueue.dequeue(task.taskId);
                 if (msg && msg.type === 'error') {
                     const testProtocol = protocol as unknown as TestProtocol;
-                    const errorMessage = msg.message as JSONRPCError;
+                    const errorMessage = msg.message as JSONRPCErrorResponse;
                     const requestId = errorMessage.id as RequestId;
                     const resolver = testProtocol._requestResolvers.get(requestId);
                     if (!resolver) {
@@ -5457,7 +5457,7 @@ describe('Error handling for missing resolvers', () => {
             let msg;
             while ((msg = await taskMessageQueue.dequeue(task.taskId))) {
                 if (msg.type === 'response') {
-                    const responseMessage = msg.message as JSONRPCResponse;
+                    const responseMessage = msg.message as JSONRPCResultResponse;
                     const requestId = responseMessage.id as RequestId;
                     const resolver = testProtocol._requestResolvers.get(requestId);
                     if (resolver) {
@@ -5465,7 +5465,7 @@ describe('Error handling for missing resolvers', () => {
                         resolver(responseMessage);
                     }
                 } else if (msg.type === 'error') {
-                    const errorMessage = msg.message as JSONRPCError;
+                    const errorMessage = msg.message as JSONRPCErrorResponse;
                     const requestId = errorMessage.id as RequestId;
                     const resolver = testProtocol._requestResolvers.get(requestId);
                     if (resolver) {
@@ -5532,7 +5532,7 @@ describe('Error handling for missing resolvers', () => {
             let msg;
             while ((msg = await taskMessageQueue.dequeue(task.taskId))) {
                 if (msg.type === 'response') {
-                    const responseMessage = msg.message as JSONRPCResponse;
+                    const responseMessage = msg.message as JSONRPCResultResponse;
                     const requestId = responseMessage.id as RequestId;
                     const resolver = testProtocol._requestResolvers.get(requestId);
                     if (resolver) {
@@ -5540,7 +5540,7 @@ describe('Error handling for missing resolvers', () => {
                         resolver(responseMessage);
                     }
                 } else if (msg.type === 'error') {
-                    const errorMessage = msg.message as JSONRPCError;
+                    const errorMessage = msg.message as JSONRPCErrorResponse;
                     const requestId = errorMessage.id as RequestId;
                     const resolver = testProtocol._requestResolvers.get(requestId);
                     if (resolver) {

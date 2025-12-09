@@ -5,18 +5,18 @@
 
 import {
     Task,
-    Request,
     RequestId,
     Result,
     JSONRPCRequest,
     JSONRPCNotification,
-    JSONRPCResponse,
-    JSONRPCError,
+    JSONRPCResultResponse,
+    JSONRPCErrorResponse,
     ServerRequest,
     ServerNotification,
     CallToolResult,
     GetTaskResult,
-    ToolExecution
+    ToolExecution,
+    Request
 } from '../../types.js';
 import { CreateTaskResult } from './types.js';
 import type { RequestHandlerExtra, RequestTaskStore } from '../../shared/protocol.js';
@@ -124,13 +124,13 @@ export interface QueuedNotification extends BaseQueuedMessage {
 export interface QueuedResponse extends BaseQueuedMessage {
     type: 'response';
     /** The actual JSONRPC response */
-    message: JSONRPCResponse;
+    message: JSONRPCResultResponse;
 }
 
 export interface QueuedError extends BaseQueuedMessage {
     type: 'error';
     /** The actual JSONRPC error */
-    message: JSONRPCError;
+    message: JSONRPCErrorResponse;
 }
 
 /**
