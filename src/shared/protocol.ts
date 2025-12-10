@@ -854,7 +854,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             }
         }
 
-        handler(params);
+        Promise.resolve()
+            .then(() => handler(params))
+            .catch(error => this._onerror(new Error(`Uncaught error in progress handler: ${error}`)));
     }
 
     private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
@@ -1277,7 +1279,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      */
     async notification(notification: SendNotificationT, options?: NotificationOptions): Promise<void> {
         if (!this._transport) {
-            throw new Error('Not connected');
+            this._onerror(new Error('Not connected'));
+            return;
         }
 
         this.assertNotificationCapability(notification.method);
