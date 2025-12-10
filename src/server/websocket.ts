@@ -1,11 +1,7 @@
 import type { Server as HttpServer } from 'node:http';
 import WebSocket, { WebSocketServer } from 'ws';
 import { Transport } from '../shared/transport.js';
-import {
-    JSONRPCMessage,
-    JSONRPCMessageSchema,
-    type MessageExtraInfo
-} from '../types.js';
+import { JSONRPCMessage, JSONRPCMessageSchema, type MessageExtraInfo } from '../types.js';
 
 const SUBPROTOCOL = 'mcp';
 
