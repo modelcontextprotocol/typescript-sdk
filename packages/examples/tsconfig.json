@@ -7,7 +7,7 @@
         "paths": {
             "@modelcontextprotocol/sdk-server": ["node_modules/@modelcontextprotocol/sdk-server/src/index.ts"],
             "@modelcontextprotocol/sdk-client": ["node_modules/@modelcontextprotocol/sdk-client/src/index.ts"],
-            "@modelcontextprotocol/shared": ["node_modules/@modelcontextprotocol/shared/src/index.ts"]
+            "@modelcontextprotocol/shared": ["node_modules/@modelcontextprotocol/sdk-server/node_modules/@modelcontextprotocol/shared/src/index.ts"]
         }
     }
 }

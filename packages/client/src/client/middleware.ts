@@ -1,5 +1,5 @@
 import { auth, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
-import { FetchLike } from '../shared/transport.js';
+import { FetchLike } from '@modelcontextprotocol/shared';
 
 /**
  * Middleware function that wraps and enhances fetch functionality.

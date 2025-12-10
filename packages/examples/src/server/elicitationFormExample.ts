@@ -9,10 +9,10 @@
 
 import { randomUUID } from 'node:crypto';
 import { type Request, type Response } from 'express';
-import { McpServer } from '../../server/mcp.js';
-import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
-import { isInitializeRequest } from '../../types.js';
-import { createMcpExpressApp } from '../../server/express.js';
+import { McpServer } from '@modelcontextprotocol/sdk-server';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk-server';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 
 // Create MCP server - it will automatically use AjvJsonSchemaValidator with sensible defaults
 // The validator supports format validation (email, date, etc.) if ajv-formats is installed

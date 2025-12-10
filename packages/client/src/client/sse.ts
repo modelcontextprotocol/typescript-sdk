@@ -1,6 +1,6 @@
 import { EventSource, type ErrorEvent, type EventSourceInit } from 'eventsource';
-import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../shared/transport.js';
-import { JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
+import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '@modelcontextprotocol/shared';
+import { JSONRPCMessage, JSONRPCMessageSchema } from '@modelcontextprotocol/shared';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 
 export class SseError extends Error {

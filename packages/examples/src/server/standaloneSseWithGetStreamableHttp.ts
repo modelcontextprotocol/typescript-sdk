@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import { McpServer } from '../../server/mcp.js';
-import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
-import { isInitializeRequest, ReadResourceResult } from '../../types.js';
-import { createMcpExpressApp } from '../../server/express.js';
+import { McpServer } from '@modelcontextprotocol/sdk-server';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
+import { isInitializeRequest, ReadResourceResult } from '@modelcontextprotocol/sdk-server';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 
 // Create an MCP server with implementation details
 const server = new McpServer({

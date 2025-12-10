@@ -1,6 +1,6 @@
-import { Client } from '../../client/index.js';
-import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
-import { CallToolRequest, CallToolResultSchema, LoggingMessageNotificationSchema, CallToolResult } from '../../types.js';
+import { Client } from '@modelcontextprotocol/sdk-client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
+import { CallToolRequest, CallToolResultSchema, LoggingMessageNotificationSchema, CallToolResult } from '@modelcontextprotocol/sdk-client';
 
 /**
  * Multiple Clients MCP Example

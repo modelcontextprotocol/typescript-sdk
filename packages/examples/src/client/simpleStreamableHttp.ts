@@ -1,5 +1,5 @@
-import { Client } from '../../client/index.js';
-import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
+import { Client } from '@modelcontextprotocol/sdk-client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
 import { createInterface } from 'node:readline';
 import {
     ListToolsRequest,
@@ -21,8 +21,8 @@ import {
     RELATED_TASK_META_KEY,
     ErrorCode,
     McpError
-} from '../../types.js';
-import { getDisplayName } from '../../shared/metadataUtils.js';
+} from '@modelcontextprotocol/sdk-client';
+import { getDisplayName } from '@modelcontextprotocol/sdk-client';
 import { Ajv } from 'ajv';
 
 // Create readline interface for user input

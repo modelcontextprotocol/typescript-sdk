@@ -42,8 +42,8 @@ import {
     type Notification,
     type Result
 } from '@modelcontextprotocol/shared';
-import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
-import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/shared';
+import type { JsonSchemaType, jsonSchemaValidator } from '@modelcontextprotocol/shared';
 import {
     AnyObjectSchema,
     getObjectShape,
@@ -55,7 +55,7 @@ import {
 } from '@modelcontextprotocol/shared';
 import { RequestHandlerExtra } from '@modelcontextprotocol/shared';
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
-import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '../experimental/tasks/helpers.js';
+import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '@modelcontextprotocol/shared';
 
 export type ServerOptions = ProtocolOptions & {
     /**

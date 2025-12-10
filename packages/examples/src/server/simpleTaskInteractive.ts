@@ -11,9 +11,9 @@
 
 import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import { Server } from '../../server/index.js';
-import { createMcpExpressApp } from '../../server/express.js';
-import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
+import { Server } from '@modelcontextprotocol/sdk-server';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
 import {
     CallToolResult,
     CreateTaskResult,
@@ -36,9 +36,9 @@ import {
     GetTaskRequestSchema,
     GetTaskPayloadRequestSchema,
     GetTaskPayloadResult
-} from '../../types.js';
-import { TaskMessageQueue, QueuedMessage, QueuedRequest, isTerminal, CreateTaskOptions } from '../../experimental/tasks/interfaces.js';
-import { InMemoryTaskStore } from '../../experimental/tasks/stores/in-memory.js';
+} from '@modelcontextprotocol/sdk-server';
+import { TaskMessageQueue, QueuedMessage, QueuedRequest, isTerminal, CreateTaskOptions } from '@modelcontextprotocol/sdk-server';
+import { InMemoryTaskStore } from '@modelcontextprotocol/sdk-server';
 
 // ============================================================================
 // Resolver - Promise-like for passing results between async operations

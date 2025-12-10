@@ -1,11 +1,11 @@
 import express, { RequestHandler } from 'express';
-import { OAuthClientInformationFull, OAuthClientMetadataSchema } from '../../../shared/auth.js';
+import { OAuthClientInformationFull, OAuthClientMetadataSchema } from '@modelcontextprotocol/shared';
 import crypto from 'node:crypto';
 import cors from 'cors';
 import { OAuthRegisteredClientsStore } from '../clients.js';
 import { rateLimit, Options as RateLimitOptions } from 'express-rate-limit';
 import { allowedMethods } from '../middleware/allowedMethods.js';
-import { InvalidClientMetadataError, ServerError, TooManyRequestsError, OAuthError } from '../errors.js';
+import { InvalidClientMetadataError, ServerError, TooManyRequestsError, OAuthError } from '@modelcontextprotocol/shared';
 
 export type ClientRegistrationHandlerOptions = {
     /**

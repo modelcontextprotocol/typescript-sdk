@@ -1,11 +1,11 @@
 import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import * as z from 'zod/v4';
-import { McpServer } from '../../server/mcp.js';
-import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
-import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';
-import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
-import { createMcpExpressApp } from '../../server/express.js';
+import { McpServer } from '@modelcontextprotocol/sdk-server';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
+import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '@modelcontextprotocol/sdk-server';
+import { requireBearerAuth } from '@modelcontextprotocol/sdk-server';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 import {
     CallToolResult,
     ElicitResultSchema,
@@ -14,12 +14,12 @@ import {
     PrimitiveSchemaDefinition,
     ReadResourceResult,
     ResourceLink
-} from '../../types.js';
+} from '@modelcontextprotocol/sdk-server';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
-import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../../experimental/tasks/stores/in-memory.js';
+import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '@modelcontextprotocol/sdk-server';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
-import { OAuthMetadata } from '../../shared/auth.js';
-import { checkResourceAllowed } from '../../shared/auth-utils.js';
+import { OAuthMetadata } from '@modelcontextprotocol/sdk-server';
+import { checkResourceAllowed } from '@modelcontextprotocol/sdk-server';
 
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');

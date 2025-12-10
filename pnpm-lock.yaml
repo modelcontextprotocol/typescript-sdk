@@ -278,9 +278,6 @@ importers:
       '@modelcontextprotocol/sdk-server':
         specifier: workspace:^
         version: link:../server
-      '@modelcontextprotocol/shared':
-        specifier: workspace:^
-        version: link:../shared
     devDependencies:
       '@modelcontextprotocol/tsconfig':
         specifier: workspace:^

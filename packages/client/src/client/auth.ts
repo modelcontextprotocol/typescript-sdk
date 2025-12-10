@@ -1,5 +1,5 @@
 import pkceChallenge from 'pkce-challenge';
-import { LATEST_PROTOCOL_VERSION } from '../types.js';
+import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/shared';
 import {
     OAuthClientMetadata,
     OAuthClientInformation,
@@ -11,14 +11,14 @@ import {
     OAuthErrorResponseSchema,
     AuthorizationServerMetadata,
     OpenIdProviderDiscoveryMetadataSchema
-} from '../shared/auth.js';
+} from '@modelcontextprotocol/shared';
 import {
     OAuthClientInformationFullSchema,
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
     OAuthTokensSchema
-} from '../shared/auth.js';
-import { checkResourceAllowed, resourceUrlFromServerUrl } from '../shared/auth-utils.js';
+} from '@modelcontextprotocol/shared';
+import { checkResourceAllowed, resourceUrlFromServerUrl } from '@modelcontextprotocol/shared';
 import {
     InvalidClientError,
     InvalidClientMetadataError,
@@ -27,8 +27,8 @@ import {
     OAuthError,
     ServerError,
     UnauthorizedClientError
-} from '../server/auth/errors.js';
-import { FetchLike } from '../shared/transport.js';
+} from '@modelcontextprotocol/shared';
+import { FetchLike } from '@modelcontextprotocol/shared';
 
 /**
  * Function type for adding client authentication to token requests.

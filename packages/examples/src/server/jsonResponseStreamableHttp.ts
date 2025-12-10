@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import { McpServer } from '../../server/mcp.js';
-import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
+import { McpServer } from '@modelcontextprotocol/sdk-server';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
 import * as z from 'zod/v4';
-import { CallToolResult, isInitializeRequest } from '../../types.js';
-import { createMcpExpressApp } from '../../server/express.js';
+import { CallToolResult, isInitializeRequest } from '@modelcontextprotocol/sdk-server';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 
 // Create an MCP server with implementation details
 const getServer = () => {

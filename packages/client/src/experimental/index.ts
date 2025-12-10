@@ -10,4 +10,4 @@
  * @experimental
  */
 
-export * from './tasks/index.js';
+export * from './tasks/client.js';

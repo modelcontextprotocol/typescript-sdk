@@ -8,9 +8,6 @@
 // SDK implementation interfaces
 export * from './interfaces.js';
 
-// Assertion helpers
-export * from './helpers.js';
-
 // Wrapper classes
 export * from './server.js';
 export * from './mcp-server.js';

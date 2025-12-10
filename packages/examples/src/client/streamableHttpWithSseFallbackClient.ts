@@ -1,13 +1,13 @@
-import { Client } from '../../client/index.js';
-import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
-import { SSEClientTransport } from '../../client/sse.js';
+import { Client } from '@modelcontextprotocol/sdk-client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk-client';
 import {
     ListToolsRequest,
     ListToolsResultSchema,
     CallToolRequest,
     CallToolResultSchema,
     LoggingMessageNotificationSchema
-} from '../../types.js';
+} from '@modelcontextprotocol/sdk-client';
 
 /**
  * Simplified Backwards Compatible MCP Client

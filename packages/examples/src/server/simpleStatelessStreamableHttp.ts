@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
-import { McpServer } from '../../server/mcp.js';
-import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
+import { McpServer } from '@modelcontextprotocol/sdk-server';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
 import * as z from 'zod/v4';
-import { CallToolResult, GetPromptResult, ReadResourceResult } from '../../types.js';
-import { createMcpExpressApp } from '../../server/express.js';
+import { CallToolResult, GetPromptResult, ReadResourceResult } from '@modelcontextprotocol/sdk-server';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 
 const getServer = () => {
     // Create an MCP server with implementation details

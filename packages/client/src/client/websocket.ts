@@ -1,5 +1,5 @@
-import { Transport } from '../shared/transport.js';
-import { JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
+import { Transport } from '@modelcontextprotocol/shared';
+import { JSONRPCMessage, JSONRPCMessageSchema } from '@modelcontextprotocol/shared';
 
 const SUBPROTOCOL = 'mcp';
 

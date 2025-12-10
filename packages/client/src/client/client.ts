@@ -1,5 +1,5 @@
-import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
-import type { Transport } from '../shared/transport.js';
+import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '@modelcontextprotocol/shared';
+import type { Transport } from '@modelcontextprotocol/shared';
 
 import {
     type CallToolRequest,
@@ -49,9 +49,9 @@ import {
     type Request,
     type Notification,
     type Result
-} from '../types.js';
-import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
-import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
+} from '@modelcontextprotocol/shared';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/shared';
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '@modelcontextprotocol/shared';
 import {
     AnyObjectSchema,
     SchemaOutput,
@@ -60,10 +60,10 @@ import {
     safeParse,
     type ZodV3Internal,
     type ZodV4Internal
-} from '../server/zod-compat.js';
-import type { RequestHandlerExtra } from '../shared/protocol.js';
+} from '@modelcontextprotocol/shared';
+import type { RequestHandlerExtra } from '@modelcontextprotocol/shared';
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
-import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '../experimental/tasks/helpers.js';
+import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '@modelcontextprotocol/shared';
 
 /**
  * Elicitation default application helper. Applies defaults to the data based on the schema.

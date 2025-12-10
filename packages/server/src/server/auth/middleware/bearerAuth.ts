@@ -1,7 +1,7 @@
 import { RequestHandler } from 'express';
-import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from '../errors.js';
+import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from '@modelcontextprotocol/shared';
 import { OAuthTokenVerifier } from '../provider.js';
-import { AuthInfo } from '../types.js';
+import { AuthInfo } from '@modelcontextprotocol/shared';
 
 export type BearerAuthMiddlewareOptions = {
     /**

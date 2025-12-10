@@ -1,4 +1,4 @@
-import { OAuthErrorResponse } from '../../shared/auth.js';
+import { OAuthErrorResponse } from '../shared/auth.js';
 
 /**
  * Base class for all OAuth errors

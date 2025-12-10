@@ -7,8 +7,8 @@
  * - Using task-based tool execution with streaming
  */
 
-import { Client } from '../../client/index.js';
-import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
+import { Client } from '@modelcontextprotocol/sdk-client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
 import { createInterface } from 'node:readline';
 import {
     CallToolResultSchema,
@@ -19,7 +19,7 @@ import {
     CreateMessageResult,
     ErrorCode,
     McpError
-} from '../../types.js';
+} from '@modelcontextprotocol/sdk-client';
 
 // Create readline interface for user input
 const readline = createInterface({

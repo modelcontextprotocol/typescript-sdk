@@ -14,10 +14,10 @@
  */
 import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import { McpServer } from '../../server/mcp.js';
-import { createMcpExpressApp } from '../../server/express.js';
-import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
-import { CallToolResult } from '../../types.js';
+import { McpServer } from '@modelcontextprotocol/sdk-server';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
+import { CallToolResult } from '@modelcontextprotocol/sdk-server';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import cors from 'cors';
 

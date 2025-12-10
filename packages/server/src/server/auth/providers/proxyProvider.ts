@@ -6,11 +6,11 @@ import {
     OAuthTokenRevocationRequest,
     OAuthTokens,
     OAuthTokensSchema
-} from '../../../shared/auth.js';
-import { AuthInfo } from '../types.js';
+} from '@modelcontextprotocol/shared';
+import { AuthInfo } from '@modelcontextprotocol/shared';
 import { AuthorizationParams, OAuthServerProvider } from '../provider.js';
-import { ServerError } from '../errors.js';
-import { FetchLike } from '../../../shared/transport.js';
+import { ServerError } from '@modelcontextprotocol/shared';
+import { FetchLike } from '@modelcontextprotocol/shared';
 
 export type ProxyEndpoints = {
     authorizationUrl: string;

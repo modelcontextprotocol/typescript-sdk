@@ -1,4 +1,4 @@
-import { AnySchema, SchemaInput } from './zod-compat.js';
+import { AnySchema, SchemaInput } from '@modelcontextprotocol/shared';
 
 export const COMPLETABLE_SYMBOL: unique symbol = Symbol.for('mcp.completable');
 

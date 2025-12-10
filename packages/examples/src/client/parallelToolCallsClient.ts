@@ -1,12 +1,12 @@
-import { Client } from '../../client/index.js';
-import { StreamableHTTPClientTransport } from '../../client/streamableHttp.js';
+import { Client } from '@modelcontextprotocol/sdk-client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
 import {
     ListToolsRequest,
     ListToolsResultSchema,
     CallToolResultSchema,
     LoggingMessageNotificationSchema,
     CallToolResult
-} from '../../types.js';
+} from '@modelcontextprotocol/sdk-client';
 
 /**
  * Parallel Tool Calls MCP Client

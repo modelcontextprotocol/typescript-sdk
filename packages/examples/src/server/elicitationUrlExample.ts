@@ -10,16 +10,16 @@
 import express, { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { McpServer } from '../../server/mcp.js';
-import { createMcpExpressApp } from '../../server/express.js';
-import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
-import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../server/auth/router.js';
-import { requireBearerAuth } from '../../server/auth/middleware/bearerAuth.js';
-import { CallToolResult, UrlElicitationRequiredError, ElicitRequestURLParams, ElicitResult, isInitializeRequest } from '../../types.js';
+import { McpServer } from '@modelcontextprotocol/sdk-server';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
+import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '@modelcontextprotocol/sdk-server';
+import { requireBearerAuth } from '@modelcontextprotocol/sdk-server';
+import { CallToolResult, UrlElicitationRequiredError, ElicitRequestURLParams, ElicitResult, isInitializeRequest } from '@modelcontextprotocol/sdk-server';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
-import { OAuthMetadata } from '../../shared/auth.js';
-import { checkResourceAllowed } from '../../shared/auth-utils.js';
+import { OAuthMetadata } from '@modelcontextprotocol/sdk-server';
+import { checkResourceAllowed } from '@modelcontextprotocol/sdk-server';
 
 import cors from 'cors';
 

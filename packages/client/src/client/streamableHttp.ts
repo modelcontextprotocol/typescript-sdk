@@ -1,5 +1,5 @@
-import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../shared/transport.js';
-import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResultResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
+import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '@modelcontextprotocol/shared';
+import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResultResponse, JSONRPCMessage, JSONRPCMessageSchema } from '@modelcontextprotocol/shared';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 

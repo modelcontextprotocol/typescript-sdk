@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { OAuthRegisteredClientsStore } from './clients.js';
-import { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '../../shared/auth.js';
-import { AuthInfo } from './types.js';
+import { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/shared';
+import { AuthInfo } from '@modelcontextprotocol/shared';
 
 export type AuthorizationParams = {
     state?: string;

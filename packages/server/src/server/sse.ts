@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { IncomingMessage, ServerResponse } from 'node:http';
-import { Transport } from '../shared/transport.js';
-import { JSONRPCMessage, JSONRPCMessageSchema, MessageExtraInfo, RequestInfo } from '../types.js';
+import { Transport } from '@modelcontextprotocol/shared';
+import { JSONRPCMessage, JSONRPCMessageSchema, MessageExtraInfo, RequestInfo } from '@modelcontextprotocol/shared';
 import getRawBody from 'raw-body';
 import contentType from 'content-type';
-import { AuthInfo } from './auth/types.js';
+import { AuthInfo } from '@modelcontextprotocol/shared';
 import { URL } from 'node:url';
 
 const MAXIMUM_MESSAGE_SIZE = '4mb';
