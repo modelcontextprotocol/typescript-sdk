@@ -1,0 +1,11 @@
+{
+    "extends": "@modelcontextprotocol/tsconfig",
+    "include": ["./"],
+    "exclude": ["node_modules", "dist"],
+    "compilerOptions": {
+        "baseUrl": ".",
+        "paths": {
+            "@modelcontextprotocol/shared": ["node_modules/@modelcontextprotocol/shared/src/index.ts"]
+        }
+    }
+}

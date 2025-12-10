@@ -1,0 +1,46 @@
+{
+    "name": "@modelcontextprotocol/sdk-examples",
+    "private": true,
+    "version": "2.0.0-alpha.0",
+    "description": "Model Context Protocol implementation for TypeScript",
+    "license": "MIT",
+    "author": "Anthropic, PBC (https://anthropic.com)",
+    "homepage": "https://modelcontextprotocol.io",
+    "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
+    "type": "module",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
+    },
+    "engines": {
+        "node": ">=18"
+    },
+    "keywords": [
+        "modelcontextprotocol",
+        "mcp"
+    ],
+    "scripts": {
+        "typecheck": "tsgo --noEmit",
+        "build": "npm run build:esm",
+        "build:esm": "mkdir -p dist && echo '{\"type\": \"module\"}' > dist/package.json && tsc -p tsconfig.prod.json",
+        "build:esm:w": "npm run build:esm -- -w",
+        "examples:simple-server:w": "tsx --watch src/examples/server/simpleStreamableHttp.ts --oauth",
+        "prepack": "npm run build:esm && npm run build:cjs",
+        "lint": "eslint src/ && prettier --check .",
+        "lint:fix": "eslint src/ --fix && prettier --write .",
+        "check": "npm run typecheck && npm run lint",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "start": "npm run server",
+        "server": "tsx watch --clear-screen=false scripts/cli.ts server",
+        "client": "tsx scripts/cli.ts client"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/shared": "workspace:^",
+        "@modelcontextprotocol/sdk-server": "workspace:^",
+        "@modelcontextprotocol/sdk-client": "workspace:^"
+    },
+    "devDependencies": {
+        "@modelcontextprotocol/tsconfig": "workspace:^"
+    }
+}

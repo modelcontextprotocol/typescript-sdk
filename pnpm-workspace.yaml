@@ -1,0 +1,11 @@
+packages:
+    - packages/**/*
+    - common/**/*
+
+catalog: 
+    typescript: ^5.9.3
+# cleanupUnusedCatalogs: true # Breaks Dockerfile builds. Commented out until Dockerfile is updated to skip this step on the first pnpm install.
+
+enableGlobalVirtualStore: false
+
+linkWorkspacePackages: deep
