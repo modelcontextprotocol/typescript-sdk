@@ -1,8 +1,12 @@
 {
     "name": "@modelcontextprotocol/vitest-config",
     "private": true,
-    "main": "tsconfig.json",
+    "main": "vitest.config.mjs",
     "type": "module",
+    "exports": {
+        ".": "./vitest.config.mjs",
+        "./tsconfig.json": "./tsconfig.json"
+    },
     "dependencies": {
         "typescript": "catalog:"
     },

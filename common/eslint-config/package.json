@@ -1,8 +1,11 @@
 {
     "name": "@modelcontextprotocol/eslint-config",
     "private": true,
-    "main": "tsconfig.json",
+    "main": "eslint.config.mjs",
     "type": "module",
+    "exports": {
+        ".": "./eslint.config.mjs"
+    },
     "dependencies": {
         "typescript": "catalog:"
     },

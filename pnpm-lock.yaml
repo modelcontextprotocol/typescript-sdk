@@ -231,6 +231,9 @@ importers:
       '@eslint/js':
         specifier: ^9.39.1
         version: 9.39.1
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
       '@modelcontextprotocol/tsconfig':
         specifier: workspace:^
         version: link:../../common/tsconfig
@@ -307,9 +310,15 @@ importers:
         specifier: workspace:^
         version: link:../server
     devDependencies:
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
       '@modelcontextprotocol/tsconfig':
         specifier: workspace:^
         version: link:../../common/tsconfig
+      '@modelcontextprotocol/vitest-config':
+        specifier: workspace:^
+        version: link:../../common/vitest-config
 
   packages/server:
     dependencies:
@@ -368,6 +377,9 @@ importers:
       '@eslint/js':
         specifier: ^9.39.1
         version: 9.39.1
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
       '@modelcontextprotocol/tsconfig':
         specifier: workspace:^
         version: link:../../common/tsconfig
@@ -492,6 +504,9 @@ importers:
       '@eslint/js':
         specifier: ^9.39.1
         version: 9.39.1
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
       '@modelcontextprotocol/vitest-config':
         specifier: workspace:^
         version: link:../../common/vitest-config

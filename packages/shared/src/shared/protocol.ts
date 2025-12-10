@@ -1,4 +1,4 @@
-import { AnySchema, AnyObjectSchema, SchemaOutput, safeParse } from '../server/zod-compat.js';
+import { AnySchema, AnyObjectSchema, SchemaOutput, safeParse } from '../util/zod-compat.js';
 import {
     CancelledNotificationSchema,
     ClientCapabilities,
@@ -44,11 +44,11 @@ import {
     Notification,
     JSONRPCResultResponse,
     isTaskAugmentedRequestParams
-} from '../types.js';
+} from '../types/types.js';
 import { Transport, TransportSendOptions } from './transport.js';
-import { AuthInfo } from '../server/auth/types.js';
+import { AuthInfo } from '../types/types.js';
 import { isTerminal, TaskStore, TaskMessageQueue, QueuedMessage, CreateTaskOptions } from '../experimental/tasks/interfaces.js';
-import { getMethodLiteral, parseWithCompat } from '../server/zod-json-schema-compat.js';
+import { getMethodLiteral, parseWithCompat } from '../util/zod-json-schema-compat.js';
 import { ResponseMessage } from './responseMessage.js';
 
 /**

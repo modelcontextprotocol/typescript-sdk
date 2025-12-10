@@ -4,11 +4,21 @@ import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import eslintConfigPrettier from 'eslint-config-prettier/flat';
 import nodePlugin from 'eslint-plugin-n';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default tseslint.config(
     eslint.configs.recommended,
     ...tseslint.configs.recommended,
     {
+        languageOptions: {
+            parserOptions: {
+                // Ensure consumers of this shared config get a stable tsconfig root
+                tsconfigRootDir: __dirname
+            }
+        },
         linterOptions: {
             reportUnusedDisableDirectives: false
         },
@@ -21,7 +31,8 @@ export default tseslint.config(
         }
     },
     {
-        ignores: ['src/spec.types.ts']
+        // Ignore generated protocol types everywhere
+        ignores: ['**/spec.types.ts']
     },
     {
         files: ['src/client/**/*.ts', 'src/server/**/*.ts'],
@@ -32,3 +43,4 @@ export default tseslint.config(
     },
     eslintConfigPrettier
 );
+

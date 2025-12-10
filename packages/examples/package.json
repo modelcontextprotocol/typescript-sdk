@@ -40,6 +40,8 @@
         "@modelcontextprotocol/sdk-client": "workspace:^"
     },
     "devDependencies": {
-        "@modelcontextprotocol/tsconfig": "workspace:^"
+        "@modelcontextprotocol/tsconfig": "workspace:^",
+        "@modelcontextprotocol/eslint-config": "workspace:^",
+        "@modelcontextprotocol/vitest-config": "workspace:^"
     }
 }
