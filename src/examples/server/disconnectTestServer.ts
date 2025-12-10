@@ -10,10 +10,7 @@ import * as z from 'zod/v4';
 const useAbort = process.argv.includes('--abort');
 console.log(`Abort on disconnect: ${useAbort ? 'enabled' : 'disabled'}`);
 
-const server = new McpServer(
-    { name: 'disconnect-test', version: '1.0.0' },
-    { capabilities: { logging: {} } }
-);
+const server = new McpServer({ name: 'disconnect-test', version: '1.0.0' }, { capabilities: { logging: {} } });
 
 server.server.onerror = err => console.log('[onerror]', err.message);
 
@@ -91,7 +88,9 @@ app.post('/mcp', async (req: Request, res: Response) => {
     if (transport) {
         // Track if response finished normally
         let finished = false;
-        res.on('finish', () => { finished = true; });
+        res.on('finish', () => {
+            finished = true;
+        });
         res.on('close', () => {
             if (!finished) {
                 console.log('Client disconnected unexpectedly');

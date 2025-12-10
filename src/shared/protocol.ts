@@ -854,9 +854,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             }
         }
 
-        Promise.resolve()
-            .then(() => handler(params))
-            .catch(error => this._onerror(new Error(`Uncaught error in progress handler: ${error}`)));
+        handler(params);
     }
 
     private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
