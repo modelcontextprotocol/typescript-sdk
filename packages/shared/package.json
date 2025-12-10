@@ -84,6 +84,7 @@
     "devDependencies": {
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
+        "@modelcontextprotocol/eslint-config": "workspace:^",
         "@cfworker/json-schema": "^4.1.1",
         "@eslint/js": "^9.39.1",
         "@types/content-type": "^1.1.8",

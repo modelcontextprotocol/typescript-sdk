@@ -130,6 +130,34 @@ importers:
         specifier: ^8.18.0
         version: 8.18.3
 
+  common/eslint-config:
+    dependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+    devDependencies:
+      '@eslint/js':
+        specifier: ^9.39.1
+        version: 9.39.1
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../tsconfig
+      eslint:
+        specifier: ^9.8.0
+        version: 9.39.1
+      eslint-config-prettier:
+        specifier: ^10.1.8
+        version: 10.1.8(eslint@9.39.1)
+      eslint-plugin-n:
+        specifier: ^17.23.1
+        version: 17.23.1(eslint@9.39.1)(typescript@5.9.3)
+      prettier:
+        specifier: 3.6.2
+        version: 3.6.2
+      typescript-eslint:
+        specifier: ^8.48.1
+        version: 8.49.0(eslint@9.39.1)(typescript@5.9.3)
+
   common/tsconfig:
     dependencies:
       typescript:

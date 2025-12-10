@@ -1,5 +1,5 @@
 {
-    "name": "@modelcontextprotocol/vitest-config",
+    "name": "@modelcontextprotocol/eslint-config",
     "private": true,
     "main": "tsconfig.json",
     "type": "module",
@@ -13,12 +13,19 @@
     "bugs": {
         "url": "https://github.com/modelcontextprotocol/typescript-sdk/issues"
     },
-    "homepage": "https://github.com/modelcontextprotocol/typescript-sdk/tree/develop/common/vitest-config",
+    "homepage": "https://github.com/modelcontextprotocol/typescript-sdk/tree/develop/common/eslint-config",
     "publishConfig": {
         "registry": "https://npm.pkg.github.com/"
     },
     "version": "2.0.0",
     "devDependencies": {
-        "@modelcontextprotocol/tsconfig": "workspace:^"
+        "@modelcontextprotocol/tsconfig": "workspace:^",
+        "eslint": "^9.8.0",
+        "eslint-config-prettier": "^10.1.8",
+        "eslint-plugin-n": "^17.23.1",
+        "prettier": "3.6.2",
+        "typescript": "^5.5.4",
+        "typescript-eslint": "^8.48.1",
+        "@eslint/js": "^9.39.1"
     }
 }
