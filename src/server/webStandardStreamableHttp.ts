@@ -73,9 +73,9 @@ interface StreamMapping {
 }
 
 /**
- * Configuration options for FetchStreamableHTTPServerTransport
+ * Configuration options for WebStandardStreamableHTTPServerTransport
  */
-export interface FetchStreamableHTTPServerTransportOptions {
+export interface WebStandardStreamableHTTPServerTransportOptions {
     /**
      * Function that generates a session ID for the transport.
      * The session ID SHOULD be globally unique and cryptographically secure (e.g., a securely generated UUID, a JWT, or a cryptographic hash)
@@ -99,7 +99,7 @@ export interface FetchStreamableHTTPServerTransportOptions {
      * Useful in cases when you need to clean up resources associated with the session.
      * Note that this is different from the transport closing, if you are handling
      * HTTP requests from multiple nodes you might want to close each
-     * FetchStreamableHTTPServerTransport after a request is completed while still keeping the
+     * WebStandardStreamableHTTPServerTransport after a request is completed while still keeping the
      * session open/running.
      * @param sessionId The session ID that was closed
      */
@@ -173,12 +173,12 @@ export interface HandleRequestOptions {
  *
  * ```typescript
  * // Stateful mode - server sets the session ID
- * const statefulTransport = new FetchStreamableHTTPServerTransport({
+ * const statefulTransport = new WebStandardStreamableHTTPServerTransport({
  *   sessionIdGenerator: () => crypto.randomUUID(),
  * });
  *
  * // Stateless mode - explicitly set session ID to undefined
- * const statelessTransport = new FetchStreamableHTTPServerTransport({
+ * const statelessTransport = new WebStandardStreamableHTTPServerTransport({
  *   sessionIdGenerator: undefined,
  * });
  *
@@ -206,7 +206,7 @@ export interface HandleRequestOptions {
  * - No Session ID is included in any responses
  * - No session validation is performed
  */
-export class FetchStreamableHTTPServerTransport implements Transport {
+export class WebStandardStreamableHTTPServerTransport implements Transport {
     // when sessionId is not set (undefined), it means the transport is in stateless mode
     private sessionIdGenerator: (() => string) | undefined;
     private _started: boolean = false;
@@ -229,7 +229,7 @@ export class FetchStreamableHTTPServerTransport implements Transport {
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
 
-    constructor(options: FetchStreamableHTTPServerTransportOptions) {
+    constructor(options: WebStandardStreamableHTTPServerTransportOptions) {
         this.sessionIdGenerator = options.sessionIdGenerator;
         this._enableJsonResponse = options.enableJsonResponse ?? false;
         this._eventStore = options.eventStore;

@@ -1,10 +1,10 @@
 /**
  * Node.js HTTP Streamable HTTP Server Transport
  *
- * This is a thin wrapper around `FetchStreamableHTTPServerTransport` that provides
+ * This is a thin wrapper around `WebStandardStreamableHTTPServerTransport` that provides
  * compatibility with Node.js HTTP server (IncomingMessage/ServerResponse).
  *
- * For web-standard environments (Cloudflare Workers, Deno, Bun), use `FetchStreamableHTTPServerTransport` directly.
+ * For web-standard environments (Cloudflare Workers, Deno, Bun), use `WebStandardStreamableHTTPServerTransport` directly.
  */
 
 import { IncomingMessage, ServerResponse } from 'node:http';
@@ -13,12 +13,12 @@ import { Transport } from '../shared/transport.js';
 import { AuthInfo } from './auth/types.js';
 import { MessageExtraInfo, JSONRPCMessage, RequestId } from '../types.js';
 import {
-    FetchStreamableHTTPServerTransport,
-    FetchStreamableHTTPServerTransportOptions,
+    WebStandardStreamableHTTPServerTransport,
+    WebStandardStreamableHTTPServerTransportOptions,
     EventStore,
     StreamId,
     EventId
-} from './fetchStreamableHttp.js';
+} from './webStandardStreamableHttp.js';
 
 // Re-export types from the core transport for backward compatibility
 export type { EventStore, StreamId, EventId };
@@ -26,15 +26,15 @@ export type { EventStore, StreamId, EventId };
 /**
  * Configuration options for StreamableHTTPServerTransport
  *
- * This is an alias for FetchStreamableHTTPServerTransportOptions for backward compatibility.
+ * This is an alias for WebStandardStreamableHTTPServerTransportOptions for backward compatibility.
  */
-export type StreamableHTTPServerTransportOptions = FetchStreamableHTTPServerTransportOptions;
+export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServerTransportOptions;
 
 /**
  * Server transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
  * It supports both SSE streaming and direct HTTP responses.
  *
- * This is a wrapper around `FetchStreamableHTTPServerTransport` that provides Node.js HTTP compatibility.
+ * This is a wrapper around `WebStandardStreamableHTTPServerTransport` that provides Node.js HTTP compatibility.
  * It uses the `@hono/node-server` library to convert between Node.js HTTP and Web Standard APIs.
  *
  * Usage example:
@@ -68,20 +68,20 @@ export type StreamableHTTPServerTransportOptions = FetchStreamableHTTPServerTran
  * - No session validation is performed
  */
 export class StreamableHTTPServerTransport implements Transport {
-    private _fetchTransport: FetchStreamableHTTPServerTransport;
+    private _webStandardTransport: WebStandardStreamableHTTPServerTransport;
     private _requestListener: ReturnType<typeof getRequestListener>;
     // Store auth and parsedBody per request for passing through to handleRequest
     private _requestContext: WeakMap<Request, { authInfo?: AuthInfo; parsedBody?: unknown }> = new WeakMap();
 
     constructor(options: StreamableHTTPServerTransportOptions) {
-        this._fetchTransport = new FetchStreamableHTTPServerTransport(options);
+        this._webStandardTransport = new WebStandardStreamableHTTPServerTransport(options);
 
-        // Create a request listener that wraps the fetch transport
+        // Create a request listener that wraps the web standard transport
         // getRequestListener converts Node.js HTTP to Web Standard and properly handles SSE streaming
         this._requestListener = getRequestListener(async (webRequest: Request) => {
             // Get context if available (set during handleRequest)
             const context = this._requestContext.get(webRequest);
-            return this._fetchTransport.handleRequest(webRequest, {
+            return this._webStandardTransport.handleRequest(webRequest, {
                 authInfo: context?.authInfo,
                 parsedBody: context?.parsedBody
             });
@@ -92,40 +92,40 @@ export class StreamableHTTPServerTransport implements Transport {
      * Gets the session ID for this transport instance.
      */
     get sessionId(): string | undefined {
-        return this._fetchTransport.sessionId;
+        return this._webStandardTransport.sessionId;
     }
 
     /**
      * Sets callback for when the transport is closed.
      */
     set onclose(handler: (() => void) | undefined) {
-        this._fetchTransport.onclose = handler;
+        this._webStandardTransport.onclose = handler;
     }
 
     get onclose(): (() => void) | undefined {
-        return this._fetchTransport.onclose;
+        return this._webStandardTransport.onclose;
     }
 
     /**
      * Sets callback for transport errors.
      */
     set onerror(handler: ((error: Error) => void) | undefined) {
-        this._fetchTransport.onerror = handler;
+        this._webStandardTransport.onerror = handler;
     }
 
     get onerror(): ((error: Error) => void) | undefined {
-        return this._fetchTransport.onerror;
+        return this._webStandardTransport.onerror;
     }
 
     /**
      * Sets callback for incoming messages.
      */
     set onmessage(handler: ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined) {
-        this._fetchTransport.onmessage = handler;
+        this._webStandardTransport.onmessage = handler;
     }
 
     get onmessage(): ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined {
-        return this._fetchTransport.onmessage;
+        return this._webStandardTransport.onmessage;
     }
 
     /**
@@ -133,28 +133,28 @@ export class StreamableHTTPServerTransport implements Transport {
      * for the Streamable HTTP transport as connections are managed per-request.
      */
     async start(): Promise<void> {
-        return this._fetchTransport.start();
+        return this._webStandardTransport.start();
     }
 
     /**
      * Closes the transport and all active connections.
      */
     async close(): Promise<void> {
-        return this._fetchTransport.close();
+        return this._webStandardTransport.close();
     }
 
     /**
      * Sends a JSON-RPC message through the transport.
      */
     async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void> {
-        return this._fetchTransport.send(message, options);
+        return this._webStandardTransport.send(message, options);
     }
 
     /**
      * Handles an incoming HTTP request, whether GET or POST.
      *
      * This method converts Node.js HTTP objects to Web Standard Request/Response
-     * and delegates to the underlying FetchStreamableHTTPServerTransport.
+     * and delegates to the underlying WebStandardStreamableHTTPServerTransport.
      *
      * @param req - Node.js IncomingMessage, optionally with auth property from middleware
      * @param res - Node.js ServerResponse
@@ -167,7 +167,7 @@ export class StreamableHTTPServerTransport implements Transport {
 
         // Create a custom handler that includes our context
         const handler = getRequestListener(async (webRequest: Request) => {
-            return this._fetchTransport.handleRequest(webRequest, {
+            return this._webStandardTransport.handleRequest(webRequest, {
                 authInfo,
                 parsedBody
             });
@@ -184,7 +184,7 @@ export class StreamableHTTPServerTransport implements Transport {
      * client will reconnect after the retry interval specified in the priming event.
      */
     closeSSEStream(requestId: RequestId): void {
-        this._fetchTransport.closeSSEStream(requestId);
+        this._webStandardTransport.closeSSEStream(requestId);
     }
 
     /**
@@ -192,6 +192,6 @@ export class StreamableHTTPServerTransport implements Transport {
      * Use this to implement polling behavior for server-initiated notifications.
      */
     closeStandaloneSSEStream(): void {
-        this._fetchTransport.closeStandaloneSSEStream();
+        this._webStandardTransport.closeStandaloneSSEStream();
     }
 }
