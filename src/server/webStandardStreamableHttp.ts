@@ -255,18 +255,27 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     /**
      * Helper to create a JSON error response
      */
-    private createJsonErrorResponse(status: number, code: number, message: string, headers?: Record<string, string>): Response {
+    private createJsonErrorResponse(
+        status: number,
+        code: number,
+        message: string,
+        options?: { headers?: Record<string, string>; data?: string }
+    ): Response {
+        const error: { code: number; message: string; data?: string } = { code, message };
+        if (options?.data !== undefined) {
+            error.data = options.data;
+        }
         return new Response(
             JSON.stringify({
                 jsonrpc: '2.0',
-                error: { code, message },
+                error,
                 id: null
             }),
             {
                 status,
                 headers: {
                     'Content-Type': 'application/json',
-                    ...headers
+                    ...options?.headers
                 }
             }
         );
@@ -767,7 +776,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         } catch (error) {
             // return JSON-RPC formatted error
             this.onerror?.(error as Error);
-            return this.createJsonErrorResponse(400, -32700, 'Parse error');
+            return this.createJsonErrorResponse(400, -32700, 'Parse error', { data: String(error) });
         }
     }
 

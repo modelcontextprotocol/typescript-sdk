@@ -56,7 +56,7 @@ app.use(
 // Health check endpoint
 app.get('/health', c => c.json({ status: 'ok' }));
 
-// MCP endpoint - pass requests directly to the transport
+// MCP endpoint
 app.all('/mcp', c => transport.handleRequest(c.req.raw));
 
 // Start the server
