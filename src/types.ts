@@ -198,7 +198,7 @@ export enum ErrorCode {
 export const JSONRPCErrorResponseSchema = z
     .object({
         jsonrpc: z.literal(JSONRPC_VERSION),
-        id: RequestIdSchema.optional(),
+        id: RequestIdSchema.nullable(),
         error: z.object({
             /**
              * The error type that occurred.
