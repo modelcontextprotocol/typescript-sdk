@@ -17,12 +17,15 @@ import {
     ReadResourceResultSchema,
     type TextContent,
     UrlElicitationRequiredError,
-    ErrorCode
+    ErrorCode,
+    ServerRequest,
+    ServerNotification
 } from '../../src/types.js';
 import { completable } from '../../src/server/completable.js';
 import { McpServer, ResourceTemplate } from '../../src/server/mcp.js';
 import { InMemoryTaskStore } from '../../src/experimental/tasks/stores/in-memory.js';
 import { zodTestMatrix, type ZodMatrixEntry } from '../../src/__fixtures__/zodTestMatrix.js';
+import { Context, ContextInterface } from '../../src/server/context.js';
 
 function createLatch() {
     let latch = false;
@@ -243,7 +246,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 sendNotification: () => {
                     throw new Error('Not implemented');
                 }
-            });
+            } as unknown as ContextInterface<ServerRequest, ServerNotification>);
             expect(result?.resources).toHaveLength(1);
             expect(list).toHaveBeenCalled();
         });
@@ -4387,17 +4390,20 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         })
                     }
                 },
-                async ({ department, name }) => ({
-                    messages: [
-                        {
-                            role: 'assistant',
-                            content: {
-                                type: 'text',
-                                text: `Hello ${name}, welcome to the ${department} team!`
+                async ({ department, name }, extra: ContextInterface<ServerRequest, ServerNotification>) => {
+                    expect(extra).toBeInstanceOf(Context);
+                    return {
+                        messages: [
+                            {
+                                role: 'assistant',
+                                content: {
+                                    type: 'text',
+                                    text: `Hello ${name}, welcome to the ${department} team!`
+                                }
                             }
-                        }
-                    ]
-                })
+                        ]
+                    };
+                }
             );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

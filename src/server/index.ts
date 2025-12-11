@@ -38,6 +38,9 @@ import {
     CallToolRequestSchema,
     CallToolResultSchema,
     CreateTaskResultSchema,
+    JSONRPCRequest,
+    TaskCreationParams,
+    MessageExtraInfo,
     type Request,
     type Notification,
     type Result
@@ -56,6 +59,9 @@ import {
 import { RequestHandlerExtra } from '../shared/protocol.js';
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
 import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '../experimental/tasks/helpers.js';
+import { Context } from './context.js';
+import { TaskStore } from '../experimental/index.js';
+import { Transport } from '../shared/transport.js';
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -219,9 +225,31 @@ export class Server<
         requestSchema: T,
         handler: (
             request: SchemaOutput<T>,
-            extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+            extra: Context<RequestT, NotificationT, ResultT>
         ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
     ): void {
+        // Wrap the handler to ensure the extra is a Context and return a decorated handler that can be passed to the base implementation
+
+        // Factory function to create a handler decorator that ensures the extra is a Context and returns a decorated handler that can be passed to the base implementation
+        const handlerDecoratorFactory = (
+            innerHandler: (
+                request: SchemaOutput<T>,
+                extra: Context<RequestT, NotificationT, ResultT>
+            ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
+        ) => {
+            const decoratedHandler = (
+                request: SchemaOutput<T>,
+                extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+            ) => {
+                if (!this.isContextExtra(extra)) {
+                    throw new Error('Internal error: Expected Context for request handler extra');
+                }
+                return innerHandler(request, extra);
+            };
+
+            return decoratedHandler;
+        };
+
         const shape = getObjectShape(requestSchema);
         const methodSchema = shape?.method;
         if (!methodSchema) {
@@ -259,7 +287,7 @@ export class Server<
 
                 const { params } = validatedRequest.data;
 
-                const result = await Promise.resolve(handler(request, extra));
+                const result = await Promise.resolve(handlerDecoratorFactory(handler)(request, extra));
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
@@ -286,11 +314,18 @@ export class Server<
             };
 
             // Install the wrapped handler
-            return super.setRequestHandler(requestSchema, wrappedHandler as unknown as typeof handler);
+            return super.setRequestHandler(requestSchema, handlerDecoratorFactory(wrappedHandler));
         }
 
         // Other handlers use default behavior
-        return super.setRequestHandler(requestSchema, handler);
+        return super.setRequestHandler(requestSchema, handlerDecoratorFactory(handler));
+    }
+
+    // Runtime type guard: ensure extra is our Context
+    private isContextExtra(
+        extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
+    ): extra is Context<RequestT, NotificationT, ResultT> {
+        return extra instanceof Context;
     }
 
     protected assertCapabilityForMethod(method: RequestT['method']): void {
@@ -466,6 +501,25 @@ export class Server<
 
     private getCapabilities(): ServerCapabilities {
         return this._capabilities;
+    }
+
+    protected createRequestExtra(args: {
+        request: JSONRPCRequest;
+        taskStore: TaskStore | undefined;
+        relatedTaskId: string | undefined;
+        taskCreationParams: TaskCreationParams | undefined;
+        abortController: AbortController;
+        capturedTransport: Transport | undefined;
+        extra?: MessageExtraInfo;
+    }): RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT> {
+        const base = super.createRequestExtra(args) as RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>;
+
+        // Expose a Context instance to handlers, which implements RequestHandlerExtra
+        return new Context<RequestT, NotificationT, ResultT>({
+            server: this,
+            request: args.request,
+            requestCtx: base
+        });
     }
 
     async ping() {
