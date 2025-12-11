@@ -2,7 +2,7 @@ import { StdioClientTransport, getDefaultEnvironment } from '../../src/client/st
 import spawn from 'cross-spawn';
 import { JSONRPCMessage } from '../../src/types.js';
 import { ChildProcess } from 'node:child_process';
-import { Mock, MockedFunction } from 'vitest';
+import { Mock, MockedFunction, vi } from 'vitest';
 
 // mock cross-spawn
 vi.mock('cross-spawn');
@@ -14,8 +14,9 @@ describe('StdioClientTransport using cross-spawn', () => {
         mockSpawn.mockImplementation(() => {
             const mockProcess: {
                 on: Mock;
-                stdin?: { on: Mock; write: Mock };
-                stdout?: { on: Mock };
+                once: Mock;
+                stdin?: { on: Mock; write: Mock; off: Mock };
+                stdout?: { on: Mock; off: Mock };
                 stderr?: null;
             } = {
                 on: vi.fn((event: string, callback: () => void) => {
@@ -24,12 +25,20 @@ describe('StdioClientTransport using cross-spawn', () => {
                     }
                     return mockProcess;
                 }),
+                once: vi.fn((event: string, callback: () => void) => {
+                    if (event === 'spawn') {
+                        callback();
+                    }
+                    return mockProcess;
+                }),
                 stdin: {
                     on: vi.fn(),
-                    write: vi.fn().mockReturnValue(true)
+                    write: vi.fn().mockReturnValue(true),
+                    off: vi.fn()
                 },
                 stdout: {
-                    on: vi.fn()
+                    on: vi.fn(),
+                    off: vi.fn()
                 },
                 stderr: null
             };
@@ -107,13 +116,16 @@ describe('StdioClientTransport using cross-spawn', () => {
         // get the mock process object
         const mockProcess: {
             on: Mock;
+            once: Mock;
             stdin: {
                 on: Mock;
                 write: Mock;
                 once: Mock;
+                off: Mock;
             };
             stdout: {
                 on: Mock;
+                off: Mock;
             };
             stderr: null;
         } = {
@@ -123,13 +135,21 @@ describe('StdioClientTransport using cross-spawn', () => {
                 }
                 return mockProcess;
             }),
+            once: vi.fn((event: string, callback: () => void) => {
+                if (event === 'spawn') {
+                    callback();
+                }
+                return mockProcess;
+            }),
             stdin: {
                 on: vi.fn(),
                 write: vi.fn().mockReturnValue(true),
-                once: vi.fn()
+                once: vi.fn(),
+                off: vi.fn()
             },
             stdout: {
-                on: vi.fn()
+                on: vi.fn(),
+                off: vi.fn()
             },
             stderr: null
         };
