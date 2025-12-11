@@ -73,7 +73,7 @@ export class StreamableHTTPServerTransport implements Transport {
     // Store auth and parsedBody per request for passing through to handleRequest
     private _requestContext: WeakMap<Request, { authInfo?: AuthInfo; parsedBody?: unknown }> = new WeakMap();
 
-    constructor(options: StreamableHTTPServerTransportOptions) {
+    constructor(options: StreamableHTTPServerTransportOptions = {}) {
         this._webStandardTransport = new WebStandardStreamableHTTPServerTransport(options);
 
         // Create a request listener that wraps the web standard transport

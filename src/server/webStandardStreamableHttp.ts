@@ -80,9 +80,9 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * Function that generates a session ID for the transport.
      * The session ID SHOULD be globally unique and cryptographically secure (e.g., a securely generated UUID, a JWT, or a cryptographic hash)
      *
-     * Return undefined to disable session management.
+     * If not provided, session management is disabled (stateless mode).
      */
-    sessionIdGenerator: (() => string) | undefined;
+    sessionIdGenerator?: () => string;
 
     /**
      * A callback for session initialization events
@@ -229,7 +229,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
 
-    constructor(options: WebStandardStreamableHTTPServerTransportOptions) {
+    constructor(options: WebStandardStreamableHTTPServerTransportOptions = {}) {
         this.sessionIdGenerator = options.sessionIdGenerator;
         this._enableJsonResponse = options.enableJsonResponse ?? false;
         this._eventStore = options.eventStore;
