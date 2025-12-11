@@ -501,6 +501,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     const success = this.writeSSEEvent(streamController!, encoder, message, eventId);
                     if (!success) {
                         this.onerror?.(new Error('Failed replay events'));
+                        try {
+                            streamController!.close();
+                        } catch {
+                            // Controller might already be closed
+                        }
                     }
                 }
             });
