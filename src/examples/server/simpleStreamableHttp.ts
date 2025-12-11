@@ -67,16 +67,18 @@ const getServer = () => {
     );
 
     // Register a tool that sends multiple greetings with notifications (with annotations)
-    server.tool(
+    server.registerTool(
         'multi-greet',
-        'A tool that sends different greetings with delays between them',
         {
-            name: z.string().describe('Name to greet')
-        },
-        {
-            title: 'Multiple Greeting Tool',
-            readOnlyHint: true,
-            openWorldHint: false
+            description: 'A tool that sends different greetings with delays between them',
+            inputSchema: {
+                name: z.string().describe('Name to greet')
+            },
+            annotations: {
+                title: 'Multiple Greeting Tool',
+                readOnlyHint: true,
+                openWorldHint: false
+            }
         },
         async ({ name }, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -121,11 +123,13 @@ const getServer = () => {
     );
     // Register a tool that demonstrates form elicitation (user input collection with a schema)
     // This creates a closure that captures the server instance
-    server.tool(
+    server.registerTool(
         'collect-user-info',
-        'A tool that collects user information through form elicitation',
         {
-            infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect')
+            description: 'A tool that collects user information through form elicitation',
+            inputSchema: {
+                infoType: z.enum(['contact', 'preferences', 'feedback']).describe('Type of information to collect')
+            }
         },
         async ({ infoType }, extra): Promise<CallToolResult> => {
             let message: string;
@@ -302,12 +306,14 @@ const getServer = () => {
     );
 
     // Register a tool specifically for testing resumability
-    server.tool(
+    server.registerTool(
         'start-notification-stream',
-        'Starts sending periodic notifications for testing resumability',
         {
-            interval: z.number().describe('Interval in milliseconds between notifications').default(100),
-            count: z.number().describe('Number of notifications to send (0 for 100)').default(50)
+            description: 'Starts sending periodic notifications for testing resumability',
+            inputSchema: {
+                interval: z.number().describe('Interval in milliseconds between notifications').default(100),
+                count: z.number().describe('Number of notifications to send (0 for 100)').default(50)
+            }
         },
         async ({ interval, count }, extra): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

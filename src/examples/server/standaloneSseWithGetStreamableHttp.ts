@@ -16,7 +16,7 @@ const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
 const addResource = (name: string, content: string) => {
     const uri = `https://mcp-example.com/dynamic/${encodeURIComponent(name)}`;
-    server.resource(
+    server.registerResource(
         name,
         uri,
         { mimeType: 'text/plain', description: `Dynamic resource: ${name}` },
