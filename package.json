@@ -86,6 +86,7 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
+        "@hono/node-server": "^1.19.7",
         "ajv": "^8.17.1",
         "ajv-formats": "^3.0.1",
         "content-type": "^1.0.5",
