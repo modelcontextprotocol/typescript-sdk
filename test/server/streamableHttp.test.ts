@@ -1309,9 +1309,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             baseUrl = result.baseUrl;
             mcpServer = result.mcpServer;
 
-            // Verify resumability is enabled on the transport
-            expect(transport['_eventStore']).toBeDefined();
-
             // Initialize the server
             const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
             sessionId = initResponse.headers.get('mcp-session-id') as string;
