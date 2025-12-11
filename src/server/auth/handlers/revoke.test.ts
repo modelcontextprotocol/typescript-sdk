@@ -6,6 +6,7 @@ import express, { Response } from 'express';
 import supertest from 'supertest';
 import { AuthInfo } from '../types.js';
 import { InvalidTokenError } from '../errors.js';
+import { MockInstance } from 'vitest';
 
 describe('Revocation Handler', () => {
     // Mock client data
@@ -113,6 +114,7 @@ describe('Revocation Handler', () => {
             }
             throw new InvalidTokenError('Token is invalid or expired');
         }
+
         // No revokeToken method
     };
 
@@ -130,7 +132,7 @@ describe('Revocation Handler', () => {
 
     describe('Request handling', () => {
         let app: express.Express;
-        let spyRevokeToken: jest.SpyInstance;
+        let spyRevokeToken: MockInstance;
 
         beforeEach(() => {
             // Setup express app with revocation handler
@@ -139,7 +141,7 @@ describe('Revocation Handler', () => {
             app.use('/revoke', revocationHandler(options));
 
             // Spy on the revokeToken method
-            spyRevokeToken = jest.spyOn(mockProviderWithRevocation, 'revokeToken');
+            spyRevokeToken = vi.spyOn(mockProviderWithRevocation, 'revokeToken');
         });
 
         afterEach(() => {

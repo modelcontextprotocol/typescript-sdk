@@ -164,6 +164,14 @@ export class InsufficientScopeError extends OAuthError {
 }
 
 /**
+ * Invalid target error - The requested resource is invalid, missing, unknown, or malformed.
+ * (Custom error for resource indicators - RFC 8707)
+ */
+export class InvalidTargetError extends OAuthError {
+    static errorCode = 'invalid_target';
+}
+
+/**
  * A utility class for defining one-off error codes
  */
 export class CustomOAuthError extends OAuthError {
@@ -199,5 +207,6 @@ export const OAUTH_ERRORS = {
     [MethodNotAllowedError.errorCode]: MethodNotAllowedError,
     [TooManyRequestsError.errorCode]: TooManyRequestsError,
     [InvalidClientMetadataError.errorCode]: InvalidClientMetadataError,
-    [InsufficientScopeError.errorCode]: InsufficientScopeError
+    [InsufficientScopeError.errorCode]: InsufficientScopeError,
+    [InvalidTargetError.errorCode]: InvalidTargetError
 } as const;

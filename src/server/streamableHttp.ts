@@ -35,6 +35,16 @@ export interface EventStore {
      */
     storeEvent(streamId: StreamId, message: JSONRPCMessage): Promise<EventId>;
 
+    /**
+     * Get the stream ID associated with a given event ID.
+     * @param eventId The event ID to look up
+     * @returns The stream ID, or undefined if not found
+     *
+     * Optional: If not provided, the SDK will use the streamId returned by
+     * replayEventsAfter for stream mapping.
+     */
+    getStreamIdForEventId?(eventId: EventId): Promise<StreamId | undefined>;
+
     replayEventsAfter(
         lastEventId: EventId,
         {
@@ -94,20 +104,33 @@ export interface StreamableHTTPServerTransportOptions {
     /**
      * List of allowed host header values for DNS rebinding protection.
      * If not specified, host validation is disabled.
+     * @deprecated Use the `hostHeaderValidation` middleware from `@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js` instead,
+     * or use `createMcpExpressApp` from `@modelcontextprotocol/sdk/server/express.js` which includes localhost protection by default.
      */
     allowedHosts?: string[];
 
     /**
      * List of allowed origin header values for DNS rebinding protection.
      * If not specified, origin validation is disabled.
+     * @deprecated Use the `hostHeaderValidation` middleware from `@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js` instead,
+     * or use `createMcpExpressApp` from `@modelcontextprotocol/sdk/server/express.js` which includes localhost protection by default.
      */
     allowedOrigins?: string[];
 
     /**
      * Enable DNS rebinding protection (requires allowedHosts and/or allowedOrigins to be configured).
      * Default is false for backwards compatibility.
+     * @deprecated Use the `hostHeaderValidation` middleware from `@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js` instead,
+     * or use `createMcpExpressApp` from `@modelcontextprotocol/sdk/server/express.js` which includes localhost protection by default.
      */
     enableDnsRebindingProtection?: boolean;
+
+    /**
+     * Retry interval in milliseconds to suggest to clients in SSE retry field.
+     * When set, the server will send a retry field in SSE priming events to control
+     * client reconnection timing for polling behavior.
+     */
+    retryInterval?: number;
 }
 
 /**
@@ -160,6 +183,7 @@ export class StreamableHTTPServerTransport implements Transport {
     private _allowedHosts?: string[];
     private _allowedOrigins?: string[];
     private _enableDnsRebindingProtection: boolean;
+    private _retryInterval?: number;
 
     sessionId?: string;
     onclose?: () => void;
@@ -175,6 +199,7 @@ export class StreamableHTTPServerTransport implements Transport {
         this._allowedHosts = options.allowedHosts;
         this._allowedOrigins = options.allowedOrigins;
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
+        this._retryInterval = options.retryInterval;
     }
 
     /**
@@ -209,7 +234,7 @@ export class StreamableHTTPServerTransport implements Transport {
         // Validate Origin header if allowedOrigins is configured
         if (this._allowedOrigins && this._allowedOrigins.length > 0) {
             const originHeader = req.headers.origin;
-            if (!originHeader || !this._allowedOrigins.includes(originHeader)) {
+            if (originHeader && !this._allowedOrigins.includes(originHeader)) {
                 return `Invalid Origin header: ${originHeader}`;
             }
         }
@@ -247,6 +272,32 @@ export class StreamableHTTPServerTransport implements Transport {
         } else {
             await this.handleUnsupportedRequest(res);
         }
+    }
+
+    /**
+     * Writes a priming event to establish resumption capability.
+     * Only sends if eventStore is configured (opt-in for resumability) and
+     * the client's protocol version supports empty SSE data (>= 2025-11-25).
+     */
+    private async _maybeWritePrimingEvent(res: ServerResponse, streamId: string, protocolVersion: string): Promise<void> {
+        if (!this._eventStore) {
+            return;
+        }
+
+        // Priming events have empty data which older clients cannot handle.
+        // Only send priming events to clients with protocol version >= 2025-11-25
+        // which includes the fix for handling empty SSE data.
+        if (protocolVersion < '2025-11-25') {
+            return;
+        }
+
+        const primingEventId = await this._eventStore.storeEvent(streamId, {} as JSONRPCMessage);
+
+        let primingEvent = `id: ${primingEventId}\ndata: \n\n`;
+        if (this._retryInterval !== undefined) {
+            primingEvent = `id: ${primingEventId}\nretry: ${this._retryInterval}\ndata: \n\n`;
+        }
+        res.write(primingEvent);
     }
 
     /**
@@ -342,6 +393,41 @@ export class StreamableHTTPServerTransport implements Transport {
             return;
         }
         try {
+            // If getStreamIdForEventId is available, use it for conflict checking
+            let streamId: string | undefined;
+            if (this._eventStore.getStreamIdForEventId) {
+                streamId = await this._eventStore.getStreamIdForEventId(lastEventId);
+
+                if (!streamId) {
+                    res.writeHead(400).end(
+                        JSON.stringify({
+                            jsonrpc: '2.0',
+                            error: {
+                                code: -32000,
+                                message: 'Invalid event ID format'
+                            },
+                            id: null
+                        })
+                    );
+                    return;
+                }
+
+                // Check conflict with the SAME streamId we'll use for mapping
+                if (this._streamMapping.get(streamId) !== undefined) {
+                    res.writeHead(409).end(
+                        JSON.stringify({
+                            jsonrpc: '2.0',
+                            error: {
+                                code: -32000,
+                                message: 'Conflict: Stream already has an active connection'
+                            },
+                            id: null
+                        })
+                    );
+                    return;
+                }
+            }
+
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache, no-transform',
@@ -353,7 +439,8 @@ export class StreamableHTTPServerTransport implements Transport {
             }
             res.writeHead(200, headers).flushHeaders();
 
-            const streamId = await this._eventStore?.replayEventsAfter(lastEventId, {
+            // Replay events - returns the streamId for backwards compatibility
+            const replayedStreamId = await this._eventStore.replayEventsAfter(lastEventId, {
                 send: async (eventId: string, message: JSONRPCMessage) => {
                     if (!this.writeSSEEvent(res, message, eventId)) {
                         this.onerror?.(new Error('Failed replay events'));
@@ -361,7 +448,13 @@ export class StreamableHTTPServerTransport implements Transport {
                     }
                 }
             });
-            this._streamMapping.set(streamId, res);
+
+            this._streamMapping.set(replayedStreamId, res);
+
+            // Set up close handler for client disconnects
+            res.on('close', () => {
+                this._streamMapping.delete(replayedStreamId);
+            });
 
             // Add error handler for replay stream
             res.on('error', error => {
@@ -534,6 +627,15 @@ export class StreamableHTTPServerTransport implements Transport {
                 // The default behavior is to use SSE streaming
                 // but in some cases server will return JSON responses
                 const streamId = randomUUID();
+
+                // Extract protocol version for priming event decision.
+                // For initialize requests, get from request params.
+                // For other requests, get from header (already validated).
+                const initRequest = messages.find(m => isInitializeRequest(m));
+                const clientProtocolVersion = initRequest
+                    ? initRequest.params.protocolVersion
+                    : ((req.headers['mcp-protocol-version'] as string) ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
+
                 if (!this._enableJsonResponse) {
                     const headers: Record<string, string> = {
                         'Content-Type': 'text/event-stream',
@@ -547,6 +649,8 @@ export class StreamableHTTPServerTransport implements Transport {
                     }
 
                     res.writeHead(200, headers);
+
+                    await this._maybeWritePrimingEvent(res, streamId, clientProtocolVersion);
                 }
                 // Store the response for this request to send messages back through this connection
                 // We need to track by request ID to maintain the connection
@@ -568,7 +672,22 @@ export class StreamableHTTPServerTransport implements Transport {
 
                 // handle each message
                 for (const message of messages) {
-                    this.onmessage?.(message, { authInfo, requestInfo });
+                    // Build closeSSEStream callback for requests when eventStore is configured
+                    // AND client supports resumability (protocol version >= 2025-11-25).
+                    // Old clients can't resume if the stream is closed early because they
+                    // didn't receive a priming event with an event ID.
+                    let closeSSEStream: (() => void) | undefined;
+                    let closeStandaloneSSEStream: (() => void) | undefined;
+                    if (isJSONRPCRequest(message) && this._eventStore && clientProtocolVersion >= '2025-11-25') {
+                        closeSSEStream = () => {
+                            this.closeSSEStream(message.id);
+                        };
+                        closeStandaloneSSEStream = () => {
+                            this.closeStandaloneSSEStream();
+                        };
+                    }
+
+                    this.onmessage?.(message, { authInfo, requestInfo, closeSSEStream, closeStandaloneSSEStream });
                 }
                 // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
                 // This will be handled by the send() method when responses are ready
@@ -709,6 +828,34 @@ export class StreamableHTTPServerTransport implements Transport {
         this.onclose?.();
     }
 
+    /**
+     * Close an SSE stream for a specific request, triggering client reconnection.
+     * Use this to implement polling behavior during long-running operations -
+     * client will reconnect after the retry interval specified in the priming event.
+     */
+    closeSSEStream(requestId: RequestId): void {
+        const streamId = this._requestToStreamMapping.get(requestId);
+        if (!streamId) return;
+
+        const stream = this._streamMapping.get(streamId);
+        if (stream) {
+            stream.end();
+            this._streamMapping.delete(streamId);
+        }
+    }
+
+    /**
+     * Close the standalone GET SSE stream, triggering client reconnection.
+     * Use this to implement polling behavior for server-initiated notifications.
+     */
+    closeStandaloneSSEStream(): void {
+        const stream = this._streamMapping.get(this._standaloneSseStreamId);
+        if (stream) {
+            stream.end();
+            this._streamMapping.delete(this._standaloneSseStreamId);
+        }
+    }
+
     async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void> {
         let requestId = options?.relatedRequestId;
         if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
@@ -724,17 +871,19 @@ export class StreamableHTTPServerTransport implements Transport {
             if (isJSONRPCResponse(message) || isJSONRPCError(message)) {
                 throw new Error('Cannot send a response on a standalone SSE stream unless resuming a previous client request');
             }
-            const standaloneSse = this._streamMapping.get(this._standaloneSseStreamId);
-            if (standaloneSse === undefined) {
-                // The spec says the server MAY send messages on the stream, so it's ok to discard if no stream
-                return;
-            }
 
             // Generate and store event ID if event store is provided
+            // Store even if stream is disconnected so events can be replayed on reconnect
             let eventId: string | undefined;
             if (this._eventStore) {
                 // Stores the event and gets the generated event ID
                 eventId = await this._eventStore.storeEvent(this._standaloneSseStreamId, message);
+            }
+
+            const standaloneSse = this._streamMapping.get(this._standaloneSseStreamId);
+            if (standaloneSse === undefined) {
+                // Stream is disconnected - event is stored for replay, nothing more to do
+                return;
             }
 
             // Send the message to the standalone SSE stream

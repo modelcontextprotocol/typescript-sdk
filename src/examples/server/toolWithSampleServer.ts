@@ -2,7 +2,7 @@
 
 import { McpServer } from '../../server/mcp.js';
 import { StdioServerTransport } from '../../server/stdio.js';
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 const mcpServer = new McpServer({
     name: 'tools-with-sample-server',
@@ -33,6 +33,7 @@ mcpServer.registerTool(
             maxTokens: 500
         });
 
+        // Since we're not passing tools param to createMessage, response.content is single content
         return {
             content: [
                 {
