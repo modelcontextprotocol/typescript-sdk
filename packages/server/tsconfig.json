@@ -1,0 +1,12 @@
+{
+    "extends": "@modelcontextprotocol/tsconfig",
+    "include": ["./"],
+    "exclude": ["node_modules", "dist"],
+    "compilerOptions": {
+        "baseUrl": ".",
+        "paths": {
+            "*": ["./*"],
+            "@modelcontextprotocol/sdk-core": ["node_modules/@modelcontextprotocol/sdk-core/src/index.ts"]
+        }
+    }
+}
