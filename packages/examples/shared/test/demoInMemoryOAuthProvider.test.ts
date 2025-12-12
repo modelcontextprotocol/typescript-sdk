@@ -1,10 +1,10 @@
-import type { Response } from 'express';
-import { DemoInMemoryAuthProvider, DemoInMemoryClientsStore } from '../src/demoInMemoryOAuthProvider.js';
-import type { AuthorizationParams } from '@modelcontextprotocol/sdk-server';
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk-core';
-import { InvalidRequestError } from '@modelcontextprotocol/sdk-core';
+import type { AuthorizationParams } from '@modelcontextprotocol/sdk-server';
+import { InvalidRequestError } from '@modelcontextprotocol/sdk-server';
+import type { Response } from 'express';
 
 import { createExpressResponseMock } from '../../../integration/test/helpers/http.js';
+import { DemoInMemoryAuthProvider, DemoInMemoryClientsStore } from '../src/demoInMemoryOAuthProvider.js';
 
 describe('DemoInMemoryAuthProvider', () => {
     let provider: DemoInMemoryAuthProvider;

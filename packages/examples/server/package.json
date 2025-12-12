@@ -32,15 +32,15 @@
     "dependencies": {
         "@modelcontextprotocol/sdk-server": "workspace:^",
         "@modelcontextprotocol/sdk-examples-shared": "workspace:^",
-        "zod": "catalog:",
-        "express": "catalog:",
-        "cors": "catalog:"
+        "zod": "catalog:runtimeShared",
+        "express": "catalog:runtimeServerOnly",
+        "cors": "catalog:runtimeServerOnly"
     },
     "devDependencies": {
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@types/express": "catalog:",
-        "@types/cors": "catalog:"
+        "@types/express": "catalog:devTools",
+        "@types/cors": "catalog:devTools"
     }
 }

@@ -4,7 +4,7 @@
     "main": "tsconfig.json",
     "type": "module",
     "dependencies": {
-        "typescript": "catalog:"
+        "typescript": "catalog:devTools"
     },
     "repository": {
         "type": "git",

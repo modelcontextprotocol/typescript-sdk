@@ -7,7 +7,7 @@
         ".": "./eslint.config.mjs"
     },
     "dependencies": {
-        "typescript": "catalog:"
+        "typescript": "catalog:devTools"
     },
     "repository": {
         "type": "git",
@@ -22,15 +22,15 @@
     },
     "version": "2.0.0",
     "devDependencies": {
-        "@eslint/js": "catalog:",
-        "eslint": "catalog:",
-        "eslint-config-prettier": "catalog:",
+        "@eslint/js": "catalog:devTools",
+        "eslint": "catalog:devTools",
+        "eslint-config-prettier": "catalog:devTools",
         "eslint-import-resolver-typescript": "^4.4.4",
         "eslint-plugin-import": "^2.32.0",
-        "eslint-plugin-n": "catalog:",
+        "eslint-plugin-n": "catalog:devTools",
         "eslint-plugin-simple-import-sort": "^12.1.1",
-        "prettier": "catalog:",
-        "typescript": "catalog:",
-        "typescript-eslint": "catalog:"
+        "prettier": "catalog:devTools",
+        "typescript": "catalog:devTools",
+        "typescript-eslint": "catalog:devTools"
     }
 }

@@ -33,12 +33,12 @@
     },
     "dependencies": {
         "@modelcontextprotocol/sdk-server": "workspace:^",
-        "express": "catalog:"
+        "express": "catalog:runtimeServerOnly"
     },
     "devDependencies": {
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@types/express": "catalog:"
+        "@types/express": "catalog:devTools"
     }
 }

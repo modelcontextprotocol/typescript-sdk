@@ -54,25 +54,15 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
-        "ajv": "catalog:",
-        "ajv-formats": "catalog:",
-        "content-type": "catalog:",
-        "cors": "catalog:",
-        "cross-spawn": "catalog:",
-        "eventsource": "catalog:",
-        "eventsource-parser": "catalog:",
-        "express": "catalog:",
-        "express-rate-limit": "catalog:",
-        "jose": "catalog:",
-        "json-schema-typed": "catalog:",
-        "pkce-challenge": "catalog:",
-        "raw-body": "catalog:",
-        "zod": "catalog:",
-        "zod-to-json-schema": "catalog:"
+        "ajv": "catalog:runtimeShared",
+        "ajv-formats": "catalog:runtimeShared",
+        "json-schema-typed": "catalog:runtimeShared",
+        "zod": "catalog:runtimeShared",
+        "zod-to-json-schema": "catalog:runtimeShared"
     },
     "peerDependencies": {
-        "@cfworker/json-schema": "catalog:",
-        "zod": "catalog:"
+        "@cfworker/json-schema": "catalog:runtimeShared",
+        "zod": "catalog:runtimeShared"
     },
     "peerDependenciesMeta": {
         "@cfworker/json-schema": {
@@ -86,22 +76,22 @@
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
-        "@cfworker/json-schema": "catalog:",
-        "@eslint/js": "catalog:",
-        "@types/content-type": "catalog:",
-        "@types/cors": "catalog:",
-        "@types/cross-spawn": "catalog:",
-        "@types/eventsource": "catalog:",
-        "@types/express": "catalog:",
-        "@types/express-serve-static-core": "catalog:",
-        "@typescript/native-preview": "catalog:",
-        "eslint": "catalog:",
-        "eslint-config-prettier": "catalog:",
-        "eslint-plugin-n": "catalog:",
-        "prettier": "catalog:",
-        "tsx": "catalog:",
-        "typescript": "catalog:",
-        "typescript-eslint": "catalog:",
-        "vitest": "catalog:"
+        "@cfworker/json-schema": "catalog:runtimeShared",
+        "@eslint/js": "catalog:devTools",
+        "@types/content-type": "catalog:devTools",
+        "@types/cors": "catalog:devTools",
+        "@types/cross-spawn": "catalog:devTools",
+        "@types/eventsource": "catalog:devTools",
+        "@types/express": "catalog:devTools",
+        "@types/express-serve-static-core": "catalog:devTools",
+        "@typescript/native-preview": "catalog:devTools",
+        "eslint": "catalog:devTools",
+        "eslint-config-prettier": "catalog:devTools",
+        "eslint-plugin-n": "catalog:devTools",
+        "prettier": "catalog:devTools",
+        "tsx": "catalog:devTools",
+        "typescript": "catalog:devTools",
+        "typescript-eslint": "catalog:devTools",
+        "vitest": "catalog:devTools"
     }
 }
