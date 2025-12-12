@@ -16,14 +16,12 @@ import type {
     Notification,
     Request,
     Result,
-    CallToolResultSchema,
-    type CompatibilityCallToolResultSchema,
-    McpError,
-    ErrorCode,
+    CompatibilityCallToolResultSchema,
     GetTaskResult,
     ListTasksResult,
     CancelTaskResult
 } from '@modelcontextprotocol/sdk-core';
+import { CallToolResultSchema, McpError, ErrorCode } from '@modelcontextprotocol/sdk-core';
 
 /**
  * Internal interface for accessing Client's private methods.

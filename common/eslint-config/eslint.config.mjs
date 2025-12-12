@@ -35,14 +35,14 @@ export default tseslint.config(
                     // while the actual file is "./foo.ts"
                     extensions: ['.js', '.jsx', '.ts', '.tsx', '.d.ts'],
                     // Use the tsconfig in each package root (when running ESLint from that package)
-                    project: 'tsconfig.json',
-                },
-            },
+                    project: 'tsconfig.json'
+                }
+            }
         },
         rules: {
             '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
             'n/prefer-node-protocol': 'error',
-            '@typescript-eslint/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
+            '@typescript-eslint/consistent-type-imports': ['error', { disallowTypeAnnotations: false }]
         }
     },
     {

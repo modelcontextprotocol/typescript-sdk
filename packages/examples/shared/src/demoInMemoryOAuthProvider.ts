@@ -6,14 +6,9 @@ import type {
     OAuthClientInformationFull,
     OAuthMetadata,
     OAuthTokens,
-    AuthInfo,
+    AuthInfo
 } from '@modelcontextprotocol/sdk-server';
-import {
-    createOAuthMetadata,
-    mcpAuthRouter,
-    resourceUrlFromServerUrl,
-    InvalidRequestError
-} from '@modelcontextprotocol/sdk-server';
+import { createOAuthMetadata, mcpAuthRouter, resourceUrlFromServerUrl, InvalidRequestError } from '@modelcontextprotocol/sdk-server';
 import type { Request, Response } from 'express';
 import express from 'express';
 

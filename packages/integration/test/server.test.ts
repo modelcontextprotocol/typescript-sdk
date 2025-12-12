@@ -1,9 +1,18 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import supertest from 'supertest';
 import { Client } from '@modelcontextprotocol/sdk-client';
-import { InMemoryTransport, CallToolRequestSchema, CallToolResultSchema } from '@modelcontextprotocol/sdk-core';
 import type {
     Transport,
+    LoggingMessageNotification,
+    JsonSchemaType,
+    JsonSchemaValidator,
+    jsonSchemaValidator,
+    AnyObjectSchema
+} from '@modelcontextprotocol/sdk-core';
+import {
+    InMemoryTransport,
+    CallToolRequestSchema,
+    CallToolResultSchema,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     ElicitRequestSchema,
@@ -14,18 +23,13 @@ import type {
     ListPromptsRequestSchema,
     ListResourcesRequestSchema,
     ListToolsRequestSchema,
-    type LoggingMessageNotification,
     McpError,
     NotificationSchema,
     RequestSchema,
     ResultSchema,
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS,
-    CreateTaskResultSchema,
-    JsonSchemaType,
-    JsonSchemaValidator,
-    jsonSchemaValidator,
-    AnyObjectSchema
+    CreateTaskResultSchema
 } from '@modelcontextprotocol/sdk-core';
 import { Server, McpServer, InMemoryTaskStore, InMemoryTaskMessageQueue, createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 import * as z3 from 'zod/v3';
