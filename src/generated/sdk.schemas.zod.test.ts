@@ -3,8 +3,8 @@
 // Run: npm run generate:schemas
 import { z } from 'zod/v4';
 
-import * as spec from '../spec.types.js';
-import * as generated from './spec.schemas.js';
+import * as spec from './sdk.types.js';
+import * as generated from './sdk.schemas.js';
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function expectType<T>(_: T) {

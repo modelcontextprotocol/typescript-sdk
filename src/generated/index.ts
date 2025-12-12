@@ -1,12 +1,20 @@
 /**
- * Generated Zod Schemas for MCP SDK
+ * Generated Zod Schemas and Types for MCP SDK
  *
- * This module provides auto-generated Zod schemas from spec.types.ts,
- * post-processed for SDK compatibility.
+ * This module provides:
+ * - sdk.types.ts: Pre-processed types with SDK-compatible hierarchy
+ * - sdk.schemas.ts: Zod schemas generated from sdk.types.ts
  *
- * @see spec.types.ts - MCP specification types
- * @see spec.schemas.ts - Auto-generated Zod schemas
- * @see ../types.ts - Production schemas with SDK extras
+ * Pre-processing transforms:
+ * - `extends JSONRPCRequest` → `extends Request`
+ * - `extends JSONRPCNotification` → `extends Notification`
+ *
+ * This allows SDK types/schemas to omit jsonrpc/id fields, which are
+ * handled at the transport layer.
+ *
+ * @see sdk.types.ts - Pre-processed types (SDK hierarchy)
+ * @see sdk.schemas.ts - Generated Zod schemas
+ * @see ../types.ts - Re-exports from here + SDK extras
  */
 
 // =============================================================================
@@ -200,10 +208,10 @@ export {
     ServerRequestSchema,
     ServerNotificationSchema,
     ServerResultSchema
-} from './spec.schemas.js';
+} from './sdk.schemas.js';
 
 // =============================================================================
-// Spec Types (interfaces and type aliases)
+// SDK-Compatible Types (pre-processed from spec.types.ts)
 // =============================================================================
 
 export type {
@@ -393,7 +401,7 @@ export type {
     ServerRequest,
     ServerNotification,
     ServerResult
-} from '../spec.types.js';
+} from './sdk.types.js';
 
 // =============================================================================
 // SDK Constants (from types.ts, not spec)

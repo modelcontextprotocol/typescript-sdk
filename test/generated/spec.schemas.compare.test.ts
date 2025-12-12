@@ -7,8 +7,8 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod/v4';
 
-// Import generated schemas (post-processed for SDK-compatible hierarchy)
-import * as generated from '../../src/generated/spec.schemas.js';
+// Import generated schemas (from pre-processed types with SDK-compatible hierarchy)
+import * as generated from '../../src/generated/sdk.schemas.js';
 
 // Import manual schemas from types.ts
 import * as manual from '../../src/types.js';
