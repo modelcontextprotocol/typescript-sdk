@@ -17,28 +17,18 @@ jobs:
 
         steps:
             - uses: actions/checkout@v6
-            - uses: actions/setup-node@v6
-              with:
-                  node-version: 24
-                  cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
+
             - name: Install pnpm
               uses: pnpm/action-setup@v4
               id: pnpm-install
               with:
                   run_install: false
-
-            - uses: actions/cache@v4
-              name: Retrieve Cache
+            - uses: actions/setup-node@v6
               with:
-                  path: |
-                      node_modules/.cache
-                      node_modules/.vitest
-                  key: ${{ runner.os }}-build-${{ hashFiles('**/pnpm-lock.yaml') }}
-                  restore-keys: |
-                      ${{ runner.os }}-build-${{ hashFiles('**/pnpm-lock.yaml') }}
-                      ${{ runner.os }}-build-
-                      ${{ runner.os }}-
+                  node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+
 
             - run: pnpm install
             - run: pnpm run check:all
@@ -53,17 +43,18 @@ jobs:
 
         steps:
             - uses: actions/checkout@v6
-            - uses: actions/setup-node@v6
-              with:
-                  node-version: ${{ matrix.node-version }}
-                  cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
 
             - name: Install pnpm
               uses: pnpm/action-setup@v4
               id: pnpm-install
               with:
                   run_install: false
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: ${{ matrix.node-version }}
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+
             - run: pnpm test:all
 
     publish:
@@ -78,16 +69,18 @@ jobs:
 
         steps:
             - uses: actions/checkout@v4
-            - uses: actions/setup-node@v4
-              with:
-                  node-version: 24
-                  cache: pnpm
-                  registry-url: 'https://registry.npmjs.org'
+
             - name: Install pnpm
               uses: pnpm/action-setup@v4
               id: pnpm-install
               with:
                   run_install: false
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+                  registry-url: 'https://registry.npmjs.org'
             - run: pnpm install
 
             - name: Determine npm tag
