@@ -1,19 +1,15 @@
 {
     "extends": "@modelcontextprotocol/tsconfig",
-    "include": ["./", "../integration/test/index.test.ts"],
+    "include": ["./"],
     "exclude": ["node_modules", "dist"],
     "compilerOptions": {
-        "rootDir": ".",
+        "baseUrl": ".",
         "paths": {
             "*": ["./*"],
-            "@modelcontextprotocol/sdk-core": ["../core/src/index.ts"],
-            "@modelcontextprotocol/sdk-core/*": ["../core/src/*"],
-            "@modelcontextprotocol/sdk-client": ["./src/index.ts"],
-            "@modelcontextprotocol/sdk-client/*": ["./src/*"],
-            "@modelcontextprotocol/sdk-server": ["../server/src/index.ts"],
-            "@modelcontextprotocol/sdk-server/*": ["../server/src/*"],
-            "@modelcontextprotocol/vitest-config": ["../common/vitest-config/tsconfig.json"],
-            "@modelcontextprotocol/eslint-config": ["../common/eslint-config/tsconfig.json"]
+            "@modelcontextprotocol/sdk-core": ["node_modules/@modelcontextprotocol/sdk-core/src/index.ts"],
+            "@modelcontextprotocol/sdk-client": ["node_modules/@modelcontextprotocol/sdk-client/src/index.ts"],
+            "@modelcontextprotocol/vitest-config": ["node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"],
+            "@modelcontextprotocol/eslint-config": ["node_modules/@modelcontextprotocol/eslint-config/tsconfig.json"]
         }
     }
 }

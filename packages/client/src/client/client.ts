@@ -1,5 +1,5 @@
-import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../../../core/src/index.js';
-import type { Transport } from '../../../core/src/index.js';
+import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '@modelcontextprotocol/sdk-core';
+import type { Transport } from '@modelcontextprotocol/sdk-core';
 
 import {
     type CallToolRequest,
@@ -49,9 +49,9 @@ import {
     type Request,
     type Notification,
     type Result
-} from '../../../core/src/index.js';
-import { AjvJsonSchemaValidator } from '../../../core/src/index.js';
-import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../../../core/src/index.js';
+} from '@modelcontextprotocol/sdk-core';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk-core';
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '@modelcontextprotocol/sdk-core';
 import {
     AnyObjectSchema,
     SchemaOutput,
@@ -60,10 +60,10 @@ import {
     safeParse,
     type ZodV3Internal,
     type ZodV4Internal
-} from '../../../core/src/index.js';
-import type { RequestHandlerExtra } from '../../../core/src/index.js';
+} from '@modelcontextprotocol/sdk-core';
+import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk-core';
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
-import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '../../../core/src/index.js';
+import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '@modelcontextprotocol/sdk-core';
 
 /**
  * Elicitation default application helper. Applies defaults to the data based on the schema.

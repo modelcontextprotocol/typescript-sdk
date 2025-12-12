@@ -1,5 +1,5 @@
 {
-    "name": "@modelcontextprotocol/sdk-examples",
+    "name": "@modelcontextprotocol/sdk-examples-server",
     "private": true,
     "version": "2.0.0-alpha.0",
     "description": "Model Context Protocol implementation for TypeScript",
@@ -20,11 +20,7 @@
         "mcp"
     ],
     "scripts": {
-        "typecheck": "tsgo --noEmit",
-        "build": "npm run build:esm",
-        "build:esm": "mkdir -p dist && echo '{\"type\": \"module\"}' > dist/package.json && tsc -p tsconfig.prod.json",
-        "build:esm:w": "npm run build:esm -- -w",
-        "examples:simple-server:w": "tsx --watch src/examples/server/simpleStreamableHttp.ts --oauth",
+        "typecheck": "tsc -p tsconfig.build.json --noEmit",
         "prepack": "npm run build:esm && npm run build:cjs",
         "lint": "eslint test/ && prettier --check .",
         "lint:fix": "eslint test/ --fix && prettier --write .",
@@ -36,8 +32,7 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
-        "@modelcontextprotocol/sdk-server": "workspace:^",
-        "@modelcontextprotocol/sdk-client": "workspace:^"
+        "@modelcontextprotocol/sdk-server": "workspace:^"
     },
     "devDependencies": {
         "@modelcontextprotocol/tsconfig": "workspace:^",

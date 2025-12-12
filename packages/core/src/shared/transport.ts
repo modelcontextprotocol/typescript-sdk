@@ -1,4 +1,5 @@
 import { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/types.js';
+import type { HeadersInit } from 'undici-types';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 

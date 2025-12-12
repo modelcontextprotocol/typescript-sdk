@@ -15,7 +15,7 @@ import {
     ReadResourceResult,
     ResourceLink
 } from '@modelcontextprotocol/sdk-server';
-import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
+import { InMemoryEventStore } from './inMemoryEventStore.js';
 import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '@modelcontextprotocol/sdk-server';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from '@modelcontextprotocol/sdk-server';
@@ -546,7 +546,7 @@ if (useOAuth) {
                 throw new Error(`Invalid or expired token: ${text}`);
             }
 
-            const data = await response.json();
+            const data = await response.json() as { aud: string; client_id: string; scope: string; exp: number };
 
             if (strictOAuth) {
                 if (!data.aud) {

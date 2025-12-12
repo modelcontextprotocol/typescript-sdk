@@ -1,5 +1,5 @@
 {
-    "name": "@modelcontextprotocol/integration-tests",
+    "name": "@modelcontextprotocol/sdk-examples-client",
     "private": true,
     "version": "2.0.0-alpha.0",
     "description": "Model Context Protocol implementation for TypeScript",
@@ -19,26 +19,9 @@
         "modelcontextprotocol",
         "mcp"
     ],
-    "exports": {
-        ".": {
-            "import": "./dist/index.js"
-        },
-        "./types": {
-            "import": "./dist/exports/types/index.js"
-        }
-    },
-    "typesVersions": {
-        "*": {
-            "*": [
-                "./dist/*"
-            ]
-        }
-    },
-    "files": [
-        "dist"
-    ],
     "scripts": {
-        "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
+        "typecheck": "tsc -p tsconfig.build.json --noEmit",
+        "prepack": "npm run build:esm && npm run build:cjs",
         "lint": "eslint test/ && prettier --check .",
         "lint:fix": "eslint test/ --fix && prettier --write .",
         "check": "npm run typecheck && npm run lint",
@@ -48,12 +31,12 @@
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",
         "client": "tsx scripts/cli.ts client"
     },
+    "dependencies": {
+        "@modelcontextprotocol/sdk-client": "workspace:^"
+    },
     "devDependencies": {
-        "@modelcontextprotocol/sdk-core": "workspace:^",
-        "@modelcontextprotocol/sdk-client": "workspace:^",
-        "@modelcontextprotocol/sdk-server": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
-        "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@modelcontextprotocol/eslint-config": "workspace:^"
+        "@modelcontextprotocol/eslint-config": "workspace:^",
+        "@modelcontextprotocol/vitest-config": "workspace:^"
     }
 }

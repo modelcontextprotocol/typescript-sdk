@@ -16,32 +16,93 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v4
-            - uses: actions/setup-node@v4
+            - uses: actions/checkout@v6
+            - uses: actions/setup-node@v6
               with:
                   node-version: 24
                   cache: npm
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              id: pnpm-install
+              with:
+                  run_install: false
+            - name: Get pnpm store directory
+              id: pnpm-cache
+              shell: bash
+              run: |
+                  echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
-            - run: npm ci
-            - run: npm run check
-            - run: npm run build
+            - uses: actions/cache@v4
+              name: Setup pnpm cache
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+                      ${{ runner.os }}-pnpm-store-
+
+            - uses: actions/cache@v4
+              name: Retrieve Cache
+              with:
+                  path: |
+                      node_modules/.cache
+                      node_modules/.vitest
+                  key: ${{ runner.os }}-build-${{ hashFiles('**/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-build-${{ hashFiles('**/pnpm-lock.yaml') }}
+                      ${{ runner.os }}-build-
+                      ${{ runner.os }}-
+
+            - run: pnpm install
+            - run: pnpm run check:all
+            - run: pnpm run build:all
 
     test:
         runs-on: ubuntu-latest
         strategy:
             fail-fast: false
             matrix:
-                node-version: [18, 24]
+                node-version: [22, 24]
 
         steps:
-            - uses: actions/checkout@v4
-            - uses: actions/setup-node@v4
+            - uses: actions/checkout@v6
+            - uses: actions/setup-node@v6
               with:
                   node-version: ${{ matrix.node-version }}
                   cache: npm
 
-            - run: npm ci
-            - run: npm test
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              id: pnpm-install
+              with:
+                  run_install: false
+            - name: Get pnpm store directory
+              id: pnpm-cache
+              shell: bash
+              run: |
+                  echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@v4
+              name: Setup pnpm cache
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+                      ${{ runner.os }}-pnpm-store-
+
+            - uses: actions/cache@v4
+              name: Retrieve Cache
+              with:
+                  path: |
+                      node_modules/.cache
+                      node_modules/.vitest
+                  key: ${{ runner.os }}-build-${{ hashFiles('**/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-build-${{ hashFiles('**/pnpm-lock.yaml') }}
+                      ${{ runner.os }}-build-
+                      ${{ runner.os }}-
+            - run: pnpm test:all
 
     publish:
         runs-on: ubuntu-latest

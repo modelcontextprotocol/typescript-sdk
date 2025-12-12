@@ -1,5 +1,5 @@
 import pkceChallenge from 'pkce-challenge';
-import { LATEST_PROTOCOL_VERSION } from '../../../core/src/index.js';
+import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk-core';
 import {
     OAuthClientMetadata,
     OAuthClientInformation,
@@ -11,14 +11,14 @@ import {
     OAuthErrorResponseSchema,
     AuthorizationServerMetadata,
     OpenIdProviderDiscoveryMetadataSchema
-} from '../../../core/src/index.js';
+} from '@modelcontextprotocol/sdk-core';
 import {
     OAuthClientInformationFullSchema,
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
     OAuthTokensSchema
-} from '../../../core/src/index.js';
-import { checkResourceAllowed, resourceUrlFromServerUrl } from '../../../core/src/index.js';
+} from '@modelcontextprotocol/sdk-core';
+import { checkResourceAllowed, resourceUrlFromServerUrl } from '@modelcontextprotocol/sdk-core';
 import {
     InvalidClientError,
     InvalidClientMetadataError,
@@ -27,8 +27,8 @@ import {
     OAuthError,
     ServerError,
     UnauthorizedClientError
-} from '../../../core/src/index.js';
-import { FetchLike } from '../../../core/src/index.js';
+} from '@modelcontextprotocol/sdk-core';
+import { FetchLike } from '@modelcontextprotocol/sdk-core';
 
 /**
  * Function type for adding client authentication to token requests.

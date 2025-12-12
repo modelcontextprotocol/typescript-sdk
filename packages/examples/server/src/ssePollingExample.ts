@@ -18,7 +18,7 @@ import { McpServer } from '@modelcontextprotocol/sdk-server';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
 import { CallToolResult } from '@modelcontextprotocol/sdk-server';
-import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
+import { InMemoryEventStore } from './inMemoryEventStore.js';
 import cors from 'cors';
 
 // Create the MCP server

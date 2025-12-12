@@ -12,67 +12,19 @@
         "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
     },
     "engines": {
-        "node": ">=18"
+        "node": ">=20"
     },
     "keywords": [
         "modelcontextprotocol",
         "mcp"
     ],
-    "exports": {
-        ".": {
-            "import": "./dist/esm/index.js",
-            "require": "./dist/cjs/index.js"
-        },
-        "./client": {
-            "import": "./dist/esm/client/index.js",
-            "require": "./dist/cjs/client/index.js"
-        },
-        "./server": {
-            "import": "./dist/esm/server/index.js",
-            "require": "./dist/cjs/server/index.js"
-        },
-        "./validation": {
-            "import": "./dist/esm/validation/index.js",
-            "require": "./dist/cjs/validation/index.js"
-        },
-        "./validation/ajv": {
-            "import": "./dist/esm/validation/ajv-provider.js",
-            "require": "./dist/cjs/validation/ajv-provider.js"
-        },
-        "./validation/cfworker": {
-            "import": "./dist/esm/validation/cfworker-provider.js",
-            "require": "./dist/cjs/validation/cfworker-provider.js"
-        },
-        "./experimental": {
-            "import": "./dist/esm/experimental/index.js",
-            "require": "./dist/cjs/experimental/index.js"
-        },
-        "./experimental/tasks": {
-            "import": "./dist/esm/experimental/tasks/index.js",
-            "require": "./dist/cjs/experimental/tasks/index.js"
-        },
-        "./*": {
-            "import": "./dist/esm/*",
-            "require": "./dist/cjs/*"
-        }
-    },
-    "typesVersions": {
-        "*": {
-            "*": [
-                "./dist/esm/*"
-            ]
-        }
-    },
-    "files": [
-        "dist"
-    ],
     "scripts": {
         "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
-        "typecheck": "tsgo --noEmit",
+        "typecheck:all": "pnpm -r typecheck",
         "build:all": "pnpm -r build",
         "prepack:all": "pnpm -r prepack",
         "lint:all": "pnpm -r lint",
-        "lint:fix": "eslint src/ --fix && prettier --write .",
+        "lint:fix:all": "pnpm -r lint:fix",
         "check:all": "pnpm -r check",
         "test:all": "pnpm -r test"
     },
@@ -114,7 +66,7 @@
         "@types/eventsource": "^1.1.15",
         "@types/express": "^5.0.0",
         "@types/express-serve-static-core": "^5.1.0",
-        "@types/node": "^22.12.0",
+        "@types/node": "^24.10.1",
         "@types/supertest": "^6.0.2",
         "@types/ws": "^8.5.12",
         "@typescript/native-preview": "^7.0.0-dev.20251103.1",
@@ -124,7 +76,7 @@
         "prettier": "3.6.2",
         "supertest": "^7.0.0",
         "tsx": "^4.16.5",
-        "typescript": "^5.5.4",
+        "typescript": "^5.9.3",
         "typescript-eslint": "^8.48.1",
         "vitest": "^4.0.8",
         "ws": "^8.18.0"

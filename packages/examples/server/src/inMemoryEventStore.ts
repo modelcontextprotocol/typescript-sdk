@@ -1,4 +1,4 @@
-import { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
+import { JSONRPCMessage } from '@modelcontextprotocol/sdk-server';
 import type { EventStore } from '@modelcontextprotocol/sdk-server';
 
 /**

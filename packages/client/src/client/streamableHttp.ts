@@ -1,13 +1,14 @@
-import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../../../core/src/index.js';
+import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '@modelcontextprotocol/sdk-core';
 import {
     isInitializedNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessage,
     JSONRPCMessageSchema
-} from '../../../core/src/index.js';
+} from '@modelcontextprotocol/sdk-core';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
+import { ReadableWritablePair } from 'node:stream/web';
 
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
@@ -186,7 +187,7 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     private async _commonHeaders(): Promise<Headers> {
-        const headers: HeadersInit & Record<string, string> = {};
+        const headers: Record<string, string> = {};
         if (this._authProvider) {
             const tokens = await this._authProvider.tokens();
             if (tokens) {

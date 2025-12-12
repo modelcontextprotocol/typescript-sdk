@@ -1,6 +1,7 @@
 {
     "compilerOptions": {
         "target": "esnext",
+        "lib": ["esnext"],
         "module": "NodeNext",
         "moduleResolution": "NodeNext",
         "allowSyntheticDefaultImports": true,

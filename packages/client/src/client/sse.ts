@@ -1,6 +1,6 @@
 import { EventSource, type ErrorEvent, type EventSourceInit } from 'eventsource';
-import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../../../core/src/index.js';
-import { JSONRPCMessage, JSONRPCMessageSchema } from '../../../core/src/index.js';
+import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '@modelcontextprotocol/sdk-core';
+import { JSONRPCMessage, JSONRPCMessageSchema } from '@modelcontextprotocol/sdk-core';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 
 export class SseError extends Error {
@@ -114,7 +114,7 @@ export class SSEClientTransport implements Transport {
     }
 
     private async _commonHeaders(): Promise<Headers> {
-        const headers: HeadersInit & Record<string, string> = {};
+        const headers: Record<string, string> = {};
         if (this._authProvider) {
             const tokens = await this._authProvider.tokens();
             if (tokens) {

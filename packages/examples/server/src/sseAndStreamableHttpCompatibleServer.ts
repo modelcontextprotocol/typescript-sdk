@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server'
 import { SSEServerTransport } from '@modelcontextprotocol/sdk-server';
 import * as z from 'zod/v4';
 import { CallToolResult, isInitializeRequest } from '@modelcontextprotocol/sdk-server';
-import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
+import { InMemoryEventStore } from './inMemoryEventStore.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 
 /**
