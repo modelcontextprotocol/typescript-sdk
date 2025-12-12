@@ -563,7 +563,7 @@ export const PaginatedRequestParamsSchema = RequestParamsSchema.extend({
 });
 
 /** @internal */
-export const PaginatedRequestSchema = JSONRPCRequestSchema.extend({
+export const PaginatedRequestSchema = RequestSchema.extend({
     params: PaginatedRequestParamsSchema.optional()
 });
 

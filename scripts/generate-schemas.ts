@@ -1,34 +1,31 @@
 /**
  * Schema Generation Script using ts-to-zod as a library
  *
- * This script generates Zod schemas from spec.types.ts and performs necessary
- * post-processing for compatibility with this project.
+ * This script generates Zod schemas from spec.types.ts with pre-processing and
+ * post-processing for SDK compatibility.
  *
- * ## Why Library-based Generation?
+ * ## Pipeline
  *
- * Using ts-to-zod as a library (vs CLI) provides:
- * - Access to configuration options like getSchemaName, keepComments
- * - Ability to generate integration tests that verify type-schema alignment
- * - Programmatic post-processing with full control
+ * 1. **Pre-process spec.types.ts** - Transform type hierarchy to match SDK:
+ *    - `extends JSONRPCRequest` → `extends Request`
+ *    - `extends JSONRPCNotification` → `extends Notification`
  *
- * ## Post-Processing
+ * 2. **Generate schemas** via ts-to-zod library
  *
- * ts-to-zod has limitations that require post-processing:
+ * 3. **Post-process schemas** for Zod v4 compatibility:
+ *    - `"zod"` → `"zod/v4"`
+ *    - `z.record().and(z.object())` → `z.looseObject()`
+ *    - `jsonrpc: z.any()` → `z.literal("2.0")`
+ *    - Add `.int()` refinements to ProgressTokenSchema, RequestIdSchema
  *
- * ### 1. Zod Import Path (`"zod"` → `"zod/v4"`)
- * ts-to-zod generates `import { z } from "zod"` but this project uses `"zod/v4"`.
+ * ## Why Pre-Process Types?
  *
- * ### 2. Index Signatures (`z.record().and()` → `z.looseObject()`)
- * TypeScript index signatures like `[key: string]: unknown` are translated to
- * `z.record(z.string(), z.unknown()).and(z.object({...}))`, which creates
- * ZodIntersection types that don't support `.extend()`. We replace these with
- * `z.looseObject()`.
+ * The MCP spec defines request/notification types extending JSONRPCRequest/JSONRPCNotification
+ * which include `jsonrpc` and `id` fields. The SDK handles these at the transport layer,
+ * so SDK types extend the simpler Request/Notification without these fields.
  *
- * ### 3. TypeOf Expressions (`z.any()` → literal values)
- * ts-to-zod can't translate `typeof CONST` expressions and falls back to `z.any()`.
- * We replace these with the actual literal values from the spec:
- * - `jsonrpc: z.any()` → `jsonrpc: z.literal("2.0")`
- * - `code: z.any()` for URL_ELICITATION_REQUIRED → `code: z.literal(-32042)`
+ * By transforming the types BEFORE schema generation, we get schemas that match
+ * the SDK's type hierarchy exactly, enabling types.ts to re-export from generated/.
  *
  * @see https://github.com/fabien0102/ts-to-zod
  */
@@ -46,6 +43,51 @@ const GENERATED_DIR = join(PROJECT_ROOT, 'src', 'generated');
 const SCHEMA_OUTPUT_FILE = join(GENERATED_DIR, 'spec.schemas.ts');
 const SCHEMA_TEST_OUTPUT_FILE = join(GENERATED_DIR, 'spec.schemas.zod.test.ts');
 
+// =============================================================================
+// Pre-processing: Transform spec types to SDK-compatible hierarchy
+// =============================================================================
+
+/**
+ * Pre-process spec.types.ts to transform type hierarchy for SDK compatibility.
+ *
+ * The MCP spec defines:
+ * - `interface InitializeRequest extends JSONRPCRequest { ... }`
+ * - `interface CancelledNotification extends JSONRPCNotification { ... }`
+ *
+ * JSONRPCRequest/JSONRPCNotification include `jsonrpc` and `id` fields.
+ * The SDK handles these at the transport layer, so SDK types should extend
+ * the simpler Request/Notification without these fields.
+ *
+ * This transformation allows the generated schemas to match types.ts exactly.
+ *
+ * ## Alternative: ts-morph for AST-based transforms
+ *
+ * If regex becomes fragile, consider using ts-morph for precise AST manipulation:
+ * ```typescript
+ * import { Project } from 'ts-morph';
+ * const project = new Project();
+ * const sourceFile = project.createSourceFile('temp.ts', content);
+ * for (const iface of sourceFile.getInterfaces()) {
+ *     for (const ext of iface.getExtends()) {
+ *         if (ext.getText() === 'JSONRPCRequest') ext.replaceWithText('Request');
+ *         if (ext.getText() === 'JSONRPCNotification') ext.replaceWithText('Notification');
+ *     }
+ * }
+ * return sourceFile.getFullText();
+ * ```
+ */
+function preProcessTypes(content: string): string {
+    // Transform extends clauses for requests
+    // e.g., "extends JSONRPCRequest" → "extends Request"
+    content = content.replace(/\bextends\s+JSONRPCRequest\b/g, 'extends Request');
+
+    // Transform extends clauses for notifications
+    // e.g., "extends JSONRPCNotification" → "extends Notification"
+    content = content.replace(/\bextends\s+JSONRPCNotification\b/g, 'extends Notification');
+
+    return content;
+}
+
 async function main() {
     console.log('🔧 Generating Zod schemas from spec.types.ts...\n');
 
@@ -54,7 +96,9 @@ async function main() {
         mkdirSync(GENERATED_DIR, { recursive: true });
     }
 
-    const sourceText = readFileSync(SPEC_TYPES_FILE, 'utf-8');
+    // Read and pre-process spec types to match SDK hierarchy
+    const rawSourceText = readFileSync(SPEC_TYPES_FILE, 'utf-8');
+    const sourceText = preProcessTypes(rawSourceText);
 
     const result = generate({
         sourceText,
@@ -116,14 +160,13 @@ function postProcess(content: string): string {
     // ts-to-zod can't translate `typeof CONST` and falls back to z.any()
     content = fixTypeOfExpressions(content);
 
-    // 4. Remap notification/request schemas to SDK-compatible hierarchy
-    // (extend Notification/Request instead of JSONRPCNotification/JSONRPCRequest)
-    content = remapToSdkHierarchy(content);
-
-    // 5. Add integer refinements to match SDK types.ts
+    // 4. Add integer refinements to match SDK types.ts
     content = addIntegerRefinements(content);
 
-    // 6. Add header comment
+    // Note: SDK hierarchy remapping is now done as PRE-processing on the types,
+    // not post-processing on the schemas. See preProcessTypes().
+
+    // 5. Add header comment
     content = content.replace(
         '// Generated by ts-to-zod',
         `// Generated by ts-to-zod
@@ -178,78 +221,6 @@ function addIntegerRefinements(content: string): string {
         /export const RequestIdSchema = z\.union\(\[z\.string\(\), z\.number\(\)\]\)/,
         'export const RequestIdSchema = z.union([z.string(), z.number().int()])'
     );
-
-    return content;
-}
-
-/**
- * Remap notification and request schemas to use SDK-compatible hierarchy.
- *
- * The spec defines:
- * - XxxNotification extends JSONRPCNotification (includes jsonrpc field)
- * - XxxRequest extends JSONRPCRequest (includes jsonrpc, id fields)
- *
- * The SDK types.ts uses:
- * - XxxNotification extends Notification (no jsonrpc field)
- * - XxxRequest extends Request (no jsonrpc, id fields)
- *
- * This allows the jsonrpc/id fields to be handled at the transport layer.
- */
-function remapToSdkHierarchy(content: string): string {
-    // List of notifications that should extend NotificationSchema instead of JSONRPCNotificationSchema
-    const notifications = [
-        'CancelledNotification',
-        'InitializedNotification',
-        'ProgressNotification',
-        'ResourceListChangedNotification',
-        'ResourceUpdatedNotification',
-        'PromptListChangedNotification',
-        'ToolListChangedNotification',
-        'TaskStatusNotification',
-        'LoggingMessageNotification',
-        'RootsListChangedNotification',
-        'ElicitationCompleteNotification',
-    ];
-
-    // List of requests that should extend RequestSchema instead of JSONRPCRequestSchema
-    const requests = [
-        'InitializeRequest',
-        'PingRequest',
-        'ListResourcesRequest',
-        'ListResourceTemplatesRequest',
-        'ReadResourceRequest',
-        'SubscribeRequest',
-        'UnsubscribeRequest',
-        'ListPromptsRequest',
-        'GetPromptRequest',
-        'ListToolsRequest',
-        'CallToolRequest',
-        'GetTaskRequest',
-        'ListTasksRequest',
-        'GetTaskPayloadRequest',
-        'CancelTaskRequest',
-        'SetLevelRequest',
-        'CreateMessageRequest',
-        'CompleteRequest',
-        'ListRootsRequest',
-        'ElicitRequest',
-    ];
-
-    // Replace JSONRPCNotificationSchema.extend with NotificationSchema.extend for specific schemas
-    for (const name of notifications) {
-        content = content.replace(
-            new RegExp(`export const ${name}Schema = JSONRPCNotificationSchema\\.extend\\(`),
-            `export const ${name}Schema = NotificationSchema.extend(`
-        );
-    }
-
-    // Replace JSONRPCRequestSchema.extend with RequestSchema.extend for specific schemas
-    for (const name of requests) {
-        content = content.replace(
-            new RegExp(`export const ${name}Schema = JSONRPCRequestSchema\\.extend\\(`),
-            `export const ${name}Schema = RequestSchema.extend(`
-        );
-    }
 
     return content;
 }
