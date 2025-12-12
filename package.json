@@ -51,6 +51,10 @@
             "import": "./dist/esm/experimental/tasks/index.js",
             "require": "./dist/cjs/experimental/tasks/index.js"
         },
+        "./generated": {
+            "import": "./dist/esm/generated/index.js",
+            "require": "./dist/cjs/generated/index.js"
+        },
         "./*": {
             "import": "./dist/esm/*",
             "require": "./dist/cjs/*"
@@ -68,6 +72,7 @@
     ],
     "scripts": {
         "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
+        "generate:schemas": "tsx scripts/generate-schemas.ts && prettier --write \"src/generated/**/*\"",
         "typecheck": "tsgo --noEmit",
         "build": "npm run build:esm && npm run build:cjs",
         "build:esm": "mkdir -p dist/esm && echo '{\"type\": \"module\"}' > dist/esm/package.json && tsc -p tsconfig.prod.json",
@@ -116,6 +121,7 @@
     },
     "devDependencies": {
         "@cfworker/json-schema": "^4.1.1",
+        "ts-to-zod": "^5.1.0",
         "@eslint/js": "^9.39.1",
         "@types/content-type": "^1.1.8",
         "@types/cors": "^2.8.17",
