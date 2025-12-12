@@ -7,6 +7,8 @@ import type {
     OAuthMetadata,
     OAuthTokens,
     AuthInfo,
+} from '@modelcontextprotocol/sdk-server';
+import {
     createOAuthMetadata,
     mcpAuthRouter,
     resourceUrlFromServerUrl,
