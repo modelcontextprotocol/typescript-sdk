@@ -5,7 +5,7 @@ import { authorizationHandler, AuthorizationHandlerOptions } from './handlers/au
 import { revocationHandler, RevocationHandlerOptions } from './handlers/revoke.js';
 import { metadataHandler } from './handlers/metadata.js';
 import { OAuthServerProvider } from './provider.js';
-import { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/shared';
+import { OAuthMetadata, OAuthProtectedResourceMetadata } from '../../../../core/src/index.js';
 
 // Check for dev mode flag that allows HTTP issuer URLs (for development/testing only)
 const allowInsecureIssuerUrl =

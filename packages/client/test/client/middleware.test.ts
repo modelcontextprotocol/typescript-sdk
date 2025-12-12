@@ -1,6 +1,6 @@
 import { withOAuth, withLogging, applyMiddlewares, createMiddleware } from '../../src/client/middleware.js';
 import { OAuthClientProvider } from '../../src/client/auth.js';
-import { FetchLike } from '../../src/shared/transport.js';
+import type { FetchLike } from '@modelcontextprotocol/sdk-core';
 import { MockInstance, Mocked, MockedFunction } from 'vitest';
 
 vi.mock('../../src/client/auth.js', async () => {
@@ -64,7 +64,7 @@ describe('withOAuth', () => {
         );
 
         const callArgs = mockFetch.mock.calls[0];
-        const headers = callArgs[1]?.headers as Headers;
+        const headers = callArgs![1]?.headers as Headers;
         expect(headers.get('Authorization')).toBe('Bearer test-token');
     });
 
@@ -90,7 +90,7 @@ describe('withOAuth', () => {
         );
 
         const callArgs = mockFetch.mock.calls[0];
-        const headers = callArgs[1]?.headers as Headers;
+        const headers = callArgs![1]?.headers as Headers;
         expect(headers.get('Authorization')).toBe('Bearer test-token');
     });
 
@@ -105,7 +105,7 @@ describe('withOAuth', () => {
 
         expect(mockFetch).toHaveBeenCalledTimes(1);
         const callArgs = mockFetch.mock.calls[0];
-        const headers = callArgs[1]?.headers as Headers;
+        const headers = callArgs![1]?.headers as Headers;
         expect(headers.get('Authorization')).toBeNull();
     });
 
@@ -152,7 +152,7 @@ describe('withOAuth', () => {
 
         // Verify the retry used the new token
         const retryCallArgs = mockFetch.mock.calls[1];
-        const retryHeaders = retryCallArgs[1]?.headers as Headers;
+        const retryHeaders = retryCallArgs![1]?.headers as Headers;
         expect(retryHeaders.get('Authorization')).toBe('Bearer new-token');
     });
 
@@ -200,7 +200,7 @@ describe('withOAuth', () => {
 
         // Verify the retry used the new token
         const retryCallArgs = mockFetch.mock.calls[1];
-        const retryHeaders = retryCallArgs[1]?.headers as Headers;
+        const retryHeaders = retryCallArgs![1]?.headers as Headers;
         expect(retryHeaders.get('Authorization')).toBe('Bearer new-token');
     });
 
@@ -290,7 +290,7 @@ describe('withOAuth', () => {
         );
 
         const callArgs = mockFetch.mock.calls[0];
-        const headers = callArgs[1]?.headers as Headers;
+        const headers = callArgs![1]?.headers as Headers;
         expect(headers.get('Content-Type')).toBe('application/json');
         expect(headers.get('Authorization')).toBe('Bearer test-token');
     });
@@ -492,7 +492,7 @@ describe('withLogging', () => {
             responseHeaders: undefined
         });
 
-        const logCall = mockLogger.mock.calls[0][0];
+        const logCall = mockLogger.mock.calls[0]![0];
         expect(logCall.requestHeaders?.get('Authorization')).toBe('Bearer token');
         expect(logCall.requestHeaders?.get('Content-Type')).toBe('application/json');
     });
@@ -515,7 +515,7 @@ describe('withLogging', () => {
 
         await enhancedFetch('https://api.example.com/data');
 
-        const logCall = mockLogger.mock.calls[0][0];
+        const logCall = mockLogger.mock.calls[0]![0];
         expect(logCall.responseHeaders?.get('Content-Type')).toBe('application/json');
         expect(logCall.responseHeaders?.get('Cache-Control')).toBe('no-cache');
     });
@@ -609,7 +609,7 @@ describe('withLogging', () => {
 
         await enhancedFetch('https://api.example.com/data');
 
-        const logCall = mockLogger.mock.calls[0][0];
+        const logCall = mockLogger.mock.calls[0]![0];
         expect(logCall.duration).toBeGreaterThanOrEqual(90); // Allow some margin for timing
     });
 });
@@ -654,7 +654,7 @@ describe('applyMiddleware', () => {
         );
 
         const callArgs = mockFetch.mock.calls[0];
-        const headers = callArgs[1]?.headers as Headers;
+        const headers = callArgs![1]?.headers as Headers;
         expect(headers.get('X-Middleware-1')).toBe('applied');
     });
 
@@ -686,7 +686,7 @@ describe('applyMiddleware', () => {
         await composedFetch('https://api.example.com/data');
 
         const callArgs = mockFetch.mock.calls[0];
-        const headers = callArgs[1]?.headers as Headers;
+        const headers = callArgs![1]?.headers as Headers;
         expect(headers.get('X-Middleware-1')).toBe('applied');
         expect(headers.get('X-Middleware-2')).toBe('applied');
         expect(headers.get('X-Middleware-3')).toBe('applied');
@@ -711,7 +711,7 @@ describe('applyMiddleware', () => {
 
         // Should have both Authorization header and logging
         const callArgs = mockFetch.mock.calls[0];
-        const headers = callArgs[1]?.headers as Headers;
+        const headers = callArgs![1]?.headers as Headers;
         expect(headers.get('Authorization')).toBe('Bearer test-token');
         expect(mockLogger).toHaveBeenCalledWith({
             method: 'GET',
@@ -811,7 +811,7 @@ describe('Integration Tests', () => {
         );
 
         const callArgs = mockFetch.mock.calls[0];
-        const headers = callArgs[1]?.headers as Headers;
+        const headers = callArgs![1]?.headers as Headers;
         expect(headers.get('Authorization')).toBe('Bearer sse-token');
         expect(headers.get('Content-Type')).toBe('application/json');
     });
@@ -857,7 +857,7 @@ describe('Integration Tests', () => {
         });
 
         const callArgs = mockFetch.mock.calls[0];
-        const headers = callArgs[1]?.headers as Headers;
+        const headers = callArgs![1]?.headers as Headers;
         expect(headers.get('Authorization')).toBe('Bearer streamable-token');
         expect(headers.get('Accept')).toBe('application/json, text/event-stream');
     });
@@ -943,7 +943,7 @@ describe('createMiddleware', () => {
         );
 
         const callArgs = mockFetch.mock.calls[0];
-        const headers = callArgs[1]?.headers as Headers;
+        const headers = callArgs![1]?.headers as Headers;
         expect(headers.get('X-Custom-Header')).toBe('custom-value');
     });
 
@@ -969,13 +969,13 @@ describe('createMiddleware', () => {
         // Test API route
         await enhancedFetch('https://example.com/api/users');
         let callArgs = mockFetch.mock.calls[0];
-        const headers = callArgs[1]?.headers as Headers;
+        const headers = callArgs![1]?.headers as Headers;
         expect(headers.get('X-API-Version')).toBe('v2');
 
         // Test non-API route
         await enhancedFetch('https://example.com/public/page');
         callArgs = mockFetch.mock.calls[1];
-        const maybeHeaders = callArgs[1]?.headers as Headers | undefined;
+        const maybeHeaders = callArgs![1]?.headers as Headers | undefined;
         expect(maybeHeaders?.get('X-API-Version')).toBeUndefined();
     });
 
@@ -1091,7 +1091,7 @@ describe('createMiddleware', () => {
         await enhancedFetch('https://api.example.com/data');
 
         const callArgs = mockFetch.mock.calls[0];
-        const headers = callArgs[1]?.headers as Headers;
+        const headers = callArgs![1]?.headers as Headers;
         expect(headers.get('Authorization')).toBe('Custom token');
     });
 

@@ -1,7 +1,7 @@
 import { StartSSEOptions, StreamableHTTPClientTransport, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
 import { OAuthClientProvider, UnauthorizedError } from '../../src/client/auth.js';
-import { JSONRPCMessage, JSONRPCRequest } from '../../src/types.js';
-import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '../../src/server/auth/errors.js';
+import { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/sdk-core';
+import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '@modelcontextprotocol/sdk-core';
 import { type Mock, type Mocked } from 'vitest';
 
 describe('StreamableHTTPClientTransport', () => {
@@ -114,7 +114,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         // Check that second request included session ID header
         const calls = (global.fetch as Mock).mock.calls;
-        const lastCall = calls[calls.length - 1];
+        const lastCall = calls[calls.length - 1]!;
         expect(lastCall[1].headers).toBeDefined();
         expect(lastCall[1].headers.get('mcp-session-id')).toBe('test-session-id');
     });
@@ -151,7 +151,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         // Verify the DELETE request was sent with the session ID
         const calls = (global.fetch as Mock).mock.calls;
-        const lastCall = calls[calls.length - 1];
+        const lastCall = calls[calls.length - 1]!;
         expect(lastCall[1].method).toBe('DELETE');
         expect(lastCall[1].headers.get('mcp-session-id')).toBe('test-session-id');
 
@@ -412,7 +412,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         // Verify fetch was called with the lastEventId header
         expect(fetchSpy).toHaveBeenCalled();
-        const fetchCall = fetchSpy.mock.calls[0];
+        const fetchCall = fetchSpy.mock.calls[0]!;
         const headers = fetchCall[1].headers;
         expect(headers.get('last-event-id')).toBe('test-event-id');
     });
@@ -772,8 +772,8 @@ describe('StreamableHTTPClientTransport', () => {
             );
             // THE KEY ASSERTION: A second fetch call proves reconnection was attempted.
             expect(fetchMock).toHaveBeenCalledTimes(2);
-            expect(fetchMock.mock.calls[0][1]?.method).toBe('GET');
-            expect(fetchMock.mock.calls[1][1]?.method).toBe('GET');
+            expect(fetchMock.mock.calls[0]![1]?.method).toBe('GET');
+            expect(fetchMock.mock.calls[1]![1]?.method).toBe('GET');
         });
 
         it('should NOT reconnect a POST-initiated stream that fails', async () => {
@@ -822,7 +822,7 @@ describe('StreamableHTTPClientTransport', () => {
             // ASSERT
             // THE KEY ASSERTION: Fetch was only called ONCE. No reconnection was attempted.
             expect(fetchMock).toHaveBeenCalledTimes(1);
-            expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
+            expect(fetchMock.mock.calls[0]![1]?.method).toBe('POST');
         });
 
         it('should reconnect a POST-initiated stream after receiving a priming event', async () => {
@@ -938,7 +938,7 @@ describe('StreamableHTTPClientTransport', () => {
             // THE KEY ASSERTION: Fetch was called ONCE only - no reconnection!
             // The response was received, so no need to reconnect.
             expect(fetchMock).toHaveBeenCalledTimes(1);
-            expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
+            expect(fetchMock.mock.calls[0]![1]?.method).toBe('POST');
         });
 
         it('should not attempt reconnection after close() is called', async () => {
@@ -989,7 +989,7 @@ describe('StreamableHTTPClientTransport', () => {
             // ASSERT
             // Only 1 call: the initial POST. No reconnection attempts after close().
             expect(fetchMock).toHaveBeenCalledTimes(1);
-            expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
+            expect(fetchMock.mock.calls[0]![1]?.method).toBe('POST');
         });
 
         it('should not throw JSON parse error on priming events with empty data', async () => {
@@ -1487,11 +1487,11 @@ describe('StreamableHTTPClientTransport', () => {
 
             // Should have attempted reconnection
             expect(fetchMock).toHaveBeenCalledTimes(2);
-            expect(fetchMock.mock.calls[0][1]?.method).toBe('GET');
-            expect(fetchMock.mock.calls[1][1]?.method).toBe('GET');
+            expect(fetchMock.mock.calls[0]![1]?.method).toBe('GET');
+            expect(fetchMock.mock.calls[1]![1]?.method).toBe('GET');
 
             // Second call should include Last-Event-ID
-            const secondCallHeaders = fetchMock.mock.calls[1][1]?.headers;
+            const secondCallHeaders = fetchMock.mock.calls[1]![1]?.headers;
             expect(secondCallHeaders?.get('last-event-id')).toBe('evt-1');
         });
     });

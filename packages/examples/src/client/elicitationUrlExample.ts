@@ -171,7 +171,7 @@ async function commandLoop(): Promise<void> {
                     if (args.length < 2) {
                         console.log('Usage: call-tool <name> [args]');
                     } else {
-                        const toolName = args[1];
+                        const toolName = args[1]!;
                         let toolArgs = {};
                         if (args.length > 2) {
                             try {

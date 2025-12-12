@@ -1,5 +1,5 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
-import { Transport } from '@modelcontextprotocol/shared';
+import { Transport } from '../../../core/src/index.js';
 import {
     MessageExtraInfo,
     RequestInfo,
@@ -12,11 +12,11 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS,
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isJSONRPCErrorResponse
-} from '@modelcontextprotocol/shared';
+} from '../../../core/src/index.js';
 import getRawBody from 'raw-body';
 import contentType from 'content-type';
 import { randomUUID } from 'node:crypto';
-import { AuthInfo } from '@modelcontextprotocol/shared';
+import { AuthInfo } from '../../../core/src/index.js';
 
 const MAXIMUM_MESSAGE_SIZE = '4mb';
 

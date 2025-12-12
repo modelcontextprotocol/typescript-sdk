@@ -1,6 +1,6 @@
 import { StdioClientTransport, getDefaultEnvironment } from '../../src/client/stdio.js';
 import spawn from 'cross-spawn';
-import { JSONRPCMessage } from '../../src/types.js';
+import { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
 import { ChildProcess } from 'node:child_process';
 import { Mock, MockedFunction } from 'vitest';
 

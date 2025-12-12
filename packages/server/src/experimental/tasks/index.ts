@@ -11,6 +11,3 @@ export * from './interfaces.js';
 // Wrapper classes
 export * from './server.js';
 export * from './mcp-server.js';
-
-// Store implementations
-export * from './stores/in-memory.js';

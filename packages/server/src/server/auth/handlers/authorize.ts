@@ -4,7 +4,7 @@ import express from 'express';
 import { OAuthServerProvider } from '../provider.js';
 import { rateLimit, Options as RateLimitOptions } from 'express-rate-limit';
 import { allowedMethods } from '../middleware/allowedMethods.js';
-import { InvalidRequestError, InvalidClientError, ServerError, TooManyRequestsError, OAuthError } from '@modelcontextprotocol/shared';
+import { InvalidRequestError, InvalidClientError, ServerError, TooManyRequestsError, OAuthError } from '../../../../../core/src/index.js';
 
 export type AuthorizationHandlerOptions = {
     provider: OAuthServerProvider;
@@ -128,7 +128,7 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
                 {
                     state,
                     scopes: requestedScopes,
-                    redirectUri: redirect_uri,
+                    redirectUri: redirect_uri!, // TODO: Someone to look at. Strict tsconfig showed this could be undefined, while the return type is string.
                     codeChallenge: code_challenge,
                     resource: resource ? new URL(resource) : undefined
                 },
@@ -137,10 +137,10 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
         } catch (error) {
             // Post-redirect errors - redirect with error parameters
             if (error instanceof OAuthError) {
-                res.redirect(302, createErrorRedirect(redirect_uri, error, state));
+                res.redirect(302, createErrorRedirect(redirect_uri!, error, state));
             } else {
                 const serverError = new ServerError('Internal Server Error');
-                res.redirect(302, createErrorRedirect(redirect_uri, serverError, state));
+                res.redirect(302, createErrorRedirect(redirect_uri!, serverError, state));
             }
         }
     });

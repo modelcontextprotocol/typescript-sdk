@@ -1,4 +1,4 @@
-import { OAuthClientInformationFull } from '@modelcontextprotocol/shared';
+import { OAuthClientInformationFull } from '../../../../core/src/index.js';
 
 /**
  * Stores information about registered OAuth clients for this server.

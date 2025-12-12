@@ -5,14 +5,14 @@
  * @experimental
  */
 
-import type { Client } from '../../client/index.js';
-import type { RequestOptions } from '@modelcontextprotocol/shared';
-import type { ResponseMessage } from '@modelcontextprotocol/shared';
-import type { AnyObjectSchema, SchemaOutput } from '@modelcontextprotocol/shared';
-import type { CallToolRequest, ClientRequest, Notification, Request, Result } from '@modelcontextprotocol/shared';
-import { CallToolResultSchema, type CompatibilityCallToolResultSchema, McpError, ErrorCode } from '@modelcontextprotocol/shared';
+import type { Client } from '../../client/client.js';
+import type { RequestOptions } from '../../../../core/src/index.js';
+import type { ResponseMessage } from '../../../../core/src/index.js';
+import type { AnyObjectSchema, SchemaOutput } from '../../../../core/src/index.js';
+import type { CallToolRequest, ClientRequest, Notification, Request, Result } from '../../../../core/src/index.js';
+import { CallToolResultSchema, type CompatibilityCallToolResultSchema, McpError, ErrorCode } from '../../../../core/src/index.js';
 
-import type { GetTaskResult, ListTasksResult, CancelTaskResult } from '@modelcontextprotocol/shared';
+import type { GetTaskResult, ListTasksResult, CancelTaskResult } from '../../../../core/src/index.js';
 
 /**
  * Internal interface for accessing Client's private methods.

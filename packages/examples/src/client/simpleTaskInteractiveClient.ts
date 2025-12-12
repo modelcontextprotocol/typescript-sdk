@@ -59,7 +59,7 @@ async function samplingCallback(params: CreateMessageRequest['params']): Promise
     // Get the prompt from the first message
     let prompt = 'unknown';
     if (params.messages && params.messages.length > 0) {
-        const firstMessage = params.messages[0];
+        const firstMessage = params.messages[0]!;
         const content = firstMessage.content;
         if (typeof content === 'object' && !Array.isArray(content) && content.type === 'text' && 'text' in content) {
             prompt = content.text;
@@ -192,7 +192,7 @@ let url = 'http://localhost:8000/mcp';
 
 for (let i = 0; i < args.length; i++) {
     if (args[i] === '--url' && args[i + 1]) {
-        url = args[i + 1];
+        url = args[i + 1]!;
         i++;
     }
 }

@@ -1,5 +1,5 @@
-import { JSONRPCMessage } from '../../types.js';
-import { EventStore } from '../../server/streamableHttp.js';
+import { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
+import type { EventStore } from '@modelcontextprotocol/sdk-server';
 
 /**
  * Simple in-memory implementation of the EventStore interface for resumability
@@ -21,7 +21,7 @@ export class InMemoryEventStore implements EventStore {
      */
     private getStreamIdFromEventId(eventId: string): string {
         const parts = eventId.split('_');
-        return parts.length > 0 ? parts[0] : '';
+        return parts.length > 0 ? parts[0]! : '';
     }
 
     /**

@@ -6,7 +6,7 @@
  */
 
 import type { JWK } from 'jose';
-import { OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/shared';
+import { OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '../../../core/src/index.js';
 import { AddClientAuthentication, OAuthClientProvider } from './auth.js';
 
 /**

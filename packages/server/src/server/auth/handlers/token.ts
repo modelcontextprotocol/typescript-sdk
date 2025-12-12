@@ -13,7 +13,7 @@ import {
     ServerError,
     TooManyRequestsError,
     OAuthError
-} from '@modelcontextprotocol/shared';
+} from '../../../../../core/src/index.js';
 
 export type TokenHandlerOptions = {
     provider: OAuthServerProvider;

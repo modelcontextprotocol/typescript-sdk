@@ -2,10 +2,10 @@ import { OAuthServerProvider } from '../provider.js';
 import express, { RequestHandler } from 'express';
 import cors from 'cors';
 import { authenticateClient } from '../middleware/clientAuth.js';
-import { OAuthTokenRevocationRequestSchema } from '@modelcontextprotocol/shared';
+import { OAuthTokenRevocationRequestSchema } from '../../../../../core/src/index.js';
 import { rateLimit, Options as RateLimitOptions } from 'express-rate-limit';
 import { allowedMethods } from '../middleware/allowedMethods.js';
-import { InvalidRequestError, ServerError, TooManyRequestsError, OAuthError } from '@modelcontextprotocol/shared';
+import { InvalidRequestError, ServerError, TooManyRequestsError, OAuthError } from '../../../../../core/src/index.js';
 
 export type RevocationHandlerOptions = {
     provider: OAuthServerProvider;

@@ -3,10 +3,11 @@
     "include": ["./"],
     "exclude": ["node_modules", "dist"],
     "compilerOptions": {
-        "baseUrl": ".",
         "paths": {
-            "@modelcontextprotocol/shared": ["node_modules/@modelcontextprotocol/shared/src/index.ts"],
-            "@modelcontextprotocol/vitest-config": ["node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"]
+            "*": ["./*"],
+            "@modelcontextprotocol/sdk-core": ["../core/src/index.ts"],
+            "@modelcontextprotocol/sdk-core/*": ["../core/src/*"],
+            "@modelcontextprotocol/vitest-config": ["./node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"]
         }
     }
 }

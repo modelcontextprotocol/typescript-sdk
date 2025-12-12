@@ -2,9 +2,9 @@ import { ChildProcess, IOType } from 'node:child_process';
 import spawn from 'cross-spawn';
 import process from 'node:process';
 import { Stream, PassThrough } from 'node:stream';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/shared';
-import { Transport } from '@modelcontextprotocol/shared';
-import { JSONRPCMessage } from '@modelcontextprotocol/shared';
+import { ReadBuffer, serializeMessage } from '../../../core/src/index.js';
+import { Transport } from '../../../core/src/index.js';
+import { JSONRPCMessage } from '../../../core/src/index.js';
 
 export type StdioServerParameters = {
     /**

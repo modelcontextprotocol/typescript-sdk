@@ -1,5 +1,5 @@
 import { RequestHandler } from 'express';
-import { MethodNotAllowedError } from '@modelcontextprotocol/shared';
+import { MethodNotAllowedError } from '../../../../../core/src/index.js';
 
 /**
  * Middleware to handle unsupported HTTP methods with a 405 Method Not Allowed response.

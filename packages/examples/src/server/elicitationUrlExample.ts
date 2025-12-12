@@ -15,7 +15,13 @@ import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '@modelcontextprotocol/sdk-server';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk-server';
-import { CallToolResult, UrlElicitationRequiredError, ElicitRequestURLParams, ElicitResult, isInitializeRequest } from '@modelcontextprotocol/sdk-server';
+import {
+    CallToolResult,
+    UrlElicitationRequiredError,
+    ElicitRequestURLParams,
+    ElicitResult,
+    isInitializeRequest
+} from '@modelcontextprotocol/sdk-server';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from '@modelcontextprotocol/sdk-server';
@@ -759,7 +765,7 @@ process.on('SIGINT', async () => {
     for (const sessionId in transports) {
         try {
             console.log(`Closing transport for session ${sessionId}`);
-            await transports[sessionId].close();
+            await transports[sessionId]!.close();
             delete transports[sessionId];
             delete sessionsNeedingElicitation[sessionId];
         } catch (error) {

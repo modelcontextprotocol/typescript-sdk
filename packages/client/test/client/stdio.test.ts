@@ -1,4 +1,4 @@
-import { JSONRPCMessage } from '../../src/types.js';
+import { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
 import { StdioClientTransport, StdioServerParameters } from '../../src/client/stdio.js';
 
 // Configure default server parameters based on OS
@@ -59,8 +59,8 @@ test('should read messages', async () => {
     });
 
     await client.start();
-    await client.send(messages[0]);
-    await client.send(messages[1]);
+    await client.send(messages[0]!);
+    await client.send(messages[1]!);
     await finished;
     expect(readMessages).toEqual(messages);
 

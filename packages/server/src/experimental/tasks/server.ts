@@ -6,10 +6,18 @@
  */
 
 import type { Server } from '../../server/server.js';
-import type { RequestOptions } from '@modelcontextprotocol/shared';
-import type { ResponseMessage } from '@modelcontextprotocol/shared';
-import type { AnySchema, SchemaOutput } from '@modelcontextprotocol/shared';
-import type { ServerRequest, Notification, Request, Result, GetTaskResult, ListTasksResult, CancelTaskResult } from '@modelcontextprotocol/shared';
+import type { RequestOptions } from '../../../../core/src/index.js';
+import type { ResponseMessage } from '../../../../core/src/index.js';
+import type { AnySchema, SchemaOutput } from '../../../../core/src/index.js';
+import type {
+    ServerRequest,
+    Notification,
+    Request,
+    Result,
+    GetTaskResult,
+    ListTasksResult,
+    CancelTaskResult
+} from '../../../../core/src/index.js';
 
 /**
  * Experimental task features for low-level MCP servers.

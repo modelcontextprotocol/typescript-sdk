@@ -1,4 +1,10 @@
-import { mergeCapabilities, Protocol, type NotificationOptions, type ProtocolOptions, type RequestOptions } from '@modelcontextprotocol/shared';
+import {
+    mergeCapabilities,
+    Protocol,
+    type NotificationOptions,
+    type ProtocolOptions,
+    type RequestOptions
+} from '../../../core/src/index.js';
 import {
     type ClientCapabilities,
     type CreateMessageRequest,
@@ -41,9 +47,9 @@ import {
     type Request,
     type Notification,
     type Result
-} from '@modelcontextprotocol/shared';
-import { AjvJsonSchemaValidator } from '@modelcontextprotocol/shared';
-import type { JsonSchemaType, jsonSchemaValidator } from '@modelcontextprotocol/shared';
+} from '../../../core/src/index.js';
+import { AjvJsonSchemaValidator } from '../../../core/src/index.js';
+import type { JsonSchemaType, jsonSchemaValidator } from '../../../core/src/index.js';
 import {
     AnyObjectSchema,
     getObjectShape,
@@ -52,10 +58,10 @@ import {
     SchemaOutput,
     type ZodV3Internal,
     type ZodV4Internal
-} from '@modelcontextprotocol/shared';
-import { RequestHandlerExtra } from '@modelcontextprotocol/shared';
+} from '../../../core/src/index.js';
+import { RequestHandlerExtra } from '../../../core/src/index.js';
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
-import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '@modelcontextprotocol/shared';
+import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '../../../core/src/index.js';
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -509,7 +515,7 @@ export class Server<
         // These may appear even without tools/toolChoice in the current request when
         // a previous sampling request returned tool_use and this is a follow-up with results.
         if (params.messages.length > 0) {
-            const lastMessage = params.messages[params.messages.length - 1];
+            const lastMessage = params.messages[params.messages.length - 1]!;
             const lastContent = Array.isArray(lastMessage.content) ? lastMessage.content : [lastMessage.content];
             const hasToolResults = lastContent.some(c => c.type === 'tool_result');
 

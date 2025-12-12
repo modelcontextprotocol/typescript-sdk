@@ -11,4 +11,4 @@ export * from './client/websocket.js';
 export * from './experimental/index.js';
 
 // re-export shared types
-export * from '@modelcontextprotocol/shared';
+export * from '../../core/src/index.js';

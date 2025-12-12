@@ -106,7 +106,7 @@ function commandLoop(): void {
                     if (args.length < 2) {
                         console.log('Usage: call-tool <name> [args]');
                     } else {
-                        const toolName = args[1];
+                        const toolName = args[1]!;
                         let toolArgs = {};
                         if (args.length > 2) {
                             try {
@@ -149,7 +149,7 @@ function commandLoop(): void {
                     if (args.length < 2) {
                         console.log('Usage: call-tool-task <name> [args]');
                     } else {
-                        const toolName = args[1];
+                        const toolName = args[1]!;
                         let toolArgs = {};
                         if (args.length > 2) {
                             try {
@@ -170,7 +170,7 @@ function commandLoop(): void {
                     if (args.length < 2) {
                         console.log('Usage: get-prompt <name> [args]');
                     } else {
-                        const promptName = args[1];
+                        const promptName = args[1]!;
                         let promptArgs = {};
                         if (args.length > 2) {
                             try {
@@ -191,7 +191,7 @@ function commandLoop(): void {
                     if (args.length < 2) {
                         console.log('Usage: read-resource <uri>');
                     } else {
-                        await readResource(args[1]);
+                        await readResource(args[1]!);
                     }
                     break;
 

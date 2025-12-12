@@ -1,8 +1,8 @@
 import process from 'node:process';
 import { Readable, Writable } from 'node:stream';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/shared';
-import { JSONRPCMessage } from '@modelcontextprotocol/shared';
-import { Transport } from '@modelcontextprotocol/shared';
+import { ReadBuffer, serializeMessage } from '../../../core/src/index.js';
+import { JSONRPCMessage } from '../../../core/src/index.js';
+import { Transport } from '../../../core/src/index.js';
 
 /**
  * Server transport for stdio: this communicates with an MCP client by reading from the current process' stdin and writing to stdout.

@@ -14,7 +14,7 @@ import {
     isSchemaOptional,
     getLiteralValue,
     toJsonSchemaCompat
-} from '@modelcontextprotocol/shared';
+} from '../../../core/src/index.js';
 import {
     Implementation,
     Tool,
@@ -53,13 +53,13 @@ import {
     assertCompleteRequestResourceTemplate,
     CallToolRequest,
     ToolExecution
-} from '@modelcontextprotocol/shared';
+} from '../../../core/src/index.js';
 import { isCompletable, getCompleter } from './completable.js';
-import { UriTemplate, Variables } from '@modelcontextprotocol/shared';
-import { RequestHandlerExtra } from '@modelcontextprotocol/shared';
-import { Transport } from '@modelcontextprotocol/shared';
+import { UriTemplate, Variables } from '../../../core/src/index.js';
+import { RequestHandlerExtra } from '../../../core/src/index.js';
+import { Transport } from '../../../core/src/index.js';
 
-import { validateAndWarnToolName } from '@modelcontextprotocol/shared';
+import { validateAndWarnToolName } from '../../../core/src/index.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcp-server.js';
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ZodOptional } from 'zod';

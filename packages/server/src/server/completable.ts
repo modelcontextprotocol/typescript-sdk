@@ -1,4 +1,4 @@
-import { AnySchema, SchemaInput } from '@modelcontextprotocol/shared';
+import { AnySchema, SchemaInput } from '../../../core/src/index.js';
 
 export const COMPLETABLE_SYMBOL: unique symbol = Symbol.for('mcp.completable');
 

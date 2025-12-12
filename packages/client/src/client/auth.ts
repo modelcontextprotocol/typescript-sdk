@@ -1,5 +1,5 @@
 import pkceChallenge from 'pkce-challenge';
-import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/shared';
+import { LATEST_PROTOCOL_VERSION } from '../../../core/src/index.js';
 import {
     OAuthClientMetadata,
     OAuthClientInformation,
@@ -11,14 +11,14 @@ import {
     OAuthErrorResponseSchema,
     AuthorizationServerMetadata,
     OpenIdProviderDiscoveryMetadataSchema
-} from '@modelcontextprotocol/shared';
+} from '../../../core/src/index.js';
 import {
     OAuthClientInformationFullSchema,
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
     OAuthTokensSchema
-} from '@modelcontextprotocol/shared';
-import { checkResourceAllowed, resourceUrlFromServerUrl } from '@modelcontextprotocol/shared';
+} from '../../../core/src/index.js';
+import { checkResourceAllowed, resourceUrlFromServerUrl } from '../../../core/src/index.js';
 import {
     InvalidClientError,
     InvalidClientMetadataError,
@@ -27,8 +27,8 @@ import {
     OAuthError,
     ServerError,
     UnauthorizedClientError
-} from '@modelcontextprotocol/shared';
-import { FetchLike } from '@modelcontextprotocol/shared';
+} from '../../../core/src/index.js';
+import { FetchLike } from '../../../core/src/index.js';
 
 /**
  * Function type for adding client authentication to token requests.
@@ -574,7 +574,7 @@ export function extractWWWAuthenticateParams(res: Response): { resourceMetadataU
     }
 
     const [type, scheme] = authenticateHeader.split(' ');
-    if (type.toLowerCase() !== 'bearer' || !scheme) {
+    if (type?.toLowerCase() !== 'bearer' || !scheme) {
         return {};
     }
 
@@ -617,7 +617,10 @@ function extractFieldFromWwwAuth(response: Response, fieldName: string): string 
 
     if (match) {
         // Pattern matches: field_name="value" or field_name=value (unquoted)
-        return match[1] || match[2];
+        const result = match[1] || match[2];
+        if (result) {
+            return result;
+        }
     }
 
     return null;
@@ -634,13 +637,13 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
     }
 
     const [type, scheme] = authenticateHeader.split(' ');
-    if (type.toLowerCase() !== 'bearer' || !scheme) {
+    if (type?.toLowerCase() !== 'bearer' || !scheme) {
         return undefined;
     }
     const regex = /resource_metadata="([^"]*)"/;
     const match = regex.exec(authenticateHeader);
 
-    if (!match) {
+    if (!match || !match[1]) {
         return undefined;
     }
 

@@ -274,7 +274,7 @@ describe('createPrivateKeyJwtAuth', () => {
         const assertion = params.get('client_assertion')!;
         // Decode the payload to verify audience
         const [, payloadB64] = assertion.split('.');
-        const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
+        const payload = JSON.parse(Buffer.from(payloadB64!, 'base64url').toString());
         expect(payload.aud).toBe('https://issuer.example.com');
     });
 

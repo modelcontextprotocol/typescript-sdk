@@ -1,5 +1,5 @@
-import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '@modelcontextprotocol/shared';
-import type { Transport } from '@modelcontextprotocol/shared';
+import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../../../core/src/index.js';
+import type { Transport } from '../../../core/src/index.js';
 
 import {
     type CallToolRequest,
@@ -49,9 +49,9 @@ import {
     type Request,
     type Notification,
     type Result
-} from '@modelcontextprotocol/shared';
-import { AjvJsonSchemaValidator } from '@modelcontextprotocol/shared';
-import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '@modelcontextprotocol/shared';
+} from '../../../core/src/index.js';
+import { AjvJsonSchemaValidator } from '../../../core/src/index.js';
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../../../core/src/index.js';
 import {
     AnyObjectSchema,
     SchemaOutput,
@@ -60,10 +60,10 @@ import {
     safeParse,
     type ZodV3Internal,
     type ZodV4Internal
-} from '@modelcontextprotocol/shared';
-import type { RequestHandlerExtra } from '@modelcontextprotocol/shared';
+} from '../../../core/src/index.js';
+import type { RequestHandlerExtra } from '../../../core/src/index.js';
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
-import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '@modelcontextprotocol/shared';
+import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '../../../core/src/index.js';
 
 /**
  * Elicitation default application helper. Applies defaults to the data based on the schema.
@@ -79,7 +79,7 @@ function applyElicitationDefaults(schema: JsonSchemaType | undefined, data: unkn
         const obj = data as Record<string, unknown>;
         const props = schema.properties as Record<string, JsonSchemaType & { default?: unknown }>;
         for (const key of Object.keys(props)) {
-            const propSchema = props[key];
+            const propSchema = props[key]!;
             // If missing or explicitly undefined, apply default if present
             if (obj[key] === undefined && Object.prototype.hasOwnProperty.call(propSchema, 'default')) {
                 obj[key] = propSchema.default;

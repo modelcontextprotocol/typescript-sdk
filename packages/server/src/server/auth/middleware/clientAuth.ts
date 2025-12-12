@@ -1,8 +1,8 @@
 import * as z from 'zod/v4';
 import { RequestHandler } from 'express';
 import { OAuthRegisteredClientsStore } from '../clients.js';
-import { OAuthClientInformationFull } from '@modelcontextprotocol/shared';
-import { InvalidRequestError, InvalidClientError, ServerError, OAuthError } from '@modelcontextprotocol/shared';
+import { OAuthClientInformationFull } from '../../../../../core/src/index.js';
+import { InvalidRequestError, InvalidClientError, ServerError, OAuthError } from '../../../../../core/src/index.js';
 
 export type ClientAuthenticationMiddlewareOptions = {
     /**

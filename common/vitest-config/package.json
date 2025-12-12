@@ -4,8 +4,7 @@
     "main": "vitest.config.mjs",
     "type": "module",
     "exports": {
-        ".": "./vitest.config.mjs",
-        "./tsconfig.json": "./tsconfig.json"
+        ".": "./vitest.config.js"
     },
     "dependencies": {
         "typescript": "catalog:"

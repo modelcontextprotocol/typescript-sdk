@@ -240,7 +240,7 @@ process.on('SIGINT', async () => {
     for (const sessionId in transports) {
         try {
             console.log(`Closing transport for session ${sessionId}`);
-            await transports[sessionId].close();
+            await transports[sessionId]!.close();
             delete transports[sessionId];
         } catch (error) {
             console.error(`Error closing transport for session ${sessionId}:`, error);

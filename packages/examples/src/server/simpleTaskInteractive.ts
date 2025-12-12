@@ -180,12 +180,12 @@ class TaskMessageQueueWithResolvers implements TaskMessageQueue {
 class TaskStoreWithNotifications extends InMemoryTaskStore {
     private updateResolvers = new Map<string, (() => void)[]>();
 
-    async updateTaskStatus(taskId: string, status: Task['status'], statusMessage?: string, sessionId?: string): Promise<void> {
+    override async updateTaskStatus(taskId: string, status: Task['status'], statusMessage?: string, sessionId?: string): Promise<void> {
         await super.updateTaskStatus(taskId, status, statusMessage, sessionId);
         this.notifyUpdate(taskId);
     }
 
-    async storeTaskResult(taskId: string, status: 'completed' | 'failed', result: Result, sessionId?: string): Promise<void> {
+    override async storeTaskResult(taskId: string, status: 'completed' | 'failed', result: Result, sessionId?: string): Promise<void> {
         await super.storeTaskResult(taskId, status, result, sessionId);
         this.notifyUpdate(taskId);
     }
@@ -732,7 +732,7 @@ process.on('SIGINT', async () => {
     console.log('\nShutting down server...');
     for (const sessionId of Object.keys(transports)) {
         try {
-            await transports[sessionId].close();
+            await transports[sessionId]!.close();
             delete transports[sessionId];
         } catch (error) {
             console.error(`Error closing session ${sessionId}:`, error);

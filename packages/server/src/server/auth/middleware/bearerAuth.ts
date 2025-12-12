@@ -1,7 +1,7 @@
 import { RequestHandler } from 'express';
-import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from '@modelcontextprotocol/shared';
+import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from '../../../../../core/src/index.js';
 import { OAuthTokenVerifier } from '../provider.js';
-import { AuthInfo } from '@modelcontextprotocol/shared';
+import { AuthInfo } from '../../../../../core/src/index.js';
 
 export type BearerAuthMiddlewareOptions = {
     /**
@@ -46,7 +46,7 @@ export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetad
             }
 
             const [type, token] = authHeader.split(' ');
-            if (type.toLowerCase() !== 'bearer' || !token) {
+            if (type!.toLowerCase() !== 'bearer' || !token) {
                 throw new InvalidTokenError("Invalid Authorization header format, expected 'Bearer TOKEN'");
             }
 

@@ -1,5 +1,5 @@
 import express, { RequestHandler } from 'express';
-import { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/shared';
+import { OAuthMetadata, OAuthProtectedResourceMetadata } from '../../../../../core/src/index.js';
 import cors from 'cors';
 import { allowedMethods } from '../middleware/allowedMethods.js';
 

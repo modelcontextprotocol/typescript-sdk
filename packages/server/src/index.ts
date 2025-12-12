@@ -5,6 +5,7 @@ export * from './server/server.js';
 export * from './server/sse.js';
 export * from './server/stdio.js';
 export * from './server/streamableHttp.js';
+export * from './server/inMemoryEventStore.js';
 
 // auth exports
 export * from './server/auth/index.js';
@@ -13,4 +14,4 @@ export * from './server/auth/index.js';
 export * from './experimental/index.js';
 
 // re-export shared types
-export * from '@modelcontextprotocol/shared';
+export * from '../../core/src/index.js';

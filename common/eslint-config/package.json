@@ -22,7 +22,6 @@
     },
     "version": "2.0.0",
     "devDependencies": {
-        "@modelcontextprotocol/tsconfig": "workspace:^",
         "eslint": "^9.8.0",
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-n": "^17.23.1",

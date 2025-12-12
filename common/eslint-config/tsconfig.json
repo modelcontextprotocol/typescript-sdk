@@ -1,8 +1,0 @@
-{
-    "extends": "@modelcontextprotocol/tsconfig",
-    "include": ["./"],
-    "exclude": ["node_modules", "dist"],
-    "compilerOptions": {
-        "baseUrl": "."
-    }
-}

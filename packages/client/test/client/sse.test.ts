@@ -1,9 +1,13 @@
 import { createServer, ServerResponse, type IncomingMessage, type Server } from 'node:http';
-import { JSONRPCMessage } from '../../src/types.js';
+import {
+    JSONRPCMessage,
+    InvalidClientError,
+    InvalidGrantError,
+    UnauthorizedClientError,
+    OAuthTokens
+} from '@modelcontextprotocol/sdk-core';
 import { SSEClientTransport } from '../../src/client/sse.js';
 import { OAuthClientProvider, UnauthorizedError } from '../../src/client/auth.js';
-import { OAuthTokens } from '../../src/shared/auth.js';
-import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '../../src/server/auth/errors.js';
 import { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 import { listenOnRandomPort } from '../helpers/http.js';
 import { AddressInfo } from 'node:net';
@@ -169,7 +173,7 @@ describe('SSEClientTransport', () => {
             await new Promise(resolve => setTimeout(resolve, 50));
 
             expect(errors).toHaveLength(1);
-            expect(errors[0].message).toMatch(/JSON/);
+            expect(errors[0]!.message).toMatch(/JSON/);
         });
 
         it('handles messages via POST requests', async () => {
@@ -310,7 +314,7 @@ describe('SSEClientTransport', () => {
 
                 await transport.send(message);
 
-                const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
+                const calledHeaders = (global.fetch as Mock).mock.calls[0]![1].headers;
                 expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
                 expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
                 expect(calledHeaders.get('content-type')).toBe('application/json');
@@ -319,7 +323,7 @@ describe('SSEClientTransport', () => {
 
                 await transport.send(message);
 
-                const updatedHeaders = (global.fetch as Mock).mock.calls[1][1].headers;
+                const updatedHeaders = (global.fetch as Mock).mock.calls[1]![1].headers;
                 expect(updatedHeaders.get('X-Custom-Header')).toBe('updated-value');
             } finally {
                 global.fetch = originalFetch;
@@ -353,7 +357,7 @@ describe('SSEClientTransport', () => {
 
                 await transport.send(message);
 
-                const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
+                const calledHeaders = (global.fetch as Mock).mock.calls[0]![1].headers;
                 expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
                 expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
                 expect(calledHeaders.get('content-type')).toBe('application/json');
@@ -362,7 +366,7 @@ describe('SSEClientTransport', () => {
 
                 await transport.send(message);
 
-                const updatedHeaders = (global.fetch as Mock).mock.calls[1][1].headers;
+                const updatedHeaders = (global.fetch as Mock).mock.calls[1]![1].headers;
                 expect(updatedHeaders.get('X-Custom-Header')).toBe('updated-value');
             } finally {
                 global.fetch = originalFetch;
@@ -387,7 +391,7 @@ describe('SSEClientTransport', () => {
 
                 await transport.send({ jsonrpc: '2.0', id: '1', method: 'test', params: {} });
 
-                const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
+                const calledHeaders = (global.fetch as Mock).mock.calls[0]![1].headers;
                 expect(calledHeaders.get('Authorization')).toBe('Bearer test-token');
                 expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
                 expect(calledHeaders.get('content-type')).toBe('application/json');
