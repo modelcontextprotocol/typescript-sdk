@@ -37,10 +37,5 @@ jobs:
             - name: Build packages
               run: pnpm run build:all
 
-            - name: Publish preview for @modelcontextprotocol/sdk-client
-              working-directory: packages/client
-              run: npx pkg-pr-new publish
-
-            - name: Publish preview for @modelcontextprotocol/sdk-server
-              working-directory: packages/server
-              run: npx pkg-pr-new publish
+            - name: Publish preview packages
+              run: pnpm dlx pkg-pr-new publish './packages/server' './packages/client'
