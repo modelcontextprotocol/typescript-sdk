@@ -1,9 +1,10 @@
-import { clientRegistrationHandler, ClientRegistrationHandlerOptions } from '../../../../src/server/auth/handlers/register.js';
-import { OAuthRegisteredClientsStore } from '../../../../src/server/auth/clients.js';
+import type { ClientRegistrationHandlerOptions } from '../../../../src/server/auth/handlers/register.js';
+import { clientRegistrationHandler } from '../../../../src/server/auth/handlers/register.js';
+import type { OAuthRegisteredClientsStore } from '../../../../src/server/auth/clients.js';
 import type { OAuthClientInformationFull, OAuthClientMetadata } from '@modelcontextprotocol/sdk-core';
 import express from 'express';
 import supertest from 'supertest';
-import { MockInstance } from 'vitest';
+import type { MockInstance } from 'vitest';
 
 describe('Client Registration Handler', () => {
     // Mock client store with registration support

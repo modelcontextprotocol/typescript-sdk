@@ -1,12 +1,14 @@
-import { describe, it, expect } from 'vitest';
-import { auth } from '../../src/client/auth.js';
+import { describe, expect, it } from 'vitest';
+
+import { createMockOAuthFetch } from '../../../integration/test/helpers/oauth.js';
+
 import {
     ClientCredentialsProvider,
+    createPrivateKeyJwtAuth,
     PrivateKeyJwtProvider,
-    StaticPrivateKeyJwtProvider,
-    createPrivateKeyJwtAuth
+    StaticPrivateKeyJwtProvider
 } from '../../src/client/auth-extensions.js';
-import { createMockOAuthFetch } from '../helpers/oauth.js';
+import { auth } from '../../src/client/auth.js';
 
 const RESOURCE_SERVER_URL = 'https://resource.example.com/';
 const AUTH_SERVER_URL = 'https://auth.example.com';

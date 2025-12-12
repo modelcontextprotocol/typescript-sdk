@@ -23,6 +23,6 @@
     "version": "2.0.0",
     "devDependencies": {
         "@modelcontextprotocol/tsconfig": "workspace:^",
-        "vite-tsconfig-paths": "^5.1.4"
+        "vite-tsconfig-paths": "catalog:"
     }
 }

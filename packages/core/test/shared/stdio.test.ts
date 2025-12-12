@@ -1,4 +1,4 @@
-import { JSONRPCMessage } from '../../src/types/types.js';
+import type { JSONRPCMessage } from '../../src/types/types.js';
 import { ReadBuffer } from '../../src/shared/stdio.js';
 
 const testMessage: JSONRPCMessage = {

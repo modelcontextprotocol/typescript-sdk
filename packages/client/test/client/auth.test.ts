@@ -1,10 +1,5 @@
-import {
-    LATEST_PROTOCOL_VERSION,
-    InvalidClientMetadataError,
-    ServerError,
-    AuthorizationServerMetadata,
-    OAuthTokens
-} from '@modelcontextprotocol/sdk-core';
+import type { AuthorizationServerMetadata, OAuthTokens } from '@modelcontextprotocol/sdk-core';
+import { LATEST_PROTOCOL_VERSION, InvalidClientMetadataError, ServerError } from '@modelcontextprotocol/sdk-core';
 import {
     discoverOAuthMetadata,
     discoverAuthorizationServerMetadata,

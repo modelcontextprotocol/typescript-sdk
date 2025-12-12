@@ -32,11 +32,13 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
-        "@modelcontextprotocol/sdk-server": "workspace:^"
+        "@modelcontextprotocol/sdk-server": "workspace:^",
+        "express": "catalog:"
     },
     "devDependencies": {
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
-        "@modelcontextprotocol/vitest-config": "workspace:^"
+        "@modelcontextprotocol/vitest-config": "workspace:^",
+        "@types/express": "catalog:"
     }
 }

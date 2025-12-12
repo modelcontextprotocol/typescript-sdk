@@ -1,7 +1,7 @@
 import { describe, expect, test, beforeEach } from 'vitest';
 import { Protocol } from '../../src/shared/protocol.js';
-import { Transport } from '../../src/shared/transport.js';
-import { Request, Notification, Result, JSONRPCMessage } from '../../src/types/types.js';
+import type { Transport } from '../../src/shared/transport.js';
+import type { Request, Notification, Result, JSONRPCMessage } from '../../src/types/types.js';
 import * as z from 'zod/v4';
 
 // Mock Transport class

@@ -1,10 +1,10 @@
-import http from 'node:http';
+import type http from 'node:http';
 import { type Mocked } from 'vitest';
 
 import { SSEServerTransport } from '../../src/server/sse.js';
 import { McpServer } from '../../src/server/mcp.js';
 import { createServer, type Server } from 'node:http';
-import { CallToolResult, JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
+import type { CallToolResult, JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
 import { zodTestMatrix, type ZodMatrixEntry } from './__fixtures__/zodTestMatrix.js';
 import { listenOnRandomPort } from '../../../integration/test/helpers/http.js';
 

@@ -1,10 +1,19 @@
-import { createServer, type Server, IncomingMessage, ServerResponse } from 'node:http';
-import { AddressInfo, createServer as netCreateServer } from 'node:net';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { createServer as netCreateServer } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { EventStore, StreamableHTTPServerTransport, EventId, StreamId } from '../../src/server/streamableHttp.js';
+import type { EventStore, EventId, StreamId } from '../../src/server/streamableHttp.js';
+import { StreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
 import { McpServer } from '../../src/server/mcp.js';
-import { CallToolResult, JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
-import { AuthInfo } from '@modelcontextprotocol/sdk-core';
+import type {
+    CallToolResult,
+    JSONRPCErrorResponse,
+    JSONRPCMessage,
+    JSONRPCResultResponse,
+    RequestId
+} from '@modelcontextprotocol/sdk-core';
+import type { AuthInfo } from '@modelcontextprotocol/sdk-core';
 import { zodTestMatrix, type ZodMatrixEntry } from './__fixtures__/zodTestMatrix.js';
 import { listenOnRandomPort } from '../../../integration/test/helpers/http.js';
 
@@ -443,7 +452,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const response = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList);
 
             expect(response.status).toBe(400);
-            const errorData = await response.json();
+            const errorData = (await response.json()) as JSONRPCErrorResponse;
             expectErrorResponse(errorData, -32000, /Bad Request/);
             expect(errorData.id).toBeNull();
         });
@@ -1094,13 +1103,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(response.status).toBe(200);
             expect(response.headers.get('content-type')).toBe('application/json');
 
-            const results = await response.json();
+            const results = (await response.json()) as JSONRPCResultResponse[];
             expect(Array.isArray(results)).toBe(true);
             expect(results).toHaveLength(2);
 
             // Batch responses can come in any order
-            const listResponse = results.find((r: { id?: string }) => r.id === 'batch-1');
-            const callResponse = results.find((r: { id?: string }) => r.id === 'batch-2');
+            const listResponse = results.find((r: { id?: RequestId }) => r.id === 'batch-1');
+            const callResponse = results.find((r: { id?: RequestId }) => r.id === 'batch-2');
 
             expect(listResponse).toEqual(
                 expect.objectContaining({
@@ -2713,7 +2722,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 });
 
                 expect(response.status).toBe(403);
-                const body = await response.json();
+                const body = (await response.json()) as JSONRPCErrorResponse;
                 expect(body.error.message).toContain('Invalid Host header:');
             });
 
@@ -2783,7 +2792,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 });
 
                 expect(response.status).toBe(403);
-                const body = await response.json();
+                const body = (await response.json()) as JSONRPCErrorResponse;
                 expect(body.error.message).toBe('Invalid Origin header: http://evil.com');
             });
 
@@ -2863,7 +2872,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 });
 
                 expect(response1.status).toBe(403);
-                const body1 = await response1.json();
+                const body1 = (await response1.json()) as JSONRPCErrorResponse;
                 expect(body1.error.message).toBe('Invalid Origin header: http://evil.com');
 
                 // Test with valid origin

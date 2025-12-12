@@ -52,6 +52,9 @@
         "@modelcontextprotocol/sdk-core": "workspace:^",
         "@modelcontextprotocol/sdk-client": "workspace:^",
         "@modelcontextprotocol/sdk-server": "workspace:^",
+        "zod": "catalog:",
+        "vitest": "catalog:",
+        "supertest": "catalog:",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^"

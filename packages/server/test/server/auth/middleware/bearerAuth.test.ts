@@ -1,9 +1,9 @@
-import { Request, Response } from 'express';
-import { Mock } from 'vitest';
+import type { Request, Response } from 'express';
+import type { Mock } from 'vitest';
 import { requireBearerAuth } from '../../../../src/server/auth/middleware/bearerAuth.js';
-import { AuthInfo } from '@modelcontextprotocol/sdk-core';
+import type { AuthInfo } from '@modelcontextprotocol/sdk-core';
 import { InsufficientScopeError, InvalidTokenError, CustomOAuthError, ServerError } from '@modelcontextprotocol/sdk-core';
-import { OAuthTokenVerifier } from '../../../../src/server/auth/provider.js';
+import type { OAuthTokenVerifier } from '../../../../src/server/auth/provider.js';
 import { createExpressResponseMock } from '../../../../../integration/test/helpers/http.js';
 
 // Mock verifier

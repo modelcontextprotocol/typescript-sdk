@@ -1,10 +1,12 @@
-import { mcpAuthRouter, AuthRouterOptions, mcpAuthMetadataRouter, AuthMetadataOptions } from '../../../src/server/auth/router.js';
-import { OAuthServerProvider, AuthorizationParams } from '../../../src/server/auth/provider.js';
-import { OAuthRegisteredClientsStore } from '../../../src/server/auth/clients.js';
-import { OAuthClientInformationFull, OAuthMetadata, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/sdk-core';
-import express, { Response } from 'express';
+import type { AuthRouterOptions, AuthMetadataOptions } from '../../../src/server/auth/router.js';
+import { mcpAuthRouter, mcpAuthMetadataRouter } from '../../../src/server/auth/router.js';
+import type { OAuthServerProvider, AuthorizationParams } from '../../../src/server/auth/provider.js';
+import type { OAuthRegisteredClientsStore } from '../../../src/server/auth/clients.js';
+import type { OAuthClientInformationFull, OAuthMetadata, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/sdk-core';
+import type { Response } from 'express';
+import express from 'express';
 import supertest from 'supertest';
-import { AuthInfo } from '@modelcontextprotocol/sdk-core';
+import type { AuthInfo } from '@modelcontextprotocol/sdk-core';
 import { InvalidTokenError } from '@modelcontextprotocol/sdk-core';
 
 describe('MCP Auth Router', () => {

@@ -1,5 +1,6 @@
-import { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
-import { StdioClientTransport, StdioServerParameters } from '../../src/client/stdio.js';
+import type { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
+import type { StdioServerParameters } from '../../src/client/stdio.js';
+import { StdioClientTransport } from '../../src/client/stdio.js';
 
 // Configure default server parameters based on OS
 // Uses 'more' command for Windows and 'tee' command for Unix/Linux

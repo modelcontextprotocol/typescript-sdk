@@ -1,12 +1,13 @@
-import { revocationHandler, RevocationHandlerOptions } from '../../../../src/server/auth/handlers/revoke.js';
-import { OAuthServerProvider, AuthorizationParams } from '../../../../src/server/auth/provider.js';
-import { OAuthRegisteredClientsStore } from '../../../../src/server/auth/clients.js';
-import { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/sdk-core';
-import express, { Response } from 'express';
+import type { RevocationHandlerOptions } from '../../../../src/server/auth/handlers/revoke.js';
+import { revocationHandler } from '../../../../src/server/auth/handlers/revoke.js';
+import type { OAuthServerProvider, AuthorizationParams } from '../../../../src/server/auth/provider.js';
+import type { OAuthRegisteredClientsStore } from '../../../../src/server/auth/clients.js';
+import type { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens, AuthInfo } from '@modelcontextprotocol/sdk-core';
+import type { Response } from 'express';
+import express from 'express';
 import supertest from 'supertest';
-import { AuthInfo } from '@modelcontextprotocol/sdk-core';
 import { InvalidTokenError } from '@modelcontextprotocol/sdk-core';
-import { MockInstance } from 'vitest';
+import type { MockInstance } from 'vitest';
 
 describe('Revocation Handler', () => {
     // Mock client data

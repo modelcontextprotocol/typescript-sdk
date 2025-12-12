@@ -1,16 +1,15 @@
-import { createServer, ServerResponse, type IncomingMessage, type Server } from 'node:http';
-import {
-    JSONRPCMessage,
-    InvalidClientError,
-    InvalidGrantError,
-    UnauthorizedClientError,
-    OAuthTokens
-} from '@modelcontextprotocol/sdk-core';
+import type { IncomingMessage, Server, ServerResponse } from 'node:http';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+
+import type { JSONRPCMessage, OAuthTokens } from '@modelcontextprotocol/sdk-core';
+import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '@modelcontextprotocol/sdk-core';
+import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
+
+import { listenOnRandomPort } from '../../../integration/test/helpers/http.js';
+import type { OAuthClientProvider } from '../../src/client/auth.js';
+import { UnauthorizedError } from '../../src/client/auth.js';
 import { SSEClientTransport } from '../../src/client/sse.js';
-import { OAuthClientProvider, UnauthorizedError } from '../../src/client/auth.js';
-import { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
-import { listenOnRandomPort } from '../helpers/http.js';
-import { AddressInfo } from 'node:net';
 
 describe('SSEClientTransport', () => {
     let resourceServer: Server;

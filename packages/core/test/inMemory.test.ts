@@ -1,6 +1,5 @@
 import { InMemoryTransport } from '../src/util/inMemory.js';
-import { JSONRPCMessage } from '../src/types/types.js';
-import { AuthInfo } from '../src/types/types.js';
+import type { JSONRPCMessage, AuthInfo } from '../src/types/types.js';
 
 describe('InMemoryTransport', () => {
     let clientTransport: InMemoryTransport;

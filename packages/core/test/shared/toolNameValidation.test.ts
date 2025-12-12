@@ -1,5 +1,6 @@
 import { validateToolName, validateAndWarnToolName, issueToolNameWarning } from '../../src/shared/toolNameValidation.js';
-import { vi, MockInstance } from 'vitest';
+import { vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 
 // Spy on console.warn to capture output
 let warnSpy: MockInstance;

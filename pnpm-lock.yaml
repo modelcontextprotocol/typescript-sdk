@@ -6,9 +6,117 @@ settings:
 
 catalogs:
   default:
+    '@cfworker/json-schema':
+      specifier: ^4.1.1
+      version: 4.1.1
+    '@eslint/js':
+      specifier: ^9.39.1
+      version: 9.39.1
+    '@types/content-type':
+      specifier: ^1.1.8
+      version: 1.1.9
+    '@types/cors':
+      specifier: ^2.8.17
+      version: 2.8.19
+    '@types/cross-spawn':
+      specifier: ^6.0.6
+      version: 6.0.6
+    '@types/eventsource':
+      specifier: ^1.1.15
+      version: 1.1.15
+    '@types/express':
+      specifier: ^5.0.0
+      version: 5.0.5
+    '@types/express-serve-static-core':
+      specifier: ^5.1.0
+      version: 5.1.0
+    '@types/supertest':
+      specifier: ^6.0.2
+      version: 6.0.3
+    '@types/ws':
+      specifier: ^8.5.12
+      version: 8.18.1
+    '@typescript/native-preview':
+      specifier: ^7.0.0-dev.20251103.1
+      version: 7.0.0-dev.20251108.1
+    ajv:
+      specifier: ^8.17.1
+      version: 8.17.1
+    ajv-formats:
+      specifier: ^3.0.1
+      version: 3.0.1
+    content-type:
+      specifier: ^1.0.5
+      version: 1.0.5
+    cors:
+      specifier: ^2.8.5
+      version: 2.8.5
+    cross-spawn:
+      specifier: ^7.0.5
+      version: 7.0.6
+    eslint:
+      specifier: ^9.8.0
+      version: 9.39.1
+    eslint-config-prettier:
+      specifier: ^10.1.8
+      version: 10.1.8
+    eslint-plugin-n:
+      specifier: ^17.23.1
+      version: 17.23.1
+    eventsource:
+      specifier: ^3.0.2
+      version: 3.0.7
+    eventsource-parser:
+      specifier: ^3.0.0
+      version: 3.0.6
+    express:
+      specifier: ^5.0.1
+      version: 5.1.0
+    express-rate-limit:
+      specifier: ^7.5.0
+      version: 7.5.1
+    jose:
+      specifier: ^6.1.1
+      version: 6.1.3
+    json-schema-typed:
+      specifier: ^8.0.2
+      version: 8.0.2
+    pkce-challenge:
+      specifier: ^5.0.0
+      version: 5.0.0
+    prettier:
+      specifier: 3.6.2
+      version: 3.6.2
+    raw-body:
+      specifier: ^3.0.0
+      version: 3.0.1
+    supertest:
+      specifier: ^7.0.0
+      version: 7.1.4
+    tsx:
+      specifier: ^4.16.5
+      version: 4.20.6
     typescript:
       specifier: ^5.9.3
       version: 5.9.3
+    typescript-eslint:
+      specifier: ^8.48.1
+      version: 8.49.0
+    vite-tsconfig-paths:
+      specifier: ^5.1.4
+      version: 5.1.4
+    vitest:
+      specifier: ^4.0.8
+      version: 4.0.9
+    ws:
+      specifier: ^8.18.0
+      version: 8.18.3
+    zod:
+      specifier: ^3.25 || ^4.0
+      version: 3.25.76
+    zod-to-json-schema:
+      specifier: ^3.25.0
+      version: 3.25.0
 
 overrides:
   strip-ansi: 6.0.1
@@ -16,118 +124,72 @@ overrides:
 importers:
 
   .:
-    dependencies:
-      ajv:
-        specifier: ^8.17.1
-        version: 8.17.1
-      ajv-formats:
-        specifier: ^3.0.1
-        version: 3.0.1(ajv@8.17.1)
-      content-type:
-        specifier: ^1.0.5
-        version: 1.0.5
-      cors:
-        specifier: ^2.8.5
-        version: 2.8.5
-      cross-spawn:
-        specifier: ^7.0.5
-        version: 7.0.6
-      eventsource:
-        specifier: ^3.0.2
-        version: 3.0.7
-      eventsource-parser:
-        specifier: ^3.0.0
-        version: 3.0.6
-      express:
-        specifier: ^5.0.1
-        version: 5.1.0
-      express-rate-limit:
-        specifier: ^7.5.0
-        version: 7.5.1(express@5.1.0)
-      jose:
-        specifier: ^6.1.1
-        version: 6.1.3
-      json-schema-typed:
-        specifier: ^8.0.2
-        version: 8.0.2
-      pkce-challenge:
-        specifier: ^5.0.0
-        version: 5.0.0
-      raw-body:
-        specifier: ^3.0.0
-        version: 3.0.1
-      zod:
-        specifier: ^3.25 || ^4.0
-        version: 3.25.76
-      zod-to-json-schema:
-        specifier: ^3.25.0
-        version: 3.25.0(zod@3.25.76)
     devDependencies:
       '@cfworker/json-schema':
-        specifier: ^4.1.1
+        specifier: 'catalog:'
         version: 4.1.1
       '@eslint/js':
-        specifier: ^9.39.1
+        specifier: 'catalog:'
         version: 9.39.1
       '@types/content-type':
-        specifier: ^1.1.8
+        specifier: 'catalog:'
         version: 1.1.9
       '@types/cors':
-        specifier: ^2.8.17
+        specifier: 'catalog:'
         version: 2.8.19
       '@types/cross-spawn':
-        specifier: ^6.0.6
+        specifier: 'catalog:'
         version: 6.0.6
       '@types/eventsource':
-        specifier: ^1.1.15
+        specifier: 'catalog:'
         version: 1.1.15
       '@types/express':
-        specifier: ^5.0.0
+        specifier: 'catalog:'
         version: 5.0.5
       '@types/express-serve-static-core':
-        specifier: ^5.1.0
+        specifier: 'catalog:'
         version: 5.1.0
       '@types/node':
         specifier: ^24.10.1
         version: 24.10.3
       '@types/supertest':
-        specifier: ^6.0.2
+        specifier: 'catalog:'
         version: 6.0.3
       '@types/ws':
-        specifier: ^8.5.12
+        specifier: 'catalog:'
         version: 8.18.1
       '@typescript/native-preview':
-        specifier: ^7.0.0-dev.20251103.1
+        specifier: 'catalog:'
         version: 7.0.0-dev.20251108.1
       eslint:
-        specifier: ^9.8.0
+        specifier: 'catalog:'
         version: 9.39.1
       eslint-config-prettier:
-        specifier: ^10.1.8
+        specifier: 'catalog:'
         version: 10.1.8(eslint@9.39.1)
       eslint-plugin-n:
-        specifier: ^17.23.1
+        specifier: 'catalog:'
         version: 17.23.1(eslint@9.39.1)(typescript@5.9.3)
       prettier:
-        specifier: 3.6.2
+        specifier: 'catalog:'
         version: 3.6.2
       supertest:
-        specifier: ^7.0.0
+        specifier: 'catalog:'
         version: 7.1.4
       tsx:
-        specifier: ^4.16.5
+        specifier: 'catalog:'
         version: 4.20.6
       typescript:
-        specifier: ^5.9.3
+        specifier: 'catalog:'
         version: 5.9.3
       typescript-eslint:
-        specifier: ^8.48.1
+        specifier: 'catalog:'
         version: 8.49.0(eslint@9.39.1)(typescript@5.9.3)
       vitest:
-        specifier: ^4.0.8
+        specifier: 'catalog:'
         version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
       ws:
-        specifier: ^8.18.0
+        specifier: 'catalog:'
         version: 8.18.3
 
   common/eslint-config:
@@ -137,13 +199,13 @@ importers:
         version: 5.9.3
     devDependencies:
       '@eslint/js':
-        specifier: ^9.39.1
+        specifier: 'catalog:'
         version: 9.39.1
       eslint:
-        specifier: ^9.8.0
+        specifier: 'catalog:'
         version: 9.39.1
       eslint-config-prettier:
-        specifier: ^10.1.8
+        specifier: 'catalog:'
         version: 10.1.8(eslint@9.39.1)
       eslint-import-resolver-typescript:
         specifier: ^4.4.4
@@ -152,16 +214,16 @@ importers:
         specifier: ^2.32.0
         version: 2.32.0(@typescript-eslint/parser@8.49.0(eslint@9.39.1)(typescript@5.9.3))(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.1)
       eslint-plugin-n:
-        specifier: ^17.23.1
+        specifier: 'catalog:'
         version: 17.23.1(eslint@9.39.1)(typescript@5.9.3)
       eslint-plugin-simple-import-sort:
         specifier: ^12.1.1
         version: 12.1.1(eslint@9.39.1)
       prettier:
-        specifier: 3.6.2
+        specifier: 'catalog:'
         version: 3.6.2
       typescript-eslint:
-        specifier: ^8.48.1
+        specifier: 'catalog:'
         version: 8.49.0(eslint@9.39.1)(typescript@5.9.3)
 
   common/tsconfig:
@@ -180,7 +242,7 @@ importers:
         specifier: workspace:^
         version: link:../tsconfig
       vite-tsconfig-paths:
-        specifier: ^5.1.4
+        specifier: 'catalog:'
         version: 5.1.4(typescript@5.9.3)(vite@7.2.2(@types/node@24.10.3)(tsx@4.20.6))
 
   packages/client:
@@ -189,56 +251,50 @@ importers:
         specifier: workspace:^
         version: link:../core
       ajv:
-        specifier: ^8.17.1
+        specifier: 'catalog:'
         version: 8.17.1
       ajv-formats:
-        specifier: ^3.0.1
+        specifier: 'catalog:'
         version: 3.0.1(ajv@8.17.1)
       content-type:
-        specifier: ^1.0.5
+        specifier: 'catalog:'
         version: 1.0.5
       cors:
-        specifier: ^2.8.5
+        specifier: 'catalog:'
         version: 2.8.5
       cross-spawn:
-        specifier: ^7.0.5
+        specifier: 'catalog:'
         version: 7.0.6
       eventsource:
-        specifier: ^3.0.2
+        specifier: 'catalog:'
         version: 3.0.7
       eventsource-parser:
-        specifier: ^3.0.0
+        specifier: 'catalog:'
         version: 3.0.6
-      express:
-        specifier: ^5.0.1
-        version: 5.1.0
-      express-rate-limit:
-        specifier: ^7.5.0
-        version: 7.5.1(express@5.1.0)
       jose:
-        specifier: ^6.1.1
+        specifier: 'catalog:'
         version: 6.1.3
       json-schema-typed:
-        specifier: ^8.0.2
+        specifier: 'catalog:'
         version: 8.0.2
       pkce-challenge:
-        specifier: ^5.0.0
+        specifier: 'catalog:'
         version: 5.0.0
       raw-body:
-        specifier: ^3.0.0
+        specifier: 'catalog:'
         version: 3.0.1
       zod:
-        specifier: ^3.25 || ^4.0
+        specifier: 'catalog:'
         version: 3.25.76
       zod-to-json-schema:
-        specifier: ^3.25.0
+        specifier: 'catalog:'
         version: 3.25.0(zod@3.25.76)
     devDependencies:
       '@cfworker/json-schema':
-        specifier: ^4.1.1
+        specifier: 'catalog:'
         version: 4.1.1
       '@eslint/js':
-        specifier: ^9.39.1
+        specifier: 'catalog:'
         version: 9.39.1
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
@@ -250,118 +306,100 @@ importers:
         specifier: workspace:^
         version: link:../../common/vitest-config
       '@types/content-type':
-        specifier: ^1.1.8
+        specifier: 'catalog:'
         version: 1.1.9
       '@types/cors':
-        specifier: ^2.8.17
+        specifier: 'catalog:'
         version: 2.8.19
       '@types/cross-spawn':
-        specifier: ^6.0.6
+        specifier: 'catalog:'
         version: 6.0.6
       '@types/eventsource':
-        specifier: ^1.1.15
+        specifier: 'catalog:'
         version: 1.1.15
-      '@types/express':
-        specifier: ^5.0.0
-        version: 5.0.5
-      '@types/express-serve-static-core':
-        specifier: ^5.1.0
-        version: 5.1.0
-      '@types/supertest':
-        specifier: ^6.0.2
-        version: 6.0.3
-      '@types/ws':
-        specifier: ^8.5.12
-        version: 8.18.1
       '@typescript/native-preview':
-        specifier: ^7.0.0-dev.20251103.1
+        specifier: 'catalog:'
         version: 7.0.0-dev.20251108.1
       eslint:
-        specifier: ^9.8.0
+        specifier: 'catalog:'
         version: 9.39.1
       eslint-config-prettier:
-        specifier: ^10.1.8
+        specifier: 'catalog:'
         version: 10.1.8(eslint@9.39.1)
       eslint-plugin-n:
-        specifier: ^17.23.1
+        specifier: 'catalog:'
         version: 17.23.1(eslint@9.39.1)(typescript@5.9.3)
       prettier:
-        specifier: 3.6.2
+        specifier: 'catalog:'
         version: 3.6.2
-      supertest:
-        specifier: ^7.0.0
-        version: 7.1.4
       tsx:
-        specifier: ^4.16.5
+        specifier: 'catalog:'
         version: 4.20.6
       typescript:
-        specifier: ^5.5.4
+        specifier: 'catalog:'
         version: 5.9.3
       typescript-eslint:
-        specifier: ^8.48.1
+        specifier: 'catalog:'
         version: 8.49.0(eslint@9.39.1)(typescript@5.9.3)
       vitest:
-        specifier: ^4.0.8
+        specifier: 'catalog:'
         version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
-      ws:
-        specifier: ^8.18.0
-        version: 8.18.3
 
   packages/client/dist: {}
 
   packages/core:
     dependencies:
       ajv:
-        specifier: ^8.17.1
+        specifier: 'catalog:'
         version: 8.17.1
       ajv-formats:
-        specifier: ^3.0.1
+        specifier: 'catalog:'
         version: 3.0.1(ajv@8.17.1)
       content-type:
-        specifier: ^1.0.5
+        specifier: 'catalog:'
         version: 1.0.5
       cors:
-        specifier: ^2.8.5
+        specifier: 'catalog:'
         version: 2.8.5
       cross-spawn:
-        specifier: ^7.0.5
+        specifier: 'catalog:'
         version: 7.0.6
       eventsource:
-        specifier: ^3.0.2
+        specifier: 'catalog:'
         version: 3.0.7
       eventsource-parser:
-        specifier: ^3.0.0
+        specifier: 'catalog:'
         version: 3.0.6
       express:
-        specifier: ^5.0.1
+        specifier: 'catalog:'
         version: 5.1.0
       express-rate-limit:
-        specifier: ^7.5.0
+        specifier: 'catalog:'
         version: 7.5.1(express@5.1.0)
       jose:
-        specifier: ^6.1.1
+        specifier: 'catalog:'
         version: 6.1.3
       json-schema-typed:
-        specifier: ^8.0.2
+        specifier: 'catalog:'
         version: 8.0.2
       pkce-challenge:
-        specifier: ^5.0.0
+        specifier: 'catalog:'
         version: 5.0.0
       raw-body:
-        specifier: ^3.0.0
+        specifier: 'catalog:'
         version: 3.0.1
       zod:
-        specifier: ^3.25 || ^4.0
+        specifier: 'catalog:'
         version: 3.25.76
       zod-to-json-schema:
-        specifier: ^3.25.0
+        specifier: 'catalog:'
         version: 3.25.0(zod@3.25.76)
     devDependencies:
       '@cfworker/json-schema':
-        specifier: ^4.1.1
+        specifier: 'catalog:'
         version: 4.1.1
       '@eslint/js':
-        specifier: ^9.39.1
+        specifier: 'catalog:'
         version: 9.39.1
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
@@ -373,62 +411,50 @@ importers:
         specifier: workspace:^
         version: link:../../common/vitest-config
       '@types/content-type':
-        specifier: ^1.1.8
+        specifier: 'catalog:'
         version: 1.1.9
       '@types/cors':
-        specifier: ^2.8.17
+        specifier: 'catalog:'
         version: 2.8.19
       '@types/cross-spawn':
-        specifier: ^6.0.6
+        specifier: 'catalog:'
         version: 6.0.6
       '@types/eventsource':
-        specifier: ^1.1.15
+        specifier: 'catalog:'
         version: 1.1.15
       '@types/express':
-        specifier: ^5.0.0
+        specifier: 'catalog:'
         version: 5.0.5
       '@types/express-serve-static-core':
-        specifier: ^5.1.0
+        specifier: 'catalog:'
         version: 5.1.0
-      '@types/supertest':
-        specifier: ^6.0.2
-        version: 6.0.3
-      '@types/ws':
-        specifier: ^8.5.12
-        version: 8.18.1
       '@typescript/native-preview':
-        specifier: ^7.0.0-dev.20251103.1
+        specifier: 'catalog:'
         version: 7.0.0-dev.20251108.1
       eslint:
-        specifier: ^9.8.0
+        specifier: 'catalog:'
         version: 9.39.1
       eslint-config-prettier:
-        specifier: ^10.1.8
+        specifier: 'catalog:'
         version: 10.1.8(eslint@9.39.1)
       eslint-plugin-n:
-        specifier: ^17.23.1
+        specifier: 'catalog:'
         version: 17.23.1(eslint@9.39.1)(typescript@5.9.3)
       prettier:
-        specifier: 3.6.2
+        specifier: 'catalog:'
         version: 3.6.2
-      supertest:
-        specifier: ^7.0.0
-        version: 7.1.4
       tsx:
-        specifier: ^4.16.5
+        specifier: 'catalog:'
         version: 4.20.6
       typescript:
-        specifier: ^5.5.4
+        specifier: 'catalog:'
         version: 5.9.3
       typescript-eslint:
-        specifier: ^8.48.1
+        specifier: 'catalog:'
         version: 8.49.0(eslint@9.39.1)(typescript@5.9.3)
       vitest:
-        specifier: ^4.0.8
+        specifier: 'catalog:'
         version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
-      ws:
-        specifier: ^8.18.0
-        version: 8.18.3
 
   packages/core/dist: {}
 
@@ -437,6 +463,12 @@ importers:
       '@modelcontextprotocol/sdk-client':
         specifier: workspace:^
         version: link:../../client
+      ajv:
+        specifier: 'catalog:'
+        version: 8.17.1
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
     devDependencies:
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
@@ -459,6 +491,15 @@ importers:
       '@modelcontextprotocol/sdk-server':
         specifier: workspace:^
         version: link:../../server
+      cors:
+        specifier: 'catalog:'
+        version: 2.8.5
+      express:
+        specifier: 'catalog:'
+        version: 5.1.0
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
     devDependencies:
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
@@ -469,12 +510,21 @@ importers:
       '@modelcontextprotocol/vitest-config':
         specifier: workspace:^
         version: link:../../../common/vitest-config
+      '@types/cors':
+        specifier: 'catalog:'
+        version: 2.8.19
+      '@types/express':
+        specifier: 'catalog:'
+        version: 5.0.5
 
   packages/examples/shared:
     dependencies:
       '@modelcontextprotocol/sdk-server':
         specifier: workspace:^
         version: link:../../server
+      express:
+        specifier: 'catalog:'
+        version: 5.1.0
     devDependencies:
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
@@ -485,6 +535,9 @@ importers:
       '@modelcontextprotocol/vitest-config':
         specifier: workspace:^
         version: link:../../../common/vitest-config
+      '@types/express':
+        specifier: 'catalog:'
+        version: 5.0.5
 
   packages/integration:
     devDependencies:
@@ -506,6 +559,15 @@ importers:
       '@modelcontextprotocol/vitest-config':
         specifier: workspace:^
         version: link:../../common/vitest-config
+      supertest:
+        specifier: 'catalog:'
+        version: 7.1.4
+      vitest:
+        specifier: 'catalog:'
+        version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
 
   packages/server:
     dependencies:
@@ -513,56 +575,56 @@ importers:
         specifier: workspace:^
         version: link:../core
       ajv:
-        specifier: ^8.17.1
+        specifier: 'catalog:'
         version: 8.17.1
       ajv-formats:
-        specifier: ^3.0.1
+        specifier: 'catalog:'
         version: 3.0.1(ajv@8.17.1)
       content-type:
-        specifier: ^1.0.5
+        specifier: 'catalog:'
         version: 1.0.5
       cors:
-        specifier: ^2.8.5
+        specifier: 'catalog:'
         version: 2.8.5
       cross-spawn:
-        specifier: ^7.0.5
+        specifier: 'catalog:'
         version: 7.0.6
       eventsource:
-        specifier: ^3.0.2
+        specifier: 'catalog:'
         version: 3.0.7
       eventsource-parser:
-        specifier: ^3.0.0
+        specifier: 'catalog:'
         version: 3.0.6
       express:
-        specifier: ^5.0.1
+        specifier: 'catalog:'
         version: 5.1.0
       express-rate-limit:
-        specifier: ^7.5.0
+        specifier: 'catalog:'
         version: 7.5.1(express@5.1.0)
       jose:
-        specifier: ^6.1.1
+        specifier: 'catalog:'
         version: 6.1.3
       json-schema-typed:
-        specifier: ^8.0.2
+        specifier: 'catalog:'
         version: 8.0.2
       pkce-challenge:
-        specifier: ^5.0.0
+        specifier: 'catalog:'
         version: 5.0.0
       raw-body:
-        specifier: ^3.0.0
+        specifier: 'catalog:'
         version: 3.0.1
       zod:
-        specifier: ^3.25 || ^4.0
+        specifier: 'catalog:'
         version: 3.25.76
       zod-to-json-schema:
-        specifier: ^3.25.0
+        specifier: 'catalog:'
         version: 3.25.0(zod@3.25.76)
     devDependencies:
       '@cfworker/json-schema':
-        specifier: ^4.1.1
+        specifier: 'catalog:'
         version: 4.1.1
       '@eslint/js':
-        specifier: ^9.39.1
+        specifier: 'catalog:'
         version: 9.39.1
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
@@ -574,62 +636,56 @@ importers:
         specifier: workspace:^
         version: link:../../common/vitest-config
       '@types/content-type':
-        specifier: ^1.1.8
+        specifier: 'catalog:'
         version: 1.1.9
       '@types/cors':
-        specifier: ^2.8.17
+        specifier: 'catalog:'
         version: 2.8.19
       '@types/cross-spawn':
-        specifier: ^6.0.6
+        specifier: 'catalog:'
         version: 6.0.6
       '@types/eventsource':
-        specifier: ^1.1.15
+        specifier: 'catalog:'
         version: 1.1.15
       '@types/express':
-        specifier: ^5.0.0
+        specifier: 'catalog:'
         version: 5.0.5
       '@types/express-serve-static-core':
-        specifier: ^5.1.0
+        specifier: 'catalog:'
         version: 5.1.0
       '@types/supertest':
-        specifier: ^6.0.2
+        specifier: 'catalog:'
         version: 6.0.3
-      '@types/ws':
-        specifier: ^8.5.12
-        version: 8.18.1
       '@typescript/native-preview':
-        specifier: ^7.0.0-dev.20251103.1
+        specifier: 'catalog:'
         version: 7.0.0-dev.20251108.1
       eslint:
-        specifier: ^9.8.0
+        specifier: 'catalog:'
         version: 9.39.1
       eslint-config-prettier:
-        specifier: ^10.1.8
+        specifier: 'catalog:'
         version: 10.1.8(eslint@9.39.1)
       eslint-plugin-n:
-        specifier: ^17.23.1
+        specifier: 'catalog:'
         version: 17.23.1(eslint@9.39.1)(typescript@5.9.3)
       prettier:
-        specifier: 3.6.2
+        specifier: 'catalog:'
         version: 3.6.2
       supertest:
-        specifier: ^7.0.0
+        specifier: 'catalog:'
         version: 7.1.4
       tsx:
-        specifier: ^4.16.5
+        specifier: 'catalog:'
         version: 4.20.6
       typescript:
-        specifier: ^5.5.4
+        specifier: 'catalog:'
         version: 5.9.3
       typescript-eslint:
-        specifier: ^8.48.1
+        specifier: 'catalog:'
         version: 8.49.0(eslint@9.39.1)(typescript@5.9.3)
       vitest:
-        specifier: ^4.0.8
+        specifier: 'catalog:'
         version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
-      ws:
-        specifier: ^8.18.0
-        version: 8.18.3
 
   packages/server/dist: {}
 

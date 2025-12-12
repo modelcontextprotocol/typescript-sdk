@@ -5,8 +5,8 @@
  * - Runtime checks to verify each Spec type has a static check
  *   (note: a few don't have SDK types, see MISSING_SDK_TYPES below)
  */
-import * as SDKTypes from '../src/types/types.js';
-import * as SpecTypes from '../src/types/spec.types.js';
+import type * as SDKTypes from '../src/types/types.js';
+import type * as SpecTypes from '../src/types/spec.types.js';
 import fs from 'node:fs';
 import path from 'node:path';
 

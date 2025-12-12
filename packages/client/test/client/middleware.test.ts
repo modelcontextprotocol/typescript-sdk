@@ -1,7 +1,7 @@
 import { withOAuth, withLogging, applyMiddlewares, createMiddleware } from '../../src/client/middleware.js';
-import { OAuthClientProvider } from '../../src/client/auth.js';
+import type { OAuthClientProvider } from '../../src/client/auth.js';
 import type { FetchLike } from '@modelcontextprotocol/sdk-core';
-import { MockInstance, Mocked, MockedFunction } from 'vitest';
+import type { MockInstance, Mocked, MockedFunction } from 'vitest';
 
 vi.mock('../../src/client/auth.js', async () => {
     const actual = await vi.importActual<typeof import('../../src/client/auth.js')>('../../src/client/auth.js');
@@ -1016,7 +1016,7 @@ describe('createMiddleware', () => {
             const response = await next(input, init);
 
             if (response.headers.get('content-type')?.includes('application/json')) {
-                const data = await response.json();
+                const data = (await response.json()) as Record<string, unknown>;
                 const transformed = { ...data, timestamp: 123456789 };
 
                 return new Response(JSON.stringify(transformed), {

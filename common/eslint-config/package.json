@@ -22,15 +22,15 @@
     },
     "version": "2.0.0",
     "devDependencies": {
-        "@eslint/js": "^9.39.1",
-        "eslint": "^9.8.0",
-        "eslint-config-prettier": "^10.1.8",
+        "@eslint/js": "catalog:",
+        "eslint": "catalog:",
+        "eslint-config-prettier": "catalog:",
         "eslint-import-resolver-typescript": "^4.4.4",
         "eslint-plugin-import": "^2.32.0",
-        "eslint-plugin-n": "^17.23.1",
+        "eslint-plugin-n": "catalog:",
         "eslint-plugin-simple-import-sort": "^12.1.1",
-        "prettier": "3.6.2",
-        "typescript": "^5.5.4",
-        "typescript-eslint": "^8.48.1"
+        "prettier": "catalog:",
+        "typescript": "catalog:",
+        "typescript-eslint": "catalog:"
     }
 }

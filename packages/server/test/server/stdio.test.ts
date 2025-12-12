@@ -1,6 +1,6 @@
 import { Readable, Writable } from 'node:stream';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk-core';
-import { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
+import type { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
 import { StdioServerTransport } from '../../src/server/stdio.js';
 
 let input: Readable;

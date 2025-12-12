@@ -1,13 +1,13 @@
 // @ts-check
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import eslint from '@eslint/js';
-import tseslint from 'typescript-eslint';
 import eslintConfigPrettier from 'eslint-config-prettier/flat';
-import nodePlugin from 'eslint-plugin-n';
 import importPlugin from 'eslint-plugin-import';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
+import nodePlugin from 'eslint-plugin-n';
 import simpleImportSortPlugin from 'eslint-plugin-simple-import-sort';
+import tseslint from 'typescript-eslint';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -45,7 +45,23 @@ export default tseslint.config(
             'n/prefer-node-protocol': 'error',
             '@typescript-eslint/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
             'simple-import-sort/imports': 'warn',
-            'simple-import-sort/exports': 'warn'
+            'simple-import-sort/exports': 'warn',
+            'import/no-extraneous-dependencies': [
+                'error',
+                {
+                    devDependencies: [
+                        '**/test/**',
+                        '**/*.test.ts',
+                        '**/*.test.tsx',
+                        '**/scripts/**',
+                        '**/vitest.config.*',
+                        '**/eslint.config.*',
+                        '**/vitest.setup.*'
+                    ],
+                    optionalDependencies: false,
+                    peerDependencies: true
+                }
+            ]
         }
     },
     {
