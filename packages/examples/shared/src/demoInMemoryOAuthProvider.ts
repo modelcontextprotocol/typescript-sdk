@@ -1,14 +1,15 @@
 import { randomUUID } from 'node:crypto';
+
 import type {
+    AuthInfo,
     AuthorizationParams,
-    OAuthServerProvider,
-    OAuthRegisteredClientsStore,
     OAuthClientInformationFull,
     OAuthMetadata,
-    OAuthTokens,
-    AuthInfo
+    OAuthRegisteredClientsStore,
+    OAuthServerProvider,
+    OAuthTokens
 } from '@modelcontextprotocol/sdk-server';
-import { createOAuthMetadata, mcpAuthRouter, resourceUrlFromServerUrl, InvalidRequestError } from '@modelcontextprotocol/sdk-server';
+import { createOAuthMetadata, InvalidRequestError, mcpAuthRouter, resourceUrlFromServerUrl } from '@modelcontextprotocol/sdk-server';
 import type { Request, Response } from 'express';
 import express from 'express';
 

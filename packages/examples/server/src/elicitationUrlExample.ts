@@ -7,26 +7,27 @@
 // Note: See also elicitationFormExample.ts for an example of using form (not URL) elicitation
 // to collect *non-sensitive* user input with a structured schema.
 
-import type { Request, Response } from 'express';
-import express from 'express';
 import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
+
+import { setupAuthServer } from '@modelcontextprotocol/sdk-examples-shared';
 import type { CallToolResult, ElicitRequestURLParams, ElicitResult, OAuthMetadata } from '@modelcontextprotocol/sdk-server';
 import {
-    McpServer,
+    checkResourceAllowed,
     createMcpExpressApp,
-    StreamableHTTPServerTransport,
     getOAuthProtectedResourceMetadataUrl,
-    mcpAuthMetadataRouter,
-    requireBearerAuth,
-    UrlElicitationRequiredError,
     isInitializeRequest,
-    checkResourceAllowed
+    mcpAuthMetadataRouter,
+    McpServer,
+    requireBearerAuth,
+    StreamableHTTPServerTransport,
+    UrlElicitationRequiredError
 } from '@modelcontextprotocol/sdk-server';
-import { InMemoryEventStore } from './inMemoryEventStore.js';
-import { setupAuthServer } from '@modelcontextprotocol/sdk-examples-shared';
-
 import cors from 'cors';
+import type { Request, Response } from 'express';
+import express from 'express';
+import { z } from 'zod';
+
+import { InMemoryEventStore } from './inMemoryEventStore.js';
 
 // Create an MCP server with implementation details
 const getServer = () => {

@@ -1,7 +1,8 @@
 import type http from 'node:http';
 import { type Server } from 'node:http';
-import type { Response } from 'express';
 import type { AddressInfo } from 'node:net';
+
+import type { Response } from 'express';
 import { vi } from 'vitest';
 
 /**

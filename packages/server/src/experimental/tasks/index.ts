@@ -9,5 +9,5 @@
 export * from './interfaces.js';
 
 // Wrapper classes
-export * from './server.js';
 export * from './mcp-server.js';
+export * from './server.js';

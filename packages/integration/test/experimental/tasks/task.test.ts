@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import { isTerminal } from '@modelcontextprotocol/sdk-core';
 import type { Task } from '@modelcontextprotocol/sdk-server';
+import { describe, expect, it } from 'vitest';
 
 describe('Task utility functions', () => {
     describe('isTerminal', () => {

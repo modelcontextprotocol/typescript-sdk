@@ -1,17 +1,19 @@
 #!/usr/bin/env node
 
+import { exec } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { URL } from 'node:url';
-import { exec } from 'node:child_process';
-import type { OAuthClientMetadata, CallToolRequest, ListToolsRequest } from '@modelcontextprotocol/sdk-client';
+
+import type { CallToolRequest, ListToolsRequest, OAuthClientMetadata } from '@modelcontextprotocol/sdk-client';
 import {
-    Client,
-    StreamableHTTPClientTransport,
     CallToolResultSchema,
+    Client,
     ListToolsResultSchema,
+    StreamableHTTPClientTransport,
     UnauthorizedError
 } from '@modelcontextprotocol/sdk-client';
+
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
 
 // Configuration

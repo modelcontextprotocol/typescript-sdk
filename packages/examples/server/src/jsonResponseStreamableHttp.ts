@@ -1,7 +1,8 @@
-import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
+
 import type { CallToolResult } from '@modelcontextprotocol/sdk-server';
-import { McpServer, StreamableHTTPServerTransport, isInitializeRequest, createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
+import { createMcpExpressApp, isInitializeRequest, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
+import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
 // Create an MCP server with implementation details

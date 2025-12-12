@@ -13,10 +13,10 @@
  * Requires: ssePollingExample.ts server running on port 3001
  */
 import {
-    Client,
-    StreamableHTTPClientTransport,
     CallToolResultSchema,
-    LoggingMessageNotificationSchema
+    Client,
+    LoggingMessageNotificationSchema,
+    StreamableHTTPClientTransport
 } from '@modelcontextprotocol/sdk-client';
 
 const SERVER_URL = 'http://localhost:3001/mcp';

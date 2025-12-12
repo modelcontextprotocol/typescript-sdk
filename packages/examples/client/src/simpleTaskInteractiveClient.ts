@@ -7,17 +7,18 @@
  * - Using task-based tool execution with streaming
  */
 
-import type { TextContent, CreateMessageRequest, CreateMessageResult } from '@modelcontextprotocol/sdk-client';
-import {
-    Client,
-    StreamableHTTPClientTransport,
-    CallToolResultSchema,
-    ElicitRequestSchema,
-    CreateMessageRequestSchema,
-    ErrorCode,
-    McpError
-} from '@modelcontextprotocol/sdk-client';
 import { createInterface } from 'node:readline';
+
+import type { CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/sdk-client';
+import {
+    CallToolResultSchema,
+    Client,
+    CreateMessageRequestSchema,
+    ElicitRequestSchema,
+    ErrorCode,
+    McpError,
+    StreamableHTTPClientTransport
+} from '@modelcontextprotocol/sdk-client';
 
 // Create readline interface for user input
 const readline = createInterface({

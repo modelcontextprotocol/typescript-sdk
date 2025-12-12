@@ -1,21 +1,22 @@
-import * as z from 'zod/v4';
-import type { RequestHandler } from 'express';
-import express from 'express';
-import type { OAuthServerProvider } from '../provider.js';
-import cors from 'cors';
-import { verifyChallenge } from 'pkce-challenge';
-import { authenticateClient } from '../middleware/clientAuth.js';
-import type { Options as RateLimitOptions } from 'express-rate-limit';
-import { rateLimit } from 'express-rate-limit';
-import { allowedMethods } from '../middleware/allowedMethods.js';
 import {
-    InvalidRequestError,
     InvalidGrantError,
-    UnsupportedGrantTypeError,
+    InvalidRequestError,
+    OAuthError,
     ServerError,
     TooManyRequestsError,
-    OAuthError
+    UnsupportedGrantTypeError
 } from '@modelcontextprotocol/sdk-core';
+import cors from 'cors';
+import type { RequestHandler } from 'express';
+import express from 'express';
+import type { Options as RateLimitOptions } from 'express-rate-limit';
+import { rateLimit } from 'express-rate-limit';
+import { verifyChallenge } from 'pkce-challenge';
+import * as z from 'zod/v4';
+
+import { allowedMethods } from '../middleware/allowedMethods.js';
+import { authenticateClient } from '../middleware/clientAuth.js';
+import type { OAuthServerProvider } from '../provider.js';
 
 export type TokenHandlerOptions = {
     provider: OAuthServerProvider;

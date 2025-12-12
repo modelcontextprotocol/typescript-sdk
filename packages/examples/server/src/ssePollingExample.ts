@@ -12,12 +12,14 @@
  * Run with: npx tsx src/examples/server/ssePollingExample.ts
  * Test with: curl or the MCP Inspector
  */
-import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
+
 import type { CallToolResult } from '@modelcontextprotocol/sdk-server';
-import { McpServer, createMcpExpressApp, StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
-import { InMemoryEventStore } from './inMemoryEventStore.js';
+import { createMcpExpressApp, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
 import cors from 'cors';
+import type { Request, Response } from 'express';
+
+import { InMemoryEventStore } from './inMemoryEventStore.js';
 
 // Create the MCP server
 const server = new McpServer(

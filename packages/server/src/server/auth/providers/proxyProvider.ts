@@ -1,13 +1,14 @@
-import type { Response } from 'express';
-import type { OAuthRegisteredClientsStore } from '../clients.js';
 import type {
+    AuthInfo,
+    FetchLike,
     OAuthClientInformationFull,
     OAuthTokenRevocationRequest,
-    OAuthTokens,
-    AuthInfo,
-    FetchLike
+    OAuthTokens
 } from '@modelcontextprotocol/sdk-core';
 import { OAuthClientInformationFullSchema, OAuthTokensSchema, ServerError } from '@modelcontextprotocol/sdk-core';
+import type { Response } from 'express';
+
+import type { OAuthRegisteredClientsStore } from '../clients.js';
 import type { AuthorizationParams, OAuthServerProvider } from '../provider.js';
 
 export type ProxyEndpoints = {

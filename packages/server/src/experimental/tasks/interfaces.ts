@@ -4,15 +4,16 @@
  */
 
 import type {
-    Result,
+    AnySchema,
     CallToolResult,
-    GetTaskResult,
-    CreateTaskResult,
     CreateTaskRequestHandlerExtra,
+    CreateTaskResult,
+    GetTaskResult,
+    Result,
     TaskRequestHandlerExtra,
-    ZodRawShapeCompat,
-    AnySchema
+    ZodRawShapeCompat
 } from '@modelcontextprotocol/sdk-core';
+
 import type { BaseToolCallback } from '../../server/mcp.js';
 
 // ============================================================================

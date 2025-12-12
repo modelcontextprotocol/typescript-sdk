@@ -1,7 +1,8 @@
-import { Server, McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk-server';
 import { Client } from '@modelcontextprotocol/sdk-client';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk-core';
-import { zodTestMatrix, type ZodMatrixEntry } from './__fixtures__/zodTestMatrix.js';
+import { McpServer, ResourceTemplate, Server } from '@modelcontextprotocol/sdk-server';
+
+import { type ZodMatrixEntry, zodTestMatrix } from './__fixtures__/zodTestMatrix.js';
 
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;

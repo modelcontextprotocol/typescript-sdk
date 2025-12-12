@@ -19,7 +19,7 @@
  */
 
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk-client';
-import { Client, StreamableHTTPClientTransport, ClientCredentialsProvider, PrivateKeyJwtProvider } from '@modelcontextprotocol/sdk-client';
+import { Client, ClientCredentialsProvider, PrivateKeyJwtProvider, StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
 
 const DEFAULT_SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3000/mcp';
 

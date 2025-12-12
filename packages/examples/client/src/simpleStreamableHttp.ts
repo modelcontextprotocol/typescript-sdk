@@ -1,30 +1,31 @@
+import { createInterface } from 'node:readline';
+
 import type {
-    ListToolsRequest,
     CallToolRequest,
-    ListPromptsRequest,
     GetPromptRequest,
+    ListPromptsRequest,
     ListResourcesRequest,
-    ResourceLink,
-    ReadResourceRequest
+    ListToolsRequest,
+    ReadResourceRequest,
+    ResourceLink
 } from '@modelcontextprotocol/sdk-client';
 import {
-    Client,
-    StreamableHTTPClientTransport,
-    ListToolsResultSchema,
     CallToolResultSchema,
-    ListPromptsResultSchema,
-    GetPromptResultSchema,
-    ListResourcesResultSchema,
-    LoggingMessageNotificationSchema,
-    ResourceListChangedNotificationSchema,
+    Client,
     ElicitRequestSchema,
+    ErrorCode,
+    getDisplayName,
+    GetPromptResultSchema,
+    ListPromptsResultSchema,
+    ListResourcesResultSchema,
+    ListToolsResultSchema,
+    LoggingMessageNotificationSchema,
+    McpError,
     ReadResourceResultSchema,
     RELATED_TASK_META_KEY,
-    ErrorCode,
-    McpError,
-    getDisplayName
+    ResourceListChangedNotificationSchema,
+    StreamableHTTPClientTransport
 } from '@modelcontextprotocol/sdk-client';
-import { createInterface } from 'node:readline';
 import { Ajv } from 'ajv';
 
 // Create readline interface for user input

@@ -5,8 +5,9 @@
  * for common machine-to-machine authentication scenarios.
  */
 
-import type { CryptoKey, JWK } from 'jose';
 import type { OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/sdk-core';
+import type { CryptoKey, JWK } from 'jose';
+
 import type { AddClientAuthentication, OAuthClientProvider } from './auth.js';
 
 /**

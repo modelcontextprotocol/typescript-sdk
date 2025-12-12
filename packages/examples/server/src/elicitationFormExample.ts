@@ -8,8 +8,9 @@
 // to collect *sensitive* user input via a browser.
 
 import { randomUUID } from 'node:crypto';
+
+import { createMcpExpressApp, isInitializeRequest, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
 import { type Request, type Response } from 'express';
-import { McpServer, StreamableHTTPServerTransport, isInitializeRequest, createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 
 // Create MCP server - it will automatically use AjvJsonSchemaValidator with sensible defaults
 // The validator supports format validation (email, date, etc.) if ajv-formats is installed

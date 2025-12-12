@@ -1,7 +1,8 @@
-import type { RequestHandler } from 'express';
-import express from 'express';
 import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/sdk-core';
 import cors from 'cors';
+import type { RequestHandler } from 'express';
+import express from 'express';
+
 import { allowedMethods } from '../middleware/allowedMethods.js';
 
 export function metadataHandler(metadata: OAuthMetadata | OAuthProtectedResourceMetadata): RequestHandler {

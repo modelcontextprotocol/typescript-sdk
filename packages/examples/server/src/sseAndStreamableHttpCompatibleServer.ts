@@ -1,14 +1,16 @@
-import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
+
 import type { CallToolResult } from '@modelcontextprotocol/sdk-server';
 import {
-    McpServer,
-    StreamableHTTPServerTransport,
-    SSEServerTransport,
+    createMcpExpressApp,
     isInitializeRequest,
-    createMcpExpressApp
+    McpServer,
+    SSEServerTransport,
+    StreamableHTTPServerTransport
 } from '@modelcontextprotocol/sdk-server';
+import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
+
 import { InMemoryEventStore } from './inMemoryEventStore.js';
 
 /**

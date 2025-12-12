@@ -1,16 +1,18 @@
-import { createServer, type Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { createServer, type Server } from 'node:http';
+
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
 import {
-    McpServer,
-    StreamableHTTPServerTransport,
     CallToolResultSchema,
-    ListToolsResultSchema,
-    ListResourcesResultSchema,
+    LATEST_PROTOCOL_VERSION,
     ListPromptsResultSchema,
-    LATEST_PROTOCOL_VERSION
+    ListResourcesResultSchema,
+    ListToolsResultSchema,
+    McpServer,
+    StreamableHTTPServerTransport
 } from '@modelcontextprotocol/sdk-server';
-import { zodTestMatrix, type ZodMatrixEntry } from './__fixtures__/zodTestMatrix.js';
+
+import { type ZodMatrixEntry, zodTestMatrix } from './__fixtures__/zodTestMatrix.js';
 import { listenOnRandomPort } from './helpers/http.js';
 
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {

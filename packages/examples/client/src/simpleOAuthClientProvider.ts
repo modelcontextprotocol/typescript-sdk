@@ -1,4 +1,4 @@
-import type { OAuthClientProvider, OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/sdk-client';
+import type { OAuthClientInformationMixed, OAuthClientMetadata, OAuthClientProvider, OAuthTokens } from '@modelcontextprotocol/sdk-client';
 
 /**
  * In-memory OAuth client provider for demonstration purposes

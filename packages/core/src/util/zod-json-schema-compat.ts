@@ -6,12 +6,11 @@
 
 import type * as z3 from 'zod/v3';
 import type * as z4c from 'zod/v4/core';
-
 import * as z4mini from 'zod/v4-mini';
-
-import type { AnySchema, AnyObjectSchema } from './zod-compat.js';
-import { getObjectShape, safeParse, isZ4Schema, getLiteralValue } from './zod-compat.js';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+
+import type { AnyObjectSchema, AnySchema } from './zod-compat.js';
+import { getLiteralValue, getObjectShape, isZ4Schema, safeParse } from './zod-compat.js';
 
 type JsonSchema = Record<string, unknown>;
 

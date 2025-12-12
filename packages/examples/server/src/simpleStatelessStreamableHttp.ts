@@ -1,6 +1,6 @@
-import type { Request, Response } from 'express';
 import type { CallToolResult, GetPromptResult, ReadResourceResult } from '@modelcontextprotocol/sdk-server';
-import { McpServer, StreamableHTTPServerTransport, createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
+import { createMcpExpressApp, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
+import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
 const getServer = () => {

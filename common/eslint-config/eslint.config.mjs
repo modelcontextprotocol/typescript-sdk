@@ -7,6 +7,7 @@ import nodePlugin from 'eslint-plugin-n';
 import importPlugin from 'eslint-plugin-import';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import simpleImportSortPlugin from 'eslint-plugin-simple-import-sort';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -26,7 +27,8 @@ export default tseslint.config(
             reportUnusedDisableDirectives: false
         },
         plugins: {
-            n: nodePlugin
+            n: nodePlugin,
+            'simple-import-sort': simpleImportSortPlugin
         },
         settings: {
             'import/resolver': {
@@ -42,7 +44,9 @@ export default tseslint.config(
         rules: {
             '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
             'n/prefer-node-protocol': 'error',
-            '@typescript-eslint/consistent-type-imports': ['error', { disallowTypeAnnotations: false }]
+            '@typescript-eslint/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
+            'simple-import-sort/imports': 'warn',
+            'simple-import-sort/exports': 'warn'
         }
     },
     {

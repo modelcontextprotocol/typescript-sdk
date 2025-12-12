@@ -1,10 +1,11 @@
 import { Client } from '@modelcontextprotocol/sdk-client';
-import { InMemoryTransport, getDisplayName, UriTemplate, InMemoryTaskStore } from '@modelcontextprotocol/sdk-core';
+import { getDisplayName, InMemoryTaskStore, InMemoryTransport, UriTemplate } from '@modelcontextprotocol/sdk-core';
 import {
-    CallToolResultSchema,
     type CallToolResult,
+    CallToolResultSchema,
     CompleteResultSchema,
     ElicitRequestSchema,
+    ErrorCode,
     GetPromptResultSchema,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
@@ -14,12 +15,12 @@ import {
     type Notification,
     ReadResourceResultSchema,
     type TextContent,
-    UrlElicitationRequiredError,
-    ErrorCode
+    UrlElicitationRequiredError
 } from '@modelcontextprotocol/sdk-core';
+
 import { completable } from '../../../server/src/server/completable.js';
 import { McpServer, ResourceTemplate } from '../../../server/src/server/mcp.js';
-import { zodTestMatrix, type ZodMatrixEntry } from '../../../server/test/server/__fixtures__/zodTestMatrix.js';
+import { type ZodMatrixEntry, zodTestMatrix } from '../../../server/test/server/__fixtures__/zodTestMatrix.js';
 
 function createLatch() {
     let latch = false;

@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk-core';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import { createInMemoryTaskEnvironment } from '../../helpers/mcp.js';
 
 describe('Task Listing with Pagination', () => {

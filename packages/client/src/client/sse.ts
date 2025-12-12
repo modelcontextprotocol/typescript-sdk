@@ -1,6 +1,7 @@
-import { EventSource, type ErrorEvent, type EventSourceInit } from 'eventsource';
-import type { Transport, FetchLike, JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
-import { createFetchWithInit, normalizeHeaders, JSONRPCMessageSchema } from '@modelcontextprotocol/sdk-core';
+import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/sdk-core';
+import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders } from '@modelcontextprotocol/sdk-core';
+import { type ErrorEvent, EventSource, type EventSourceInit } from 'eventsource';
+
 import type { AuthResult, OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
 

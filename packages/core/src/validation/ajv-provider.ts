@@ -4,7 +4,8 @@
 
 import { Ajv } from 'ajv';
 import _addFormats from 'ajv-formats';
-import type { JsonSchemaType, JsonSchemaValidator, JsonSchemaValidatorResult, jsonSchemaValidator } from './types.js';
+
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types.js';
 
 function createDefaultAjvInstance(): Ajv {
     const ajv = new Ajv({

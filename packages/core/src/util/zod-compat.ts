@@ -4,9 +4,8 @@
 // ----------------------------------------------------
 
 import type * as z3 from 'zod/v3';
-import type * as z4 from 'zod/v4/core';
-
 import * as z3rt from 'zod/v3';
+import type * as z4 from 'zod/v4/core';
 import * as z4mini from 'zod/v4-mini';
 
 // --- Unified schema types ---

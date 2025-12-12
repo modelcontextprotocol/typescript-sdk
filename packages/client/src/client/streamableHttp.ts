@@ -1,16 +1,18 @@
-import type { Transport, FetchLike, JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
+import type { ReadableWritablePair } from 'node:stream/web';
+
+import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/sdk-core';
 import {
     createFetchWithInit,
-    normalizeHeaders,
     isInitializedNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
-    JSONRPCMessageSchema
+    JSONRPCMessageSchema,
+    normalizeHeaders
 } from '@modelcontextprotocol/sdk-core';
+import { EventSourceParserStream } from 'eventsource-parser/stream';
+
 import type { AuthResult, OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
-import { EventSourceParserStream } from 'eventsource-parser/stream';
-import type { ReadableWritablePair } from 'node:stream/web';
 
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {

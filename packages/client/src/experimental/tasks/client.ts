@@ -5,23 +5,24 @@
  * @experimental
  */
 
-import type { Client } from '../../client/client.js';
 import type {
-    RequestOptions,
-    ResponseMessage,
     AnyObjectSchema,
-    SchemaOutput,
     CallToolRequest,
+    CancelTaskResult,
     ClientRequest,
-    Notification,
-    Request,
-    Result,
     CompatibilityCallToolResultSchema,
     GetTaskResult,
     ListTasksResult,
-    CancelTaskResult
+    Notification,
+    Request,
+    RequestOptions,
+    ResponseMessage,
+    Result,
+    SchemaOutput
 } from '@modelcontextprotocol/sdk-core';
-import { CallToolResultSchema, McpError, ErrorCode } from '@modelcontextprotocol/sdk-core';
+import { CallToolResultSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk-core';
+
+import type { Client } from '../../client/client.js';
 
 /**
  * Internal interface for accessing Client's private methods.

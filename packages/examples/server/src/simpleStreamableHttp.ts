@@ -1,29 +1,31 @@
-import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import * as z from 'zod/v4';
+
+import { setupAuthServer } from '@modelcontextprotocol/sdk-examples-shared';
 import type {
     CallToolResult,
     GetPromptResult,
+    OAuthMetadata,
     PrimitiveSchemaDefinition,
     ReadResourceResult,
-    ResourceLink,
-    OAuthMetadata
+    ResourceLink
 } from '@modelcontextprotocol/sdk-server';
 import {
-    McpServer,
-    StreamableHTTPServerTransport,
-    getOAuthProtectedResourceMetadataUrl,
-    mcpAuthMetadataRouter,
-    requireBearerAuth,
+    checkResourceAllowed,
     createMcpExpressApp,
     ElicitResultSchema,
-    isInitializeRequest,
-    InMemoryTaskStore,
+    getOAuthProtectedResourceMetadataUrl,
     InMemoryTaskMessageQueue,
-    checkResourceAllowed
+    InMemoryTaskStore,
+    isInitializeRequest,
+    mcpAuthMetadataRouter,
+    McpServer,
+    requireBearerAuth,
+    StreamableHTTPServerTransport
 } from '@modelcontextprotocol/sdk-server';
+import type { Request, Response } from 'express';
+import * as z from 'zod/v4';
+
 import { InMemoryEventStore } from './inMemoryEventStore.js';
-import { setupAuthServer } from '@modelcontextprotocol/sdk-examples-shared';
 
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');

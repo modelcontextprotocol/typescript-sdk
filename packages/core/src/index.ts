@@ -1,9 +1,6 @@
-export * from './util/inMemory.js';
-export * from './util/zod-compat.js';
-export * from './util/zod-json-schema-compat.js';
-
-export * from './shared/auth-utils.js';
+export * from './auth/errors.js';
 export * from './shared/auth.js';
+export * from './shared/auth-utils.js';
 export * from './shared/metadataUtils.js';
 export * from './shared/protocol.js';
 export * from './shared/responseMessage.js';
@@ -11,13 +8,13 @@ export * from './shared/stdio.js';
 export * from './shared/toolNameValidation.js';
 export * from './shared/transport.js';
 export * from './shared/uriTemplate.js';
-
 export * from './types/types.js';
-export * from './auth/errors.js';
+export * from './util/inMemory.js';
+export * from './util/zod-compat.js';
+export * from './util/zod-json-schema-compat.js';
 
 // experimental exports
 export * from './experimental/index.js';
-
 export * from './validation/ajv-provider.js';
 export * from './validation/cfworker-provider.js';
 /**
@@ -49,4 +46,4 @@ export * from './validation/cfworker-provider.js';
  */
 
 // Core types only - implementations are exported via separate entry points
-export type { JsonSchemaType, JsonSchemaValidator, JsonSchemaValidatorResult, jsonSchemaValidator } from './validation/types.js';
+export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './validation/types.js';
