@@ -1,6 +1,6 @@
 import { Response } from 'express';
-import { DemoInMemoryAuthProvider, DemoInMemoryClientsStore } from '../../src/demoInMemoryOAuthProvider.js';
-import type { AuthorizationParams } from '../../../server/src/server/auth/provider.js';
+import { DemoInMemoryAuthProvider, DemoInMemoryClientsStore } from '../src/demoInMemoryOAuthProvider.js';
+import type { AuthorizationParams } from '@modelcontextprotocol/sdk-server';
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk-core';
 import { InvalidRequestError } from '@modelcontextprotocol/sdk-core';
 

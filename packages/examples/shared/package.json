@@ -1,5 +1,5 @@
 {
-    "name": "@modelcontextprotocol/sdk-examples-server",
+    "name": "@modelcontextprotocol/sdk-examples-shared",
     "private": true,
     "version": "2.0.0-alpha.0",
     "description": "Model Context Protocol implementation for TypeScript",
@@ -25,6 +25,8 @@
         "lint": "eslint src/ && prettier --check .",
         "lint:fix": "eslint src/ --fix && prettier --write .",
         "check": "npm run typecheck && npm run lint",
+        "test": "vitest run",
+        "test:watch": "vitest",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",
         "client": "tsx scripts/cli.ts client"

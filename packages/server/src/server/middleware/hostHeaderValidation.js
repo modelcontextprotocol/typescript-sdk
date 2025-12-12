@@ -1,3 +1,5 @@
+import { URL } from 'node:url';
+
 /**
  * Express middleware for DNS rebinding protection.
  * Validates Host header hostname (port-agnostic) against an allowed list.

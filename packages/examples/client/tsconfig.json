@@ -1,6 +1,6 @@
 {
     "extends": "@modelcontextprotocol/tsconfig",
-    "include": ["./"],
+    "include": ["./", "../shared/test/demoInMemoryOAuthProvider.test.ts"],
     "exclude": ["node_modules", "dist"],
     "compilerOptions": {
         "baseUrl": ".",
@@ -11,7 +11,8 @@
                 "node_modules/@modelcontextprotocol/sdk-client/node_modules/@modelcontextprotocol/sdk-core/src/index.ts"
             ],
             "@modelcontextprotocol/eslint-config": ["node_modules/@modelcontextprotocol/eslint-config/tsconfig.json"],
-            "@modelcontextprotocol/vitest-config": ["node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"]
+            "@modelcontextprotocol/vitest-config": ["node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"],
+            "@modelcontextprotocol/sdk-examples-shared": ["node_modules/@modelcontextprotocol/sdk-examples-shared/src/index.ts"]
         }
     }
 }

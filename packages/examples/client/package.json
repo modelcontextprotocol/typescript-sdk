@@ -22,11 +22,9 @@
     "scripts": {
         "typecheck": "tsc -p tsconfig.build.json --noEmit",
         "prepack": "npm run build:esm && npm run build:cjs",
-        "lint": "eslint test/ && prettier --check .",
-        "lint:fix": "eslint test/ --fix && prettier --write .",
+        "lint": "eslint src/ && prettier --check .",
+        "lint:fix": "eslint src/ --fix && prettier --write .",
         "check": "npm run typecheck && npm run lint",
-        "test": "vitest run",
-        "test:watch": "vitest",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",
         "client": "tsx scripts/cli.ts client"
@@ -35,6 +33,7 @@
         "@modelcontextprotocol/sdk-client": "workspace:^"
     },
     "devDependencies": {
+        "@modelcontextprotocol/sdk-examples-shared": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^"

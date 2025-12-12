@@ -432,6 +432,9 @@ importers:
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../../common/eslint-config
+      '@modelcontextprotocol/sdk-examples-shared':
+        specifier: workspace:^
+        version: link:../shared
       '@modelcontextprotocol/tsconfig':
         specifier: workspace:^
         version: link:../../../common/tsconfig
@@ -440,6 +443,22 @@ importers:
         version: link:../../../common/vitest-config
 
   packages/examples/server:
+    dependencies:
+      '@modelcontextprotocol/sdk-server':
+        specifier: workspace:^
+        version: link:../../server
+    devDependencies:
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../../common/eslint-config
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../../common/tsconfig
+      '@modelcontextprotocol/vitest-config':
+        specifier: workspace:^
+        version: link:../../../common/vitest-config
+
+  packages/examples/shared:
     dependencies:
       '@modelcontextprotocol/sdk-server':
         specifier: workspace:^

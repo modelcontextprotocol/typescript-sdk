@@ -23,7 +23,7 @@ import {
     isInitializeRequest
 } from '@modelcontextprotocol/sdk-server';
 import { InMemoryEventStore } from './inMemoryEventStore.js';
-import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
+import { setupAuthServer } from '../../shared/src/demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from '@modelcontextprotocol/sdk-server';
 import { checkResourceAllowed } from '@modelcontextprotocol/sdk-server';
 
@@ -263,7 +263,7 @@ const tokenVerifier = {
             throw new Error(`Invalid or expired token: ${text}`);
         }
 
-        const data = await response.json() as { aud: string; client_id: string; scope: string; exp: number };
+        const data = (await response.json()) as { aud: string; client_id: string; scope: string; exp: number };
 
         if (!data.aud) {
             throw new Error(`Resource Indicator (RFC8707) missing`);
