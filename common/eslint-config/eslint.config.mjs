@@ -4,6 +4,7 @@ import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import eslintConfigPrettier from 'eslint-config-prettier/flat';
 import nodePlugin from 'eslint-plugin-n';
+import importPlugin from 'eslint-plugin-import';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -12,6 +13,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default tseslint.config(
     eslint.configs.recommended,
     ...tseslint.configs.recommended,
+    importPlugin.flatConfigs.recommended,
+    importPlugin.flatConfigs.typescript,
     {
         languageOptions: {
             parserOptions: {
@@ -25,9 +28,21 @@ export default tseslint.config(
         plugins: {
             n: nodePlugin
         },
+        settings: {
+            'import/resolver': {
+                typescript: {
+                    // Let the TS resolver handle NodeNext-style imports like "./foo.js"
+                    // while the actual file is "./foo.ts"
+                    extensions: ['.js', '.jsx', '.ts', '.tsx', '.d.ts'],
+                    // Use the tsconfig in each package root (when running ESLint from that package)
+                    project: 'tsconfig.json',
+                },
+            },
+        },
         rules: {
             '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-            'n/prefer-node-protocol': 'error'
+            'n/prefer-node-protocol': 'error',
+            '@typescript-eslint/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
         }
     },
     {

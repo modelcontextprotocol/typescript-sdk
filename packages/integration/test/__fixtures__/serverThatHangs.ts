@@ -1,7 +1,6 @@
 import { setInterval } from 'node:timers';
 import process from 'node:process';
-import { McpServer } from '@modelcontextprotocol/sdk-server';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk-server';
+import { McpServer, StdioServerTransport } from '@modelcontextprotocol/sdk-server';
 
 const transport = new StdioServerTransport();
 

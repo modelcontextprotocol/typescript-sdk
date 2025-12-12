@@ -6,8 +6,8 @@
  */
 
 import type { CryptoKey, JWK } from 'jose';
-import { OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/sdk-core';
-import { AddClientAuthentication, OAuthClientProvider } from './auth.js';
+import type { OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/sdk-core';
+import type { AddClientAuthentication, OAuthClientProvider } from './auth.js';
 
 /**
  * Helper to produce a private_key_jwt client authentication function.

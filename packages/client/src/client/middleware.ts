@@ -1,5 +1,6 @@
-import { auth, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
-import { FetchLike } from '@modelcontextprotocol/sdk-core';
+import type { OAuthClientProvider } from './auth.js';
+import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
+import type { FetchLike } from '@modelcontextprotocol/sdk-core';
 
 /**
  * Middleware function that wraps and enhances fetch functionality.

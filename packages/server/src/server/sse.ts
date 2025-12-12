@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { IncomingMessage, ServerResponse } from 'node:http';
-import { Transport } from '../../../core/src/index.js';
-import { JSONRPCMessage, JSONRPCMessageSchema, MessageExtraInfo, RequestInfo } from '../../../core/src/index.js';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Transport, JSONRPCMessage, MessageExtraInfo, RequestInfo, AuthInfo } from '@modelcontextprotocol/sdk-core';
+import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk-core';
 import getRawBody from 'raw-body';
 import contentType from 'content-type';
-import { AuthInfo } from '../../../core/src/index.js';
 import { URL } from 'node:url';
 
 const MAXIMUM_MESSAGE_SIZE = '4mb';

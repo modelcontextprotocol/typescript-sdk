@@ -1,11 +1,18 @@
-import { OAuthServerProvider } from '../provider.js';
-import express, { RequestHandler } from 'express';
+import type { OAuthServerProvider } from '../provider.js';
+import type { RequestHandler } from 'express';
+import express from 'express';
 import cors from 'cors';
 import { authenticateClient } from '../middleware/clientAuth.js';
-import { OAuthTokenRevocationRequestSchema } from '../../../../../core/src/index.js';
-import { rateLimit, Options as RateLimitOptions } from 'express-rate-limit';
+import {
+    OAuthTokenRevocationRequestSchema,
+    InvalidRequestError,
+    ServerError,
+    TooManyRequestsError,
+    OAuthError
+} from '@modelcontextprotocol/sdk-core';
+import type { Options as RateLimitOptions } from 'express-rate-limit';
+import { rateLimit } from 'express-rate-limit';
 import { allowedMethods } from '../middleware/allowedMethods.js';
-import { InvalidRequestError, ServerError, TooManyRequestsError, OAuthError } from '../../../../../core/src/index.js';
 
 export type RevocationHandlerOptions = {
     provider: OAuthServerProvider;

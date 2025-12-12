@@ -1,11 +1,19 @@
-import express, { RequestHandler } from 'express';
-import { OAuthClientInformationFull, OAuthClientMetadataSchema } from '../../../../../core/src/index.js';
+import type { RequestHandler } from 'express';
+import express from 'express';
+import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk-core';
+import {
+    OAuthClientMetadataSchema,
+    InvalidClientMetadataError,
+    ServerError,
+    TooManyRequestsError,
+    OAuthError
+} from '@modelcontextprotocol/sdk-core';
 import crypto from 'node:crypto';
 import cors from 'cors';
-import { OAuthRegisteredClientsStore } from '../clients.js';
-import { rateLimit, Options as RateLimitOptions } from 'express-rate-limit';
+import type { OAuthRegisteredClientsStore } from '../clients.js';
+import type { Options as RateLimitOptions } from 'express-rate-limit';
+import { rateLimit } from 'express-rate-limit';
 import { allowedMethods } from '../middleware/allowedMethods.js';
-import { InvalidClientMetadataError, ServerError, TooManyRequestsError, OAuthError } from '../../../../../core/src/index.js';
 
 export type ClientRegistrationHandlerOptions = {
     /**

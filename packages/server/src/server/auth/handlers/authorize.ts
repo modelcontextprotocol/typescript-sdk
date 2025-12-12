@@ -1,10 +1,11 @@
-import { RequestHandler } from 'express';
+import type { RequestHandler } from 'express';
 import * as z from 'zod/v4';
 import express from 'express';
-import { OAuthServerProvider } from '../provider.js';
-import { rateLimit, Options as RateLimitOptions } from 'express-rate-limit';
+import type { OAuthServerProvider } from '../provider.js';
+import type { Options as RateLimitOptions } from 'express-rate-limit';
+import { rateLimit } from 'express-rate-limit';
 import { allowedMethods } from '../middleware/allowedMethods.js';
-import { InvalidRequestError, InvalidClientError, ServerError, TooManyRequestsError, OAuthError } from '../../../../../core/src/index.js';
+import { InvalidRequestError, InvalidClientError, ServerError, TooManyRequestsError, OAuthError } from '@modelcontextprotocol/sdk-core';
 
 export type AuthorizationHandlerOptions = {
     provider: OAuthServerProvider;

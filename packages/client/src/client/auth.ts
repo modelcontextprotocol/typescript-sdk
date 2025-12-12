@@ -1,6 +1,5 @@
 import pkceChallenge from 'pkce-challenge';
-import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk-core';
-import {
+import type {
     OAuthClientMetadata,
     OAuthClientInformation,
     OAuthClientInformationMixed,
@@ -8,18 +7,19 @@ import {
     OAuthMetadata,
     OAuthClientInformationFull,
     OAuthProtectedResourceMetadata,
-    OAuthErrorResponseSchema,
     AuthorizationServerMetadata,
-    OpenIdProviderDiscoveryMetadataSchema
+    FetchLike
 } from '@modelcontextprotocol/sdk-core';
 import {
+    LATEST_PROTOCOL_VERSION,
+    OAuthErrorResponseSchema,
+    OpenIdProviderDiscoveryMetadataSchema,
     OAuthClientInformationFullSchema,
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
-    OAuthTokensSchema
-} from '@modelcontextprotocol/sdk-core';
-import { checkResourceAllowed, resourceUrlFromServerUrl } from '@modelcontextprotocol/sdk-core';
-import {
+    OAuthTokensSchema,
+    checkResourceAllowed,
+    resourceUrlFromServerUrl,
     InvalidClientError,
     InvalidClientMetadataError,
     InvalidGrantError,
@@ -28,7 +28,6 @@ import {
     ServerError,
     UnauthorizedClientError
 } from '@modelcontextprotocol/sdk-core';
-import { FetchLike } from '@modelcontextprotocol/sdk-core';
 
 /**
  * Function type for adding client authentication to token requests.

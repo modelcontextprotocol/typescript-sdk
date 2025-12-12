@@ -6,10 +6,8 @@
  */
 
 import type { McpServer, RegisteredTool, AnyToolHandler } from '../../server/mcp.js';
-import type { ZodRawShapeCompat, AnySchema } from '@modelcontextprotocol/sdk-core';
-import type { ToolAnnotations, ToolExecution } from '@modelcontextprotocol/sdk-core';
+import type { ZodRawShapeCompat, AnySchema, ToolAnnotations, ToolExecution, TaskToolExecution } from '@modelcontextprotocol/sdk-core';
 import type { ToolTaskHandler } from './interfaces.js';
-import type { TaskToolExecution } from '@modelcontextprotocol/sdk-core';
 
 /**
  * Internal interface for accessing McpServer's private _createRegisteredTool method.

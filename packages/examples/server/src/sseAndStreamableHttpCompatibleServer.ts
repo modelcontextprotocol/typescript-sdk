@@ -1,12 +1,15 @@
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import { McpServer } from '@modelcontextprotocol/sdk-server';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk-server';
+import type { CallToolResult } from '@modelcontextprotocol/sdk-server';
+import {
+    McpServer,
+    StreamableHTTPServerTransport,
+    SSEServerTransport,
+    isInitializeRequest,
+    createMcpExpressApp
+} from '@modelcontextprotocol/sdk-server';
 import * as z from 'zod/v4';
-import { CallToolResult, isInitializeRequest } from '@modelcontextprotocol/sdk-server';
 import { InMemoryEventStore } from './inMemoryEventStore.js';
-import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 
 /**
  * This example server demonstrates backwards compatibility with both:

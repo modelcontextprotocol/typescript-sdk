@@ -1,10 +1,10 @@
-import { ChildProcess, IOType } from 'node:child_process';
+import type { ChildProcess, IOType } from 'node:child_process';
 import spawn from 'cross-spawn';
 import process from 'node:process';
-import { Stream, PassThrough } from 'node:stream';
+import type { Stream } from 'node:stream';
+import { PassThrough } from 'node:stream';
+import type { Transport, JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk-core';
-import { Transport } from '@modelcontextprotocol/sdk-core';
-import { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
 
 export type StdioServerParameters = {
     /**

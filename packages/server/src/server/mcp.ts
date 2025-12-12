@@ -1,41 +1,21 @@
-import { Server, ServerOptions } from './server.js';
-import {
+import type { ServerOptions } from './server.js';
+import { Server } from './server.js';
+import type {
     AnySchema,
     AnyObjectSchema,
     ZodRawShapeCompat,
     SchemaOutput,
     ShapeOutput,
-    normalizeObjectSchema,
-    safeParseAsync,
-    getObjectShape,
-    objectFromShape,
-    getParseErrorMessage,
-    getSchemaDescription,
-    isSchemaOptional,
-    getLiteralValue,
-    toJsonSchemaCompat
-} from '../../../core/src/index.js';
-import {
     Implementation,
     Tool,
     ListToolsResult,
     CallToolResult,
-    McpError,
-    ErrorCode,
     CompleteResult,
     PromptReference,
     ResourceTemplateReference,
     BaseMetadata,
     Resource,
     ListResourcesResult,
-    ListResourceTemplatesRequestSchema,
-    ReadResourceRequestSchema,
-    ListToolsRequestSchema,
-    CallToolRequestSchema,
-    ListResourcesRequestSchema,
-    ListPromptsRequestSchema,
-    GetPromptRequestSchema,
-    CompleteRequestSchema,
     ListPromptsResult,
     Prompt,
     PromptArgument,
@@ -49,17 +29,39 @@ import {
     Result,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
+    CallToolRequest,
+    ToolExecution,
+    Variables,
+    RequestHandlerExtra,
+    Transport
+} from '@modelcontextprotocol/sdk-core';
+import {
+    normalizeObjectSchema,
+    safeParseAsync,
+    getObjectShape,
+    objectFromShape,
+    getParseErrorMessage,
+    getSchemaDescription,
+    isSchemaOptional,
+    getLiteralValue,
+    toJsonSchemaCompat,
+    McpError,
+    ErrorCode,
+    ListResourceTemplatesRequestSchema,
+    ReadResourceRequestSchema,
+    ListToolsRequestSchema,
+    CallToolRequestSchema,
+    ListResourcesRequestSchema,
+    ListPromptsRequestSchema,
+    GetPromptRequestSchema,
+    CompleteRequestSchema,
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
-    CallToolRequest,
-    ToolExecution
-} from '../../../core/src/index.js';
+    UriTemplate,
+    validateAndWarnToolName
+} from '@modelcontextprotocol/sdk-core';
 import { isCompletable, getCompleter } from './completable.js';
-import { UriTemplate, Variables } from '../../../core/src/index.js';
-import { RequestHandlerExtra } from '../../../core/src/index.js';
-import { Transport } from '../../../core/src/index.js';
 
-import { validateAndWarnToolName } from '../../../core/src/index.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcp-server.js';
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ZodOptional } from 'zod';

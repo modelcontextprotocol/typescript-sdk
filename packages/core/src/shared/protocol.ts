@@ -1,32 +1,15 @@
-import { AnySchema, AnyObjectSchema, SchemaOutput, safeParse } from '../util/zod-compat.js';
-import {
-    CancelledNotificationSchema,
+import type { AnySchema, AnyObjectSchema, SchemaOutput } from '../util/zod-compat.js';
+import { safeParse } from '../util/zod-compat.js';
+import type {
     ClientCapabilities,
-    CreateTaskResultSchema,
-    ErrorCode,
     GetTaskRequest,
-    GetTaskRequestSchema,
-    GetTaskResultSchema,
     GetTaskPayloadRequest,
-    GetTaskPayloadRequestSchema,
-    ListTasksRequestSchema,
-    ListTasksResultSchema,
-    CancelTaskRequestSchema,
-    CancelTaskResultSchema,
-    isJSONRPCErrorResponse,
-    isJSONRPCRequest,
-    isJSONRPCResultResponse,
-    isJSONRPCNotification,
     JSONRPCErrorResponse,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
-    McpError,
-    PingRequestSchema,
     Progress,
     ProgressNotification,
-    ProgressNotificationSchema,
-    RELATED_TASK_META_KEY,
     RequestId,
     Result,
     ServerCapabilities,
@@ -39,17 +22,38 @@ import {
     CancelledNotification,
     Task,
     TaskStatusNotification,
-    TaskStatusNotificationSchema,
     Request,
     Notification,
     JSONRPCResultResponse,
+    AuthInfo
+} from '../types/types.js';
+import {
+    CancelledNotificationSchema,
+    CreateTaskResultSchema,
+    ErrorCode,
+    GetTaskRequestSchema,
+    GetTaskResultSchema,
+    GetTaskPayloadRequestSchema,
+    ListTasksRequestSchema,
+    ListTasksResultSchema,
+    CancelTaskRequestSchema,
+    CancelTaskResultSchema,
+    isJSONRPCErrorResponse,
+    isJSONRPCRequest,
+    isJSONRPCResultResponse,
+    isJSONRPCNotification,
+    McpError,
+    PingRequestSchema,
+    ProgressNotificationSchema,
+    RELATED_TASK_META_KEY,
+    TaskStatusNotificationSchema,
     isTaskAugmentedRequestParams
 } from '../types/types.js';
-import { Transport, TransportSendOptions } from './transport.js';
-import { AuthInfo } from '../types/types.js';
-import { isTerminal, TaskStore, TaskMessageQueue, QueuedMessage, CreateTaskOptions } from '../experimental/tasks/interfaces.js';
+import type { Transport, TransportSendOptions } from './transport.js';
+import type { TaskStore, TaskMessageQueue, QueuedMessage, CreateTaskOptions } from '../experimental/tasks/interfaces.js';
+import { isTerminal } from '../experimental/tasks/interfaces.js';
 import { getMethodLiteral, parseWithCompat } from '../util/zod-json-schema-compat.js';
-import { ResponseMessage } from './responseMessage.js';
+import type { ResponseMessage } from './responseMessage.js';
 
 /**
  * Callback for progress notifications.

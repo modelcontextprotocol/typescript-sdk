@@ -12,9 +12,12 @@
  * Run with: npx tsx src/examples/client/ssePollingClient.ts
  * Requires: ssePollingExample.ts server running on port 3001
  */
-import { Client } from '@modelcontextprotocol/sdk-client';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
-import { CallToolResultSchema, LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk-client';
+import {
+    Client,
+    StreamableHTTPClientTransport,
+    CallToolResultSchema,
+    LoggingMessageNotificationSchema
+} from '@modelcontextprotocol/sdk-client';
 
 const SERVER_URL = 'http://localhost:3001/mcp';
 

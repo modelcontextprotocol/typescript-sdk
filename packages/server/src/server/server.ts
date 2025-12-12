@@ -1,67 +1,67 @@
+import type {
+    JsonSchemaType,
+    jsonSchemaValidator,
+    AnyObjectSchema,
+    SchemaOutput,
+    NotificationOptions,
+    ProtocolOptions,
+    RequestOptions,
+    ClientCapabilities,
+    CreateMessageRequest,
+    CreateMessageResult,
+    CreateMessageResultWithTools,
+    CreateMessageRequestParamsBase,
+    CreateMessageRequestParamsWithTools,
+    ElicitRequestFormParams,
+    ElicitRequestURLParams,
+    ElicitResult,
+    Implementation,
+    InitializeRequest,
+    InitializeResult,
+    ListRootsRequest,
+    LoggingLevel,
+    LoggingMessageNotification,
+    ResourceUpdatedNotification,
+    ServerCapabilities,
+    ServerNotification,
+    ServerRequest,
+    ServerResult,
+    ToolResultContent,
+    ToolUseContent,
+    Request,
+    Notification,
+    Result,
+    ZodV3Internal,
+    ZodV4Internal,
+    RequestHandlerExtra
+} from '@modelcontextprotocol/sdk-core';
 import {
     mergeCapabilities,
     Protocol,
-    type NotificationOptions,
-    type ProtocolOptions,
-    type RequestOptions
-} from '../../../core/src/index.js';
-import {
-    type ClientCapabilities,
-    type CreateMessageRequest,
-    type CreateMessageResult,
     CreateMessageResultSchema,
-    type CreateMessageResultWithTools,
     CreateMessageResultWithToolsSchema,
-    type CreateMessageRequestParamsBase,
-    type CreateMessageRequestParamsWithTools,
-    type ElicitRequestFormParams,
-    type ElicitRequestURLParams,
-    type ElicitResult,
     ElicitResultSchema,
     EmptyResultSchema,
     ErrorCode,
-    type Implementation,
     InitializedNotificationSchema,
-    type InitializeRequest,
     InitializeRequestSchema,
-    type InitializeResult,
     LATEST_PROTOCOL_VERSION,
-    type ListRootsRequest,
     ListRootsResultSchema,
-    type LoggingLevel,
     LoggingLevelSchema,
-    type LoggingMessageNotification,
     McpError,
-    type ResourceUpdatedNotification,
-    type ServerCapabilities,
-    type ServerNotification,
-    type ServerRequest,
-    type ServerResult,
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS,
-    type ToolResultContent,
-    type ToolUseContent,
     CallToolRequestSchema,
     CallToolResultSchema,
     CreateTaskResultSchema,
-    type Request,
-    type Notification,
-    type Result
-} from '../../../core/src/index.js';
-import { AjvJsonSchemaValidator } from '../../../core/src/index.js';
-import type { JsonSchemaType, jsonSchemaValidator } from '../../../core/src/index.js';
-import {
-    AnyObjectSchema,
     getObjectShape,
     isZ4Schema,
     safeParse,
-    SchemaOutput,
-    type ZodV3Internal,
-    type ZodV4Internal
-} from '../../../core/src/index.js';
-import { RequestHandlerExtra } from '../../../core/src/index.js';
+    AjvJsonSchemaValidator,
+    assertToolsCallTaskCapability,
+    assertClientRequestTaskCapability
+} from '@modelcontextprotocol/sdk-core';
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
-import { assertToolsCallTaskCapability, assertClientRequestTaskCapability } from '../../../core/src/index.js';
 
 export type ServerOptions = ProtocolOptions & {
     /**

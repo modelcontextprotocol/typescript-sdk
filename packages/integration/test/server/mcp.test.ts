@@ -1,7 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk-client';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk-core';
-import { getDisplayName } from '@modelcontextprotocol/sdk-core';
-import { UriTemplate } from '@modelcontextprotocol/sdk-core';
+import { InMemoryTransport, getDisplayName, UriTemplate, InMemoryTaskStore } from '@modelcontextprotocol/sdk-core';
 import {
     CallToolResultSchema,
     type CallToolResult,
@@ -21,7 +19,6 @@ import {
 } from '@modelcontextprotocol/sdk-core';
 import { completable } from '../../../server/src/server/completable.js';
 import { McpServer, ResourceTemplate } from '../../../server/src/server/mcp.js';
-import { InMemoryTaskStore } from '@modelcontextprotocol/sdk-core';
 import { zodTestMatrix, type ZodMatrixEntry } from '../../../server/test/server/__fixtures__/zodTestMatrix.js';
 
 function createLatch() {

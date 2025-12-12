@@ -1,5 +1,6 @@
-import express, { RequestHandler } from 'express';
-import { OAuthMetadata, OAuthProtectedResourceMetadata } from '../../../../../core/src/index.js';
+import type { RequestHandler } from 'express';
+import express from 'express';
+import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/sdk-core';
 import cors from 'cors';
 import { allowedMethods } from '../middleware/allowedMethods.js';
 

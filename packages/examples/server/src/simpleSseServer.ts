@@ -1,9 +1,7 @@
-import { Request, Response } from 'express';
-import { McpServer } from '@modelcontextprotocol/sdk-server';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk-server';
+import type { Request, Response } from 'express';
+import type { CallToolResult } from '@modelcontextprotocol/sdk-server';
+import { McpServer, SSEServerTransport, createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 import * as z from 'zod/v4';
-import { CallToolResult } from '@modelcontextprotocol/sdk-server';
-import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 
 /**
  * This example server demonstrates the deprecated HTTP+SSE transport

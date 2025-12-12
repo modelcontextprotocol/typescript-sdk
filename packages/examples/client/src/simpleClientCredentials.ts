@@ -18,10 +18,8 @@
  *    MCP_SERVER_URL - Server URL (default: http://localhost:3000/mcp)
  */
 
-import { Client } from '@modelcontextprotocol/sdk-client';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
-import { ClientCredentialsProvider, PrivateKeyJwtProvider } from '@modelcontextprotocol/sdk-client';
-import { OAuthClientProvider } from '@modelcontextprotocol/sdk-client';
+import type { OAuthClientProvider } from '@modelcontextprotocol/sdk-client';
+import { Client, StreamableHTTPClientTransport, ClientCredentialsProvider, PrivateKeyJwtProvider } from '@modelcontextprotocol/sdk-client';
 
 const DEFAULT_SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3000/mcp';
 

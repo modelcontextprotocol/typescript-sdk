@@ -2,6 +2,7 @@
 /* eslint-disable no-constant-binary-expression */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 import { Client, getSupportedElicitationModes } from '@modelcontextprotocol/sdk-client';
+import type { Tool, Prompt, Resource, Transport } from '@modelcontextprotocol/sdk-core';
 import {
     RequestSchema,
     NotificationSchema,
@@ -22,15 +23,9 @@ import {
     ErrorCode,
     McpError,
     CreateTaskResultSchema,
-    Tool,
-    Prompt,
-    Resource
+    InMemoryTransport
 } from '@modelcontextprotocol/sdk-core';
-import { Transport } from '@modelcontextprotocol/sdk-core';
-import { Server } from '@modelcontextprotocol/sdk-server';
-import { McpServer } from '@modelcontextprotocol/sdk-server';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk-core';
-import { InMemoryTaskStore } from '@modelcontextprotocol/sdk-server';
+import { Server, McpServer, InMemoryTaskStore } from '@modelcontextprotocol/sdk-server';
 import * as z3 from 'zod/v3';
 import * as z4 from 'zod/v4';
 

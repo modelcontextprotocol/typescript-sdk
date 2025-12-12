@@ -9,18 +9,14 @@
  * creates a task, and the result is fetched via tasks/result endpoint.
  */
 
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import { Server } from '@modelcontextprotocol/sdk-server';
-import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
-import {
+import type {
     CallToolResult,
     CreateTaskResult,
     GetTaskResult,
     Tool,
     TextContent,
-    RELATED_TASK_META_KEY,
     Task,
     Result,
     RequestId,
@@ -31,14 +27,24 @@ import {
     ElicitResult,
     CreateMessageResult,
     PrimitiveSchemaDefinition,
+    GetTaskPayloadResult,
+    TaskMessageQueue,
+    QueuedMessage,
+    QueuedRequest,
+    CreateTaskOptions
+} from '@modelcontextprotocol/sdk-server';
+import {
+    Server,
+    createMcpExpressApp,
+    StreamableHTTPServerTransport,
+    RELATED_TASK_META_KEY,
     ListToolsRequestSchema,
     CallToolRequestSchema,
     GetTaskRequestSchema,
     GetTaskPayloadRequestSchema,
-    GetTaskPayloadResult
+    isTerminal,
+    InMemoryTaskStore
 } from '@modelcontextprotocol/sdk-server';
-import { TaskMessageQueue, QueuedMessage, QueuedRequest, isTerminal, CreateTaskOptions } from '@modelcontextprotocol/sdk-server';
-import { InMemoryTaskStore } from '@modelcontextprotocol/sdk-server';
 
 // ============================================================================
 // Resolver - Promise-like for passing results between async operations

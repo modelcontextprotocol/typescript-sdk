@@ -1,22 +1,17 @@
-import { IncomingMessage, ServerResponse } from 'node:http';
-import { Transport } from '../../../core/src/index.js';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Transport, MessageExtraInfo, RequestInfo, JSONRPCMessage, RequestId, AuthInfo } from '@modelcontextprotocol/sdk-core';
 import {
-    MessageExtraInfo,
-    RequestInfo,
     isInitializeRequest,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
-    JSONRPCMessage,
     JSONRPCMessageSchema,
-    RequestId,
     SUPPORTED_PROTOCOL_VERSIONS,
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isJSONRPCErrorResponse
-} from '../../../core/src/index.js';
+} from '@modelcontextprotocol/sdk-core';
 import getRawBody from 'raw-body';
 import contentType from 'content-type';
 import { randomUUID } from 'node:crypto';
-import { AuthInfo } from '../../../core/src/index.js';
 
 const MAXIMUM_MESSAGE_SIZE = '4mb';
 

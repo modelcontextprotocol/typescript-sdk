@@ -1,10 +1,7 @@
 import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
-import { Client } from '@modelcontextprotocol/sdk-client';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk-client';
-import { Server } from '@modelcontextprotocol/sdk-server';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk-server';
-import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk-server';
+import { Client, StdioClientTransport } from '@modelcontextprotocol/sdk-client';
+import { Server, StdioServerTransport, LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk-server';
 
 // Use the local fixtures directory alongside this test file
 const FIXTURES_DIR = path.resolve(__dirname, './__fixtures__');

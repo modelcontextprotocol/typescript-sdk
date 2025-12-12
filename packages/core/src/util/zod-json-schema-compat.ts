@@ -9,7 +9,8 @@ import type * as z4c from 'zod/v4/core';
 
 import * as z4mini from 'zod/v4-mini';
 
-import { AnySchema, AnyObjectSchema, getObjectShape, safeParse, isZ4Schema, getLiteralValue } from './zod-compat.js';
+import type { AnySchema, AnyObjectSchema } from './zod-compat.js';
+import { getObjectShape, safeParse, isZ4Schema, getLiteralValue } from './zod-compat.js';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
 type JsonSchema = Record<string, unknown>;

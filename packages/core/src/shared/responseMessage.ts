@@ -1,4 +1,4 @@
-import { Result, Task, McpError } from '../types/types.js';
+import type { Result, Task, McpError } from '../types/types.js';
 
 /**
  * Base message type

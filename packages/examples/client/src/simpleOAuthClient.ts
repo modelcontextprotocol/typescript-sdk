@@ -4,11 +4,14 @@ import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { URL } from 'node:url';
 import { exec } from 'node:child_process';
-import { Client } from '@modelcontextprotocol/sdk-client';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
-import { OAuthClientMetadata } from '@modelcontextprotocol/sdk-client';
-import { CallToolRequest, ListToolsRequest, CallToolResultSchema, ListToolsResultSchema } from '@modelcontextprotocol/sdk-client';
-import { UnauthorizedError } from '@modelcontextprotocol/sdk-client';
+import type { OAuthClientMetadata, CallToolRequest, ListToolsRequest } from '@modelcontextprotocol/sdk-client';
+import {
+    Client,
+    StreamableHTTPClientTransport,
+    CallToolResultSchema,
+    ListToolsResultSchema,
+    UnauthorizedError
+} from '@modelcontextprotocol/sdk-client';
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
 
 // Configuration

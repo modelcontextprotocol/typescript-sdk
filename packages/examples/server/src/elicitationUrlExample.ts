@@ -7,25 +7,24 @@
 // Note: See also elicitationFormExample.ts for an example of using form (not URL) elicitation
 // to collect *non-sensitive* user input with a structured schema.
 
-import express, { Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { McpServer } from '@modelcontextprotocol/sdk-server';
-import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
-import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '@modelcontextprotocol/sdk-server';
-import { requireBearerAuth } from '@modelcontextprotocol/sdk-server';
+import type { CallToolResult, ElicitRequestURLParams, ElicitResult, OAuthMetadata } from '@modelcontextprotocol/sdk-server';
 import {
-    CallToolResult,
+    McpServer,
+    createMcpExpressApp,
+    StreamableHTTPServerTransport,
+    getOAuthProtectedResourceMetadataUrl,
+    mcpAuthMetadataRouter,
+    requireBearerAuth,
     UrlElicitationRequiredError,
-    ElicitRequestURLParams,
-    ElicitResult,
-    isInitializeRequest
+    isInitializeRequest,
+    checkResourceAllowed
 } from '@modelcontextprotocol/sdk-server';
 import { InMemoryEventStore } from './inMemoryEventStore.js';
 import { setupAuthServer } from '@modelcontextprotocol/sdk-examples-shared';
-import { OAuthMetadata } from '@modelcontextprotocol/sdk-server';
-import { checkResourceAllowed } from '@modelcontextprotocol/sdk-server';
 
 import cors from 'cors';
 

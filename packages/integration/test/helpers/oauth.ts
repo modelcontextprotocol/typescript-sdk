@@ -1,4 +1,4 @@
-import type { FetchLike } from '../../../core/src/shared/transport.js';
+import type { FetchLike } from '@modelcontextprotocol/sdk-core';
 
 export interface MockOAuthFetchOptions {
     resourceServerUrl: string;

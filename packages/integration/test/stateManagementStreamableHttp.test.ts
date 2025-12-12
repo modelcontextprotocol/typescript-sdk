@@ -1,10 +1,9 @@
 import { createServer, type Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { Client } from '@modelcontextprotocol/sdk-client';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
-import { McpServer } from '@modelcontextprotocol/sdk-server';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
 import {
+    McpServer,
+    StreamableHTTPServerTransport,
     CallToolResultSchema,
     ListToolsResultSchema,
     ListResourcesResultSchema,

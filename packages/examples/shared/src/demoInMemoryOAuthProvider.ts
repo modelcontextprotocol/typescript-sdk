@@ -1,12 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { AuthorizationParams, OAuthServerProvider } from '@modelcontextprotocol/sdk-server';
-import { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk-server';
-import { OAuthClientInformationFull, OAuthMetadata, OAuthTokens } from '@modelcontextprotocol/sdk-server';
-import express, { Request, Response } from 'express';
-import { AuthInfo } from '@modelcontextprotocol/sdk-server';
-import { createOAuthMetadata, mcpAuthRouter } from '@modelcontextprotocol/sdk-server';
-import { resourceUrlFromServerUrl } from '@modelcontextprotocol/sdk-server';
-import { InvalidRequestError } from '@modelcontextprotocol/sdk-server';
+import type {
+    AuthorizationParams,
+    OAuthServerProvider,
+    OAuthRegisteredClientsStore,
+    OAuthClientInformationFull,
+    OAuthMetadata,
+    OAuthTokens,
+    AuthInfo,
+    createOAuthMetadata,
+    mcpAuthRouter,
+    resourceUrlFromServerUrl,
+    InvalidRequestError
+} from '@modelcontextprotocol/sdk-server';
+import type { Request, Response } from 'express';
+import express from 'express';
 
 export class DemoInMemoryClientsStore implements OAuthRegisteredClientsStore {
     private clients = new Map<string, OAuthClientInformationFull>();

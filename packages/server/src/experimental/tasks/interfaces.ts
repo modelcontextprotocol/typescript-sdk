@@ -3,11 +3,17 @@
  * WARNING: These APIs are experimental and may change without notice.
  */
 
-import { Result, CallToolResult, GetTaskResult } from '@modelcontextprotocol/sdk-core';
-import { CreateTaskResult } from '@modelcontextprotocol/sdk-core';
-import type { CreateTaskRequestHandlerExtra, TaskRequestHandlerExtra } from '@modelcontextprotocol/sdk-core';
-import type { ZodRawShapeCompat, AnySchema } from '@modelcontextprotocol/sdk-core';
-import { BaseToolCallback } from '../../server/mcp.js';
+import type {
+    Result,
+    CallToolResult,
+    GetTaskResult,
+    CreateTaskResult,
+    CreateTaskRequestHandlerExtra,
+    TaskRequestHandlerExtra,
+    ZodRawShapeCompat,
+    AnySchema
+} from '@modelcontextprotocol/sdk-core';
+import type { BaseToolCallback } from '../../server/mcp.js';
 
 // ============================================================================
 // Task Handler Types (for registerToolTask)

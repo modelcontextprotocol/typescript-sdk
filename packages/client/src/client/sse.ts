@@ -1,7 +1,8 @@
 import { EventSource, type ErrorEvent, type EventSourceInit } from 'eventsource';
-import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '@modelcontextprotocol/sdk-core';
-import { JSONRPCMessage, JSONRPCMessageSchema } from '@modelcontextprotocol/sdk-core';
-import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
+import type { Transport, FetchLike, JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
+import { createFetchWithInit, normalizeHeaders, JSONRPCMessageSchema } from '@modelcontextprotocol/sdk-core';
+import type { AuthResult, OAuthClientProvider } from './auth.js';
+import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
 
 export class SseError extends Error {
     constructor(

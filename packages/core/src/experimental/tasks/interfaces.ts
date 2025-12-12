@@ -3,7 +3,7 @@
  * WARNING: These APIs are experimental and may change without notice.
  */
 
-import {
+import type {
     Task,
     RequestId,
     Result,

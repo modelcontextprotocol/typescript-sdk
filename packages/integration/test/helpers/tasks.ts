@@ -1,4 +1,4 @@
-import type { Task } from '../../../core/src/types/types.js';
+import type { Task } from '@modelcontextprotocol/sdk-core';
 
 /**
  * Polls the provided getTask function until the task reaches the desired status or times out.

@@ -1,25 +1,29 @@
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import * as z from 'zod/v4';
-import { McpServer } from '@modelcontextprotocol/sdk-server';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
-import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '@modelcontextprotocol/sdk-server';
-import { requireBearerAuth } from '@modelcontextprotocol/sdk-server';
-import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
-import {
+import type {
     CallToolResult,
-    ElicitResultSchema,
     GetPromptResult,
-    isInitializeRequest,
     PrimitiveSchemaDefinition,
     ReadResourceResult,
-    ResourceLink
+    ResourceLink,
+    OAuthMetadata
+} from '@modelcontextprotocol/sdk-server';
+import {
+    McpServer,
+    StreamableHTTPServerTransport,
+    getOAuthProtectedResourceMetadataUrl,
+    mcpAuthMetadataRouter,
+    requireBearerAuth,
+    createMcpExpressApp,
+    ElicitResultSchema,
+    isInitializeRequest,
+    InMemoryTaskStore,
+    InMemoryTaskMessageQueue,
+    checkResourceAllowed
 } from '@modelcontextprotocol/sdk-server';
 import { InMemoryEventStore } from './inMemoryEventStore.js';
-import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '@modelcontextprotocol/sdk-server';
 import { setupAuthServer } from '@modelcontextprotocol/sdk-examples-shared';
-import { OAuthMetadata } from '@modelcontextprotocol/sdk-server';
-import { checkResourceAllowed } from '@modelcontextprotocol/sdk-server';
 
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');

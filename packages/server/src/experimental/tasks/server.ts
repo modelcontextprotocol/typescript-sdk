@@ -6,10 +6,11 @@
  */
 
 import type { Server } from '../../server/server.js';
-import type { RequestOptions } from '../../../../core/src/index.js';
-import type { ResponseMessage } from '../../../../core/src/index.js';
-import type { AnySchema, SchemaOutput } from '../../../../core/src/index.js';
 import type {
+    RequestOptions,
+    ResponseMessage,
+    AnySchema,
+    SchemaOutput,
     ServerRequest,
     Notification,
     Request,
@@ -17,7 +18,7 @@ import type {
     GetTaskResult,
     ListTasksResult,
     CancelTaskResult
-} from '../../../../core/src/index.js';
+} from '@modelcontextprotocol/sdk-core';
 
 /**
  * Experimental task features for low-level MCP servers.

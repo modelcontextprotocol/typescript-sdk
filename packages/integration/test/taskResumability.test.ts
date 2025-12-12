@@ -1,11 +1,13 @@
 import { createServer, type Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { Client } from '@modelcontextprotocol/sdk-client';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
-import { McpServer } from '@modelcontextprotocol/sdk-server';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk-server';
-import { CallToolResultSchema, LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk-server';
-import { InMemoryEventStore } from '@modelcontextprotocol/sdk-server';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
+import {
+    McpServer,
+    StreamableHTTPServerTransport,
+    CallToolResultSchema,
+    LoggingMessageNotificationSchema,
+    InMemoryEventStore
+} from '@modelcontextprotocol/sdk-server';
 import { zodTestMatrix, type ZodMatrixEntry } from './__fixtures__/zodTestMatrix.js';
 import { listenOnRandomPort } from './helpers/http.js';
 

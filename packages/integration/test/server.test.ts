@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import supertest from 'supertest';
 import { Client } from '@modelcontextprotocol/sdk-client';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk-core';
-import type { Transport } from '@modelcontextprotocol/sdk-core';
-import {
+import { InMemoryTransport, CallToolRequestSchema, CallToolResultSchema } from '@modelcontextprotocol/sdk-core';
+import type {
+    Transport,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     ElicitRequestSchema,
@@ -21,17 +21,15 @@ import {
     ResultSchema,
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS,
-    CreateTaskResultSchema
+    CreateTaskResultSchema,
+    JsonSchemaType,
+    JsonSchemaValidator,
+    jsonSchemaValidator,
+    AnyObjectSchema
 } from '@modelcontextprotocol/sdk-core';
-import { Server } from '@modelcontextprotocol/sdk-server';
-import { McpServer } from '@modelcontextprotocol/sdk-server';
-import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '@modelcontextprotocol/sdk-server';
-import { CallToolRequestSchema, CallToolResultSchema } from '@modelcontextprotocol/sdk-core';
-import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '@modelcontextprotocol/sdk-core';
-import type { AnyObjectSchema } from '@modelcontextprotocol/sdk-core';
+import { Server, McpServer, InMemoryTaskStore, InMemoryTaskMessageQueue, createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 import * as z3 from 'zod/v3';
 import * as z4 from 'zod/v4';
-import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
 
 describe('Zod v3', () => {
     /*

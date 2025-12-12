@@ -1,7 +1,7 @@
-import { RequestHandler } from 'express';
-import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from '../../../../../core/src/index.js';
-import { OAuthTokenVerifier } from '../provider.js';
-import { AuthInfo } from '../../../../../core/src/index.js';
+import type { RequestHandler } from 'express';
+import type { AuthInfo } from '@modelcontextprotocol/sdk-core';
+import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from '@modelcontextprotocol/sdk-core';
+import type { OAuthTokenVerifier } from '../provider.js';
 
 export type BearerAuthMiddlewareOptions = {
     /**

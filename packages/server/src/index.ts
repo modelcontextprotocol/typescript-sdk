@@ -14,4 +14,4 @@ export * from './server/auth/index.js';
 export * from './experimental/index.js';
 
 // re-export shared types
-export * from '../../core/src/index.js';
+export * from '@modelcontextprotocol/sdk-core';

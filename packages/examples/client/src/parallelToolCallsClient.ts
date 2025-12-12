@@ -1,11 +1,10 @@
-import { Client } from '@modelcontextprotocol/sdk-client';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
+import type { ListToolsRequest, CallToolResult } from '@modelcontextprotocol/sdk-client';
 import {
-    ListToolsRequest,
+    Client,
+    StreamableHTTPClientTransport,
     ListToolsResultSchema,
     CallToolResultSchema,
-    LoggingMessageNotificationSchema,
-    CallToolResult
+    LoggingMessageNotificationSchema
 } from '@modelcontextprotocol/sdk-client';
 
 /**

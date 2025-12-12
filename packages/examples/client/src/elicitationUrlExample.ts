@@ -5,29 +5,31 @@
 // URL elicitation allows servers to prompt the end-user to open a URL in their browser
 // to collect sensitive information.
 
-import { Client } from '@modelcontextprotocol/sdk-client';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
-import { createInterface } from 'node:readline';
-import {
+import type {
     ListToolsRequest,
-    ListToolsResultSchema,
     CallToolRequest,
-    CallToolResultSchema,
-    ElicitRequestSchema,
     ElicitRequest,
     ElicitResult,
     ResourceLink,
     ElicitRequestURLParams,
+    OAuthClientMetadata
+} from '@modelcontextprotocol/sdk-client';
+import {
+    Client,
+    StreamableHTTPClientTransport,
+    ListToolsResultSchema,
+    CallToolResultSchema,
+    ElicitRequestSchema,
     McpError,
     ErrorCode,
     UrlElicitationRequiredError,
-    ElicitationCompleteNotificationSchema
+    ElicitationCompleteNotificationSchema,
+    getDisplayName,
+    UnauthorizedError
 } from '@modelcontextprotocol/sdk-client';
-import { getDisplayName } from '@modelcontextprotocol/sdk-client';
-import { OAuthClientMetadata } from '@modelcontextprotocol/sdk-client';
+import { createInterface } from 'node:readline';
 import { exec } from 'node:child_process';
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
-import { UnauthorizedError } from '@modelcontextprotocol/sdk-client';
 import { createServer } from 'node:http';
 
 // Set up OAuth (required for this example)

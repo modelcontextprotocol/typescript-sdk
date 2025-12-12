@@ -1,4 +1,5 @@
-import express, { Express } from 'express';
+import type { Express } from 'express';
+import express from 'express';
 import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation.js';
 
 /**

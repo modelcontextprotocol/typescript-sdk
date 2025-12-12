@@ -8,10 +8,13 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk-client';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk-core';
-import { ElicitRequestFormParams, ElicitRequestSchema } from '@modelcontextprotocol/sdk-core';
-import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk-core';
-import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk-core';
+import type { ElicitRequestFormParams } from '@modelcontextprotocol/sdk-core';
+import {
+    InMemoryTransport,
+    ElicitRequestSchema,
+    AjvJsonSchemaValidator,
+    CfWorkerJsonSchemaValidator
+} from '@modelcontextprotocol/sdk-core';
 import { Server } from '@modelcontextprotocol/sdk-server';
 
 const ajvProvider = new AjvJsonSchemaValidator();

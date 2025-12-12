@@ -5,8 +5,9 @@
  * @experimental
  */
 
-import { Task, RequestId, Result, Request } from '../../../types/types.js';
-import { TaskStore, isTerminal, TaskMessageQueue, QueuedMessage, CreateTaskOptions } from '../interfaces.js';
+import type { Task, RequestId, Result, Request } from '../../../types/types.js';
+import type { TaskStore, TaskMessageQueue, QueuedMessage, CreateTaskOptions } from '../interfaces.js';
+import { isTerminal } from '../interfaces.js';
 import { randomBytes } from 'node:crypto';
 
 interface StoredTask {
