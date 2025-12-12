@@ -34,7 +34,6 @@ export default tseslint.config(
             'import/resolver': {
                 typescript: {
                     // Let the TS resolver handle NodeNext-style imports like "./foo.js"
-                    // while the actual file is "./foo.ts"
                     extensions: ['.js', '.jsx', '.ts', '.tsx', '.d.ts'],
                     // Use the tsconfig in each package root (when running ESLint from that package)
                     project: 'tsconfig.json'
