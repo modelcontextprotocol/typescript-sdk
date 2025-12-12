@@ -30,7 +30,8 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
-        "@modelcontextprotocol/sdk-server": "workspace:^"
+        "@modelcontextprotocol/sdk-server": "workspace:^",
+        "@modelcontextprotocol/sdk-examples-shared": "workspace:^"
     },
     "devDependencies": {
         "@modelcontextprotocol/tsconfig": "workspace:^",

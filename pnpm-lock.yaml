@@ -444,6 +444,9 @@ importers:
 
   packages/examples/server:
     dependencies:
+      '@modelcontextprotocol/sdk-examples-shared':
+        specifier: workspace:^
+        version: link:../shared
       '@modelcontextprotocol/sdk-server':
         specifier: workspace:^
         version: link:../../server

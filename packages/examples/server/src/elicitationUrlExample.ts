@@ -23,7 +23,7 @@ import {
     isInitializeRequest
 } from '@modelcontextprotocol/sdk-server';
 import { InMemoryEventStore } from './inMemoryEventStore.js';
-import { setupAuthServer } from '../../shared/src/demoInMemoryOAuthProvider.js';
+import { setupAuthServer } from '@modelcontextprotocol/sdk-examples-shared';
 import { OAuthMetadata } from '@modelcontextprotocol/sdk-server';
 import { checkResourceAllowed } from '@modelcontextprotocol/sdk-server';
 

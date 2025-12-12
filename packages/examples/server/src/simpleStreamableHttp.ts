@@ -17,7 +17,7 @@ import {
 } from '@modelcontextprotocol/sdk-server';
 import { InMemoryEventStore } from './inMemoryEventStore.js';
 import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '@modelcontextprotocol/sdk-server';
-import { setupAuthServer } from '../../shared/src/demoInMemoryOAuthProvider.js';
+import { setupAuthServer } from '@modelcontextprotocol/sdk-examples-shared';
 import { OAuthMetadata } from '@modelcontextprotocol/sdk-server';
 import { checkResourceAllowed } from '@modelcontextprotocol/sdk-server';
 

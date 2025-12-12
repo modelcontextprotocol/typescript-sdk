@@ -10,6 +10,7 @@
             "@modelcontextprotocol/sdk-core": [
                 "node_modules/@modelcontextprotocol/sdk-server/node_modules/@modelcontextprotocol/sdk-core/src/index.ts"
             ],
+            "@modelcontextprotocol/sdk-examples-shared": ["node_modules/@modelcontextprotocol/sdk-examples-shared/src/index.ts"],
             "@modelcontextprotocol/eslint-config": ["node_modules/@modelcontextprotocol/eslint-config/tsconfig.json"],
             "@modelcontextprotocol/vitest-config": ["node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"]
         }
