@@ -26,7 +26,7 @@
         "prepack:all": "pnpm -r prepack",
         "lint:all": "pnpm -r lint",
         "lint:fix:all": "pnpm -r lint:fix",
-        "check:all": "pnpm -r check",
+        "check:all": "pnpm -r typecheck && pnpm -r lint",
         "test:all": "pnpm -r test"
     },
     "dependencies": {
