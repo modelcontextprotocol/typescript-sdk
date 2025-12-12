@@ -20,26 +20,13 @@ jobs:
             - uses: actions/setup-node@v6
               with:
                   node-version: 24
-                  cache: npm
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
             - name: Install pnpm
               uses: pnpm/action-setup@v4
               id: pnpm-install
               with:
                   run_install: false
-            - name: Get pnpm store directory
-              id: pnpm-cache
-              shell: bash
-              run: |
-                  echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-            - uses: actions/cache@v4
-              name: Setup pnpm cache
-              with:
-                  path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-                      ${{ runner.os }}-pnpm-store-
 
             - uses: actions/cache@v4
               name: Retrieve Cache
@@ -69,39 +56,14 @@ jobs:
             - uses: actions/setup-node@v6
               with:
                   node-version: ${{ matrix.node-version }}
-                  cache: npm
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
 
             - name: Install pnpm
               uses: pnpm/action-setup@v4
               id: pnpm-install
               with:
                   run_install: false
-            - name: Get pnpm store directory
-              id: pnpm-cache
-              shell: bash
-              run: |
-                  echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-            - uses: actions/cache@v4
-              name: Setup pnpm cache
-              with:
-                  path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-                      ${{ runner.os }}-pnpm-store-
-
-            - uses: actions/cache@v4
-              name: Retrieve Cache
-              with:
-                  path: |
-                      node_modules/.cache
-                      node_modules/.vitest
-                  key: ${{ runner.os }}-build-${{ hashFiles('**/pnpm-lock.yaml') }}
-                  restore-keys: |
-                      ${{ runner.os }}-build-${{ hashFiles('**/pnpm-lock.yaml') }}
-                      ${{ runner.os }}-build-
-                      ${{ runner.os }}-
             - run: pnpm test:all
 
     publish:
@@ -119,10 +81,14 @@ jobs:
             - uses: actions/setup-node@v4
               with:
                   node-version: 24
-                  cache: npm
+                  cache: pnpm
                   registry-url: 'https://registry.npmjs.org'
-
-            - run: npm ci
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              id: pnpm-install
+              with:
+                  run_install: false
+            - run: pnpm install
 
             - name: Determine npm tag
               id: npm-tag
@@ -145,6 +111,6 @@ jobs:
                     echo "tag=" >> $GITHUB_OUTPUT
                   fi
 
-            - run: npm publish --provenance --access public ${{ steps.npm-tag.outputs.tag }}
+            - run: pnpm publish --provenance --access public ${{ steps.npm-tag.outputs.tag }}
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
