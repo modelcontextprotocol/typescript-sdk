@@ -601,21 +601,12 @@ export const SamplingContentSchema = z.discriminatedUnion('type', [TextContentSc
  * Uses single content block without tool types for v1.x API compatibility.
  * For tool use support, use CreateMessageResultWithToolsSchema instead.
  */
-export const CreateMessageResultSchema = ResultSchema.extend({
-    /**
-     * The name of the model that generated the message.
-     */
-    model: z.string(),
-    /**
-     * The reason why sampling stopped, if known.
-     */
-    stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens']).or(z.string())),
-    role: RoleSchema,
-    /**
-     * Response content. Single block, basic types only (text/image/audio).
-     */
-    content: SamplingContentSchema
-});
+export const CreateMessageResultSchema = CreateMessageResultSpecSchema
+    .omit({ content: true })
+    .extend({
+        /** Response content. Single block, basic types only (text/image/audio). */
+        content: SamplingContentSchema
+    });
 
 /**
  * The client's response to a sampling/create_message request when tools were provided.
