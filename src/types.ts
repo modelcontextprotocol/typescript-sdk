@@ -31,6 +31,12 @@ import {
     ModelHintSchema,
     ModelPreferencesSchema,
     ToolChoiceSchema,
+    // Tool-related schemas
+    ToolAnnotationsSchema,
+    ToolExecutionSchema,
+    // Elicitation primitive schemas
+    BooleanSchemaSchema,
+    NumberSchemaSchema,
 } from './generated/sdk.schemas.js';
 
 export {
@@ -50,6 +56,10 @@ export {
     ModelHintSchema,
     ModelPreferencesSchema,
     ToolChoiceSchema,
+    ToolAnnotationsSchema,
+    ToolExecutionSchema,
+    BooleanSchemaSchema,
+    NumberSchemaSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -1197,65 +1207,9 @@ export const PromptListChangedNotificationSchema = NotificationSchema.extend({
  *
  * Clients should never make tool use decisions based on ToolAnnotations
  * received from untrusted servers.
+ *
+ * Note: ToolAnnotationsSchema and ToolExecutionSchema are re-exported from generated schemas.
  */
-export const ToolAnnotationsSchema = z.object({
-    /**
-     * A human-readable title for the tool.
-     */
-    title: z.string().optional(),
-
-    /**
-     * If true, the tool does not modify its environment.
-     *
-     * Default: false
-     */
-    readOnlyHint: z.boolean().optional(),
-
-    /**
-     * If true, the tool may perform destructive updates to its environment.
-     * If false, the tool performs only additive updates.
-     *
-     * (This property is meaningful only when `readOnlyHint == false`)
-     *
-     * Default: true
-     */
-    destructiveHint: z.boolean().optional(),
-
-    /**
-     * If true, calling the tool repeatedly with the same arguments
-     * will have no additional effect on the its environment.
-     *
-     * (This property is meaningful only when `readOnlyHint == false`)
-     *
-     * Default: false
-     */
-    idempotentHint: z.boolean().optional(),
-
-    /**
-     * If true, this tool may interact with an "open world" of external
-     * entities. If false, the tool's domain of interaction is closed.
-     * For example, the world of a web search tool is open, whereas that
-     * of a memory tool is not.
-     *
-     * Default: true
-     */
-    openWorldHint: z.boolean().optional()
-});
-
-/**
- * Execution-related properties for a tool.
- */
-export const ToolExecutionSchema = z.object({
-    /**
-     * Indicates the tool's preference for task-augmented execution.
-     * - "required": Clients MUST invoke the tool as a task
-     * - "optional": Clients MAY invoke the tool as a task or normal request
-     * - "forbidden": Clients MUST NOT attempt to invoke the tool as a task
-     *
-     * If not present, defaults to "forbidden".
-     */
-    taskSupport: z.enum(['required', 'optional', 'forbidden']).optional()
-});
 
 /**
  * Definition for a tool the client can call.
@@ -1679,15 +1633,8 @@ export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
 });
 
 /* Elicitation */
-/**
- * Primitive schema definition for boolean fields.
- */
-export const BooleanSchemaSchema = z.object({
-    type: z.literal('boolean'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    default: z.boolean().optional()
-});
+// Note: BooleanSchemaSchema and NumberSchemaSchema are re-exported from generated schemas.
+// StringSchemaSchema differs slightly (enum vs union for format) so kept here.
 
 /**
  * Primitive schema definition for string fields.
@@ -1700,18 +1647,6 @@ export const StringSchemaSchema = z.object({
     maxLength: z.number().optional(),
     format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
     default: z.string().optional()
-});
-
-/**
- * Primitive schema definition for number fields.
- */
-export const NumberSchemaSchema = z.object({
-    type: z.enum(['number', 'integer']),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    minimum: z.number().optional(),
-    maximum: z.number().optional(),
-    default: z.number().optional()
 });
 
 /**
