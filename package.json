@@ -51,10 +51,6 @@
             "import": "./dist/esm/experimental/tasks/index.js",
             "require": "./dist/cjs/experimental/tasks/index.js"
         },
-        "./generated": {
-            "import": "./dist/esm/generated/index.js",
-            "require": "./dist/cjs/generated/index.js"
-        },
         "./*": {
             "import": "./dist/esm/*",
             "require": "./dist/cjs/*"
