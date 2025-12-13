@@ -196,11 +196,6 @@ import {
     SamplingMessageContentBlockSchema,
 } from './generated/sdk.schemas.js';
 
-// Alias RequestParamsSchema to BaseRequestParamsSchema for internal use
-const BaseRequestParamsSchema = RequestParamsSchema;
-// Alias NotificationParamsSchema to NotificationsParamsSchema (plural) for backwards compat
-const NotificationsParamsSchema = NotificationParamsSchema;
-
 export {
     ProgressTokenSchema,
     CursorSchema,
@@ -377,18 +372,9 @@ export const TaskCreationParamsSchema = z.looseObject({
     pollInterval: z.number().optional()
 });
 
-// Note: RequestParamsSchema (aliased as BaseRequestParamsSchema) and
-// TaskAugmentedRequestParamsSchema are re-exported from generated.
-// They include RELATED_TASK_META_KEY in _meta, injected during pre-processing.
-
-/**
- * Request metadata schema - used in _meta field of requests, notifications, and results.
- * This is extracted for reuse but the canonical definition is in RequestParamsSchema.
- */
-const RequestMetaSchema = z.looseObject({
-    progressToken: ProgressTokenSchema.optional(),
-    [RELATED_TASK_META_KEY]: RelatedTaskMetadataSchema.optional()
-});
+// Note: RequestParamsSchema, NotificationParamsSchema, and TaskAugmentedRequestParamsSchema
+// are re-exported from generated. They include RELATED_TASK_META_KEY in _meta, injected
+// during pre-processing.
 
 /**
  * Checks if a value is a valid TaskAugmentedRequestParams.
@@ -671,7 +657,7 @@ export const ProgressSchema = z.object({
 });
 
 export const ProgressNotificationParamsSchema = z.object({
-    ...NotificationsParamsSchema.shape,
+    ...NotificationParamsSchema.shape,
     ...ProgressSchema.shape,
     /**
      * The progress token which was given in the initial request, used to associate this notification with the request that is proceeding.
@@ -870,7 +856,7 @@ export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
  *
  * @category notifications/elicitation/complete
  */
-export const ElicitationCompleteNotificationParamsSchema = NotificationsParamsSchema.extend({
+export const ElicitationCompleteNotificationParamsSchema = NotificationParamsSchema.extend({
     /**
      * The ID of the elicitation that completed.
      */
@@ -1015,7 +1001,6 @@ export type ProgressToken = Infer<typeof ProgressTokenSchema>;
 export type Cursor = Infer<typeof CursorSchema>;
 export type Request = Infer<typeof RequestSchema>;
 export type TaskAugmentedRequestParams = Infer<typeof TaskAugmentedRequestParamsSchema>;
-export type RequestMeta = Infer<typeof RequestMetaSchema>;
 export type Notification = Infer<typeof NotificationSchema>;
 export type Result = Infer<typeof ResultSchema>;
 export type RequestId = Infer<typeof RequestIdSchema>;
@@ -1026,8 +1011,12 @@ export type JSONRPCErrorResponse = Infer<typeof JSONRPCErrorResponseSchema>;
 export type JSONRPCResultResponse = Infer<typeof JSONRPCResultResponseSchema>;
 
 export type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
-export type RequestParams = Infer<typeof BaseRequestParamsSchema>;
-export type NotificationParams = Infer<typeof NotificationsParamsSchema>;
+export type RequestParams = Infer<typeof RequestParamsSchema>;
+export type NotificationParams = Infer<typeof NotificationParamsSchema>;
+/**
+ * Request metadata - the _meta field type from RequestParams.
+ */
+export type RequestMeta = RequestParams['_meta'];
 
 /* Empty result */
 export type EmptyResult = Infer<typeof EmptyResultSchema>;
