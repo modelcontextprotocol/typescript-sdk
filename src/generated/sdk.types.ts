@@ -7,6 +7,7 @@
  * Transformations applied:
  * - `extends JSONRPCRequest` → `extends Request`
  * - `extends JSONRPCNotification` → `extends Notification`
+ * - Standalone index signatures removed (enables TypeScript union narrowing)
  *
  * This allows SDK types to omit jsonrpc/id fields, which are
  * handled at the transport layer.
@@ -92,7 +93,6 @@ export interface Notification {
 export interface Result {
     /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
-    [key: string]: unknown;
 }
 
 /**

@@ -171,6 +171,50 @@ function preProcessTypes(content: string): string {
 }
 
 /**
+ * Interfaces that should have their standalone index signatures removed.
+ * These are extensible types in the spec, but index signatures break TypeScript union narrowing.
+ * The schemas use .passthrough() for runtime extensibility, so types don't need index sigs.
+ */
+const REMOVE_INDEX_SIGNATURE_INTERFACES = [
+    'Result',
+    'RequestParams',
+    'NotificationParams',
+    // GetTaskPayloadResult intentionally keeps index signature - it's the payload container
+];
+
+/**
+ * Remove standalone index signatures from interfaces to enable TypeScript union narrowing.
+ *
+ * The MCP spec defines extensible types like `Result = { _meta?: {...}; [key: string]: unknown }`.
+ * Index signatures break TypeScript's ability to narrow unions (can't use `'id' in obj`).
+ *
+ * We remove them from the generated types because:
+ * - Schemas use .passthrough() for runtime extensibility (accepts extra properties)
+ * - Types without index signatures allow proper TypeScript narrowing
+ * - The _meta field still has `{ [key: string]: unknown }` for its own extensibility
+ */
+function removeStandaloneIndexSignatures(content: string): string {
+    const project = new Project({ useInMemoryFileSystem: true });
+    const sourceFile = project.createSourceFile('types.ts', content);
+
+    console.log('  🔧 Cleaning up index signatures for type exports...');
+
+    for (const ifaceName of REMOVE_INDEX_SIGNATURE_INTERFACES) {
+        const iface = sourceFile.getInterface(ifaceName);
+        if (!iface) continue;
+
+        // Find and remove index signatures from the interface body
+        const indexSigs = iface.getIndexSignatures();
+        for (const sig of indexSigs) {
+            sig.remove();
+            console.log(`    ✓ Removed index signature from ${ifaceName}`);
+        }
+    }
+
+    return sourceFile.getFullText();
+}
+
+/**
  * Transform extends clauses from one type to another.
  */
 function transformExtendsClause(sourceFile: SourceFile, from: string, to: string): void {
@@ -943,6 +987,9 @@ async function main() {
     const rawSourceText = readFileSync(SPEC_TYPES_FILE, 'utf-8');
     const sdkTypesContent = preProcessTypes(rawSourceText);
 
+    // Clean up types for SDK export - remove index signatures that break union narrowing
+    const cleanedTypesContent = removeStandaloneIndexSignatures(sdkTypesContent);
+
     // Write pre-processed types to sdk.types.ts
     const sdkTypesWithHeader = `/**
  * SDK-compatible types generated from spec.types.ts
@@ -953,11 +1000,12 @@ async function main() {
  * Transformations applied:
  * - \`extends JSONRPCRequest\` → \`extends Request\`
  * - \`extends JSONRPCNotification\` → \`extends Notification\`
+ * - Standalone index signatures removed (enables TypeScript union narrowing)
  *
  * This allows SDK types to omit jsonrpc/id fields, which are
  * handled at the transport layer.
  */
-${sdkTypesContent.replace(/^\/\*\*[\s\S]*?\*\/\n/, '')}`;
+${cleanedTypesContent.replace(/^\/\*\*[\s\S]*?\*\/\n/, '')}`;
     writeFileSync(SDK_TYPES_FILE, sdkTypesWithHeader, 'utf-8');
     console.log(`✅ Written: ${SDK_TYPES_FILE}`);
 
@@ -1018,11 +1066,12 @@ function postProcessTests(content: string): string {
 // Run: npm run generate:schemas`,
     );
 
-    // Comment out bidirectional type checks for schemas that use looseObject.
-    // looseObject adds an index signature [x: string]: unknown which makes
-    // spec types (without index signature) not assignable to schema-inferred types.
+    // Comment out bidirectional type checks for schemas that use looseObject or passthrough.
+    // These add index signatures [x: string]: unknown to schema-inferred types, but
+    // we've removed index signatures from spec types (for union narrowing).
     // The one-way check (schema-inferred → spec) is kept to ensure compatibility.
-    const looseObjectSchemas = [
+    const schemasWithIndexSignatures = [
+        // Capability schemas use looseObject
         'ClientCapabilities',
         'ServerCapabilities',
         'ClientTasksCapability',
@@ -1031,11 +1080,38 @@ function postProcessTests(content: string): string {
         'InitializeRequestParams',
         'InitializeRequest',
         'ClientRequest', // Contains InitializeRequest
+        // Result-based schemas use passthrough (Result extends removed index sig)
+        'Result',
+        'EmptyResult',
+        'PaginatedResult',
+        'JSONRPCResultResponse',
+        'CreateTaskResult',
+        'GetTaskResult',
+        'CancelTaskResult',
+        'ListTasksResult',
+        'CompleteResult',
+        'ElicitResult',
+        'ListRootsResult',
+        'ReadResourceResult',
+        'ListToolsResult',
+        'ListPromptsResult',
+        'ListResourceTemplatesResult',
+        'ListResourcesResult',
+        'CallToolResult',
+        'GetPromptResult',
+        'CreateMessageResult',
+        // Request/Notification based schemas also use passthrough
+        'Request',
+        'Notification',
+        'RequestParams',
+        'NotificationParams',
+        // Union types that include passthrough schemas
+        'JSONRPCMessage',
     ];
 
     let commentedCount = 0;
-    for (const schemaName of looseObjectSchemas) {
-        // Comment out spec → schema-inferred checks (these fail with looseObject)
+    for (const schemaName of schemasWithIndexSignatures) {
+        // Comment out spec → schema-inferred checks (these fail with passthrough/looseObject)
         // ts-to-zod generates PascalCase type names
         // Pattern matches: expectType<FooSchemaInferredType>({} as spec.Foo)
         const pattern = new RegExp(
@@ -1043,13 +1119,13 @@ function postProcessTests(content: string): string {
             'g'
         );
         const before = content;
-        content = content.replace(pattern, `// Skip: looseObject index signature incompatible with spec interface\n// $1`);
+        content = content.replace(pattern, `// Skip: passthrough/looseObject index signature incompatible with clean spec interface\n// $1`);
         if (before !== content) {
             commentedCount++;
         }
     }
     if (commentedCount > 0) {
-        console.log(`    ✓ Commented out ${commentedCount} looseObject type checks in test file`);
+        console.log(`    ✓ Commented out ${commentedCount} index-signature type checks in test file`);
     }
 
     return content;
