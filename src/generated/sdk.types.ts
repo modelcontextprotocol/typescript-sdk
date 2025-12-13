@@ -7,10 +7,11 @@
  * Transformations applied:
  * - `extends JSONRPCRequest` → `extends Request`
  * - `extends JSONRPCNotification` → `extends Notification`
- * - Standalone index signatures removed (enables TypeScript union narrowing)
+ * - All index signature patterns removed (enables TypeScript union narrowing)
  *
- * This allows SDK types to omit jsonrpc/id fields, which are
- * handled at the transport layer.
+ * Note: Schemas use .passthrough() for runtime extensibility, so types
+ * don't need index signatures. This separation allows clean types for
+ * TypeScript while maintaining runtime flexibility.
  */
 
 /**
@@ -61,7 +62,6 @@ export interface RequestParams {
         progressToken?: ProgressToken;
         /** @description If specified, this request is related to the provided task. */
         'io.modelcontextprotocol/related-task'?: RelatedTaskMetadata;
-        [key: string]: unknown;
     };
 }
 
@@ -170,7 +170,6 @@ export interface URLElicitationRequiredError extends Omit<JSONRPCErrorResponse, 
         code: typeof URL_ELICITATION_REQUIRED;
         data: {
             elicitations: ElicitRequestURLParams[];
-            [key: string]: unknown;
         };
     };
 }
@@ -1143,9 +1142,7 @@ The structure matches the result type of the original request.
 For example, a tools/call task would return the CallToolResult structure.
  * @category `tasks/result`
  */
-export interface GetTaskPayloadResult extends Result {
-    [key: string]: unknown;
-}
+export interface GetTaskPayloadResult extends Result {}
 
 /**
  * @description A request to cancel a task.

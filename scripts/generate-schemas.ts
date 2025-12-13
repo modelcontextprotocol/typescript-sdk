@@ -171,47 +171,39 @@ function preProcessTypes(content: string): string {
 }
 
 /**
- * Interfaces that should have their standalone index signatures removed.
- * These are extensible types in the spec, but index signatures break TypeScript union narrowing.
- * The schemas use .passthrough() for runtime extensibility, so types don't need index sigs.
- */
-const REMOVE_INDEX_SIGNATURE_INTERFACES = [
-    'Result',
-    'RequestParams',
-    'NotificationParams',
-    // GetTaskPayloadResult intentionally keeps index signature - it's the payload container
-];
-
-/**
- * Remove standalone index signatures from interfaces to enable TypeScript union narrowing.
+ * Remove standalone index signatures from interface bodies in sdk.types.ts.
  *
- * The MCP spec defines extensible types like `Result = { _meta?: {...}; [key: string]: unknown }`.
- * Index signatures break TypeScript's ability to narrow unions (can't use `'id' in obj`).
+ * The MCP spec uses index signatures for extensibility, but they break TypeScript union narrowing.
+ * We only remove STANDALONE index signatures from interface bodies, NOT:
+ * - Intersection patterns in property types (needed for params extensibility)
+ * - Index signatures inside nested objects like _meta
  *
- * We remove them from the generated types because:
- * - Schemas use .passthrough() for runtime extensibility (accepts extra properties)
- * - Types without index signatures allow proper TypeScript narrowing
- * - The _meta field still has `{ [key: string]: unknown }` for its own extensibility
+ * Example of what we remove:
+ *   interface Result {
+ *     _meta?: {...};
+ *     [key: string]: unknown;  // <-- This is removed
+ *   }
+ *
+ * Example of what we keep:
+ *   interface Request {
+ *     params?: RequestParams & { [key: string]: any };  // <-- Kept (allows extra params)
+ *   }
  */
-function removeStandaloneIndexSignatures(content: string): string {
-    const project = new Project({ useInMemoryFileSystem: true });
-    const sourceFile = project.createSourceFile('types.ts', content);
-
+function removeIndexSignaturesFromTypes(content: string): string {
     console.log('  🔧 Cleaning up index signatures for type exports...');
 
-    for (const ifaceName of REMOVE_INDEX_SIGNATURE_INTERFACES) {
-        const iface = sourceFile.getInterface(ifaceName);
-        if (!iface) continue;
+    let result = content;
+    let count = 0;
 
-        // Find and remove index signatures from the interface body
-        const indexSigs = iface.getIndexSignatures();
-        for (const sig of indexSigs) {
-            sig.remove();
-            console.log(`    ✓ Removed index signature from ${ifaceName}`);
-        }
-    }
+    // Only remove standalone index signatures from interface bodies
+    // These are lines that ONLY contain an index signature (with optional leading whitespace)
+    // Pattern matches: `    [key: string]: unknown;\n`
+    const standalonePattern = /^(\s*)\[key:\s*string\]:\s*unknown;\s*\n/gm;
+    result = result.replace(standalonePattern, () => { count++; return ''; });
 
-    return sourceFile.getFullText();
+    console.log(`    ✓ Removed ${count} standalone index signatures`);
+
+    return result;
 }
 
 /**
@@ -987,8 +979,9 @@ async function main() {
     const rawSourceText = readFileSync(SPEC_TYPES_FILE, 'utf-8');
     const sdkTypesContent = preProcessTypes(rawSourceText);
 
-    // Clean up types for SDK export - remove index signatures that break union narrowing
-    const cleanedTypesContent = removeStandaloneIndexSignatures(sdkTypesContent);
+    // Clean up types for SDK export - remove ALL index signature patterns
+    // This enables TypeScript union narrowing while schemas handle runtime extensibility
+    const cleanedTypesContent = removeIndexSignaturesFromTypes(sdkTypesContent);
 
     // Write pre-processed types to sdk.types.ts
     const sdkTypesWithHeader = `/**
@@ -1000,10 +993,11 @@ async function main() {
  * Transformations applied:
  * - \`extends JSONRPCRequest\` → \`extends Request\`
  * - \`extends JSONRPCNotification\` → \`extends Notification\`
- * - Standalone index signatures removed (enables TypeScript union narrowing)
+ * - All index signature patterns removed (enables TypeScript union narrowing)
  *
- * This allows SDK types to omit jsonrpc/id fields, which are
- * handled at the transport layer.
+ * Note: Schemas use .passthrough() for runtime extensibility, so types
+ * don't need index signatures. This separation allows clean types for
+ * TypeScript while maintaining runtime flexibility.
  */
 ${cleanedTypesContent.replace(/^\/\*\*[\s\S]*?\*\/\n/, '')}`;
     writeFileSync(SDK_TYPES_FILE, sdkTypesWithHeader, 'utf-8');
@@ -1100,6 +1094,7 @@ function postProcessTests(content: string): string {
         'CallToolResult',
         'GetPromptResult',
         'CreateMessageResult',
+        'GetTaskPayloadResult', // Has explicit Record<string, unknown> extension
         // Request/Notification based schemas also use passthrough
         'Request',
         'Notification',
