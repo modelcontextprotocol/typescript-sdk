@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../../../../src/experimental/tasks/stores/in-memory.js';
-import { TaskCreationParams, RequestBase, NotificationBase, ResultBase } from '../../../../src/types.js';
+import { TaskCreationParams, Request, Notification, Result, CallToolResult } from '../../../../src/types.js';
 import { QueuedMessage } from '../../../../src/experimental/tasks/interfaces.js';
 
 describe('InMemoryTaskStore', () => {
@@ -230,7 +230,7 @@ describe('InMemoryTaskStore', () => {
         });
 
         it('should store task result and set status to completed', async () => {
-            const result = {
+            const result: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'Success!' }]
             };
 
@@ -249,13 +249,13 @@ describe('InMemoryTaskStore', () => {
 
         it('should reject storing result for task already in completed status', async () => {
             // First complete the task
-            const firstResult = {
+            const firstResult: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'First result' }]
             };
             await store.storeTaskResult(taskId, 'completed', firstResult);
 
             // Try to store result again (should fail)
-            const secondResult = {
+            const secondResult: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'Second result' }]
             };
 
@@ -263,7 +263,7 @@ describe('InMemoryTaskStore', () => {
         });
 
         it('should store result with failed status', async () => {
-            const result = {
+            const result: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'Error details' }],
                 isError: true
             };
@@ -279,14 +279,14 @@ describe('InMemoryTaskStore', () => {
 
         it('should reject storing result for task already in failed status', async () => {
             // First fail the task
-            const firstResult = {
+            const firstResult: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'First error' }],
                 isError: true
             };
             await store.storeTaskResult(taskId, 'failed', firstResult);
 
             // Try to store result again (should fail)
-            const secondResult = {
+            const secondResult: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'Second error' }],
                 isError: true
             };
@@ -299,7 +299,7 @@ describe('InMemoryTaskStore', () => {
             await store.updateTaskStatus(taskId, 'cancelled');
 
             // Try to store result (should fail)
-            const result = {
+            const result: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'Cancellation result' }]
             };
 
@@ -309,7 +309,7 @@ describe('InMemoryTaskStore', () => {
         it('should allow storing result from input_required status', async () => {
             await store.updateTaskStatus(taskId, 'input_required');
 
-            const result = {
+            const result: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'Success!' }]
             };
 
@@ -342,7 +342,7 @@ describe('InMemoryTaskStore', () => {
                 params: { name: 'test-tool', arguments: {} }
             } as any);
 
-            const result = {
+            const result: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'Result data' }]
             };
             await store.storeTaskResult(createdTask.taskId, 'completed', result);
@@ -397,7 +397,7 @@ describe('InMemoryTaskStore', () => {
             // Store result (should reset timer)
             await store.storeTaskResult(createdTask.taskId, 'completed', {
                 content: [{ type: 'text' as const, text: 'Done' }]
-            });
+            } as CallToolResult);
 
             // Fast-forward another 500ms (total 1000ms since creation, but timer was reset)
             vi.advanceTimersByTime(500);
@@ -525,7 +525,7 @@ describe('InMemoryTaskStore', () => {
             } as any);
             await store.storeTaskResult(completedTask.taskId, 'completed', {
                 content: [{ type: 'text' as const, text: 'Done' }]
-            });
+            } as CallToolResult);
 
             const failedTask = await store.createTask(taskParams, 5555, {
                 method: 'tools/call' as const,
@@ -533,7 +533,7 @@ describe('InMemoryTaskStore', () => {
             } as any);
             await store.storeTaskResult(failedTask.taskId, 'failed', {
                 content: [{ type: 'text' as const, text: 'Error' }]
-            });
+            } as CallToolResult);
 
             // Fast-forward past TTL
             vi.advanceTimersByTime(1001);
@@ -715,7 +715,7 @@ describe('InMemoryTaskMessageQueue', () => {
                 message: {
                     jsonrpc: '2.0',
                     id: 42,
-                    result: { content: [{ type: 'text', text: 'Success' }] } as ResultBase
+                    result: { content: [{ type: 'text', text: 'Success' }] } as Result
                 },
                 timestamp: Date.now()
             };

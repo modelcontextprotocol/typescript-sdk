@@ -6301,7 +6301,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         setTimeout(async () => {
                             await store.storeTaskResult(task.taskId, 'completed', {
                                 content: [{ type: 'text' as const, text: `Processed: ${input}` }]
-                            });
+                            } as CallToolResult);
                         }, 200);
 
                         return { task };
@@ -6400,7 +6400,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         setTimeout(async () => {
                             await store.storeTaskResult(task.taskId, 'completed', {
                                 content: [{ type: 'text' as const, text: `Result: ${value * 2}` }]
-                            });
+                            } as CallToolResult);
                             releaseLatch();
                         }, 150);
 
@@ -6502,7 +6502,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         setTimeout(async () => {
                             await store.storeTaskResult(task.taskId, 'completed', {
                                 content: [{ type: 'text' as const, text: `Completed: ${data}` }]
-                            });
+                            } as CallToolResult);
                             releaseLatch();
                         }, 200);
 
@@ -6614,7 +6614,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                             await store.storeTaskResult(task.taskId, 'failed', {
                                 content: [{ type: 'text' as const, text: 'Error occurred' }],
                                 isError: true
-                            });
+                            } as CallToolResult);
                             releaseLatch();
                         }, 150);
 

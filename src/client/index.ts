@@ -48,7 +48,10 @@ import {
     type ListChangedHandlers,
     type Request,
     type Notification,
-    type Result
+    type Result,
+    type McpRequest,
+    type McpNotification,
+    type McpResult
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../validation/types.js';
@@ -231,9 +234,9 @@ export type ClientOptions = ProtocolOptions & {
  * ```
  */
 export class Client<
-    RequestT extends Request = Request,
-    NotificationT extends Notification = Notification,
-    ResultT extends Result = Result
+    RequestT extends Request = McpRequest,
+    NotificationT extends Notification = McpNotification,
+    ResultT extends Result = McpResult
 > extends Protocol<ClientRequest | RequestT, ClientNotification | NotificationT, ClientResult | ResultT> {
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;

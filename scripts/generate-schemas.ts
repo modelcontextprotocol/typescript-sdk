@@ -276,11 +276,12 @@ const BASE_TO_UNION_CONFIG: Record<string, string[]> = {
  *   interface InitializeResult extends Result { ... }
  *
  * Into:
- *   interface ResultBase { _meta?: {...} }
- *   interface InitializeResult extends ResultBase { ... }
- *   type Result = InitializeResult | CompleteResult | ...
+ *   interface Result { _meta?: {...} }  // Base stays as-is
+ *   interface InitializeResult extends Result { ... }
+ *   type McpResult = InitializeResult | CompleteResult | ...  // Union with Mcp prefix
  *
- * This enables TypeScript union narrowing while preserving the extends hierarchy.
+ * This enables TypeScript union narrowing while preserving backwards compatibility.
+ * The base type keeps its original name, and the union gets an "Mcp" prefix.
  */
 function convertBaseTypesToUnions(content: string): string {
     const project = new Project({ useInMemoryFileSystem: true });
@@ -295,37 +296,16 @@ function convertBaseTypesToUnions(content: string): string {
             continue;
         }
 
-        const baseRename = `${baseName}Base`;
+        // Base interface keeps its original name (Request, Notification, Result)
+        // Union type gets Mcp prefix (McpRequest, McpNotification, McpResult)
+        const unionName = `Mcp${baseName}`;
 
-        // 1. Rename the base interface to ResultBase
-        baseInterface.rename(baseRename);
-
-        // 2. Update all extends clauses that reference the old name
-        for (const iface of sourceFile.getInterfaces()) {
-            for (const ext of iface.getExtends()) {
-                if (ext.getText() === baseName) {
-                    ext.replaceWithText(baseRename);
-                }
-            }
-        }
-
-        // 3. Update type aliases that use intersection with the base
-        for (const typeAlias of sourceFile.getTypeAliases()) {
-            const typeNode = typeAlias.getTypeNode();
-            if (typeNode) {
-                const text = typeNode.getText();
-                if (text.includes(baseName) && !text.includes(baseRename)) {
-                    typeAlias.setType(text.replace(new RegExp(`\\b${baseName}\\b`, 'g'), baseRename));
-                }
-            }
-        }
-
-        // 4. Add the union type alias after the base interface
+        // Add the union type alias after the base interface
         const unionType = unionMembers.join(' | ');
         const insertPos = baseInterface.getEnd();
-        sourceFile.insertText(insertPos, `\n\n/** Union of all ${baseName.toLowerCase()} types for type narrowing. */\nexport type ${baseName} = ${unionType};`);
+        sourceFile.insertText(insertPos, `\n\n/** Union of all MCP ${baseName.toLowerCase()} types for type narrowing. */\nexport type ${unionName} = ${unionType};`);
 
-        console.log(`    ✓ Converted ${baseName} to union of ${unionMembers.length} types`);
+        console.log(`    ✓ Created ${unionName} as union of ${unionMembers.length} types`);
     }
 
     return sourceFile.getFullText();

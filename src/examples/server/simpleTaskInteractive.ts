@@ -561,7 +561,7 @@ const createServer = (): Server => {
                     console.log(`[Server] Completing task with result: ${text}`);
                     await taskStore.storeTaskResult(task.taskId, 'completed', {
                         content: [{ type: 'text', text }]
-                    });
+                    } as CallToolResult);
                 } else if (name === 'write_haiku') {
                     const topic = args?.topic ?? 'nature';
                     console.log(`[Server] write_haiku: topic '${topic}'`);
@@ -586,14 +586,14 @@ const createServer = (): Server => {
                     console.log('[Server] Completing task with haiku');
                     await taskStore.storeTaskResult(task.taskId, 'completed', {
                         content: [{ type: 'text', text: `Haiku:\n${haiku}` }]
-                    });
+                    } as CallToolResult);
                 }
             } catch (error) {
                 console.error(`[Server] Task ${task.taskId} failed:`, error);
                 await taskStore.storeTaskResult(task.taskId, 'failed', {
                     content: [{ type: 'text', text: `Error: ${error}` }],
                     isError: true
-                });
+                } as CallToolResult);
             } finally {
                 activeTaskExecutions.delete(task.taskId);
             }

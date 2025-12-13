@@ -804,16 +804,30 @@ export interface MessageExtraInfo {
     closeStandaloneSSEStream?: () => void;
 }
 
+// Import base types with aliases to avoid DOM collision, then re-export
+import type {
+    Request as _Request,
+    Notification as _Notification,
+    Result as _Result,
+} from './generated/sdk.types.js';
+
+// Re-export with original names
+export type { _Request as Request, _Notification as Notification, _Result as Result };
+
+// Backwards-compatible aliases
+/** @deprecated Use Request instead */
+export type RequestBase = _Request;
+/** @deprecated Use Notification instead */
+export type NotificationBase = _Notification;
+/** @deprecated Use Result instead */
+export type ResultBase = _Result;
+
 /* Types re-exported from generated sdk.types.ts */
 export type {
-    // Core protocol types (unions for narrowing)
-    Request,
-    Notification,
-    Result,
-    // Base interfaces (for extending)
-    RequestBase,
-    NotificationBase,
-    ResultBase,
+    // Union types for narrowing (Mcp prefix)
+    McpRequest,
+    McpNotification,
+    McpResult,
     // Params types
     RequestParams,
     NotificationParams,

@@ -29,10 +29,8 @@ import {
     RELATED_TASK_META_KEY,
     RequestId,
     Request,
-    RequestBase,
     Result,
-    ResultBase,
-    NotificationBase,
+    Notification,
     ServerCapabilities,
     RequestMeta,
     MessageExtraInfo,
@@ -236,7 +234,7 @@ export interface RequestTaskStore {
 /**
  * Extra data given to request handlers.
  */
-export type RequestHandlerExtra<SendRequestT extends RequestBase, SendNotificationT extends NotificationBase> = {
+export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT extends Notification> = {
     /**
      * An abort signal used to communicate if the request was cancelled from the sender's side.
      */
@@ -319,7 +317,7 @@ type TimeoutInfo = {
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
  */
-export abstract class Protocol<SendRequestT extends RequestBase, SendNotificationT extends NotificationBase, SendResultT extends ResultBase> {
+export abstract class Protocol<SendRequestT extends Request, SendNotificationT extends Notification, SendResultT extends Result> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<
@@ -770,7 +768,7 @@ export abstract class Protocol<SendRequestT extends RequestBase, SendNotificatio
                     }
 
                     const response: JSONRPCResultResponse = {
-                        result: result as ResultBase,
+                        result: result as Result,
                         jsonrpc: '2.0',
                         id: request.id
                     };

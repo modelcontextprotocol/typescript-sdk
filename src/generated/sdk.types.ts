@@ -66,15 +66,15 @@ export interface RequestParams {
 }
 
 /** @internal */
-export interface RequestBase {
+export interface Request {
     method: string;
     // Allow unofficial extensions of `Request.params` without impacting `RequestParams`.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     params?: RequestParams & { [key: string]: any };
 }
 
-/** Union of all request types for type narrowing. */
-export type Request =
+/** Union of all MCP request types for type narrowing. */
+export type McpRequest =
     | InitializeRequest
     | PingRequest
     | ListResourcesRequest
@@ -103,15 +103,15 @@ export interface NotificationParams {
 }
 
 /** @internal */
-export interface NotificationBase {
+export interface Notification {
     method: string;
     // Allow unofficial extensions of `Notification.params` without impacting `NotificationParams`.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     params?: NotificationParams & { [key: string]: any };
 }
 
-/** Union of all notification types for type narrowing. */
-export type Notification =
+/** Union of all MCP notification types for type narrowing. */
+export type McpNotification =
     | CancelledNotification
     | InitializedNotification
     | ProgressNotification
@@ -127,13 +127,13 @@ export type Notification =
 /**
  * @category Common Types
  */
-export interface ResultBase {
+export interface Result {
     /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 
-/** Union of all result types for type narrowing. */
-export type Result =
+/** Union of all MCP result types for type narrowing. */
+export type McpResult =
     | EmptyResult
     | InitializeResult
     | CompleteResult
@@ -175,7 +175,7 @@ export type RequestId = string | number;
  * @description A request that expects a response.
  * @category JSON-RPC
  */
-export interface JSONRPCRequest extends RequestBase {
+export interface JSONRPCRequest extends Request {
     jsonrpc: typeof JSONRPC_VERSION;
     id: RequestId;
 }
@@ -184,7 +184,7 @@ export interface JSONRPCRequest extends RequestBase {
  * @description A notification which does not expect a response.
  * @category JSON-RPC
  */
-export interface JSONRPCNotification extends NotificationBase {
+export interface JSONRPCNotification extends Notification {
     jsonrpc: typeof JSONRPC_VERSION;
 }
 
@@ -195,7 +195,7 @@ export interface JSONRPCNotification extends NotificationBase {
 export interface JSONRPCResultResponse {
     jsonrpc: typeof JSONRPC_VERSION;
     id: RequestId;
-    result: ResultBase;
+    result: Result;
 }
 
 /**
@@ -237,7 +237,7 @@ export interface URLElicitationRequiredError extends Omit<JSONRPCErrorResponse, 
  * @description A response that indicates success but carries no data.
  * @category Common Types
  */
-export type EmptyResult = ResultBase;
+export type EmptyResult = Result;
 
 /* Cancellation */
 /**
@@ -268,7 +268,7 @@ A client MUST NOT attempt to cancel its `initialize` request.
 For task cancellation, use the `tasks/cancel` request instead of this notification.
  * @category `notifications/cancelled`
  */
-export interface CancelledNotification extends NotificationBase {
+export interface CancelledNotification extends Notification {
     method: 'notifications/cancelled';
     params: CancelledNotificationParams;
 }
@@ -289,7 +289,7 @@ export interface InitializeRequestParams extends RequestParams {
  * @description This request is sent from the client to the server when it first connects, asking it to begin initialization.
  * @category `initialize`
  */
-export interface InitializeRequest extends RequestBase {
+export interface InitializeRequest extends Request {
     method: 'initialize';
     params: InitializeRequestParams;
 }
@@ -298,7 +298,7 @@ export interface InitializeRequest extends RequestBase {
  * @description After receiving an initialize request from the client, the server sends this response.
  * @category `initialize`
  */
-export interface InitializeResult extends ResultBase {
+export interface InitializeResult extends Result {
     /** @description The version of the Model Context Protocol that the server wants to use. This may not match the version that the client requested. If the client cannot support this version, it MUST disconnect. */
     protocolVersion: string;
     capabilities: ServerCapabilities;
@@ -314,7 +314,7 @@ export interface InitializeResult extends ResultBase {
  * @description This notification is sent from the client to the server after initialization has finished.
  * @category `notifications/initialized`
  */
-export interface InitializedNotification extends NotificationBase {
+export interface InitializedNotification extends Notification {
     method: 'notifications/initialized';
     params?: NotificationParams;
 }
@@ -505,7 +505,7 @@ export interface Implementation extends BaseMetadata, Icons {
  * @description A ping, issued by either the server or the client, to check that the other party is still alive. The receiver must promptly respond, or else may be disconnected.
  * @category `ping`
  */
-export interface PingRequest extends RequestBase {
+export interface PingRequest extends Request {
     method: 'ping';
     params?: RequestParams;
 }
@@ -537,7 +537,7 @@ export interface ProgressNotificationParams extends NotificationParams {
  * @description An out-of-band notification used to inform the receiver of a progress update for a long-running request.
  * @category `notifications/progress`
  */
-export interface ProgressNotification extends NotificationBase {
+export interface ProgressNotification extends Notification {
     method: 'notifications/progress';
     params: ProgressNotificationParams;
 }
@@ -554,12 +554,12 @@ export interface PaginatedRequestParams extends RequestParams {
 }
 
 /** @internal */
-export interface PaginatedRequest extends RequestBase {
+export interface PaginatedRequest extends Request {
     params?: PaginatedRequestParams;
 }
 
 /** @internal */
-export interface PaginatedResult extends ResultBase {
+export interface PaginatedResult extends Result {
     /** @description An opaque token representing the pagination position after the last returned result.
     If present, there may be more results available. */
     nextCursor?: Cursor;
@@ -621,7 +621,7 @@ export interface ReadResourceRequestParams extends ResourceRequestParams {}
  * @description Sent from the client to the server, to read a specific resource URI.
  * @category `resources/read`
  */
-export interface ReadResourceRequest extends RequestBase {
+export interface ReadResourceRequest extends Request {
     method: 'resources/read';
     params: ReadResourceRequestParams;
 }
@@ -630,7 +630,7 @@ export interface ReadResourceRequest extends RequestBase {
  * @description The server's response to a resources/read request from the client.
  * @category `resources/read`
  */
-export interface ReadResourceResult extends ResultBase {
+export interface ReadResourceResult extends Result {
     contents: (TextResourceContents | BlobResourceContents)[];
 }
 
@@ -638,7 +638,7 @@ export interface ReadResourceResult extends ResultBase {
  * @description An optional notification from the server to the client, informing it that the list of resources it can read from has changed. This may be issued by servers without any previous subscription from the client.
  * @category `notifications/resources/list_changed`
  */
-export interface ResourceListChangedNotification extends NotificationBase {
+export interface ResourceListChangedNotification extends Notification {
     method: 'notifications/resources/list_changed';
     params?: NotificationParams;
 }
@@ -654,7 +654,7 @@ export interface SubscribeRequestParams extends ResourceRequestParams {}
  * @description Sent from the client to request resources/updated notifications from the server whenever a particular resource changes.
  * @category `resources/subscribe`
  */
-export interface SubscribeRequest extends RequestBase {
+export interface SubscribeRequest extends Request {
     method: 'resources/subscribe';
     params: SubscribeRequestParams;
 }
@@ -670,7 +670,7 @@ export interface UnsubscribeRequestParams extends ResourceRequestParams {}
  * @description Sent from the client to request cancellation of resources/updated notifications from the server. This should follow a previous resources/subscribe request.
  * @category `resources/unsubscribe`
  */
-export interface UnsubscribeRequest extends RequestBase {
+export interface UnsubscribeRequest extends Request {
     method: 'resources/unsubscribe';
     params: UnsubscribeRequestParams;
 }
@@ -691,7 +691,7 @@ export interface ResourceUpdatedNotificationParams extends NotificationParams {
  * @description A notification from the server to the client, informing it that a resource has changed and may need to be read again. This should only be sent if the client previously sent a resources/subscribe request.
  * @category `notifications/resources/updated`
  */
-export interface ResourceUpdatedNotification extends NotificationBase {
+export interface ResourceUpdatedNotification extends Notification {
     method: 'notifications/resources/updated';
     params: ResourceUpdatedNotificationParams;
 }
@@ -821,7 +821,7 @@ export interface GetPromptRequestParams extends RequestParams {
  * @description Used by the client to get a prompt provided by the server.
  * @category `prompts/get`
  */
-export interface GetPromptRequest extends RequestBase {
+export interface GetPromptRequest extends Request {
     method: 'prompts/get';
     params: GetPromptRequestParams;
 }
@@ -830,7 +830,7 @@ export interface GetPromptRequest extends RequestBase {
  * @description The server's response to a prompts/get request from the client.
  * @category `prompts/get`
  */
-export interface GetPromptResult extends ResultBase {
+export interface GetPromptResult extends Result {
     /** @description An optional description for the prompt. */
     description?: string;
     messages: PromptMessage[];
@@ -911,7 +911,7 @@ export interface EmbeddedResource {
  * @description An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This may be issued by servers without any previous subscription from the client.
  * @category `notifications/prompts/list_changed`
  */
-export interface PromptListChangedNotification extends NotificationBase {
+export interface PromptListChangedNotification extends Notification {
     method: 'notifications/prompts/list_changed';
     params?: NotificationParams;
 }
@@ -937,7 +937,7 @@ export interface ListToolsResult extends PaginatedResult {
  * @description The server's response to a tool call.
  * @category `tools/call`
  */
-export interface CallToolResult extends ResultBase {
+export interface CallToolResult extends Result {
     /** @description A list of content objects that represent the unstructured result of the tool call. */
     content: ContentBlock[];
 
@@ -974,7 +974,7 @@ export interface CallToolRequestParams extends TaskAugmentedRequestParams {
  * @description Used by the client to invoke a tool provided by the server.
  * @category `tools/call`
  */
-export interface CallToolRequest extends RequestBase {
+export interface CallToolRequest extends Request {
     method: 'tools/call';
     params: CallToolRequestParams;
 }
@@ -983,7 +983,7 @@ export interface CallToolRequest extends RequestBase {
  * @description An optional notification from the server to the client, informing it that the list of tools it offers has changed. This may be issued by servers without any previous subscription from the client.
  * @category `notifications/tools/list_changed`
  */
-export interface ToolListChangedNotification extends NotificationBase {
+export interface ToolListChangedNotification extends Notification {
     method: 'notifications/tools/list_changed';
     params?: NotificationParams;
 }
@@ -1160,7 +1160,7 @@ export interface Task {
  * @description A response to a task-augmented request.
  * @category `tasks`
  */
-export interface CreateTaskResult extends ResultBase {
+export interface CreateTaskResult extends Result {
     task: Task;
 }
 
@@ -1168,7 +1168,7 @@ export interface CreateTaskResult extends ResultBase {
  * @description A request to retrieve the state of a task.
  * @category `tasks/get`
  */
-export interface GetTaskRequest extends RequestBase {
+export interface GetTaskRequest extends Request {
     method: 'tasks/get';
     params: {
         /** @description The task identifier to query. */
@@ -1180,13 +1180,13 @@ export interface GetTaskRequest extends RequestBase {
  * @description The response to a tasks/get request.
  * @category `tasks/get`
  */
-export type GetTaskResult = ResultBase & Task;
+export type GetTaskResult = Result & Task;
 
 /**
  * @description A request to retrieve the result of a completed task.
  * @category `tasks/result`
  */
-export interface GetTaskPayloadRequest extends RequestBase {
+export interface GetTaskPayloadRequest extends Request {
     method: 'tasks/result';
     params: {
         /** @description The task identifier to retrieve results for. */
@@ -1200,13 +1200,13 @@ The structure matches the result type of the original request.
 For example, a tools/call task would return the CallToolResult structure.
  * @category `tasks/result`
  */
-export interface GetTaskPayloadResult extends ResultBase {}
+export interface GetTaskPayloadResult extends Result {}
 
 /**
  * @description A request to cancel a task.
  * @category `tasks/cancel`
  */
-export interface CancelTaskRequest extends RequestBase {
+export interface CancelTaskRequest extends Request {
     method: 'tasks/cancel';
     params: {
         /** @description The task identifier to cancel. */
@@ -1218,7 +1218,7 @@ export interface CancelTaskRequest extends RequestBase {
  * @description The response to a tasks/cancel request.
  * @category `tasks/cancel`
  */
-export type CancelTaskResult = ResultBase & Task;
+export type CancelTaskResult = Result & Task;
 
 /**
  * @description A request to retrieve a list of tasks.
@@ -1246,7 +1246,7 @@ export type TaskStatusNotificationParams = NotificationParams & Task;
  * @description An optional notification from the receiver to the requestor, informing them that a task's status has changed. Receivers are not required to send these notifications.
  * @category `notifications/tasks/status`
  */
-export interface TaskStatusNotification extends NotificationBase {
+export interface TaskStatusNotification extends Notification {
     method: 'notifications/tasks/status';
     params: TaskStatusNotificationParams;
 }
@@ -1266,7 +1266,7 @@ export interface SetLevelRequestParams extends RequestParams {
  * @description A request from the client to the server, to enable or adjust logging.
  * @category `logging/setLevel`
  */
-export interface SetLevelRequest extends RequestBase {
+export interface SetLevelRequest extends Request {
     method: 'logging/setLevel';
     params: SetLevelRequestParams;
 }
@@ -1288,7 +1288,7 @@ export interface LoggingMessageNotificationParams extends NotificationParams {
  * @description JSONRPCNotification of a log message passed from server to client. If no logging/setLevel request has been sent from the client, the server MAY decide which messages to send automatically.
  * @category `notifications/message`
  */
-export interface LoggingMessageNotification extends NotificationBase {
+export interface LoggingMessageNotification extends Notification {
     method: 'notifications/message';
     params: LoggingMessageNotificationParams;
 }
@@ -1355,7 +1355,7 @@ export interface ToolChoice {
  * @description A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
  * @category `sampling/createMessage`
  */
-export interface CreateMessageRequest extends RequestBase {
+export interface CreateMessageRequest extends Request {
     method: 'sampling/createMessage';
     params: CreateMessageRequestParams;
 }
@@ -1366,7 +1366,7 @@ The client should inform the user before returning the sampled message, to allow
 to inspect the response (human in the loop) and decide whether to allow the server to see it.
  * @category `sampling/createMessage`
  */
-export interface CreateMessageResult extends ResultBase, SamplingMessage {
+export interface CreateMessageResult extends Result, SamplingMessage {
     /** @description The name of the model that generated the message. */
     model: string;
 
@@ -1663,7 +1663,7 @@ export interface CompleteRequestParams extends RequestParams {
  * @description A request from the client to the server, to ask for completion options.
  * @category `completion/complete`
  */
-export interface CompleteRequest extends RequestBase {
+export interface CompleteRequest extends Request {
     method: 'completion/complete';
     params: CompleteRequestParams;
 }
@@ -1672,7 +1672,7 @@ export interface CompleteRequest extends RequestBase {
  * @description The server's response to a completion/complete request
  * @category `completion/complete`
  */
-export interface CompleteResult extends ResultBase {
+export interface CompleteResult extends Result {
     completion: {
         /** @description An array of completion values. Must not exceed 100 items. */
         values: string[];
@@ -1715,7 +1715,7 @@ This request is typically used when the server needs to understand the file syst
 structure or access specific locations that the client has permission to read from.
  * @category `roots/list`
  */
-export interface ListRootsRequest extends RequestBase {
+export interface ListRootsRequest extends Request {
     method: 'roots/list';
     params?: RequestParams;
 }
@@ -1726,7 +1726,7 @@ This result contains an array of Root objects, each representing a root director
 or file that the server can operate on.
  * @category `roots/list`
  */
-export interface ListRootsResult extends ResultBase {
+export interface ListRootsResult extends Result {
     roots: Root[];
 }
 
@@ -1757,7 +1757,7 @@ This notification should be sent whenever the client adds, removes, or modifies 
 The server should then request an updated list of roots using the ListRootsRequest.
  * @category `notifications/roots/list_changed`
  */
-export interface RootsListChangedNotification extends NotificationBase {
+export interface RootsListChangedNotification extends Notification {
     method: 'notifications/roots/list_changed';
     params?: NotificationParams;
 }
@@ -1817,7 +1817,7 @@ export type ElicitRequestParams = ElicitRequestFormParams | ElicitRequestURLPara
  * @description A request from the server to elicit additional information from the user via the client.
  * @category `elicitation/create`
  */
-export interface ElicitRequest extends RequestBase {
+export interface ElicitRequest extends Request {
     method: 'elicitation/create';
     params: ElicitRequestParams;
 }
@@ -1999,7 +1999,7 @@ export type EnumSchema = SingleSelectEnumSchema | MultiSelectEnumSchema | Legacy
  * @description The client's response to an elicitation request.
  * @category `elicitation/create`
  */
-export interface ElicitResult extends ResultBase {
+export interface ElicitResult extends Result {
     /** @description The user action in response to the elicitation.
     - "accept": User submitted the form/confirmed the action
     - "decline": User explicitly decline the action
@@ -2016,7 +2016,7 @@ export interface ElicitResult extends ResultBase {
  * @description An optional notification from the server to the client, informing it of a completion of a out-of-band elicitation request.
  * @category `notifications/elicitation/complete`
  */
-export interface ElicitationCompleteNotification extends NotificationBase {
+export interface ElicitationCompleteNotification extends Notification {
     method: 'notifications/elicitation/complete';
     params: {
         /** @description The ID of the elicitation that completed. */
