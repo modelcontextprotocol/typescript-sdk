@@ -197,6 +197,8 @@ import {
     // Derived capability schemas (generated from extracted types)
     ClientTasksCapabilitySchema,
     ServerTasksCapabilitySchema,
+    // JSON-RPC schemas
+    JSONRPCResponseSchema,
 } from './generated/sdk.schemas.js';
 
 export {
@@ -339,6 +341,7 @@ export {
     SamplingMessageContentBlockSchema,
     ClientTasksCapabilitySchema,
     ServerTasksCapabilitySchema,
+    JSONRPCResponseSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -425,9 +428,8 @@ export const JSONRPCMessageSchema = z.union([
     JSONRPCResultResponseSchema,
     JSONRPCErrorResponseSchema
 ]);
-export const JSONRPCResponseSchema = z.union([JSONRPCResultResponseSchema, JSONRPCErrorResponseSchema]);
 
-// Note: EmptyResultSchema (with .strict()), CancelledNotificationParamsSchema are re-exported from generated.
+// Note: JSONRPCResponseSchema, EmptyResultSchema (with .strict()), CancelledNotificationParamsSchema are re-exported from generated.
 
 /* Cancellation */
 /**
