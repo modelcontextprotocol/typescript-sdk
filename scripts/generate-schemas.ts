@@ -18,6 +18,8 @@
  *    - `jsonrpc: z.any()` → `z.literal("2.0")`
  *    - Add `.int()` refinements to ProgressTokenSchema, RequestIdSchema
  *    - Add `.default([])` to content arrays for backwards compatibility
+ *    - Add `.passthrough()` to ToolSchema.outputSchema for JSON Schema extensibility
+ *    - Reorder unions so specific schemas match before general ones (e.g., EnumSchema before StringSchema)
  *    - `z.union([z.literal("a"), ...])` → `z.enum(["a", ...])`
  *    - Field-level validation overrides (datetime, startsWith, etc.)
  *
@@ -100,11 +102,18 @@ const ARRAY_DEFAULT_FIELDS: Record<string, string[]> = {
 };
 
 /**
- * Fields that need .passthrough() to preserve unknown JSON Schema properties.
- * These are JSON Schema objects where extra properties like additionalProperties must be kept.
+ * Union member ordering: ensure specific schemas match before general ones.
+ * More specific schemas (with more required fields) must come first in unions,
+ * otherwise Zod will match a simpler schema and strip extra fields.
+ *
+ * Example: { type: 'string', enum: [...], enumNames: [...] } should match
+ * LegacyTitledEnumSchema (which has enumNames) before UntitledSingleSelectEnumSchema.
  */
-const PASSTHROUGH_FIELDS: Record<string, string[]> = {
-    'ToolSchema': ['outputSchema'],
+const UNION_MEMBER_ORDER: Record<string, string[]> = {
+    // EnumSchema must come before StringSchema (both have type: 'string')
+    'PrimitiveSchemaDefinitionSchema': ['EnumSchemaSchema', 'BooleanSchemaSchema', 'StringSchemaSchema', 'NumberSchemaSchema'],
+    // LegacyTitledEnumSchema must come first (has enumNames field)
+    'EnumSchemaSchema': ['LegacyTitledEnumSchemaSchema', 'SingleSelectEnumSchemaSchema', 'MultiSelectEnumSchemaSchema'],
 };
 
 /**
@@ -666,7 +675,7 @@ const AST_TRANSFORMS: Transform[] = [
     transformTypeofExpressions,
     transformIntegerRefinements,
     transformArrayDefaults,
-    transformPassthroughFields,
+    reorderUnionMembers,
     transformUnionToEnum,
     applyFieldOverrides,
     addStrictToSchemas,
@@ -695,32 +704,11 @@ function postProcess(content: string): string {
     );
 
     // Add .passthrough() to outputSchema to preserve JSON Schema properties like additionalProperties
-    // Pattern matches: outputSchema: z.object({...}).optional()
-    // We need to insert .passthrough() before .optional()
-    // Note: ts-to-zod generates inline, so pattern is: outputSchema: z.object({...}).optional()
+    // This allows extra fields like 'additionalProperties' to be preserved when parsing tool schemas
     const outputSchemaPattern = /(outputSchema:\s*z\.object\(\{[\s\S]*?\}\))(\.optional\(\))/g;
-    const newContent = content.replace(outputSchemaPattern, '$1.passthrough()$2');
-    if (newContent !== content) {
-        content = newContent;
+    if (outputSchemaPattern.test(content)) {
+        content = content.replace(outputSchemaPattern, '$1.passthrough()$2');
         console.log('    ✓ Added .passthrough() to ToolSchema.outputSchema');
-    }
-
-    // Reorder PrimitiveSchemaDefinitionSchema union: EnumSchemaSchema must come FIRST
-    // Otherwise, { type: 'string', enum: [...] } matches StringSchemaSchema and loses the enum field
-    const primitiveUnionPattern = /PrimitiveSchemaDefinitionSchema\s*=\s*z\s*\n?\s*\.union\(\[StringSchemaSchema,\s*NumberSchemaSchema,\s*BooleanSchemaSchema,\s*EnumSchemaSchema\]\)/;
-    const reorderedUnion = 'PrimitiveSchemaDefinitionSchema = z\n    .union([EnumSchemaSchema, BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema])';
-    if (primitiveUnionPattern.test(content)) {
-        content = content.replace(primitiveUnionPattern, reorderedUnion);
-        console.log('    ✓ Reordered PrimitiveSchemaDefinitionSchema union (EnumSchemaSchema first)');
-    }
-
-    // Reorder EnumSchemaSchema union: LegacyTitledEnumSchemaSchema must come FIRST
-    // Otherwise, { type: 'string', enum: [...], enumNames: [...] } matches UntitledSingleSelectEnumSchema and loses enumNames
-    const enumUnionPattern = /EnumSchemaSchema\s*=\s*z\.union\(\[SingleSelectEnumSchemaSchema,\s*MultiSelectEnumSchemaSchema,\s*LegacyTitledEnumSchemaSchema\]\)/;
-    const reorderedEnumUnion = 'EnumSchemaSchema = z.union([LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema])';
-    if (enumUnionPattern.test(content)) {
-        content = content.replace(enumUnionPattern, reorderedEnumUnion);
-        console.log('    ✓ Reordered EnumSchemaSchema union (LegacyTitledEnumSchemaSchema first)');
     }
 
     // AST-based transforms using ts-morph
@@ -854,11 +842,66 @@ function transformArrayDefaults(sourceFile: SourceFile): void {
 }
 
 /**
- * Add .passthrough() to fields that need to preserve unknown JSON Schema properties.
- * This is done via text replacement in postProcess since the structure is complex.
+ * Reorder union members according to UNION_MEMBER_ORDER configuration.
+ * This ensures more specific schemas are matched before general ones.
  */
-function transformPassthroughFields(_sourceFile: SourceFile): void {
-    // This is handled in postProcess via text replacement for simplicity
+function reorderUnionMembers(sourceFile: SourceFile): void {
+    for (const [schemaName, desiredOrder] of Object.entries(UNION_MEMBER_ORDER)) {
+        const varDecl = sourceFile.getVariableDeclaration(schemaName);
+        if (!varDecl) continue;
+
+        const initializer = varDecl.getInitializer();
+        if (!initializer) continue;
+
+        // Find the z.union([...]) call
+        let unionCall: CallExpression | undefined;
+        initializer.forEachDescendant((node) => {
+            if (!Node.isCallExpression(node)) return;
+            const expr = node.getExpression();
+            if (!Node.isPropertyAccessExpression(expr)) return;
+            if (expr.getName() === 'union') {
+                unionCall = node;
+            }
+        });
+
+        if (!unionCall) {
+            // Handle case where it's directly z.union(...) at top level
+            if (Node.isCallExpression(initializer)) {
+                const expr = initializer.getExpression();
+                if (Node.isPropertyAccessExpression(expr) && expr.getName() === 'union') {
+                    unionCall = initializer;
+                }
+            }
+        }
+
+        if (!unionCall) continue;
+
+        const args = unionCall.getArguments();
+        if (args.length !== 1) continue;
+
+        const arrayArg = args[0];
+        if (!Node.isArrayLiteralExpression(arrayArg)) continue;
+
+        // Get current member names
+        const elements = arrayArg.getElements();
+        const currentMembers = elements.map(e => e.getText().trim());
+
+        // Check if reordering is needed
+        const orderedMembers = [...currentMembers].sort((a, b) => {
+            const aIdx = desiredOrder.indexOf(a);
+            const bIdx = desiredOrder.indexOf(b);
+            // If not in desiredOrder, keep at end
+            if (aIdx === -1 && bIdx === -1) return 0;
+            if (aIdx === -1) return 1;
+            if (bIdx === -1) return -1;
+            return aIdx - bIdx;
+        });
+
+        if (JSON.stringify(currentMembers) !== JSON.stringify(orderedMembers)) {
+            arrayArg.replaceWithText('[' + orderedMembers.join(', ') + ']');
+            console.log(`    ✓ Reordered ${schemaName} union members`);
+        }
+    }
 }
 
 /**
