@@ -199,6 +199,8 @@ import {
     ServerTasksCapabilitySchema,
     // JSON-RPC schemas
     JSONRPCResponseSchema,
+    // Progress
+    ProgressNotificationParamsSchema,
 } from './generated/sdk.schemas.js';
 
 export {
@@ -342,6 +344,7 @@ export {
     ClientTasksCapabilitySchema,
     ServerTasksCapabilitySchema,
     JSONRPCResponseSchema,
+    ProgressNotificationParamsSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -380,7 +383,6 @@ export const TaskCreationParamsSchema = z.looseObject({
     pollInterval: z.number().optional()
 });
 
-// are re-exported from generated. They include RELATED_TASK_META_KEY in _meta, injected
 // during pre-processing.
 
 /**
@@ -392,7 +394,6 @@ export const TaskCreationParamsSchema = z.looseObject({
 export const isTaskAugmentedRequestParams = (value: unknown): value is TaskAugmentedRequestParams =>
     TaskAugmentedRequestParamsSchema.safeParse(value).success;
 
-// are re-exported from generated. They include proper _meta typing and .strict().
 
 export const isJSONRPCRequest = (value: unknown): value is JSONRPCRequest => JSONRPCRequestSchema.safeParse(value).success;
 export const isJSONRPCNotification = (value: unknown): value is JSONRPCNotification => JSONRPCNotificationSchema.safeParse(value).success;
@@ -654,44 +655,26 @@ export const ProgressSchema = z.object({
     message: z.optional(z.string())
 });
 
-export const ProgressNotificationParamsSchema = z.object({
-    ...NotificationParamsSchema.shape,
-    ...ProgressSchema.shape,
-    /**
-     * The progress token which was given in the initial request, used to associate this notification with the request that is proceeding.
-     */
-    progressToken: ProgressTokenSchema
-});
-
 /* Pagination */
-// are re-exported from generated.
 
 /* Tasks */
-// TaskStatusNotificationSchema, GetTaskResultSchema, GetTaskPayloadResultSchema,
-// ListTasksResultSchema, CancelTaskResultSchema are re-exported from generated.
 
 /* Resources */
-// are re-exported from generated with Base64 validation.
 
 
-// UnsubscribeRequestSchema are re-exported from generated.
 
 // ResourceRequestParamsSchema, ReadResourceRequestParamsSchema,
 // SubscribeRequestParamsSchema, UnsubscribeRequestParamsSchema,
 // ReadResourceRequestSchema, ReadResourceResultSchema, ResourceListChangedNotificationSchema,
-// ResourceUpdatedNotificationParamsSchema, ResourceUpdatedNotificationSchema are re-exported from generated.
 
 /* Prompts */
-// are re-exported from generated.
 
 
 // from generated with Base64 validation for data fields.
 
-// PromptMessageSchema, GetPromptResultSchema, PromptListChangedNotificationSchema are re-exported from generated.
 
 /* Tools */
 // ListToolsResultSchema, CallToolResultSchema, CallToolRequestParamsSchema,
-// CallToolRequestSchema, ToolListChangedNotificationSchema are re-exported from generated.
 
 /**
  * CallToolResultSchema extended with backwards compatibility to protocol version 2024-10-07.
@@ -783,7 +766,6 @@ export type ListChangedHandlers = {
 };
 
 /* Logging */
-// LoggingMessageNotificationParamsSchema are re-exported from generated.
 
 /* Sampling */
 
@@ -794,7 +776,6 @@ export type ListChangedHandlers = {
 export const SamplingContentSchema = z.discriminatedUnion('type', [TextContentSchema, ImageContentSchema, AudioContentSchema]);
 
 // SamplingMessageSchema, CreateMessageRequestParamsSchema, CreateMessageRequestSchema,
-// CreateMessageResultSchema are re-exported from generated.
 
 /**
  * The client's response to a sampling/create_message request when tools were provided.
@@ -828,9 +809,7 @@ export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
 // UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema,
 // LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, UntitledMultiSelectEnumSchemaSchema,
 // TitledMultiSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema, EnumSchemaSchema,
-// PrimitiveSchemaDefinitionSchema are re-exported from generated.
 
-// ElicitRequestSchema, ElicitResultSchema, ElicitationCompleteNotificationSchema are re-exported from generated.
 
 /**
  * Parameters for a `notifications/elicitation/complete` notification.
@@ -851,7 +830,6 @@ export const ElicitationCompleteNotificationParamsSchema = NotificationParamsSch
  */
 export const ResourceReferenceSchema = ResourceTemplateReferenceSchema;
 
-// are re-exported from generated.
 
 export function assertCompleteRequestPrompt(request: CompleteRequest): asserts request is CompleteRequestPrompt {
     if (request.params.ref.type !== 'ref/prompt') {
@@ -868,10 +846,8 @@ export function assertCompleteRequestResourceTemplate(request: CompleteRequest):
 }
 
 /* Roots */
-// are re-exported from generated.
 
 /* Client/Server message types */
-// ServerRequestSchema, ServerNotificationSchema, ServerResultSchema are re-exported from generated.
 
 export class McpError extends Error {
     constructor(
