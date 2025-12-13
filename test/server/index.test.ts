@@ -17,8 +17,11 @@ import {
     type LoggingMessageNotification,
     McpError,
     NotificationSchema,
+    type NotificationBase,
     RequestSchema,
+    type RequestBase,
     ResultSchema,
+    type ResultBase,
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS,
     CreateTaskResultSchema
@@ -150,6 +153,7 @@ describe('Zod v4', () => {
         type WeatherNotification = z4.infer<typeof WeatherNotificationSchema>;
         type WeatherResult = z4.infer<typeof WeatherResultSchema>;
 
+        // @ts-expect-error Custom test types do not extend Request/Notification/Result unions
         // Create a typed Server for weather data
         const weatherServer = new Server<WeatherRequest, WeatherNotification, WeatherResult>(
             {
@@ -2258,7 +2262,7 @@ describe('Task-based execution', () => {
                         await new Promise(resolve => setTimeout(resolve, 10));
                         const result = {
                             content: [{ type: 'text', text: 'Tool executed successfully!' }]
-                        };
+                        } as ResultBase;
                         await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
@@ -2503,7 +2507,7 @@ describe('Task-based execution', () => {
                                     text: `Collected username: ${elicitResult.action === 'accept' && elicitResult.content ? (elicitResult.content as Record<string, unknown>).username : 'none'}`
                                 }
                             ]
-                        };
+                        } as ResultBase;
                         await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
@@ -2596,7 +2600,7 @@ describe('Task-based execution', () => {
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
                 const result = {
-                    action: 'accept',
+                    action: 'accept' as const,
                     content: { username: 'server-test-user', confirmed: true }
                 };
 
@@ -2605,7 +2609,7 @@ describe('Task-based execution', () => {
                     const task = await extra.taskStore.createTask({
                         ttl: extra.taskRequestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result as ResultBase);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2677,7 +2681,7 @@ describe('Task-based execution', () => {
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
                 const result = {
-                    action: 'accept',
+                    action: 'accept' as const,
                     content: { username: 'list-user' }
                 };
 
@@ -2686,7 +2690,7 @@ describe('Task-based execution', () => {
                     const task = await extra.taskStore.createTask({
                         ttl: extra.taskRequestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result as ResultBase);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2756,7 +2760,7 @@ describe('Task-based execution', () => {
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
                 const result = {
-                    action: 'accept',
+                    action: 'accept' as const,
                     content: { username: 'result-user', confirmed: true }
                 };
 
@@ -2765,7 +2769,7 @@ describe('Task-based execution', () => {
                     const task = await extra.taskStore.createTask({
                         ttl: extra.taskRequestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result as ResultBase);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2837,7 +2841,7 @@ describe('Task-based execution', () => {
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
                 const result = {
-                    action: 'accept',
+                    action: 'accept' as const,
                     content: { username: 'list-user' }
                 };
 
@@ -2846,7 +2850,7 @@ describe('Task-based execution', () => {
                     const task = await extra.taskStore.createTask({
                         ttl: extra.taskRequestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result as ResultBase);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2959,7 +2963,7 @@ describe('Task-based execution', () => {
                         await new Promise(resolve => setTimeout(resolve, delay));
                         const result = {
                             content: [{ type: 'text', text: `Completed task ${taskNum || 'unknown'}` }]
-                        };
+                        } as ResultBase;
                         await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
@@ -3180,7 +3184,7 @@ test('should respect client task capabilities', async () => {
 
     client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
         const result = {
-            action: 'accept',
+            action: 'accept' as const,
             content: { username: 'test-user' }
         };
 
@@ -3189,7 +3193,7 @@ test('should respect client task capabilities', async () => {
             const task = await extra.taskStore.createTask({
                 ttl: extra.taskRequestedTtl
             });
-            await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+            await extra.taskStore.storeTaskResult(task.taskId, 'completed', result as ResultBase);
             // Return CreateTaskResult when task creation is requested
             return { task };
         }
