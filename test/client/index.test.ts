@@ -1838,6 +1838,7 @@ describe('outputSchema validation', () => {
         server.setRequestHandler(CallToolRequestSchema, async request => {
             if (request.params.name === 'test-tool') {
                 return {
+                    content: [],
                     structuredContent: { result: 'success', count: 42 }
                 };
             }
@@ -1931,6 +1932,7 @@ describe('outputSchema validation', () => {
             if (request.params.name === 'test-tool') {
                 // Return invalid structured content (count is string instead of number)
                 return {
+                    content: [],
                     structuredContent: { result: 'success', count: 'not a number' }
                 };
             }
@@ -2212,6 +2214,7 @@ describe('outputSchema validation', () => {
         server.setRequestHandler(CallToolRequestSchema, async request => {
             if (request.params.name === 'complex-tool') {
                 return {
+                    content: [],
                     structuredContent: {
                         name: 'John Doe',
                         age: 30,
@@ -2315,6 +2318,7 @@ describe('outputSchema validation', () => {
             if (request.params.name === 'strict-tool') {
                 // Return structured content with extra property
                 return {
+                    content: [],
                     structuredContent: {
                         name: 'John',
                         extraField: 'not allowed'
@@ -3683,6 +3687,7 @@ test('callToolStream() should yield error when structuredContent does not match 
     server.setRequestHandler(CallToolRequestSchema, async () => {
         // Return invalid structured content (count is string instead of number)
         return {
+            content: [],
             structuredContent: { result: 'success', count: 'not a number' }
         };
     });
@@ -3908,6 +3913,7 @@ test('callToolStream() should handle complex JSON schema validation', async () =
 
     server.setRequestHandler(CallToolRequestSchema, async () => {
         return {
+            content: [],
             structuredContent: {
                 name: 'John Doe',
                 age: 30,
@@ -3992,6 +3998,7 @@ test('callToolStream() should yield error with additional properties when not al
 
     server.setRequestHandler(CallToolRequestSchema, async () => {
         return {
+            content: [],
             structuredContent: {
                 name: 'John',
                 extraField: 'not allowed'
