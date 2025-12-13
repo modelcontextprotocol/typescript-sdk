@@ -1041,6 +1041,7 @@ export const ToolSchema = BaseMetadataSchema.extend(IconsSchema.shape)
                 properties: z.record(z.string(), z.record(z.string(), z.any())).optional(),
                 required: z.array(z.string()).optional()
             })
+            .passthrough()
             .optional()
             .describe(
                 'An optional JSON Schema object defining the structure of the tool\'s output returned in\nthe structuredContent field of a CallToolResult.\n\nDefaults to JSON Schema 2020-12 when no explicit $schema is provided.\nCurrently restricted to type: "object" at the root level.'

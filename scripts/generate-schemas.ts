@@ -100,6 +100,14 @@ const ARRAY_DEFAULT_FIELDS: Record<string, string[]> = {
 };
 
 /**
+ * Fields that need .passthrough() to preserve unknown JSON Schema properties.
+ * These are JSON Schema objects where extra properties like additionalProperties must be kept.
+ */
+const PASSTHROUGH_FIELDS: Record<string, string[]> = {
+    'ToolSchema': ['outputSchema'],
+};
+
+/**
  * Schemas that need .strict() added for stricter validation.
  */
 const STRICT_SCHEMAS = [
@@ -658,6 +666,7 @@ const AST_TRANSFORMS: Transform[] = [
     transformTypeofExpressions,
     transformIntegerRefinements,
     transformArrayDefaults,
+    transformPassthroughFields,
     transformUnionToEnum,
     applyFieldOverrides,
     addStrictToSchemas,
@@ -684,6 +693,17 @@ function postProcess(content: string): string {
 // Post-processed for Zod v4 compatibility
 // Run: npm run generate:schemas`,
     );
+
+    // Add .passthrough() to outputSchema to preserve JSON Schema properties like additionalProperties
+    // Pattern matches: outputSchema: z.object({...}).optional()
+    // We need to insert .passthrough() before .optional()
+    // Note: ts-to-zod generates inline, so pattern is: outputSchema: z.object({...}).optional()
+    const outputSchemaPattern = /(outputSchema:\s*z\.object\(\{[\s\S]*?\}\))(\.optional\(\))/g;
+    const newContent = content.replace(outputSchemaPattern, '$1.passthrough()$2');
+    if (newContent !== content) {
+        content = newContent;
+        console.log('    ✓ Added .passthrough() to ToolSchema.outputSchema');
+    }
 
     // AST-based transforms using ts-morph
     const project = new Project({ useInMemoryFileSystem: true });
@@ -813,6 +833,14 @@ function transformArrayDefaults(sourceFile: SourceFile): void {
             }
         });
     }
+}
+
+/**
+ * Add .passthrough() to fields that need to preserve unknown JSON Schema properties.
+ * This is done via text replacement in postProcess since the structure is complex.
+ */
+function transformPassthroughFields(_sourceFile: SourceFile): void {
+    // This is handled in postProcess via text replacement for simplicity
 }
 
 /**
