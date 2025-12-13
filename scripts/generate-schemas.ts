@@ -110,6 +110,16 @@ const DISCRIMINATED_UNIONS: Record<string, string> = {
     'ContentBlockSchema': 'type',
 };
 
+/**
+ * Derived capability types to add during pre-processing.
+ * These are extracted from parent capability interfaces for convenience.
+ * Format: { typeName: 'ParentType["property"]' }
+ */
+const DERIVED_CAPABILITY_TYPES: Record<string, string> = {
+    'ClientTasksCapability': 'ClientCapabilities["tasks"]',
+    'ServerTasksCapability': 'ServerCapabilities["tasks"]',
+};
+
 // =============================================================================
 // Pre-processing: Transform spec types to SDK-compatible hierarchy
 // =============================================================================
@@ -144,6 +154,9 @@ function preProcessTypes(content: string): string {
 
     // Transform 4: Update Request.params to use RequestParams
     updateRequestParamsType(sourceFile);
+
+    // Transform 5: Add derived capability types
+    injectDerivedCapabilityTypes(sourceFile);
 
     return sourceFile.getFullText();
 }
@@ -263,6 +276,31 @@ function updateRequestParamsType(sourceFile: SourceFile): void {
             paramsProp.setType('NotificationParams & { [key: string]: any }');
             console.log('    ✓ Updated Notification.params to include NotificationParams');
         }
+    }
+}
+
+/**
+ * Add derived capability types that extract nested capabilities from parent types.
+ * This allows reusing types like ClientCapabilities["tasks"] as standalone types.
+ *
+ * Adds type aliases like:
+ *   export type ClientTasksCapability = NonNullable<ClientCapabilities["tasks"]>;
+ */
+function injectDerivedCapabilityTypes(sourceFile: SourceFile): void {
+    for (const [typeName, sourceExpression] of Object.entries(DERIVED_CAPABILITY_TYPES)) {
+        // Check if already exists
+        if (sourceFile.getTypeAlias(typeName)) {
+            console.log(`    - ${typeName} already exists`);
+            continue;
+        }
+
+        sourceFile.addTypeAlias({
+            name: typeName,
+            isExported: true,
+            type: `NonNullable<${sourceExpression}>`,
+            docs: [`Derived from ${sourceExpression} for convenience.`]
+        });
+        console.log(`    ✓ Added derived type: ${typeName}`);
     }
 }
 

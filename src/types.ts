@@ -432,97 +432,6 @@ export const JSONRPCResponseSchema = z.union([JSONRPCResultResponseSchema, JSONR
  */
 
 /* Initialization */
-const FormElicitationCapabilitySchema = z.intersection(
-    z.object({
-        applyDefaults: z.boolean().optional()
-    }),
-    z.record(z.string(), z.unknown())
-);
-
-const ElicitationCapabilitySchema = z.preprocess(
-    value => {
-        if (value && typeof value === 'object' && !Array.isArray(value)) {
-            if (Object.keys(value as Record<string, unknown>).length === 0) {
-                return { form: {} };
-            }
-        }
-        return value;
-    },
-    z.intersection(
-        z.object({
-            form: FormElicitationCapabilitySchema.optional(),
-            url: AssertObjectSchema.optional()
-        }),
-        z.record(z.string(), z.unknown()).optional()
-    )
-);
-
-/**
- * Task capabilities for clients, indicating which request types support task creation.
- */
-export const ClientTasksCapabilitySchema = z.looseObject({
-    /**
-     * Present if the client supports listing tasks.
-     */
-    list: AssertObjectSchema.optional(),
-    /**
-     * Present if the client supports cancelling tasks.
-     */
-    cancel: AssertObjectSchema.optional(),
-    /**
-     * Capabilities for task creation on specific request types.
-     */
-    requests: z
-        .looseObject({
-            /**
-             * Task support for sampling requests.
-             */
-            sampling: z
-                .looseObject({
-                    createMessage: AssertObjectSchema.optional()
-                })
-                .optional(),
-            /**
-             * Task support for elicitation requests.
-             */
-            elicitation: z
-                .looseObject({
-                    create: AssertObjectSchema.optional()
-                })
-                .optional()
-        })
-        .optional()
-});
-
-/**
- * Task capabilities for servers, indicating which request types support task creation.
- */
-export const ServerTasksCapabilitySchema = z.looseObject({
-    /**
-     * Present if the server supports listing tasks.
-     */
-    list: AssertObjectSchema.optional(),
-    /**
-     * Present if the server supports cancelling tasks.
-     */
-    cancel: AssertObjectSchema.optional(),
-    /**
-     * Capabilities for task creation on specific request types.
-     */
-    requests: z
-        .looseObject({
-            /**
-             * Task support for tool requests.
-             */
-            tools: z
-                .looseObject({
-                    call: AssertObjectSchema.optional()
-                })
-                .optional()
-        })
-        .optional()
-});
-
 /**
  * Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
  */
@@ -550,7 +459,27 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Present if the client supports eliciting user input.
      */
-    elicitation: ElicitationCapabilitySchema.optional(),
+    elicitation: z
+        .preprocess(
+            value => {
+                if (value && typeof value === 'object' && !Array.isArray(value)) {
+                    if (Object.keys(value as Record<string, unknown>).length === 0) {
+                        return { form: {} };
+                    }
+                }
+                return value;
+            },
+            z.intersection(
+                z.object({
+                    form: z
+                        .intersection(z.object({ applyDefaults: z.boolean().optional() }), z.record(z.string(), z.unknown()))
+                        .optional(),
+                    url: AssertObjectSchema.optional()
+                }),
+                z.record(z.string(), z.unknown()).optional()
+            )
+        )
+        .optional(),
     /**
      * Present if the client supports listing roots.
      */
@@ -565,8 +494,53 @@ export const ClientCapabilitiesSchema = z.object({
     /**
      * Present if the client supports task creation.
      */
-    tasks: ClientTasksCapabilitySchema.optional()
+    tasks: z
+        .looseObject({
+            /**
+             * Present if the client supports listing tasks.
+             */
+            list: AssertObjectSchema.optional(),
+            /**
+             * Present if the client supports cancelling tasks.
+             */
+            cancel: AssertObjectSchema.optional(),
+            /**
+             * Capabilities for task creation on specific request types.
+             */
+            requests: z
+                .looseObject({
+                    /**
+                     * Task support for sampling requests.
+                     */
+                    sampling: z
+                        .looseObject({
+                            createMessage: AssertObjectSchema.optional()
+                        })
+                        .optional(),
+                    /**
+                     * Task support for elicitation requests.
+                     */
+                    elicitation: z
+                        .looseObject({
+                            create: AssertObjectSchema.optional()
+                        })
+                        .optional()
+                })
+                .optional()
+        })
+        .optional()
 });
+
+/**
+ * Task capabilities for clients - extracted from ClientCapabilitiesSchema.
+ */
+export const ClientTasksCapabilitySchema = ClientCapabilitiesSchema.shape.tasks.unwrap();
+
+/**
+ * Elicitation capability schema - extracted from ClientCapabilitiesSchema.
+ * Includes preprocessing to handle empty objects as { form: {} }.
+ */
+export const ElicitationCapabilitySchema = ClientCapabilitiesSchema.shape.elicitation.unwrap();
 
 // Note: InitializeRequestParamsSchema, InitializeRequestSchema are re-exported from generated.
 
@@ -629,8 +603,39 @@ export const ServerCapabilitiesSchema = z.object({
     /**
      * Present if the server supports task creation.
      */
-    tasks: ServerTasksCapabilitySchema.optional()
+    tasks: z
+        .looseObject({
+            /**
+             * Present if the server supports listing tasks.
+             */
+            list: AssertObjectSchema.optional(),
+            /**
+             * Present if the server supports cancelling tasks.
+             */
+            cancel: AssertObjectSchema.optional(),
+            /**
+             * Capabilities for task creation on specific request types.
+             */
+            requests: z
+                .looseObject({
+                    /**
+                     * Task support for tool requests.
+                     */
+                    tools: z
+                        .looseObject({
+                            call: AssertObjectSchema.optional()
+                        })
+                        .optional()
+                })
+                .optional()
+        })
+        .optional()
 });
+
+/**
+ * Task capabilities for servers - extracted from ServerCapabilitiesSchema.
+ */
+export const ServerTasksCapabilitySchema = ServerCapabilitiesSchema.shape.tasks.unwrap();
 
 // Note: InitializeResultSchema, InitializedNotificationSchema are re-exported from generated.
 
