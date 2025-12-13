@@ -1,36 +1,34 @@
 /**
- * Schema Generation Script using ts-to-zod as a library
+ * Schema Generation Script
  *
- * This script generates Zod schemas from spec.types.ts with pre-processing and
- * post-processing for SDK compatibility.
+ * Generates Zod schemas from spec.types.ts using ts-to-zod, with declarative
+ * transform pipelines for SDK compatibility.
  *
  * ## Pipeline
  *
- * 1. **Pre-process spec.types.ts** - Transform type hierarchy to match SDK:
- *    - `extends JSONRPCRequest` → `extends Request`
- *    - `extends JSONRPCNotification` → `extends Notification`
+ * ### Phase 1: Type Transforms (TYPE_TRANSFORMS)
+ * Transform spec.types.ts → sdk.types.ts for SDK conventions:
+ * - `extends JSONRPCRequest` → `extends Request`
+ * - `extends JSONRPCNotification` → `extends Notification`
+ * - Inject SDK-specific extensions (meta keys, capability types)
+ * - Convert JSDoc to @description for .describe() generation
  *
- * 2. **Generate schemas** via ts-to-zod library
+ * ### Phase 2: Type Cleanup (TYPE_CLEANUP_TRANSFORMS)
+ * Prepare types for clean SDK export:
+ * - Remove index signatures (enables TypeScript union narrowing)
+ * - Create union types (McpRequest, McpNotification, McpResult)
  *
- * 3. **Post-process schemas** using ts-morph AST transforms:
- *    - `"zod"` → `"zod/v4"`
- *    - `z.record().and(z.object())` → `z.looseObject()`
- *    - `jsonrpc: z.any()` → `z.literal("2.0")`
- *    - Add `.int()` refinements to ProgressTokenSchema, RequestIdSchema
- *    - Add `.default([])` to content arrays for backwards compatibility
- *    - Add `.passthrough()` to ToolSchema.outputSchema for JSON Schema extensibility
- *    - Reorder unions so specific schemas match before general ones (e.g., EnumSchema before StringSchema)
- *    - `z.union([z.literal("a"), ...])` → `z.enum(["a", ...])`
- *    - Field-level validation overrides (datetime, startsWith, etc.)
+ * ### Phase 3: Schema Transforms (SchemaTransforms)
+ * Transform ts-to-zod output for Zod v4 and SDK conventions:
+ * - Convert to Zod v4 imports and patterns
+ * - Add field-level validation (datetime, base64, etc.)
+ * - Add .strict(), .passthrough(), .default() as needed
+ * - Convert to discriminatedUnion for better performance
  *
- * ## Why Pre-Process Types?
+ * ## Architecture
  *
- * The MCP spec defines request/notification types extending JSONRPCRequest/JSONRPCNotification
- * which include `jsonrpc` and `id` fields. The SDK handles these at the transport layer,
- * so SDK types extend the simpler Request/Notification without these fields.
- *
- * By transforming the types BEFORE schema generation, we get schemas that match
- * the SDK's type hierarchy exactly, enabling types.ts to re-export from generated/.
+ * Each transform is a named function operating on a ts-morph SourceFile.
+ * Transform arrays provide a declarative, reorderable pipeline.
  *
  * @see https://github.com/fabien0102/ts-to-zod
  * @see https://github.com/dsherret/ts-morph
@@ -195,7 +193,31 @@ const DERIVED_CAPABILITY_TYPES: Record<string, { parent: string; property: strin
 };
 
 // =============================================================================
-// Pre-processing: Transform spec types to SDK-compatible hierarchy
+// Transform Infrastructure
+// =============================================================================
+
+/** A transform function that operates on a ts-morph SourceFile */
+type Transform = (sourceFile: SourceFile) => void;
+
+
+/**
+ * Apply a list of transforms to content, logging each step.
+ */
+function applyTransforms(content: string, transforms: Transform[], label: string): string {
+    const project = new Project({ useInMemoryFileSystem: true });
+    const sourceFile = project.createSourceFile('source.ts', content);
+
+    console.log(`  🔧 ${label}...`);
+    for (const transform of transforms) {
+        console.log(`    - ${transform.name}`);
+        transform(sourceFile);
+    }
+
+    return sourceFile.getFullText();
+}
+
+// =============================================================================
+// Type Transforms (spec.types.ts → sdk.types.ts)
 // =============================================================================
 
 /**
@@ -205,85 +227,158 @@ const DERIVED_CAPABILITY_TYPES: Record<string, { parent: string; property: strin
 const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
 
 /**
- * Pre-process spec.types.ts using ts-morph to transform for SDK compatibility.
- *
- * Transforms:
- * 1. `extends JSONRPCRequest` → `extends Request`
- * 2. `extends JSONRPCNotification` → `extends Notification`
- * 3. Add RELATED_TASK_META_KEY to RequestParams._meta
- * 4. Change Request.params type to use RequestParams (for proper _meta typing)
+ * Abstract base types excluded from union discovery.
  */
-function preProcessTypes(content: string): string {
-    const project = new Project({ useInMemoryFileSystem: true });
-    const sourceFile = project.createSourceFile('types.ts', content);
+const UNION_EXCLUSIONS = new Set([
+    'JSONRPCRequest',
+    'JSONRPCNotification',
+    'PaginatedRequest',
+    'PaginatedResult'
+]);
 
-    console.log('  🔧 Pre-processing types...');
+// =============================================================================
+// Type Transforms (spec.types.ts → sdk.types.ts)
+// =============================================================================
 
-    // Transform 1 & 2: Change extends clauses
-    transformExtendsClause(sourceFile, 'JSONRPCRequest', 'Request');
-    transformExtendsClause(sourceFile, 'JSONRPCNotification', 'Notification');
+/**
+ * Type transforms applied to spec.types.ts before schema generation.
+ * These adapt the MCP spec types to SDK conventions.
+ * Order matters: transforms are applied in property definition order.
+ */
+const TypeTransforms = {
+    /** Transform `extends JSONRPCRequest` → `extends Request` */
+    extendsJSONRPCRequest(sourceFile: SourceFile) {
+        for (const iface of sourceFile.getInterfaces()) {
+            for (const ext of iface.getExtends()) {
+                if (ext.getText() === 'JSONRPCRequest') {
+                    ext.replaceWithText('Request');
+                }
+            }
+        }
+    },
 
-    // Transform 3: Add RELATED_TASK_META_KEY to RequestParams._meta
-    injectRelatedTaskMetaKey(sourceFile);
+    /** Transform `extends JSONRPCNotification` → `extends Notification` */
+    extendsJSONRPCNotification(sourceFile: SourceFile) {
+        for (const iface of sourceFile.getInterfaces()) {
+            for (const ext of iface.getExtends()) {
+                if (ext.getText() === 'JSONRPCNotification') {
+                    ext.replaceWithText('Notification');
+                }
+            }
+        }
+    },
 
-    // Transform 4: Update Request.params to use RequestParams
-    updateRequestParamsType(sourceFile);
+    /** Inject RELATED_TASK_META_KEY into RequestParams._meta */
+    injectRelatedTaskMetaKey: injectRelatedTaskMetaKey,
 
-    // Transform 5: Inline JSONRPCResponse into JSONRPCMessage and remove JSONRPCResponse
-    // (types.ts will define these locally with proper schema unions)
-    inlineJSONRPCResponse(sourceFile);
+    /** Update Request.params and Notification.params types */
+    updateRequestParamsType: updateRequestParamsType,
 
-    // Transform 6: Inject SDK-specific extensions to spec types
-    injectSdkExtensions(sourceFile);
+    /** Inline JSONRPCResponse into JSONRPCMessage union */
+    inlineJSONRPCResponse: inlineJSONRPCResponse,
 
-    // Transform 7: Convert JSDoc comments to @description tags for .describe() generation
-    // (Must run before injectDerivedCapabilityTypes so inline types get @description)
-    convertJsDocToDescription(sourceFile);
+    /** Inject SDK-specific extensions (e.g., applyDefaults) */
+    injectSdkExtensions: injectSdkExtensions,
 
-    // Transform 8: Add derived capability types (extracts from parent interfaces)
-    injectDerivedCapabilityTypes(sourceFile);
+    /** Convert JSDoc comments to @description for .describe() generation */
+    convertJsDocToDescription: convertJsDocToDescription,
 
-    return sourceFile.getFullText();
+    /** Add derived capability types (ClientTasksCapability, etc.) */
+    injectDerivedCapabilityTypes: injectDerivedCapabilityTypes,
+};
+
+/**
+ * Type cleanup transforms applied after main transforms.
+ * These prepare types for clean SDK export.
+ */
+const TypeCleanupTransforms = {
+    /** Remove standalone index signatures from interfaces */
+    removeIndexSignatures(sourceFile: SourceFile) {
+        let count = 0;
+        for (const iface of sourceFile.getInterfaces()) {
+            const indexSigs = iface.getIndexSignatures();
+            for (const sig of indexSigs) {
+                sig.remove();
+                count++;
+            }
+        }
+        if (count > 0) {
+            console.log(`      ✓ Removed ${count} standalone index signatures`);
+        }
+    },
+
+    /** Create union types (McpRequest, McpNotification, McpResult) */
+    createUnionTypes: createUnionTypes,
+};
+
+// =============================================================================
+// Schema Transforms (generated Zod → final SDK schemas)
+// =============================================================================
+
+/**
+ * Schema transforms applied to ts-to-zod output.
+ * These adapt generated schemas for SDK conventions and Zod v4.
+ * Order matters: transforms are applied in property definition order.
+ */
+const SchemaTransforms = {
+    /** Transform z.record().and(z.object()) → z.object().passthrough() */
+    recordAndToPassthrough: recordAndToPassthrough,
+
+    /** Transform typeof expressions (z.any() → z.literal("2.0")) */
+    typeofToLiteral: typeofToLiteral,
+
+    /** Add .int() refinement to integer schemas */
+    integerRefinements: integerRefinements,
+
+    /** Add .default([]) to content arrays for backwards compat */
+    arrayDefaults: arrayDefaults,
+
+    /** Reorder union members (specific before general) */
+    reorderUnionMembers: reorderUnionMembers,
+
+    /** Convert z.union of literals to z.enum */
+    unionToEnum: unionToEnum,
+
+    /** Apply field-level validation overrides */
+    fieldOverrides: fieldOverrides,
+
+    /** Add .strict() to JSON-RPC schemas */
+    strictSchemas: strictSchemas,
+
+    /** Convert z.union to z.discriminatedUnion for tagged unions */
+    discriminatedUnion: discriminatedUnion,
+
+    /** Add .describe() to top-level schemas */
+    topLevelDescribe: topLevelDescribe,
+
+    /** Add AssertObjectSchema for capability schemas */
+    assertObjectSchema: assertObjectSchema,
+
+    /** Add z.preprocess for elicitation backwards compat */
+    elicitationPreprocess: elicitationPreprocess,
+
+    /** Convert capability schemas to looseObject */
+    capabilitiesToLooseObject: capabilitiesToLooseObject,
+};
+
+// =============================================================================
+// Type Transform Implementations
+// =============================================================================
+
+/**
+ * Pre-process spec.types.ts using ts-morph to transform for SDK compatibility.
+ */
+function transformTypesForSdk(content: string): string {
+    return applyTransforms(content, Object.values(TypeTransforms), 'Transforming types for SDK');
 }
 
 /**
- * Remove standalone index signatures from interface bodies in sdk.types.ts.
- *
- * The MCP spec uses index signatures for extensibility, but they break TypeScript union narrowing.
- * We only remove STANDALONE index signatures from interface bodies, NOT:
- * - Intersection patterns in property types (needed for params extensibility)
- * - Index signatures inside nested objects like _meta
- *
- * Example of what we remove:
- *   interface Result {
- *     _meta?: {...};
- *     [key: string]: unknown;  // <-- This is removed
- *   }
- *
- * Example of what we keep:
- *   interface Request {
- *     params?: RequestParams & { [key: string]: any };  // <-- Kept (allows extra params)
- *   }
+ * Apply cleanup transforms to prepare types for export.
  */
-function removeIndexSignaturesFromTypes(content: string): string {
-    console.log('  🔧 Cleaning up index signatures for type exports...');
-
-    let result = content;
-    let count = 0;
-
-    // Only remove standalone index signatures from interface bodies
-    // These are lines that ONLY contain an index signature (with optional leading whitespace)
-    // Pattern matches: `    [key: string]: unknown;\n`
-    const standalonePattern = /^(\s*)\[key:\s*string\]:\s*unknown;\s*\n/gm;
-    result = result.replace(standalonePattern, () => {
-        count++;
-        return '';
-    });
-
-    console.log(`    ✓ Removed ${count} standalone index signatures`);
-
-    return result;
+function cleanupTypesForExport(content: string): string {
+    return applyTransforms(content, Object.values(TypeCleanupTransforms), 'Cleaning up types for export');
 }
+
 
 /**
  * Check if an interface transitively extends a base interface.
@@ -365,49 +460,17 @@ function findUnionMembers(
 }
 
 /**
- * Abstract base types that should be excluded from union discovery.
- * These are intermediate types in the hierarchy, not concrete MCP messages.
+ * Create union types (McpRequest, McpNotification, McpResult) from discovered members.
+ *
+ * Auto-discovers types that extend/reference base types and creates unions for type narrowing.
  */
-const UNION_EXCLUSIONS = new Set([
-    'JSONRPCRequest',
-    'JSONRPCNotification',
-    'PaginatedRequest',
-    'PaginatedResult'
-]);
-
-/**
- * Convert base interfaces to union types in sdk.types.ts.
- *
- * This transforms:
- *   interface Result { _meta?: {...} }
- *   interface InitializeResult extends Result { ... }
- *
- * Into:
- *   interface Result { _meta?: {...} }  // Base stays as-is
- *   interface InitializeResult extends Result { ... }
- *   type McpResult = InitializeResult | CompleteResult | ...  // Union with Mcp prefix
- *
- * Union members are auto-discovered by finding types that:
- * - Extend the base interface (transitively), or
- * - Are type aliases referencing the base type
- * - Match the naming convention (*Request, *Notification, *Result)
- * - Are not in the exclusion list (abstract bases like PaginatedRequest)
- *
- * This enables TypeScript union narrowing while preserving backwards compatibility.
- * The base type keeps its original name, and the union gets an "Mcp" prefix.
- */
-function convertBaseTypesToUnions(content: string): string {
-    const project = new Project({ useInMemoryFileSystem: true });
-    const sourceFile = project.createSourceFile('types.ts', content);
-
-    console.log('  🔧 Converting base types to unions (auto-discovering members)...');
-
+function createUnionTypes(sourceFile: SourceFile): void {
     const baseNames = ['Request', 'Notification', 'Result'];
 
     for (const baseName of baseNames) {
         const baseInterface = sourceFile.getInterface(baseName);
         if (!baseInterface) {
-            console.warn(`    ⚠️  Interface ${baseName} not found`);
+            console.warn(`      ⚠️ Interface ${baseName} not found`);
             continue;
         }
 
@@ -415,15 +478,12 @@ function convertBaseTypesToUnions(content: string): string {
         const unionMembers = findUnionMembers(sourceFile, baseName, UNION_EXCLUSIONS);
 
         if (unionMembers.length === 0) {
-            console.warn(`    ⚠️  No members found for ${baseName}`);
+            console.warn(`      ⚠️ No members found for ${baseName}`);
             continue;
         }
 
-        // Base interface keeps its original name (Request, Notification, Result)
-        // Union type gets Mcp prefix (McpRequest, McpNotification, McpResult)
+        // Create union type with Mcp prefix
         const unionName = `Mcp${baseName}`;
-
-        // Add the union type alias after the base interface
         const unionType = unionMembers.join('\n    | ');
         const insertPos = baseInterface.getEnd();
         sourceFile.insertText(
@@ -431,23 +491,7 @@ function convertBaseTypesToUnions(content: string): string {
             `\n\n/** Union of all MCP ${baseName.toLowerCase()} types for type narrowing. */\nexport type ${unionName} =\n    | ${unionType};`
         );
 
-        console.log(`    ✓ Created ${unionName} with ${unionMembers.length} auto-discovered members`);
-    }
-
-    return sourceFile.getFullText();
-}
-
-/**
- * Transform extends clauses from one type to another.
- */
-function transformExtendsClause(sourceFile: SourceFile, from: string, to: string): void {
-    for (const iface of sourceFile.getInterfaces()) {
-        for (const ext of iface.getExtends()) {
-            if (ext.getText() === from) {
-                ext.replaceWithText(to);
-                console.log(`    - ${iface.getName()}: extends ${from} → extends ${to}`);
-            }
-        }
+        console.log(`      ✓ Created ${unionName} with ${unionMembers.length} members`);
     }
 }
 
@@ -761,64 +805,31 @@ function convertNodeJsDoc(node: {
 }
 
 // =============================================================================
-// Post-processing: AST-based transforms using ts-morph
+// Schema Transform Implementations
 // =============================================================================
 
-type SourceFile = ReturnType<Project['createSourceFile']>;
-type Transform = (sourceFile: SourceFile) => void;
-
 /**
- * AST transforms applied in order. Functions are named for logging.
+ * Transform generated schemas for SDK compatibility and Zod v4.
  */
-const AST_TRANSFORMS: Transform[] = [
-    transformRecordAndToLooseObject,
-    transformTypeofExpressions,
-    transformIntegerRefinements,
-    transformArrayDefaults,
-    reorderUnionMembers,
-    transformUnionToEnum,
-    applyFieldOverrides,
-    addStrictToSchemas,
-    convertToDiscriminatedUnion,
-    addTopLevelDescribe,
-    addAssertObjectSchema,
-    addElicitationPreprocess,
-    convertCapabilitiesToLooseObject
-];
-
-/**
- * Post-process generated schemas using ts-morph for robust AST manipulation.
- */
-function postProcess(content: string): string {
-    // Quick text-based transforms first (simpler cases)
+function transformGeneratedSchemas(content: string): string {
+    // Text-based transforms (simple replacements)
     content = content.replace('import { z } from "zod";', 'import { z } from "zod/v4";');
-
     content = content.replace(
         '// Generated by ts-to-zod',
         `// Generated by ts-to-zod
-// Post-processed for Zod v4 compatibility
-// Run: npm run generate:schemas`
+// Transformed for SDK compatibility (Zod v4, validation, discriminated unions, etc.)
+// DO NOT EDIT - Run: npm run generate:schemas`
     );
 
-    // Add .passthrough() to outputSchema to preserve JSON Schema properties like additionalProperties
-    // This allows extra fields like 'additionalProperties' to be preserved when parsing tool schemas
+    // Add .passthrough() to outputSchema
     const outputSchemaPattern = /(outputSchema:\s*z\.object\(\{[\s\S]*?\}\))(\.optional\(\))/g;
     if (outputSchemaPattern.test(content)) {
         content = content.replace(outputSchemaPattern, '$1.passthrough()$2');
         console.log('    ✓ Added .passthrough() to ToolSchema.outputSchema');
     }
 
-    // AST-based transforms using ts-morph
-    const project = new Project({ useInMemoryFileSystem: true });
-    const sourceFile = project.createSourceFile('schemas.ts', content);
-
-    console.log('  🔧 Applying AST transforms...');
-    for (const transform of AST_TRANSFORMS) {
-        console.log(`    - ${transform.name}`);
-        transform(sourceFile);
-    }
-
-    return sourceFile.getFullText();
+    // AST-based transforms
+    return applyTransforms(content, Object.values(SchemaTransforms), 'Transforming generated schemas');
 }
 
 /**
@@ -829,7 +840,7 @@ function postProcess(content: string): string {
  * - This breaks TypeScript union narrowing (can't check 'prop' in obj)
  * - .passthrough() allows extra properties at runtime without affecting the type
  */
-function transformRecordAndToLooseObject(sourceFile: SourceFile): void {
+function recordAndToPassthrough(sourceFile: SourceFile): void {
     // Find all call expressions
     sourceFile.forEachDescendant(node => {
         if (!Node.isCallExpression(node)) return;
@@ -862,7 +873,7 @@ function transformRecordAndToLooseObject(sourceFile: SourceFile): void {
 /**
  * Transform typeof expressions that became z.any() into proper literals.
  */
-function transformTypeofExpressions(sourceFile: SourceFile): void {
+function typeofToLiteral(sourceFile: SourceFile): void {
     // Find property assignments with jsonrpc: z.any()
     sourceFile.forEachDescendant(node => {
         if (!Node.isPropertyAssignment(node)) return;
@@ -882,7 +893,7 @@ function transformTypeofExpressions(sourceFile: SourceFile): void {
 /**
  * Add .int() refinement to z.number() in specific schemas.
  */
-function transformIntegerRefinements(sourceFile: SourceFile): void {
+function integerRefinements(sourceFile: SourceFile): void {
     for (const schemaName of INTEGER_SCHEMAS) {
         const varDecl = sourceFile.getVariableDeclaration(schemaName);
         if (!varDecl) continue;
@@ -909,7 +920,7 @@ function transformIntegerRefinements(sourceFile: SourceFile): void {
  * Add .default([]) to array fields for backwards compatibility.
  * The SDK historically made certain content arrays optional with empty defaults.
  */
-function transformArrayDefaults(sourceFile: SourceFile): void {
+function arrayDefaults(sourceFile: SourceFile): void {
     for (const [schemaName, fieldNames] of Object.entries(ARRAY_DEFAULT_FIELDS)) {
         const varDecl = sourceFile.getVariableDeclaration(schemaName);
         if (!varDecl) continue;
@@ -1006,7 +1017,7 @@ function reorderUnionMembers(sourceFile: SourceFile): void {
  *
  * This handles cases that the regex approach missed, including chained methods.
  */
-function transformUnionToEnum(sourceFile: SourceFile): void {
+function unionToEnum(sourceFile: SourceFile): void {
     // Collect union nodes that should be converted
     const nodesToReplace: Array<{ node: CallExpression; values: string[] }> = [];
 
@@ -1078,7 +1089,7 @@ function transformUnionToEnum(sourceFile: SourceFile): void {
 /**
  * Apply field-level validation overrides to specific schemas.
  */
-function applyFieldOverrides(sourceFile: SourceFile): void {
+function fieldOverrides(sourceFile: SourceFile): void {
     for (const [schemaName, fields] of Object.entries(FIELD_OVERRIDES)) {
         const varDecl = sourceFile.getVariableDeclaration(schemaName);
         if (!varDecl) {
@@ -1106,7 +1117,7 @@ function applyFieldOverrides(sourceFile: SourceFile): void {
  * Add .strict() to specified schemas for stricter validation.
  * This matches the SDK's behavior of rejecting unknown properties.
  */
-function addStrictToSchemas(sourceFile: SourceFile): void {
+function strictSchemas(sourceFile: SourceFile): void {
     for (const schemaName of STRICT_SCHEMAS) {
         const varDecl = sourceFile.getVariableDeclaration(schemaName);
         if (!varDecl) continue;
@@ -1125,7 +1136,7 @@ function addStrictToSchemas(sourceFile: SourceFile): void {
  * Convert z.union() to z.discriminatedUnion() for specified schemas.
  * This provides better performance and error messages for tagged unions.
  */
-function convertToDiscriminatedUnion(sourceFile: SourceFile): void {
+function discriminatedUnion(sourceFile: SourceFile): void {
     for (const [schemaName, discriminator] of Object.entries(DISCRIMINATED_UNIONS)) {
         const varDecl = sourceFile.getVariableDeclaration(schemaName);
         if (!varDecl) continue;
@@ -1149,7 +1160,7 @@ function convertToDiscriminatedUnion(sourceFile: SourceFile): void {
  * Add .describe() to top-level schemas based on their JSDoc @description tag.
  * ts-to-zod only adds .describe() to properties, not to the schema itself.
  */
-function addTopLevelDescribe(sourceFile: SourceFile): void {
+function topLevelDescribe(sourceFile: SourceFile): void {
     let count = 0;
 
     for (const varStmt of sourceFile.getVariableStatements()) {
@@ -1208,7 +1219,7 @@ const ASSERT_OBJECT_SCHEMAS = [
  * Add AssertObjectSchema definition and replace z.record(z.string(), z.any()) with it
  * in capability schemas. This provides better TypeScript typing (object vs { [x: string]: any }).
  */
-function addAssertObjectSchema(sourceFile: SourceFile): void {
+function assertObjectSchema(sourceFile: SourceFile): void {
     // Check if any of the target schemas exist
     const hasTargetSchemas = ASSERT_OBJECT_SCHEMAS.some(name => sourceFile.getVariableDeclaration(name));
     if (!hasTargetSchemas) return;
@@ -1255,7 +1266,7 @@ const AssertObjectSchema = z.custom<object>((v): v is object => v !== null && (t
  * The spec says capabilities are "not a closed set" - any client/server can define
  * additional capabilities. Using looseObject allows extra properties.
  */
-function convertCapabilitiesToLooseObject(sourceFile: SourceFile): void {
+function capabilitiesToLooseObject(sourceFile: SourceFile): void {
     const CAPABILITY_SCHEMAS = [
         'ClientCapabilitiesSchema',
         'ServerCapabilitiesSchema',
@@ -1292,7 +1303,7 @@ function convertCapabilitiesToLooseObject(sourceFile: SourceFile): void {
  * - preprocess: transforms empty {} to { form: {} } for SDK backwards compatibility
  * - keeps original schema structure to maintain type compatibility with spec
  */
-function addElicitationPreprocess(sourceFile: SourceFile): void {
+function elicitationPreprocess(sourceFile: SourceFile): void {
     const varDecl = sourceFile.getVariableDeclaration('ClientCapabilitiesSchema');
     if (!varDecl) return;
 
@@ -1398,18 +1409,12 @@ async function main() {
         mkdirSync(GENERATED_DIR, { recursive: true });
     }
 
-    // Read and pre-process spec types to match SDK hierarchy
+    // Phase 1: Transform types for SDK
     const rawSourceText = readFileSync(SPEC_TYPES_FILE, 'utf-8');
-    const sdkTypesContent = preProcessTypes(rawSourceText);
+    const sdkTypesContent = transformTypesForSdk(rawSourceText);
+    const cleanedTypesContent = cleanupTypesForExport(sdkTypesContent);
 
-    // Clean up types for SDK export - remove ALL index signature patterns
-    // This enables TypeScript union narrowing while schemas handle runtime extensibility
-    let cleanedTypesContent = removeIndexSignaturesFromTypes(sdkTypesContent);
-
-    // Convert base types (Result) to unions for better type narrowing
-    cleanedTypesContent = convertBaseTypesToUnions(cleanedTypesContent);
-
-    // Write pre-processed types to sdk.types.ts
+    // Write types with header
     const sdkTypesWithHeader = `/* eslint-disable @typescript-eslint/no-empty-object-type */
 /**
  * SDK-compatible types generated from spec.types.ts
@@ -1450,9 +1455,9 @@ ${cleanedTypesContent.replace(/^\/\*\*[\s\S]*?\*\/\n/, '')}`;
         console.warn('⚠️  Warning: Circular dependencies detected in types');
     }
 
-    // Generate schema file with relative import to sdk.types
+    // Phase 2: Transform generated schemas
     let schemasContent = result.getZodSchemasFile('./sdk.types.js');
-    schemasContent = postProcess(schemasContent);
+    schemasContent = transformGeneratedSchemas(schemasContent);
 
     writeFileSync(SCHEMA_OUTPUT_FILE, schemasContent, 'utf-8');
     console.log(`✅ Written: ${SCHEMA_OUTPUT_FILE}`);

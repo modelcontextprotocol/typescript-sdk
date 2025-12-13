@@ -63,6 +63,7 @@ export interface RequestParams {
         progressToken?: ProgressToken;
         /** @description If specified, this request is related to the provided task. */
         'io.modelcontextprotocol/related-task'?: RelatedTaskMetadata;
+        [key: string]: unknown;
     };
 }
 
@@ -229,6 +230,7 @@ export interface URLElicitationRequiredError extends Omit<JSONRPCErrorResponse, 
         code: typeof URL_ELICITATION_REQUIRED;
         data: {
             elicitations: ElicitRequestURLParams[];
+            [key: string]: unknown;
         };
     };
 }
