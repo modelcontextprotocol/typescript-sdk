@@ -2,6 +2,17 @@ import * as z from 'zod/v4';
 import { AuthInfo } from './server/auth/types.js';
 
 // =============================================================================
+// Type re-exports from generated sdk.types.ts (for type guards and early usage)
+// =============================================================================
+import type {
+    JSONRPCRequest,
+    JSONRPCNotification,
+    JSONRPCResultResponse,
+    JSONRPCErrorResponse,
+    RequestParams,
+} from './generated/sdk.types.js';
+
+// =============================================================================
 // Re-exports from generated schemas
 // =============================================================================
 // These schemas are generated from spec.types.ts and are identical to the
@@ -780,23 +791,36 @@ export interface MessageExtraInfo {
     closeStandaloneSSEStream?: () => void;
 }
 
-/* JSON-RPC types */
-export type ProgressToken = Infer<typeof ProgressTokenSchema>;
-export type Cursor = Infer<typeof CursorSchema>;
-export type Request = Infer<typeof RequestSchema>;
-export type TaskAugmentedRequestParams = Infer<typeof TaskAugmentedRequestParamsSchema>;
-export type Notification = Infer<typeof NotificationSchema>;
-export type Result = Infer<typeof ResultSchema>;
-export type RequestId = Infer<typeof RequestIdSchema>;
-export type JSONRPCRequest = Infer<typeof JSONRPCRequestSchema>;
-export type JSONRPCNotification = Infer<typeof JSONRPCNotificationSchema>;
-export type JSONRPCResponse = Infer<typeof JSONRPCResponseSchema>;
-export type JSONRPCErrorResponse = Infer<typeof JSONRPCErrorResponseSchema>;
-export type JSONRPCResultResponse = Infer<typeof JSONRPCResultResponseSchema>;
+/* JSON-RPC types - re-exported from generated sdk.types.ts */
+export type {
+    // Core protocol types (now unions for narrowing)
+    Request,
+    Notification,
+    Result,
+    // Base interfaces (for extending)
+    RequestBase,
+    NotificationBase,
+    ResultBase,
+    // Params types
+    RequestParams,
+    NotificationParams,
+    // Primitives
+    ProgressToken,
+    Cursor,
+    RequestId,
+    // JSON-RPC wire types (already imported at top, re-export here)
+    JSONRPCRequest,
+    JSONRPCNotification,
+    JSONRPCResultResponse,
+    JSONRPCErrorResponse,
+    JSONRPCMessage,
+} from './generated/sdk.types.js';
 
-export type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
-export type RequestParams = Infer<typeof RequestParamsSchema>;
-export type NotificationParams = Infer<typeof NotificationParamsSchema>;
+// TaskAugmentedRequestParams still from schema (not in sdk.types.ts yet)
+export type TaskAugmentedRequestParams = Infer<typeof TaskAugmentedRequestParamsSchema>;
+
+// JSONRPCResponse is defined locally (union of result/error)
+export type JSONRPCResponse = Infer<typeof JSONRPCResponseSchema>;
 /**
  * Request metadata - the _meta field type from RequestParams.
  */

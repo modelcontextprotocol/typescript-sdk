@@ -28,7 +28,11 @@ import {
     ProgressNotificationSchema,
     RELATED_TASK_META_KEY,
     RequestId,
+    Request,
+    RequestBase,
     Result,
+    ResultBase,
+    NotificationBase,
     ServerCapabilities,
     RequestMeta,
     MessageExtraInfo,
@@ -40,8 +44,6 @@ import {
     Task,
     TaskStatusNotification,
     TaskStatusNotificationSchema,
-    Request,
-    Notification,
     JSONRPCResultResponse,
     isTaskAugmentedRequestParams
 } from '../types.js';
@@ -234,7 +236,7 @@ export interface RequestTaskStore {
 /**
  * Extra data given to request handlers.
  */
-export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT extends Notification> = {
+export type RequestHandlerExtra<SendRequestT extends RequestBase, SendNotificationT extends NotificationBase> = {
     /**
      * An abort signal used to communicate if the request was cancelled from the sender's side.
      */
@@ -317,7 +319,7 @@ type TimeoutInfo = {
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
  */
-export abstract class Protocol<SendRequestT extends Request, SendNotificationT extends Notification, SendResultT extends Result> {
+export abstract class Protocol<SendRequestT extends RequestBase, SendNotificationT extends NotificationBase, SendResultT extends ResultBase> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<
@@ -361,7 +363,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     /**
      * A handler to invoke for any notification types that do not have their own handler installed.
      */
-    fallbackNotificationHandler?: (notification: Notification) => Promise<void>;
+    fallbackNotificationHandler?: (notification: JSONRPCNotification) => Promise<void>;
 
     constructor(private _options?: ProtocolOptions) {
         this.setNotificationHandler(CancelledNotificationSchema, notification => {
@@ -390,10 +392,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                 // Per spec: tasks/get responses SHALL NOT include related-task metadata
                 // as the taskId parameter is the source of truth
-                // @ts-expect-error SendResultT cannot contain GetTaskResult, but we include it in our derived types everywhere else
                 return {
                     ...task
-                } as SendResultT;
+                } as unknown as SendResultT;
             });
 
             this.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra) => {
@@ -486,12 +487,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             this.setRequestHandler(ListTasksRequestSchema, async (request, extra) => {
                 try {
                     const { tasks, nextCursor } = await this._taskStore!.listTasks(request.params?.cursor, extra.sessionId);
-                    // @ts-expect-error SendResultT cannot contain ListTasksResult, but we include it in our derived types everywhere else
                     return {
                         tasks,
                         nextCursor,
                         _meta: {}
-                    } as SendResultT;
+                    } as unknown as SendResultT;
                 } catch (error) {
                     throw new McpError(
                         ErrorCode.InvalidParams,
@@ -769,8 +769,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         return;
                     }
 
-                    const response: JSONRPCResponse = {
-                        result,
+                    const response: JSONRPCResultResponse = {
+                        result: result as ResultBase,
                         jsonrpc: '2.0',
                         id: request.id
                     };
@@ -857,7 +857,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         handler(params);
     }
 
-    private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
+    private _onresponse(response: JSONRPCResultResponse | JSONRPCErrorResponse): void {
         const messageId = Number(response.id);
 
         // Check if this is a response to a queued request
@@ -1109,10 +1109,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
             if (options?.onprogress) {
                 this._progressHandlers.set(messageId, options.onprogress);
+                const existingMeta = (request.params as { _meta?: Record<string, unknown> })?._meta || {};
                 jsonrpcRequest.params = {
                     ...request.params,
                     _meta: {
-                        ...(request.params?._meta || {}),
+                        ...existingMeta,
                         progressToken: messageId
                     }
                 };
@@ -1286,13 +1287,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const relatedTaskId = options?.relatedTask?.taskId;
         if (relatedTaskId) {
             // Build the JSONRPC notification with metadata
+            const existingMeta = (notification.params as { _meta?: Record<string, unknown> })?._meta || {};
             const jsonrpcNotification: JSONRPCNotification = {
                 ...notification,
                 jsonrpc: '2.0',
                 params: {
                     ...notification.params,
                     _meta: {
-                        ...(notification.params?._meta || {}),
+                        ...existingMeta,
                         [RELATED_TASK_META_KEY]: options.relatedTask
                     }
                 }
@@ -1559,10 +1561,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 return await taskStore.createTask(
                     taskParams,
                     request.id,
-                    {
-                        method: request.method,
-                        params: request.params
-                    },
+                    // Cast to Request since JSONRPCRequest.method is string but Request requires method literals
+                    request as unknown as Request,
                     sessionId
                 );
             },

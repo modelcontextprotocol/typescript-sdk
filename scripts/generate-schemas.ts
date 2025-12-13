@@ -207,6 +207,131 @@ function removeIndexSignaturesFromTypes(content: string): string {
 }
 
 /**
+ * Configuration for converting base interfaces to union types.
+ * Maps base interface name to its union members (the concrete types that extend it).
+ */
+const BASE_TO_UNION_CONFIG: Record<string, string[]> = {
+    'Request': [
+        'InitializeRequest',
+        'PingRequest',
+        'ListResourcesRequest',
+        'ListResourceTemplatesRequest',
+        'ReadResourceRequest',
+        'SubscribeRequest',
+        'UnsubscribeRequest',
+        'ListPromptsRequest',
+        'GetPromptRequest',
+        'ListToolsRequest',
+        'CallToolRequest',
+        'SetLevelRequest',
+        'CompleteRequest',
+        'CreateMessageRequest',
+        'ListRootsRequest',
+        'ElicitRequest',
+        'GetTaskRequest',
+        'GetTaskPayloadRequest',
+        'CancelTaskRequest',
+        'ListTasksRequest',
+    ],
+    'Notification': [
+        'CancelledNotification',
+        'InitializedNotification',
+        'ProgressNotification',
+        'ResourceListChangedNotification',
+        'ResourceUpdatedNotification',
+        'PromptListChangedNotification',
+        'ToolListChangedNotification',
+        'LoggingMessageNotification',
+        'RootsListChangedNotification',
+        'TaskStatusNotification',
+        'ElicitationCompleteNotification',
+    ],
+    'Result': [
+        'EmptyResult',
+        'InitializeResult',
+        'CompleteResult',
+        'GetPromptResult',
+        'ListPromptsResult',
+        'ListResourceTemplatesResult',
+        'ListResourcesResult',
+        'ReadResourceResult',
+        'CallToolResult',
+        'ListToolsResult',
+        'CreateTaskResult',
+        'GetTaskResult',
+        'GetTaskPayloadResult',
+        'ListTasksResult',
+        'CancelTaskResult',
+        'CreateMessageResult',
+        'ListRootsResult',
+        'ElicitResult',
+    ],
+};
+
+/**
+ * Convert base interfaces to union types in sdk.types.ts.
+ *
+ * This transforms:
+ *   interface Result { _meta?: {...} }
+ *   interface InitializeResult extends Result { ... }
+ *
+ * Into:
+ *   interface ResultBase { _meta?: {...} }
+ *   interface InitializeResult extends ResultBase { ... }
+ *   type Result = InitializeResult | CompleteResult | ...
+ *
+ * This enables TypeScript union narrowing while preserving the extends hierarchy.
+ */
+function convertBaseTypesToUnions(content: string): string {
+    const project = new Project({ useInMemoryFileSystem: true });
+    const sourceFile = project.createSourceFile('types.ts', content);
+
+    console.log('  🔧 Converting base types to unions...');
+
+    for (const [baseName, unionMembers] of Object.entries(BASE_TO_UNION_CONFIG)) {
+        const baseInterface = sourceFile.getInterface(baseName);
+        if (!baseInterface) {
+            console.warn(`    ⚠️  Interface ${baseName} not found`);
+            continue;
+        }
+
+        const baseRename = `${baseName}Base`;
+
+        // 1. Rename the base interface to ResultBase
+        baseInterface.rename(baseRename);
+
+        // 2. Update all extends clauses that reference the old name
+        for (const iface of sourceFile.getInterfaces()) {
+            for (const ext of iface.getExtends()) {
+                if (ext.getText() === baseName) {
+                    ext.replaceWithText(baseRename);
+                }
+            }
+        }
+
+        // 3. Update type aliases that use intersection with the base
+        for (const typeAlias of sourceFile.getTypeAliases()) {
+            const typeNode = typeAlias.getTypeNode();
+            if (typeNode) {
+                const text = typeNode.getText();
+                if (text.includes(baseName) && !text.includes(baseRename)) {
+                    typeAlias.setType(text.replace(new RegExp(`\\b${baseName}\\b`, 'g'), baseRename));
+                }
+            }
+        }
+
+        // 4. Add the union type alias after the base interface
+        const unionType = unionMembers.join(' | ');
+        const insertPos = baseInterface.getEnd();
+        sourceFile.insertText(insertPos, `\n\n/** Union of all ${baseName.toLowerCase()} types for type narrowing. */\nexport type ${baseName} = ${unionType};`);
+
+        console.log(`    ✓ Converted ${baseName} to union of ${unionMembers.length} types`);
+    }
+
+    return sourceFile.getFullText();
+}
+
+/**
  * Transform extends clauses from one type to another.
  */
 function transformExtendsClause(sourceFile: SourceFile, from: string, to: string): void {
@@ -981,7 +1106,10 @@ async function main() {
 
     // Clean up types for SDK export - remove ALL index signature patterns
     // This enables TypeScript union narrowing while schemas handle runtime extensibility
-    const cleanedTypesContent = removeIndexSignaturesFromTypes(sdkTypesContent);
+    let cleanedTypesContent = removeIndexSignaturesFromTypes(sdkTypesContent);
+
+    // Convert base types (Result) to unions for better type narrowing
+    cleanedTypesContent = convertBaseTypesToUnions(cleanedTypesContent);
 
     // Write pre-processed types to sdk.types.ts
     const sdkTypesWithHeader = `/**
@@ -1121,6 +1249,26 @@ function postProcessTests(content: string): string {
     }
     if (commentedCount > 0) {
         console.log(`    ✓ Commented out ${commentedCount} index-signature type checks in test file`);
+    }
+
+    // Union types: Request, Notification, Result are now union types, so schema-inferred
+    // (which is object type) can't be assigned to them. Comment out both directions.
+    const unionTypes = ['Request', 'Notification', 'Result'];
+    let unionCommentedCount = 0;
+    for (const typeName of unionTypes) {
+        // Comment out schema-inferred → spec checks (schema object can't satisfy union)
+        const specPattern = new RegExp(
+            `(expectType<spec\\.${typeName}>\\(\\{\\} as ${typeName}SchemaInferredType\\))`,
+            'g'
+        );
+        const before = content;
+        content = content.replace(specPattern, `// Skip: schema-inferred object type incompatible with spec union type\n// $1`);
+        if (before !== content) {
+            unionCommentedCount++;
+        }
+    }
+    if (unionCommentedCount > 0) {
+        console.log(`    ✓ Commented out ${unionCommentedCount} union type checks in test file`);
     }
 
     return content;

@@ -8,12 +8,14 @@ import {
     CompleteResultSchema,
     ElicitRequestSchema,
     GetPromptResultSchema,
+    type JSONRPCNotification,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListResourceTemplatesResultSchema,
     ListToolsResultSchema,
     LoggingMessageNotificationSchema,
     type Notification,
+    type NotificationBase,
     ReadResourceResultSchema,
     type TextContent,
     UrlElicitationRequiredError,
@@ -68,7 +70,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 { capabilities: { logging: {} } }
             );
 
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -262,7 +264,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -329,7 +331,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -394,7 +396,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -488,7 +490,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -577,7 +579,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -2099,7 +2101,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -2167,7 +2169,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -2239,7 +2241,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -2290,7 +2292,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -2343,7 +2345,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -3048,7 +3050,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -3125,7 +3127,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -3227,7 +3229,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -3284,7 +3286,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -5182,7 +5184,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'

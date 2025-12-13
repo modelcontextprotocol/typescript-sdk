@@ -622,7 +622,8 @@ const createServer = (): Server => {
     server.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra): Promise<GetTaskPayloadResult> => {
         const { taskId } = request.params;
         console.log(`[Server] tasks/result called for task ${taskId}`);
-        return taskResultHandler.handle(taskId, server, extra.sessionId ?? '');
+        const result = await taskResultHandler.handle(taskId, server, extra.sessionId ?? '');
+        return result as GetTaskPayloadResult;
     });
 
     return server;
