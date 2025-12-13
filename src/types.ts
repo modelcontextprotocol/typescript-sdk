@@ -59,6 +59,17 @@ import {
     RequestSchema,
     NotificationSchema,
     ResultSchema,
+    // Derived base schemas
+    PaginatedResultSchema,
+    PaginatedRequestSchema,
+    // Simple request/notification schemas (no extra params beyond base)
+    PingRequestSchema,
+    InitializedNotificationSchema,
+    CancelledNotificationSchema,
+    ResourceListChangedNotificationSchema,
+    PromptListChangedNotificationSchema,
+    ToolListChangedNotificationSchema,
+    RootsListChangedNotificationSchema,
 } from './generated/sdk.schemas.js';
 
 // Alias RequestParamsSchema to BaseRequestParamsSchema for internal use
@@ -102,6 +113,15 @@ export {
     RequestSchema,
     NotificationSchema,
     ResultSchema,
+    PaginatedResultSchema,
+    PaginatedRequestSchema,
+    PingRequestSchema,
+    InitializedNotificationSchema,
+    CancelledNotificationSchema,
+    ResourceListChangedNotificationSchema,
+    PromptListChangedNotificationSchema,
+    ToolListChangedNotificationSchema,
+    RootsListChangedNotificationSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -280,16 +300,8 @@ export const CancelledNotificationParamsSchema = NotificationsParamsSchema.exten
 /**
  * This notification can be sent by either side to indicate that it is cancelling a previously-issued request.
  *
- * The request SHOULD still be in-flight, but due to communication latency, it is always possible that this notification MAY arrive after the request has already finished.
- *
- * This notification indicates that the result will be unused, so any associated processing SHOULD cease.
- *
- * A client MUST NOT attempt to cancel its `initialize` request.
+ * Note: CancelledNotificationSchema is re-exported from generated.
  */
-export const CancelledNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/cancelled'),
-    params: CancelledNotificationParamsSchema
-});
 
 /* Initialization */
 const FormElicitationCapabilitySchema = z.intersection(
@@ -524,25 +536,13 @@ export const InitializeResultSchema = ResultSchema.extend({
     instructions: z.string().optional()
 });
 
-/**
- * This notification is sent from the client to the server after initialization has finished.
- */
-export const InitializedNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/initialized'),
-    params: NotificationsParamsSchema.optional()
-});
+// Note: InitializedNotificationSchema is re-exported from generated.
 
 export const isInitializedNotification = (value: unknown): value is InitializedNotification =>
     InitializedNotificationSchema.safeParse(value).success;
 
 /* Ping */
-/**
- * A ping, issued by either the server or the client, to check that the other party is still alive. The receiver must promptly respond, or else may be disconnected.
- */
-export const PingRequestSchema = RequestSchema.extend({
-    method: z.literal('ping'),
-    params: BaseRequestParamsSchema.optional()
-});
+// Note: PingRequestSchema is re-exported from generated.
 
 /* Progress notifications */
 export const ProgressSchema = z.object({
@@ -587,17 +587,7 @@ export const PaginatedRequestParamsSchema = BaseRequestParamsSchema.extend({
 });
 
 /* Pagination */
-export const PaginatedRequestSchema = RequestSchema.extend({
-    params: PaginatedRequestParamsSchema.optional()
-});
-
-export const PaginatedResultSchema = ResultSchema.extend({
-    /**
-     * An opaque token representing the pagination position after the last returned result.
-     * If present, there may be more results available.
-     */
-    nextCursor: CursorSchema.optional()
-});
+// Note: PaginatedRequestSchema and PaginatedResultSchema are re-exported from generated.
 
 /* Tasks */
 /**
@@ -839,13 +829,7 @@ export const ReadResourceResultSchema = ResultSchema.extend({
     contents: z.array(z.union([TextResourceContentsSchema, BlobResourceContentsSchema]))
 });
 
-/**
- * An optional notification from the server to the client, informing it that the list of resources it can read from has changed. This may be issued by servers without any previous subscription from the client.
- */
-export const ResourceListChangedNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/resources/list_changed'),
-    params: NotificationsParamsSchema.optional()
-});
+// Note: ResourceListChangedNotificationSchema is re-exported from generated.
 
 export const SubscribeRequestParamsSchema = ResourceRequestParamsSchema;
 /**
@@ -1010,13 +994,7 @@ export const GetPromptResultSchema = ResultSchema.extend({
     messages: z.array(PromptMessageSchema)
 });
 
-/**
- * An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This may be issued by servers without any previous subscription from the client.
- */
-export const PromptListChangedNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/prompts/list_changed'),
-    params: NotificationsParamsSchema.optional()
-});
+// Note: PromptListChangedNotificationSchema is re-exported from generated.
 
 /* Tools */
 /**
@@ -1163,13 +1141,7 @@ export const CallToolRequestSchema = RequestSchema.extend({
     params: CallToolRequestParamsSchema
 });
 
-/**
- * An optional notification from the server to the client, informing it that the list of tools it offers has changed. This may be issued by servers without any previous subscription from the client.
- */
-export const ToolListChangedNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/tools/list_changed'),
-    params: NotificationsParamsSchema.optional()
-});
+// Note: ToolListChangedNotificationSchema is re-exported from generated.
 
 /**
  * Callback type for list changed notifications.
@@ -1787,13 +1759,7 @@ export const ListRootsResultSchema = ResultSchema.extend({
     roots: z.array(RootSchema)
 });
 
-/**
- * A notification from the client to the server, informing it that the list of roots has changed.
- */
-export const RootsListChangedNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/roots/list_changed'),
-    params: NotificationsParamsSchema.optional()
-});
+// Note: RootsListChangedNotificationSchema is re-exported from generated.
 
 /* Client messages */
 export const ClientRequestSchema = z.union([
