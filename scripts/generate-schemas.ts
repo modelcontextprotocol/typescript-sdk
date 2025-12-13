@@ -158,6 +158,9 @@ function preProcessTypes(content: string): string {
     // Transform 5: Add derived capability types
     injectDerivedCapabilityTypes(sourceFile);
 
+    // Transform 6: Convert JSDoc comments to @description tags for .describe() generation
+    convertJsDocToDescription(sourceFile);
+
     return sourceFile.getFullText();
 }
 
@@ -331,6 +334,67 @@ function injectDerivedCapabilityTypes(sourceFile: SourceFile): void {
         });
         console.log(`    ✓ Added derived type: ${typeName} from ${parent}.${property}`);
     }
+}
+
+/**
+ * Convert JSDoc comments to @description tags so ts-to-zod generates .describe() calls.
+ *
+ * Transforms comments like:
+ *   /** The progress thus far. * /
+ * To:
+ *   /** @description The progress thus far. * /
+ */
+function convertJsDocToDescription(sourceFile: SourceFile): void {
+    let count = 0;
+
+    // Process all interfaces
+    for (const iface of sourceFile.getInterfaces()) {
+        // Convert interface-level JSDoc
+        count += convertNodeJsDoc(iface);
+
+        // Convert property-level JSDoc
+        for (const prop of iface.getProperties()) {
+            count += convertNodeJsDoc(prop);
+        }
+    }
+
+    // Process all type aliases
+    for (const typeAlias of sourceFile.getTypeAliases()) {
+        count += convertNodeJsDoc(typeAlias);
+    }
+
+    console.log(`    ✓ Converted ${count} JSDoc comments to @description`);
+}
+
+/**
+ * Convert a node's JSDoc comment to use @description tag.
+ * Returns 1 if converted, 0 otherwise.
+ */
+function convertNodeJsDoc(node: { getJsDocs: () => Array<{ getDescription: () => string; getTags: () => Array<{ getTagName: () => string }>; replaceWithText: (text: string) => void }> }): number {
+    const jsDocs = node.getJsDocs();
+    if (jsDocs.length === 0) return 0;
+
+    const jsDoc = jsDocs[0];
+    const description = jsDoc.getDescription().trim();
+
+    // Skip if no description or already has @description tag
+    if (!description) return 0;
+    if (jsDoc.getTags().some(tag => tag.getTagName() === 'description')) return 0;
+
+    // Get existing tags to preserve them
+    const existingTags = jsDoc.getTags().map(tag => {
+        const tagName = tag.getTagName();
+        const tagText = tag.getText().replace(new RegExp(`^@${tagName}\\s*`), '').trim();
+        return `@${tagName}${tagText ? ' ' + tagText : ''}`;
+    }).join('\n * ');
+
+    // Build new JSDoc with @description
+    const newJsDoc = existingTags
+        ? `/**\n * @description ${description}\n * ${existingTags}\n */`
+        : `/** @description ${description} */`;
+
+    jsDoc.replaceWithText(newJsDoc);
+    return 1;
 }
 
 // =============================================================================

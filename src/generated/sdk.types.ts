@@ -25,44 +25,36 @@ export const LATEST_PROTOCOL_VERSION = 'DRAFT-2026-v1';
 export const JSONRPC_VERSION = '2.0';
 
 /**
- * A progress token, used to associate progress notifications with the original request.
- *
+ * @description A progress token, used to associate progress notifications with the original request.
  * @category Common Types
  */
 export type ProgressToken = string | number;
 
 /**
- * An opaque token used to represent a cursor for pagination.
- *
+ * @description An opaque token used to represent a cursor for pagination.
  * @category Common Types
  */
 export type Cursor = string;
 
 /**
- * Common params for any task-augmented request.
- *
+ * @description Common params for any task-augmented request.
  * @internal
  */
 export interface TaskAugmentedRequestParams extends RequestParams {
-    /**
-     * If specified, the caller is requesting task-augmented execution for this request.
-     * The request will return a CreateTaskResult immediately, and the actual result can be
-     * retrieved later via tasks/result.
-     *
-     * Task augmentation is subject to capability negotiation - receivers MUST declare support
-     * for task augmentation of specific request types in their capabilities.
-     */
+    /** @description If specified, the caller is requesting task-augmented execution for this request.
+    The request will return a CreateTaskResult immediately, and the actual result can be
+    retrieved later via tasks/result.
+
+    Task augmentation is subject to capability negotiation - receivers MUST declare support
+    for task augmentation of specific request types in their capabilities. */
     task?: TaskMetadata;
 }
 /**
- * Common params for any request.
- *
+ * @description Common params for any request.
  * @internal
  */
 export interface RequestParams {
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: {
         /**
          * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
@@ -86,9 +78,7 @@ export interface Request {
 
 /** @internal */
 export interface NotificationParams {
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 
@@ -104,9 +94,7 @@ export interface Notification {
  * @category Common Types
  */
 export interface Result {
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
     [key: string]: unknown;
 }
@@ -115,30 +103,22 @@ export interface Result {
  * @category Common Types
  */
 export interface Error {
-    /**
-     * The error type that occurred.
-     */
+    /** @description The error type that occurred. */
     code: number;
-    /**
-     * A short description of the error. The message SHOULD be limited to a concise single sentence.
-     */
+    /** @description A short description of the error. The message SHOULD be limited to a concise single sentence. */
     message: string;
-    /**
-     * Additional information about the error. The value of this member is defined by the sender (e.g. detailed error information, nested errors etc.).
-     */
+    /** @description Additional information about the error. The value of this member is defined by the sender (e.g. detailed error information, nested errors etc.). */
     data?: unknown;
 }
 
 /**
- * A uniquely identifying ID for a request in JSON-RPC.
- *
+ * @description A uniquely identifying ID for a request in JSON-RPC.
  * @category Common Types
  */
 export type RequestId = string | number;
 
 /**
- * A request that expects a response.
- *
+ * @description A request that expects a response.
  * @category JSON-RPC
  */
 export interface JSONRPCRequest extends Request {
@@ -147,8 +127,7 @@ export interface JSONRPCRequest extends Request {
 }
 
 /**
- * A notification which does not expect a response.
- *
+ * @description A notification which does not expect a response.
  * @category JSON-RPC
  */
 export interface JSONRPCNotification extends Notification {
@@ -156,8 +135,7 @@ export interface JSONRPCNotification extends Notification {
 }
 
 /**
- * A successful (non-error) response to a request.
- *
+ * @description A successful (non-error) response to a request.
  * @category JSON-RPC
  */
 export interface JSONRPCResultResponse {
@@ -167,8 +145,7 @@ export interface JSONRPCResultResponse {
 }
 
 /**
- * A response to a request that indicates an error occurred.
- *
+ * @description A response to a request that indicates an error occurred.
  * @category JSON-RPC
  */
 export interface JSONRPCErrorResponse {
@@ -177,9 +154,7 @@ export interface JSONRPCErrorResponse {
     error: Error;
 }
 
-/**
- * A response to a request, containing either the result or error.
- */
+/** @description A response to a request, containing either the result or error. */
 export type JSONRPCResponse = JSONRPCResultResponse | JSONRPCErrorResponse;
 
 // Standard JSON-RPC error codes
@@ -194,8 +169,7 @@ export const INTERNAL_ERROR = -32603;
 export const URL_ELICITATION_REQUIRED = -32042;
 
 /**
- * An error response that indicates that the server requires the client to provide additional information via an elicitation request.
- *
+ * @description An error response that indicates that the server requires the client to provide additional information via an elicitation request.
  * @internal
  */
 export interface URLElicitationRequiredError extends Omit<JSONRPCErrorResponse, 'error'> {
@@ -210,45 +184,38 @@ export interface URLElicitationRequiredError extends Omit<JSONRPCErrorResponse, 
 
 /* Empty result */
 /**
- * A response that indicates success but carries no data.
- *
+ * @description A response that indicates success but carries no data.
  * @category Common Types
  */
 export type EmptyResult = Result;
 
 /* Cancellation */
 /**
- * Parameters for a `notifications/cancelled` notification.
- *
+ * @description Parameters for a `notifications/cancelled` notification.
  * @category `notifications/cancelled`
  */
 export interface CancelledNotificationParams extends NotificationParams {
-    /**
-     * The ID of the request to cancel.
-     *
-     * This MUST correspond to the ID of a request previously issued in the same direction.
-     * This MUST be provided for cancelling non-task requests.
-     * This MUST NOT be used for cancelling tasks (use the `tasks/cancel` request instead).
-     */
+    /** @description The ID of the request to cancel.
+
+    This MUST correspond to the ID of a request previously issued in the same direction.
+    This MUST be provided for cancelling non-task requests.
+    This MUST NOT be used for cancelling tasks (use the `tasks/cancel` request instead). */
     requestId?: RequestId;
 
-    /**
-     * An optional string describing the reason for the cancellation. This MAY be logged or presented to the user.
-     */
+    /** @description An optional string describing the reason for the cancellation. This MAY be logged or presented to the user. */
     reason?: string;
 }
 
 /**
- * This notification can be sent by either side to indicate that it is cancelling a previously-issued request.
- *
- * The request SHOULD still be in-flight, but due to communication latency, it is always possible that this notification MAY arrive after the request has already finished.
- *
- * This notification indicates that the result will be unused, so any associated processing SHOULD cease.
- *
- * A client MUST NOT attempt to cancel its `initialize` request.
- *
- * For task cancellation, use the `tasks/cancel` request instead of this notification.
- *
+ * @description This notification can be sent by either side to indicate that it is cancelling a previously-issued request.
+
+The request SHOULD still be in-flight, but due to communication latency, it is always possible that this notification MAY arrive after the request has already finished.
+
+This notification indicates that the result will be unused, so any associated processing SHOULD cease.
+
+A client MUST NOT attempt to cancel its `initialize` request.
+
+For task cancellation, use the `tasks/cancel` request instead of this notification.
  * @category `notifications/cancelled`
  */
 export interface CancelledNotification extends Notification {
@@ -258,22 +225,18 @@ export interface CancelledNotification extends Notification {
 
 /* Initialization */
 /**
- * Parameters for an `initialize` request.
- *
+ * @description Parameters for an `initialize` request.
  * @category `initialize`
  */
 export interface InitializeRequestParams extends RequestParams {
-    /**
-     * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
-     */
+    /** @description The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well. */
     protocolVersion: string;
     capabilities: ClientCapabilities;
     clientInfo: Implementation;
 }
 
 /**
- * This request is sent from the client to the server when it first connects, asking it to begin initialization.
- *
+ * @description This request is sent from the client to the server when it first connects, asking it to begin initialization.
  * @category `initialize`
  */
 export interface InitializeRequest extends Request {
@@ -282,29 +245,23 @@ export interface InitializeRequest extends Request {
 }
 
 /**
- * After receiving an initialize request from the client, the server sends this response.
- *
+ * @description After receiving an initialize request from the client, the server sends this response.
  * @category `initialize`
  */
 export interface InitializeResult extends Result {
-    /**
-     * The version of the Model Context Protocol that the server wants to use. This may not match the version that the client requested. If the client cannot support this version, it MUST disconnect.
-     */
+    /** @description The version of the Model Context Protocol that the server wants to use. This may not match the version that the client requested. If the client cannot support this version, it MUST disconnect. */
     protocolVersion: string;
     capabilities: ServerCapabilities;
     serverInfo: Implementation;
 
-    /**
-     * Instructions describing how to use the server and its features.
-     *
-     * This can be used by clients to improve the LLM's understanding of available tools, resources, etc. It can be thought of like a "hint" to the model. For example, this information MAY be added to the system prompt.
-     */
+    /** @description Instructions describing how to use the server and its features.
+
+    This can be used by clients to improve the LLM's understanding of available tools, resources, etc. It can be thought of like a "hint" to the model. For example, this information MAY be added to the system prompt. */
     instructions?: string;
 }
 
 /**
- * This notification is sent from the client to the server after initialization has finished.
- *
+ * @description This notification is sent from the client to the server after initialization has finished.
  * @category `notifications/initialized`
  */
 export interface InitializedNotification extends Notification {
@@ -313,27 +270,20 @@ export interface InitializedNotification extends Notification {
 }
 
 /**
- * Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
- *
+ * @description Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
  * @category `initialize`
  */
 export interface ClientCapabilities {
-    /**
-     * Experimental, non-standard capabilities that the client supports.
-     */
+    /** @description Experimental, non-standard capabilities that the client supports. */
     experimental?: { [key: string]: object };
-    /**
-     * Present if the client supports listing roots.
-     */
+    /** @description Present if the client supports listing roots. */
     roots?: {
         /**
          * Whether the client supports notifications for changes to the roots list.
          */
         listChanged?: boolean;
     };
-    /**
-     * Present if the client supports sampling from an LLM.
-     */
+    /** @description Present if the client supports sampling from an LLM. */
     sampling?: {
         /**
          * Whether the client supports context inclusion via includeContext parameter.
@@ -345,14 +295,10 @@ export interface ClientCapabilities {
          */
         tools?: object;
     };
-    /**
-     * Present if the client supports elicitation from the server.
-     */
+    /** @description Present if the client supports elicitation from the server. */
     elicitation?: { form?: object; url?: object };
 
-    /**
-     * Present if the client supports task-augmented requests.
-     */
+    /** @description Present if the client supports task-augmented requests. */
     tasks?: {
         /**
          * Whether this client supports tasks/list.
@@ -389,35 +335,24 @@ export interface ClientCapabilities {
 }
 
 /**
- * Capabilities that a server may support. Known capabilities are defined here, in this schema, but this is not a closed set: any server can define its own, additional capabilities.
- *
+ * @description Capabilities that a server may support. Known capabilities are defined here, in this schema, but this is not a closed set: any server can define its own, additional capabilities.
  * @category `initialize`
  */
 export interface ServerCapabilities {
-    /**
-     * Experimental, non-standard capabilities that the server supports.
-     */
+    /** @description Experimental, non-standard capabilities that the server supports. */
     experimental?: { [key: string]: object };
-    /**
-     * Present if the server supports sending log messages to the client.
-     */
+    /** @description Present if the server supports sending log messages to the client. */
     logging?: object;
-    /**
-     * Present if the server supports argument autocompletion suggestions.
-     */
+    /** @description Present if the server supports argument autocompletion suggestions. */
     completions?: object;
-    /**
-     * Present if the server offers any prompt templates.
-     */
+    /** @description Present if the server offers any prompt templates. */
     prompts?: {
         /**
          * Whether this server supports notifications for changes to the prompt list.
          */
         listChanged?: boolean;
     };
-    /**
-     * Present if the server offers any resources to read.
-     */
+    /** @description Present if the server offers any resources to read. */
     resources?: {
         /**
          * Whether this server supports subscribing to resource updates.
@@ -428,18 +363,14 @@ export interface ServerCapabilities {
          */
         listChanged?: boolean;
     };
-    /**
-     * Present if the server offers any tools to call.
-     */
+    /** @description Present if the server offers any tools to call. */
     tools?: {
         /**
          * Whether this server supports notifications for changes to the tool list.
          */
         listChanged?: boolean;
     };
-    /**
-     * Present if the server supports task-augmented requests.
-     */
+    /** @description Present if the server supports task-augmented requests. */
     tasks?: {
         /**
          * Whether this server supports tasks/list.
@@ -467,111 +398,91 @@ export interface ServerCapabilities {
 }
 
 /**
- * An optionally-sized icon that can be displayed in a user interface.
- *
+ * @description An optionally-sized icon that can be displayed in a user interface.
  * @category Common Types
  */
 export interface Icon {
     /**
-     * A standard URI pointing to an icon resource. May be an HTTP/HTTPS URL or a
-     * `data:` URI with Base64-encoded image data.
-     *
-     * Consumers SHOULD takes steps to ensure URLs serving icons are from the
-     * same domain as the client/server or a trusted domain.
-     *
-     * Consumers SHOULD take appropriate precautions when consuming SVGs as they can contain
-     * executable JavaScript.
-     *
+     * @description A standard URI pointing to an icon resource. May be an HTTP/HTTPS URL or a
+    `data:` URI with Base64-encoded image data.
+
+    Consumers SHOULD takes steps to ensure URLs serving icons are from the
+    same domain as the client/server or a trusted domain.
+
+    Consumers SHOULD take appropriate precautions when consuming SVGs as they can contain
+    executable JavaScript.
      * @format uri
      */
     src: string;
 
-    /**
-     * Optional MIME type override if the source MIME type is missing or generic.
-     * For example: `"image/png"`, `"image/jpeg"`, or `"image/svg+xml"`.
-     */
+    /** @description Optional MIME type override if the source MIME type is missing or generic.
+    For example: `"image/png"`, `"image/jpeg"`, or `"image/svg+xml"`. */
     mimeType?: string;
 
-    /**
-     * Optional array of strings that specify sizes at which the icon can be used.
-     * Each string should be in WxH format (e.g., `"48x48"`, `"96x96"`) or `"any"` for scalable formats like SVG.
-     *
-     * If not provided, the client should assume that the icon can be used at any size.
-     */
+    /** @description Optional array of strings that specify sizes at which the icon can be used.
+    Each string should be in WxH format (e.g., `"48x48"`, `"96x96"`) or `"any"` for scalable formats like SVG.
+
+    If not provided, the client should assume that the icon can be used at any size. */
     sizes?: string[];
 
-    /**
-     * Optional specifier for the theme this icon is designed for. `light` indicates
-     * the icon is designed to be used with a light background, and `dark` indicates
-     * the icon is designed to be used with a dark background.
-     *
-     * If not provided, the client should assume the icon can be used with any theme.
-     */
+    /** @description Optional specifier for the theme this icon is designed for. `light` indicates
+    the icon is designed to be used with a light background, and `dark` indicates
+    the icon is designed to be used with a dark background.
+
+    If not provided, the client should assume the icon can be used with any theme. */
     theme?: 'light' | 'dark';
 }
 
 /**
- * Base interface to add `icons` property.
- *
+ * @description Base interface to add `icons` property.
  * @internal
  */
 export interface Icons {
-    /**
-     * Optional set of sized icons that the client can display in a user interface.
-     *
-     * Clients that support rendering icons MUST support at least the following MIME types:
-     * - `image/png` - PNG images (safe, universal compatibility)
-     * - `image/jpeg` (and `image/jpg`) - JPEG images (safe, universal compatibility)
-     *
-     * Clients that support rendering icons SHOULD also support:
-     * - `image/svg+xml` - SVG images (scalable but requires security precautions)
-     * - `image/webp` - WebP images (modern, efficient format)
-     */
+    /** @description Optional set of sized icons that the client can display in a user interface.
+
+    Clients that support rendering icons MUST support at least the following MIME types:
+    - `image/png` - PNG images (safe, universal compatibility)
+    - `image/jpeg` (and `image/jpg`) - JPEG images (safe, universal compatibility)
+
+    Clients that support rendering icons SHOULD also support:
+    - `image/svg+xml` - SVG images (scalable but requires security precautions)
+    - `image/webp` - WebP images (modern, efficient format) */
     icons?: Icon[];
 }
 
 /**
- * Base interface for metadata with name (identifier) and title (display name) properties.
- *
+ * @description Base interface for metadata with name (identifier) and title (display name) properties.
  * @internal
  */
 export interface BaseMetadata {
-    /**
-     * Intended for programmatic or logical use, but used as a display name in past specs or fallback (if title isn't present).
-     */
+    /** @description Intended for programmatic or logical use, but used as a display name in past specs or fallback (if title isn't present). */
     name: string;
 
-    /**
-     * Intended for UI and end-user contexts — optimized to be human-readable and easily understood,
-     * even by those unfamiliar with domain-specific terminology.
-     *
-     * If not provided, the name should be used for display (except for Tool,
-     * where `annotations.title` should be given precedence over using `name`,
-     * if present).
-     */
+    /** @description Intended for UI and end-user contexts — optimized to be human-readable and easily understood,
+    even by those unfamiliar with domain-specific terminology.
+
+    If not provided, the name should be used for display (except for Tool,
+    where `annotations.title` should be given precedence over using `name`,
+    if present). */
     title?: string;
 }
 
 /**
- * Describes the MCP implementation.
- *
+ * @description Describes the MCP implementation.
  * @category `initialize`
  */
 export interface Implementation extends BaseMetadata, Icons {
     version: string;
 
-    /**
-     * An optional human-readable description of what this implementation does.
-     *
-     * This can be used by clients or servers to provide context about their purpose
-     * and capabilities. For example, a server might describe the types of resources
-     * or tools it provides, while a client might describe its intended use case.
-     */
+    /** @description An optional human-readable description of what this implementation does.
+
+    This can be used by clients or servers to provide context about their purpose
+    and capabilities. For example, a server might describe the types of resources
+    or tools it provides, while a client might describe its intended use case. */
     description?: string;
 
     /**
-     * An optional URL of the website for this implementation.
-     *
+     * @description An optional URL of the website for this implementation.
      * @format uri
      */
     websiteUrl?: string;
@@ -579,8 +490,7 @@ export interface Implementation extends BaseMetadata, Icons {
 
 /* Ping */
 /**
- * A ping, issued by either the server or the client, to check that the other party is still alive. The receiver must promptly respond, or else may be disconnected.
- *
+ * @description A ping, issued by either the server or the client, to check that the other party is still alive. The receiver must promptly respond, or else may be disconnected.
  * @category `ping`
  */
 export interface PingRequest extends Request {
@@ -591,36 +501,28 @@ export interface PingRequest extends Request {
 /* Progress notifications */
 
 /**
- * Parameters for a `notifications/progress` notification.
- *
+ * @description Parameters for a `notifications/progress` notification.
  * @category `notifications/progress`
  */
 export interface ProgressNotificationParams extends NotificationParams {
-    /**
-     * The progress token which was given in the initial request, used to associate this notification with the request that is proceeding.
-     */
+    /** @description The progress token which was given in the initial request, used to associate this notification with the request that is proceeding. */
     progressToken: ProgressToken;
     /**
-     * The progress thus far. This should increase every time progress is made, even if the total is unknown.
-     *
+     * @description The progress thus far. This should increase every time progress is made, even if the total is unknown.
      * @TJS-type number
      */
     progress: number;
     /**
-     * Total number of items to process (or total progress required), if known.
-     *
+     * @description Total number of items to process (or total progress required), if known.
      * @TJS-type number
      */
     total?: number;
-    /**
-     * An optional message describing the current progress.
-     */
+    /** @description An optional message describing the current progress. */
     message?: string;
 }
 
 /**
- * An out-of-band notification used to inform the receiver of a progress update for a long-running request.
- *
+ * @description An out-of-band notification used to inform the receiver of a progress update for a long-running request.
  * @category `notifications/progress`
  */
 export interface ProgressNotification extends Notification {
@@ -630,15 +532,12 @@ export interface ProgressNotification extends Notification {
 
 /* Pagination */
 /**
- * Common parameters for paginated requests.
- *
+ * @description Common parameters for paginated requests.
  * @internal
  */
 export interface PaginatedRequestParams extends RequestParams {
-    /**
-     * An opaque token representing the current pagination position.
-     * If provided, the server should return results starting after this cursor.
-     */
+    /** @description An opaque token representing the current pagination position.
+    If provided, the server should return results starting after this cursor. */
     cursor?: Cursor;
 }
 
@@ -649,17 +548,14 @@ export interface PaginatedRequest extends Request {
 
 /** @internal */
 export interface PaginatedResult extends Result {
-    /**
-     * An opaque token representing the pagination position after the last returned result.
-     * If present, there may be more results available.
-     */
+    /** @description An opaque token representing the pagination position after the last returned result.
+    If present, there may be more results available. */
     nextCursor?: Cursor;
 }
 
 /* Resources */
 /**
- * Sent from the client to request a list of resources the server has.
- *
+ * @description Sent from the client to request a list of resources the server has.
  * @category `resources/list`
  */
 export interface ListResourcesRequest extends PaginatedRequest {
@@ -667,8 +563,7 @@ export interface ListResourcesRequest extends PaginatedRequest {
 }
 
 /**
- * The server's response to a resources/list request from the client.
- *
+ * @description The server's response to a resources/list request from the client.
  * @category `resources/list`
  */
 export interface ListResourcesResult extends PaginatedResult {
@@ -676,8 +571,7 @@ export interface ListResourcesResult extends PaginatedResult {
 }
 
 /**
- * Sent from the client to request a list of resource templates the server has.
- *
+ * @description Sent from the client to request a list of resource templates the server has.
  * @category `resources/templates/list`
  */
 export interface ListResourceTemplatesRequest extends PaginatedRequest {
@@ -685,8 +579,7 @@ export interface ListResourceTemplatesRequest extends PaginatedRequest {
 }
 
 /**
- * The server's response to a resources/templates/list request from the client.
- *
+ * @description The server's response to a resources/templates/list request from the client.
  * @category `resources/templates/list`
  */
 export interface ListResourceTemplatesResult extends PaginatedResult {
@@ -694,30 +587,26 @@ export interface ListResourceTemplatesResult extends PaginatedResult {
 }
 
 /**
- * Common parameters when working with resources.
- *
+ * @description Common parameters when working with resources.
  * @internal
  */
 export interface ResourceRequestParams extends RequestParams {
     /**
-     * The URI of the resource. The URI can use any protocol; it is up to the server how to interpret it.
-     *
+     * @description The URI of the resource. The URI can use any protocol; it is up to the server how to interpret it.
      * @format uri
      */
     uri: string;
 }
 
 /**
- * Parameters for a `resources/read` request.
- *
+ * @description Parameters for a `resources/read` request.
  * @category `resources/read`
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ReadResourceRequestParams extends ResourceRequestParams {}
 
 /**
- * Sent from the client to the server, to read a specific resource URI.
- *
+ * @description Sent from the client to the server, to read a specific resource URI.
  * @category `resources/read`
  */
 export interface ReadResourceRequest extends Request {
@@ -726,8 +615,7 @@ export interface ReadResourceRequest extends Request {
 }
 
 /**
- * The server's response to a resources/read request from the client.
- *
+ * @description The server's response to a resources/read request from the client.
  * @category `resources/read`
  */
 export interface ReadResourceResult extends Result {
@@ -735,8 +623,7 @@ export interface ReadResourceResult extends Result {
 }
 
 /**
- * An optional notification from the server to the client, informing it that the list of resources it can read from has changed. This may be issued by servers without any previous subscription from the client.
- *
+ * @description An optional notification from the server to the client, informing it that the list of resources it can read from has changed. This may be issued by servers without any previous subscription from the client.
  * @category `notifications/resources/list_changed`
  */
 export interface ResourceListChangedNotification extends Notification {
@@ -745,16 +632,14 @@ export interface ResourceListChangedNotification extends Notification {
 }
 
 /**
- * Parameters for a `resources/subscribe` request.
- *
+ * @description Parameters for a `resources/subscribe` request.
  * @category `resources/subscribe`
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface SubscribeRequestParams extends ResourceRequestParams {}
 
 /**
- * Sent from the client to request resources/updated notifications from the server whenever a particular resource changes.
- *
+ * @description Sent from the client to request resources/updated notifications from the server whenever a particular resource changes.
  * @category `resources/subscribe`
  */
 export interface SubscribeRequest extends Request {
@@ -763,16 +648,14 @@ export interface SubscribeRequest extends Request {
 }
 
 /**
- * Parameters for a `resources/unsubscribe` request.
- *
+ * @description Parameters for a `resources/unsubscribe` request.
  * @category `resources/unsubscribe`
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface UnsubscribeRequestParams extends ResourceRequestParams {}
 
 /**
- * Sent from the client to request cancellation of resources/updated notifications from the server. This should follow a previous resources/subscribe request.
- *
+ * @description Sent from the client to request cancellation of resources/updated notifications from the server. This should follow a previous resources/subscribe request.
  * @category `resources/unsubscribe`
  */
 export interface UnsubscribeRequest extends Request {
@@ -781,22 +664,19 @@ export interface UnsubscribeRequest extends Request {
 }
 
 /**
- * Parameters for a `notifications/resources/updated` notification.
- *
+ * @description Parameters for a `notifications/resources/updated` notification.
  * @category `notifications/resources/updated`
  */
 export interface ResourceUpdatedNotificationParams extends NotificationParams {
     /**
-     * The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.
-     *
+     * @description The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.
      * @format uri
      */
     uri: string;
 }
 
 /**
- * A notification from the server to the client, informing it that a resource has changed and may need to be read again. This should only be sent if the client previously sent a resources/subscribe request.
- *
+ * @description A notification from the server to the client, informing it that a resource has changed and may need to be read again. This should only be sent if the client previously sent a resources/subscribe request.
  * @category `notifications/resources/updated`
  */
 export interface ResourceUpdatedNotification extends Notification {
@@ -805,104 +685,76 @@ export interface ResourceUpdatedNotification extends Notification {
 }
 
 /**
- * A known resource that the server is capable of reading.
- *
+ * @description A known resource that the server is capable of reading.
  * @category `resources/list`
  */
 export interface Resource extends BaseMetadata, Icons {
     /**
-     * The URI of this resource.
-     *
+     * @description The URI of this resource.
      * @format uri
      */
     uri: string;
 
-    /**
-     * A description of what this resource represents.
-     *
-     * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
-     */
+    /** @description A description of what this resource represents.
+
+    This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model. */
     description?: string;
 
-    /**
-     * The MIME type of this resource, if known.
-     */
+    /** @description The MIME type of this resource, if known. */
     mimeType?: string;
 
-    /**
-     * Optional annotations for the client.
-     */
+    /** @description Optional annotations for the client. */
     annotations?: Annotations;
 
-    /**
-     * The size of the raw resource content, in bytes (i.e., before base64 encoding or any tokenization), if known.
-     *
-     * This can be used by Hosts to display file sizes and estimate context window usage.
-     */
+    /** @description The size of the raw resource content, in bytes (i.e., before base64 encoding or any tokenization), if known.
+
+    This can be used by Hosts to display file sizes and estimate context window usage. */
     size?: number;
 
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 
 /**
- * A template description for resources available on the server.
- *
+ * @description A template description for resources available on the server.
  * @category `resources/templates/list`
  */
 export interface ResourceTemplate extends BaseMetadata, Icons {
     /**
-     * A URI template (according to RFC 6570) that can be used to construct resource URIs.
-     *
+     * @description A URI template (according to RFC 6570) that can be used to construct resource URIs.
      * @format uri-template
      */
     uriTemplate: string;
 
-    /**
-     * A description of what this template is for.
-     *
-     * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
-     */
+    /** @description A description of what this template is for.
+
+    This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model. */
     description?: string;
 
-    /**
-     * The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
-     */
+    /** @description The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type. */
     mimeType?: string;
 
-    /**
-     * Optional annotations for the client.
-     */
+    /** @description Optional annotations for the client. */
     annotations?: Annotations;
 
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 
 /**
- * The contents of a specific resource or sub-resource.
- *
+ * @description The contents of a specific resource or sub-resource.
  * @internal
  */
 export interface ResourceContents {
     /**
-     * The URI of this resource.
-     *
+     * @description The URI of this resource.
      * @format uri
      */
     uri: string;
-    /**
-     * The MIME type of this resource, if known.
-     */
+    /** @description The MIME type of this resource, if known. */
     mimeType?: string;
 
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 
@@ -910,9 +762,7 @@ export interface ResourceContents {
  * @category Content
  */
 export interface TextResourceContents extends ResourceContents {
-    /**
-     * The text of the item. This must only be set if the item can actually be represented as text (not binary data).
-     */
+    /** @description The text of the item. This must only be set if the item can actually be represented as text (not binary data). */
     text: string;
 }
 
@@ -921,8 +771,7 @@ export interface TextResourceContents extends ResourceContents {
  */
 export interface BlobResourceContents extends ResourceContents {
     /**
-     * A base64-encoded string representing the binary data of the item.
-     *
+     * @description A base64-encoded string representing the binary data of the item.
      * @format byte
      */
     blob: string;
@@ -930,8 +779,7 @@ export interface BlobResourceContents extends ResourceContents {
 
 /* Prompts */
 /**
- * Sent from the client to request a list of prompts and prompt templates the server has.
- *
+ * @description Sent from the client to request a list of prompts and prompt templates the server has.
  * @category `prompts/list`
  */
 export interface ListPromptsRequest extends PaginatedRequest {
@@ -939,8 +787,7 @@ export interface ListPromptsRequest extends PaginatedRequest {
 }
 
 /**
- * The server's response to a prompts/list request from the client.
- *
+ * @description The server's response to a prompts/list request from the client.
  * @category `prompts/list`
  */
 export interface ListPromptsResult extends PaginatedResult {
@@ -948,24 +795,18 @@ export interface ListPromptsResult extends PaginatedResult {
 }
 
 /**
- * Parameters for a `prompts/get` request.
- *
+ * @description Parameters for a `prompts/get` request.
  * @category `prompts/get`
  */
 export interface GetPromptRequestParams extends RequestParams {
-    /**
-     * The name of the prompt or prompt template.
-     */
+    /** @description The name of the prompt or prompt template. */
     name: string;
-    /**
-     * Arguments to use for templating the prompt.
-     */
+    /** @description Arguments to use for templating the prompt. */
     arguments?: { [key: string]: string };
 }
 
 /**
- * Used by the client to get a prompt provided by the server.
- *
+ * @description Used by the client to get a prompt provided by the server.
  * @category `prompts/get`
  */
 export interface GetPromptRequest extends Request {
@@ -974,69 +815,52 @@ export interface GetPromptRequest extends Request {
 }
 
 /**
- * The server's response to a prompts/get request from the client.
- *
+ * @description The server's response to a prompts/get request from the client.
  * @category `prompts/get`
  */
 export interface GetPromptResult extends Result {
-    /**
-     * An optional description for the prompt.
-     */
+    /** @description An optional description for the prompt. */
     description?: string;
     messages: PromptMessage[];
 }
 
 /**
- * A prompt or prompt template that the server offers.
- *
+ * @description A prompt or prompt template that the server offers.
  * @category `prompts/list`
  */
 export interface Prompt extends BaseMetadata, Icons {
-    /**
-     * An optional description of what this prompt provides
-     */
+    /** @description An optional description of what this prompt provides */
     description?: string;
 
-    /**
-     * A list of arguments to use for templating the prompt.
-     */
+    /** @description A list of arguments to use for templating the prompt. */
     arguments?: PromptArgument[];
 
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 
 /**
- * Describes an argument that a prompt can accept.
- *
+ * @description Describes an argument that a prompt can accept.
  * @category `prompts/list`
  */
 export interface PromptArgument extends BaseMetadata {
-    /**
-     * A human-readable description of the argument.
-     */
+    /** @description A human-readable description of the argument. */
     description?: string;
-    /**
-     * Whether this argument must be provided.
-     */
+    /** @description Whether this argument must be provided. */
     required?: boolean;
 }
 
 /**
- * The sender or recipient of messages and data in a conversation.
- *
+ * @description The sender or recipient of messages and data in a conversation.
  * @category Common Types
  */
 export type Role = 'user' | 'assistant';
 
 /**
- * Describes a message returned as part of a prompt.
- *
- * This is similar to `SamplingMessage`, but also supports the embedding of
- * resources from the MCP server.
- *
+ * @description Describes a message returned as part of a prompt.
+
+This is similar to `SamplingMessage`, but also supports the embedding of
+resources from the MCP server.
  * @category `prompts/get`
  */
 export interface PromptMessage {
@@ -1045,10 +869,9 @@ export interface PromptMessage {
 }
 
 /**
- * A resource that the server is capable of reading, included in a prompt or tool call result.
- *
- * Note: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.
- *
+ * @description A resource that the server is capable of reading, included in a prompt or tool call result.
+
+Note: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.
  * @category Content
  */
 export interface ResourceLink extends Resource {
@@ -1056,30 +879,24 @@ export interface ResourceLink extends Resource {
 }
 
 /**
- * The contents of a resource, embedded into a prompt or tool call result.
- *
- * It is up to the client how best to render embedded resources for the benefit
- * of the LLM and/or the user.
- *
+ * @description The contents of a resource, embedded into a prompt or tool call result.
+
+It is up to the client how best to render embedded resources for the benefit
+of the LLM and/or the user.
  * @category Content
  */
 export interface EmbeddedResource {
     type: 'resource';
     resource: TextResourceContents | BlobResourceContents;
 
-    /**
-     * Optional annotations for the client.
-     */
+    /** @description Optional annotations for the client. */
     annotations?: Annotations;
 
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 /**
- * An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This may be issued by servers without any previous subscription from the client.
- *
+ * @description An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This may be issued by servers without any previous subscription from the client.
  * @category `notifications/prompts/list_changed`
  */
 export interface PromptListChangedNotification extends Notification {
@@ -1089,8 +906,7 @@ export interface PromptListChangedNotification extends Notification {
 
 /* Tools */
 /**
- * Sent from the client to request a list of tools the server has.
- *
+ * @description Sent from the client to request a list of tools the server has.
  * @category `tools/list`
  */
 export interface ListToolsRequest extends PaginatedRequest {
@@ -1098,8 +914,7 @@ export interface ListToolsRequest extends PaginatedRequest {
 }
 
 /**
- * The server's response to a tools/list request from the client.
- *
+ * @description The server's response to a tools/list request from the client.
  * @category `tools/list`
  */
 export interface ListToolsResult extends PaginatedResult {
@@ -1107,57 +922,44 @@ export interface ListToolsResult extends PaginatedResult {
 }
 
 /**
- * The server's response to a tool call.
- *
+ * @description The server's response to a tool call.
  * @category `tools/call`
  */
 export interface CallToolResult extends Result {
-    /**
-     * A list of content objects that represent the unstructured result of the tool call.
-     */
+    /** @description A list of content objects that represent the unstructured result of the tool call. */
     content: ContentBlock[];
 
-    /**
-     * An optional JSON object that represents the structured result of the tool call.
-     */
+    /** @description An optional JSON object that represents the structured result of the tool call. */
     structuredContent?: { [key: string]: unknown };
 
-    /**
-     * Whether the tool call ended in an error.
-     *
-     * If not set, this is assumed to be false (the call was successful).
-     *
-     * Any errors that originate from the tool SHOULD be reported inside the result
-     * object, with `isError` set to true, _not_ as an MCP protocol-level error
-     * response. Otherwise, the LLM would not be able to see that an error occurred
-     * and self-correct.
-     *
-     * However, any errors in _finding_ the tool, an error indicating that the
-     * server does not support tool calls, or any other exceptional conditions,
-     * should be reported as an MCP error response.
-     */
+    /** @description Whether the tool call ended in an error.
+
+    If not set, this is assumed to be false (the call was successful).
+
+    Any errors that originate from the tool SHOULD be reported inside the result
+    object, with `isError` set to true, _not_ as an MCP protocol-level error
+    response. Otherwise, the LLM would not be able to see that an error occurred
+    and self-correct.
+
+    However, any errors in _finding_ the tool, an error indicating that the
+    server does not support tool calls, or any other exceptional conditions,
+    should be reported as an MCP error response. */
     isError?: boolean;
 }
 
 /**
- * Parameters for a `tools/call` request.
- *
+ * @description Parameters for a `tools/call` request.
  * @category `tools/call`
  */
 export interface CallToolRequestParams extends TaskAugmentedRequestParams {
-    /**
-     * The name of the tool.
-     */
+    /** @description The name of the tool. */
     name: string;
-    /**
-     * Arguments to use for the tool call.
-     */
+    /** @description Arguments to use for the tool call. */
     arguments?: { [key: string]: unknown };
 }
 
 /**
- * Used by the client to invoke a tool provided by the server.
- *
+ * @description Used by the client to invoke a tool provided by the server.
  * @category `tools/call`
  */
 export interface CallToolRequest extends Request {
@@ -1166,8 +968,7 @@ export interface CallToolRequest extends Request {
 }
 
 /**
- * An optional notification from the server to the client, informing it that the list of tools it offers has changed. This may be issued by servers without any previous subscription from the client.
- *
+ * @description An optional notification from the server to the client, informing it that the list of tools it offers has changed. This may be issued by servers without any previous subscription from the client.
  * @category `notifications/tools/list_changed`
  */
 export interface ToolListChangedNotification extends Notification {
@@ -1176,97 +977,78 @@ export interface ToolListChangedNotification extends Notification {
 }
 
 /**
- * Additional properties describing a Tool to clients.
- *
- * NOTE: all properties in ToolAnnotations are **hints**.
- * They are not guaranteed to provide a faithful description of
- * tool behavior (including descriptive properties like `title`).
- *
- * Clients should never make tool use decisions based on ToolAnnotations
- * received from untrusted servers.
- *
+ * @description Additional properties describing a Tool to clients.
+
+NOTE: all properties in ToolAnnotations are **hints**.
+They are not guaranteed to provide a faithful description of
+tool behavior (including descriptive properties like `title`).
+
+Clients should never make tool use decisions based on ToolAnnotations
+received from untrusted servers.
  * @category `tools/list`
  */
 export interface ToolAnnotations {
-    /**
-     * A human-readable title for the tool.
-     */
+    /** @description A human-readable title for the tool. */
     title?: string;
 
-    /**
-     * If true, the tool does not modify its environment.
-     *
-     * Default: false
-     */
+    /** @description If true, the tool does not modify its environment.
+
+    Default: false */
     readOnlyHint?: boolean;
 
-    /**
-     * If true, the tool may perform destructive updates to its environment.
-     * If false, the tool performs only additive updates.
-     *
-     * (This property is meaningful only when `readOnlyHint == false`)
-     *
-     * Default: true
-     */
+    /** @description If true, the tool may perform destructive updates to its environment.
+    If false, the tool performs only additive updates.
+
+    (This property is meaningful only when `readOnlyHint == false`)
+
+    Default: true */
     destructiveHint?: boolean;
 
-    /**
-     * If true, calling the tool repeatedly with the same arguments
-     * will have no additional effect on its environment.
-     *
-     * (This property is meaningful only when `readOnlyHint == false`)
-     *
-     * Default: false
-     */
+    /** @description If true, calling the tool repeatedly with the same arguments
+    will have no additional effect on its environment.
+
+    (This property is meaningful only when `readOnlyHint == false`)
+
+    Default: false */
     idempotentHint?: boolean;
 
-    /**
-     * If true, this tool may interact with an "open world" of external
-     * entities. If false, the tool's domain of interaction is closed.
-     * For example, the world of a web search tool is open, whereas that
-     * of a memory tool is not.
-     *
-     * Default: true
-     */
+    /** @description If true, this tool may interact with an "open world" of external
+    entities. If false, the tool's domain of interaction is closed.
+    For example, the world of a web search tool is open, whereas that
+    of a memory tool is not.
+
+    Default: true */
     openWorldHint?: boolean;
 }
 
 /**
- * Execution-related properties for a tool.
- *
+ * @description Execution-related properties for a tool.
  * @category `tools/list`
  */
 export interface ToolExecution {
-    /**
-     * Indicates whether this tool supports task-augmented execution.
-     * This allows clients to handle long-running operations through polling
-     * the task system.
-     *
-     * - "forbidden": Tool does not support task-augmented execution (default when absent)
-     * - "optional": Tool may support task-augmented execution
-     * - "required": Tool requires task-augmented execution
-     *
-     * Default: "forbidden"
-     */
+    /** @description Indicates whether this tool supports task-augmented execution.
+    This allows clients to handle long-running operations through polling
+    the task system.
+
+    - "forbidden": Tool does not support task-augmented execution (default when absent)
+    - "optional": Tool may support task-augmented execution
+    - "required": Tool requires task-augmented execution
+
+    Default: "forbidden" */
     taskSupport?: 'forbidden' | 'optional' | 'required';
 }
 
 /**
- * Definition for a tool the client can call.
- *
+ * @description Definition for a tool the client can call.
  * @category `tools/list`
  */
 export interface Tool extends BaseMetadata, Icons {
-    /**
-     * A human-readable description of the tool.
-     *
-     * This can be used by clients to improve the LLM's understanding of available tools. It can be thought of like a "hint" to the model.
-     */
+    /** @description A human-readable description of the tool.
+
+    This can be used by clients to improve the LLM's understanding of available tools. It can be thought of like a "hint" to the model. */
     description?: string;
 
-    /**
-     * A JSON Schema object defining the expected parameters for the tool.
-     */
+    /** @description A JSON Schema object defining the expected parameters for the tool. */
     inputSchema: {
         $schema?: string;
         type: 'object';
@@ -1274,18 +1056,14 @@ export interface Tool extends BaseMetadata, Icons {
         required?: string[];
     };
 
-    /**
-     * Execution-related properties for this tool.
-     */
+    /** @description Execution-related properties for this tool. */
     execution?: ToolExecution;
 
-    /**
-     * An optional JSON Schema object defining the structure of the tool's output returned in
-     * the structuredContent field of a CallToolResult.
-     *
-     * Defaults to JSON Schema 2020-12 when no explicit $schema is provided.
-     * Currently restricted to type: "object" at the root level.
-     */
+    /** @description An optional JSON Schema object defining the structure of the tool's output returned in
+    the structuredContent field of a CallToolResult.
+
+    Defaults to JSON Schema 2020-12 when no explicit $schema is provided.
+    Currently restricted to type: "object" at the root level. */
     outputSchema?: {
         $schema?: string;
         type: 'object';
@@ -1293,24 +1071,19 @@ export interface Tool extends BaseMetadata, Icons {
         required?: string[];
     };
 
-    /**
-     * Optional additional tool information.
-     *
-     * Display name precedence order is: title, annotations.title, then name.
-     */
+    /** @description Optional additional tool information.
+
+    Display name precedence order is: title, annotations.title, then name. */
     annotations?: ToolAnnotations;
 
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 
 /* Tasks */
 
 /**
- * The status of a task.
- *
+ * @description The status of a task.
  * @category `tasks`
  */
 export type TaskStatus =
@@ -1321,80 +1094,58 @@ export type TaskStatus =
     | 'cancelled'; // The request was cancelled before completion
 
 /**
- * Metadata for augmenting a request with task execution.
- * Include this in the `task` field of the request parameters.
- *
+ * @description Metadata for augmenting a request with task execution.
+Include this in the `task` field of the request parameters.
  * @category `tasks`
  */
 export interface TaskMetadata {
-    /**
-     * Requested duration in milliseconds to retain task from creation.
-     */
+    /** @description Requested duration in milliseconds to retain task from creation. */
     ttl?: number;
 }
 
 /**
- * Metadata for associating messages with a task.
- * Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
- *
+ * @description Metadata for associating messages with a task.
+Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
  * @category `tasks`
  */
 export interface RelatedTaskMetadata {
-    /**
-     * The task identifier this message is associated with.
-     */
+    /** @description The task identifier this message is associated with. */
     taskId: string;
 }
 
 /**
- * Data associated with a task.
- *
+ * @description Data associated with a task.
  * @category `tasks`
  */
 export interface Task {
-    /**
-     * The task identifier.
-     */
+    /** @description The task identifier. */
     taskId: string;
 
-    /**
-     * Current task state.
-     */
+    /** @description Current task state. */
     status: TaskStatus;
 
-    /**
-     * Optional human-readable message describing the current task state.
-     * This can provide context for any status, including:
-     * - Reasons for "cancelled" status
-     * - Summaries for "completed" status
-     * - Diagnostic information for "failed" status (e.g., error details, what went wrong)
-     */
+    /** @description Optional human-readable message describing the current task state.
+    This can provide context for any status, including:
+    - Reasons for "cancelled" status
+    - Summaries for "completed" status
+    - Diagnostic information for "failed" status (e.g., error details, what went wrong) */
     statusMessage?: string;
 
-    /**
-     * ISO 8601 timestamp when the task was created.
-     */
+    /** @description ISO 8601 timestamp when the task was created. */
     createdAt: string;
 
-    /**
-     * ISO 8601 timestamp when the task was last updated.
-     */
+    /** @description ISO 8601 timestamp when the task was last updated. */
     lastUpdatedAt: string;
 
-    /**
-     * Actual retention duration from creation in milliseconds, null for unlimited.
-     */
+    /** @description Actual retention duration from creation in milliseconds, null for unlimited. */
     ttl: number | null;
 
-    /**
-     * Suggested polling interval in milliseconds.
-     */
+    /** @description Suggested polling interval in milliseconds. */
     pollInterval?: number;
 }
 
 /**
- * A response to a task-augmented request.
- *
+ * @description A response to a task-augmented request.
  * @category `tasks`
  */
 export interface CreateTaskResult extends Result {
@@ -1402,8 +1153,7 @@ export interface CreateTaskResult extends Result {
 }
 
 /**
- * A request to retrieve the state of a task.
- *
+ * @description A request to retrieve the state of a task.
  * @category `tasks/get`
  */
 export interface GetTaskRequest extends Request {
@@ -1417,15 +1167,13 @@ export interface GetTaskRequest extends Request {
 }
 
 /**
- * The response to a tasks/get request.
- *
+ * @description The response to a tasks/get request.
  * @category `tasks/get`
  */
 export type GetTaskResult = Result & Task;
 
 /**
- * A request to retrieve the result of a completed task.
- *
+ * @description A request to retrieve the result of a completed task.
  * @category `tasks/result`
  */
 export interface GetTaskPayloadRequest extends Request {
@@ -1439,10 +1187,9 @@ export interface GetTaskPayloadRequest extends Request {
 }
 
 /**
- * The response to a tasks/result request.
- * The structure matches the result type of the original request.
- * For example, a tools/call task would return the CallToolResult structure.
- *
+ * @description The response to a tasks/result request.
+The structure matches the result type of the original request.
+For example, a tools/call task would return the CallToolResult structure.
  * @category `tasks/result`
  */
 export interface GetTaskPayloadResult extends Result {
@@ -1450,8 +1197,7 @@ export interface GetTaskPayloadResult extends Result {
 }
 
 /**
- * A request to cancel a task.
- *
+ * @description A request to cancel a task.
  * @category `tasks/cancel`
  */
 export interface CancelTaskRequest extends Request {
@@ -1465,15 +1211,13 @@ export interface CancelTaskRequest extends Request {
 }
 
 /**
- * The response to a tasks/cancel request.
- *
+ * @description The response to a tasks/cancel request.
  * @category `tasks/cancel`
  */
 export type CancelTaskResult = Result & Task;
 
 /**
- * A request to retrieve a list of tasks.
- *
+ * @description A request to retrieve a list of tasks.
  * @category `tasks/list`
  */
 export interface ListTasksRequest extends PaginatedRequest {
@@ -1481,8 +1225,7 @@ export interface ListTasksRequest extends PaginatedRequest {
 }
 
 /**
- * The response to a tasks/list request.
- *
+ * @description The response to a tasks/list request.
  * @category `tasks/list`
  */
 export interface ListTasksResult extends PaginatedResult {
@@ -1490,15 +1233,13 @@ export interface ListTasksResult extends PaginatedResult {
 }
 
 /**
- * Parameters for a `notifications/tasks/status` notification.
- *
+ * @description Parameters for a `notifications/tasks/status` notification.
  * @category `notifications/tasks/status`
  */
 export type TaskStatusNotificationParams = NotificationParams & Task;
 
 /**
- * An optional notification from the receiver to the requestor, informing them that a task's status has changed. Receivers are not required to send these notifications.
- *
+ * @description An optional notification from the receiver to the requestor, informing them that a task's status has changed. Receivers are not required to send these notifications.
  * @category `notifications/tasks/status`
  */
 export interface TaskStatusNotification extends Notification {
@@ -1509,20 +1250,16 @@ export interface TaskStatusNotification extends Notification {
 /* Logging */
 
 /**
- * Parameters for a `logging/setLevel` request.
- *
+ * @description Parameters for a `logging/setLevel` request.
  * @category `logging/setLevel`
  */
 export interface SetLevelRequestParams extends RequestParams {
-    /**
-     * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/message.
-     */
+    /** @description The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/message. */
     level: LoggingLevel;
 }
 
 /**
- * A request from the client to the server, to enable or adjust logging.
- *
+ * @description A request from the client to the server, to enable or adjust logging.
  * @category `logging/setLevel`
  */
 export interface SetLevelRequest extends Request {
@@ -1531,28 +1268,20 @@ export interface SetLevelRequest extends Request {
 }
 
 /**
- * Parameters for a `notifications/message` notification.
- *
+ * @description Parameters for a `notifications/message` notification.
  * @category `notifications/message`
  */
 export interface LoggingMessageNotificationParams extends NotificationParams {
-    /**
-     * The severity of this log message.
-     */
+    /** @description The severity of this log message. */
     level: LoggingLevel;
-    /**
-     * An optional name of the logger issuing this message.
-     */
+    /** @description An optional name of the logger issuing this message. */
     logger?: string;
-    /**
-     * The data to be logged, such as a string message or an object. Any JSON serializable type is allowed here.
-     */
+    /** @description The data to be logged, such as a string message or an object. Any JSON serializable type is allowed here. */
     data: unknown;
 }
 
 /**
- * JSONRPCNotification of a log message passed from server to client. If no logging/setLevel request has been sent from the client, the server MAY decide which messages to send automatically.
- *
+ * @description JSONRPCNotification of a log message passed from server to client. If no logging/setLevel request has been sent from the client, the server MAY decide which messages to send automatically.
  * @category `notifications/message`
  */
 export interface LoggingMessageNotification extends Notification {
@@ -1561,85 +1290,65 @@ export interface LoggingMessageNotification extends Notification {
 }
 
 /**
- * The severity of a log message.
- *
- * These map to syslog message severities, as specified in RFC-5424:
- * https://datatracker.ietf.org/doc/html/rfc5424#section-6.2.1
- *
+ * @description The severity of a log message.
+
+These map to syslog message severities, as specified in RFC-5424:
+https://datatracker.ietf.org/doc/html/rfc5424#section-6.2.1
  * @category Common Types
  */
 export type LoggingLevel = 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency';
 
 /* Sampling */
 /**
- * Parameters for a `sampling/createMessage` request.
- *
+ * @description Parameters for a `sampling/createMessage` request.
  * @category `sampling/createMessage`
  */
 export interface CreateMessageRequestParams extends TaskAugmentedRequestParams {
     messages: SamplingMessage[];
-    /**
-     * The server's preferences for which model to select. The client MAY ignore these preferences.
-     */
+    /** @description The server's preferences for which model to select. The client MAY ignore these preferences. */
     modelPreferences?: ModelPreferences;
-    /**
-     * An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt.
-     */
+    /** @description An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt. */
     systemPrompt?: string;
-    /**
-     * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt.
-     * The client MAY ignore this request.
-     *
-     * Default is "none". Values "thisServer" and "allServers" are soft-deprecated. Servers SHOULD only use these values if the client
-     * declares ClientCapabilities.sampling.context. These values may be removed in future spec releases.
-     */
+    /** @description A request to include context from one or more MCP servers (including the caller), to be attached to the prompt.
+    The client MAY ignore this request.
+
+    Default is "none". Values "thisServer" and "allServers" are soft-deprecated. Servers SHOULD only use these values if the client
+    declares ClientCapabilities.sampling.context. These values may be removed in future spec releases. */
     includeContext?: 'none' | 'thisServer' | 'allServers';
     /**
      * @TJS-type number
      */
     temperature?: number;
-    /**
-     * The requested maximum number of tokens to sample (to prevent runaway completions).
-     *
-     * The client MAY choose to sample fewer tokens than the requested maximum.
-     */
+    /** @description The requested maximum number of tokens to sample (to prevent runaway completions).
+
+    The client MAY choose to sample fewer tokens than the requested maximum. */
     maxTokens: number;
     stopSequences?: string[];
-    /**
-     * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
-     */
+    /** @description Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific. */
     metadata?: object;
-    /**
-     * Tools that the model may use during generation.
-     * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
-     */
+    /** @description Tools that the model may use during generation.
+    The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared. */
     tools?: Tool[];
-    /**
-     * Controls how the model uses tools.
-     * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
-     * Default is `{ mode: "auto" }`.
-     */
+    /** @description Controls how the model uses tools.
+    The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
+    Default is `{ mode: "auto" }`. */
     toolChoice?: ToolChoice;
 }
 
 /**
- * Controls tool selection behavior for sampling requests.
- *
+ * @description Controls tool selection behavior for sampling requests.
  * @category `sampling/createMessage`
  */
 export interface ToolChoice {
-    /**
-     * Controls the tool use ability of the model:
-     * - "auto": Model decides whether to use tools (default)
-     * - "required": Model MUST use at least one tool before completing
-     * - "none": Model MUST NOT use any tools
-     */
+    /** @description Controls the tool use ability of the model:
+    - "auto": Model decides whether to use tools (default)
+    - "required": Model MUST use at least one tool before completing
+    - "none": Model MUST NOT use any tools */
     mode?: 'auto' | 'required' | 'none';
 }
 
 /**
- * A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
- *
+ * @description A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
  * @category `sampling/createMessage`
  */
 export interface CreateMessageRequest extends Request {
@@ -1648,81 +1357,69 @@ export interface CreateMessageRequest extends Request {
 }
 
 /**
- * The client's response to a sampling/createMessage request from the server.
- * The client should inform the user before returning the sampled message, to allow them
- * to inspect the response (human in the loop) and decide whether to allow the server to see it.
- *
+ * @description The client's response to a sampling/createMessage request from the server.
+The client should inform the user before returning the sampled message, to allow them
+to inspect the response (human in the loop) and decide whether to allow the server to see it.
  * @category `sampling/createMessage`
  */
 export interface CreateMessageResult extends Result, SamplingMessage {
-    /**
-     * The name of the model that generated the message.
-     */
+    /** @description The name of the model that generated the message. */
     model: string;
 
-    /**
-     * The reason why sampling stopped, if known.
-     *
-     * Standard values:
-     * - "endTurn": Natural end of the assistant's turn
-     * - "stopSequence": A stop sequence was encountered
-     * - "maxTokens": Maximum token limit was reached
-     * - "toolUse": The model wants to use one or more tools
-     *
-     * This field is an open string to allow for provider-specific stop reasons.
-     */
+    /** @description The reason why sampling stopped, if known.
+
+    Standard values:
+    - "endTurn": Natural end of the assistant's turn
+    - "stopSequence": A stop sequence was encountered
+    - "maxTokens": Maximum token limit was reached
+    - "toolUse": The model wants to use one or more tools
+
+    This field is an open string to allow for provider-specific stop reasons. */
     stopReason?: 'endTurn' | 'stopSequence' | 'maxTokens' | 'toolUse' | string;
 }
 
 /**
- * Describes a message issued to or received from an LLM API.
- *
+ * @description Describes a message issued to or received from an LLM API.
  * @category `sampling/createMessage`
  */
 export interface SamplingMessage {
     role: Role;
     content: SamplingMessageContentBlock | SamplingMessageContentBlock[];
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 export type SamplingMessageContentBlock = TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent;
 
 /**
- * Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
- *
+ * @description Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
  * @category Common Types
  */
 export interface Annotations {
-    /**
-     * Describes who the intended audience of this object or data is.
-     *
-     * It can include multiple entries to indicate content useful for multiple audiences (e.g., `["user", "assistant"]`).
-     */
+    /** @description Describes who the intended audience of this object or data is.
+
+    It can include multiple entries to indicate content useful for multiple audiences (e.g., `["user", "assistant"]`). */
     audience?: Role[];
 
     /**
-     * Describes how important this data is for operating the server.
-     *
-     * A value of 1 means "most important," and indicates that the data is
-     * effectively required, while 0 means "least important," and indicates that
-     * the data is entirely optional.
-     *
+     * @description Describes how important this data is for operating the server.
+
+    A value of 1 means "most important," and indicates that the data is
+    effectively required, while 0 means "least important," and indicates that
+    the data is entirely optional.
      * @TJS-type number
+       *
      * @minimum 0
+       *
      * @maximum 1
      */
     priority?: number;
 
-    /**
-     * The moment the resource was last modified, as an ISO 8601 formatted string.
-     *
-     * Should be an ISO 8601 formatted string (e.g., "2025-01-12T15:00:58Z").
-     *
-     * Examples: last activity timestamp in an open file, timestamp when the resource
-     * was attached, etc.
-     */
+    /** @description The moment the resource was last modified, as an ISO 8601 formatted string.
+
+    Should be an ISO 8601 formatted string (e.g., "2025-01-12T15:00:58Z").
+
+    Examples: last activity timestamp in an open file, timestamp when the resource
+    was attached, etc. */
     lastModified?: string;
 }
 
@@ -1732,267 +1429,218 @@ export interface Annotations {
 export type ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource;
 
 /**
- * Text provided to or from an LLM.
- *
+ * @description Text provided to or from an LLM.
  * @category Content
  */
 export interface TextContent {
     type: 'text';
 
-    /**
-     * The text content of the message.
-     */
+    /** @description The text content of the message. */
     text: string;
 
-    /**
-     * Optional annotations for the client.
-     */
+    /** @description Optional annotations for the client. */
     annotations?: Annotations;
 
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 
 /**
- * An image provided to or from an LLM.
- *
+ * @description An image provided to or from an LLM.
  * @category Content
  */
 export interface ImageContent {
     type: 'image';
 
     /**
-     * The base64-encoded image data.
-     *
+     * @description The base64-encoded image data.
      * @format byte
      */
     data: string;
 
-    /**
-     * The MIME type of the image. Different providers may support different image types.
-     */
+    /** @description The MIME type of the image. Different providers may support different image types. */
     mimeType: string;
 
-    /**
-     * Optional annotations for the client.
-     */
+    /** @description Optional annotations for the client. */
     annotations?: Annotations;
 
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 
 /**
- * Audio provided to or from an LLM.
- *
+ * @description Audio provided to or from an LLM.
  * @category Content
  */
 export interface AudioContent {
     type: 'audio';
 
     /**
-     * The base64-encoded audio data.
-     *
+     * @description The base64-encoded audio data.
      * @format byte
      */
     data: string;
 
-    /**
-     * The MIME type of the audio. Different providers may support different audio types.
-     */
+    /** @description The MIME type of the audio. Different providers may support different audio types. */
     mimeType: string;
 
-    /**
-     * Optional annotations for the client.
-     */
+    /** @description Optional annotations for the client. */
     annotations?: Annotations;
 
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 
 /**
- * A request from the assistant to call a tool.
- *
+ * @description A request from the assistant to call a tool.
  * @category `sampling/createMessage`
  */
 export interface ToolUseContent {
     type: 'tool_use';
 
-    /**
-     * A unique identifier for this tool use.
-     *
-     * This ID is used to match tool results to their corresponding tool uses.
-     */
+    /** @description A unique identifier for this tool use.
+
+    This ID is used to match tool results to their corresponding tool uses. */
     id: string;
 
-    /**
-     * The name of the tool to call.
-     */
+    /** @description The name of the tool to call. */
     name: string;
 
-    /**
-     * The arguments to pass to the tool, conforming to the tool's input schema.
-     */
+    /** @description The arguments to pass to the tool, conforming to the tool's input schema. */
     input: { [key: string]: unknown };
 
-    /**
-     * Optional metadata about the tool use. Clients SHOULD preserve this field when
-     * including tool uses in subsequent sampling requests to enable caching optimizations.
-     *
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description Optional metadata about the tool use. Clients SHOULD preserve this field when
+    including tool uses in subsequent sampling requests to enable caching optimizations.
+
+    See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 
 /**
- * The result of a tool use, provided by the user back to the assistant.
- *
+ * @description The result of a tool use, provided by the user back to the assistant.
  * @category `sampling/createMessage`
  */
 export interface ToolResultContent {
     type: 'tool_result';
 
-    /**
-     * The ID of the tool use this result corresponds to.
-     *
-     * This MUST match the ID from a previous ToolUseContent.
-     */
+    /** @description The ID of the tool use this result corresponds to.
+
+    This MUST match the ID from a previous ToolUseContent. */
     toolUseId: string;
 
-    /**
-     * The unstructured result content of the tool use.
-     *
-     * This has the same format as CallToolResult.content and can include text, images,
-     * audio, resource links, and embedded resources.
-     */
+    /** @description The unstructured result content of the tool use.
+
+    This has the same format as CallToolResult.content and can include text, images,
+    audio, resource links, and embedded resources. */
     content: ContentBlock[];
 
-    /**
-     * An optional structured result object.
-     *
-     * If the tool defined an outputSchema, this SHOULD conform to that schema.
-     */
+    /** @description An optional structured result object.
+
+    If the tool defined an outputSchema, this SHOULD conform to that schema. */
     structuredContent?: { [key: string]: unknown };
 
-    /**
-     * Whether the tool use resulted in an error.
-     *
-     * If true, the content typically describes the error that occurred.
-     * Default: false
-     */
+    /** @description Whether the tool use resulted in an error.
+
+    If true, the content typically describes the error that occurred.
+    Default: false */
     isError?: boolean;
 
-    /**
-     * Optional metadata about the tool result. Clients SHOULD preserve this field when
-     * including tool results in subsequent sampling requests to enable caching optimizations.
-     *
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description Optional metadata about the tool result. Clients SHOULD preserve this field when
+    including tool results in subsequent sampling requests to enable caching optimizations.
+
+    See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 
 /**
- * The server's preferences for model selection, requested of the client during sampling.
- *
- * Because LLMs can vary along multiple dimensions, choosing the "best" model is
- * rarely straightforward.  Different models excel in different areas—some are
- * faster but less capable, others are more capable but more expensive, and so
- * on. This interface allows servers to express their priorities across multiple
- * dimensions to help clients make an appropriate selection for their use case.
- *
- * These preferences are always advisory. The client MAY ignore them. It is also
- * up to the client to decide how to interpret these preferences and how to
- * balance them against other considerations.
- *
+ * @description The server's preferences for model selection, requested of the client during sampling.
+
+Because LLMs can vary along multiple dimensions, choosing the "best" model is
+rarely straightforward.  Different models excel in different areas—some are
+faster but less capable, others are more capable but more expensive, and so
+on. This interface allows servers to express their priorities across multiple
+dimensions to help clients make an appropriate selection for their use case.
+
+These preferences are always advisory. The client MAY ignore them. It is also
+up to the client to decide how to interpret these preferences and how to
+balance them against other considerations.
  * @category `sampling/createMessage`
  */
 export interface ModelPreferences {
-    /**
-     * Optional hints to use for model selection.
-     *
-     * If multiple hints are specified, the client MUST evaluate them in order
-     * (such that the first match is taken).
-     *
-     * The client SHOULD prioritize these hints over the numeric priorities, but
-     * MAY still use the priorities to select from ambiguous matches.
-     */
+    /** @description Optional hints to use for model selection.
+
+    If multiple hints are specified, the client MUST evaluate them in order
+    (such that the first match is taken).
+
+    The client SHOULD prioritize these hints over the numeric priorities, but
+    MAY still use the priorities to select from ambiguous matches. */
     hints?: ModelHint[];
 
     /**
-     * How much to prioritize cost when selecting a model. A value of 0 means cost
-     * is not important, while a value of 1 means cost is the most important
-     * factor.
-     *
+     * @description How much to prioritize cost when selecting a model. A value of 0 means cost
+    is not important, while a value of 1 means cost is the most important
+    factor.
      * @TJS-type number
+       *
      * @minimum 0
+       *
      * @maximum 1
      */
     costPriority?: number;
 
     /**
-     * How much to prioritize sampling speed (latency) when selecting a model. A
-     * value of 0 means speed is not important, while a value of 1 means speed is
-     * the most important factor.
-     *
+     * @description How much to prioritize sampling speed (latency) when selecting a model. A
+    value of 0 means speed is not important, while a value of 1 means speed is
+    the most important factor.
      * @TJS-type number
+       *
      * @minimum 0
+       *
      * @maximum 1
      */
     speedPriority?: number;
 
     /**
-     * How much to prioritize intelligence and capabilities when selecting a
-     * model. A value of 0 means intelligence is not important, while a value of 1
-     * means intelligence is the most important factor.
-     *
+     * @description How much to prioritize intelligence and capabilities when selecting a
+    model. A value of 0 means intelligence is not important, while a value of 1
+    means intelligence is the most important factor.
      * @TJS-type number
+       *
      * @minimum 0
+       *
      * @maximum 1
      */
     intelligencePriority?: number;
 }
 
 /**
- * Hints to use for model selection.
- *
- * Keys not declared here are currently left unspecified by the spec and are up
- * to the client to interpret.
- *
+ * @description Hints to use for model selection.
+
+Keys not declared here are currently left unspecified by the spec and are up
+to the client to interpret.
  * @category `sampling/createMessage`
  */
 export interface ModelHint {
-    /**
-     * A hint for a model name.
-     *
-     * The client SHOULD treat this as a substring of a model name; for example:
-     *  - `claude-3-5-sonnet` should match `claude-3-5-sonnet-20241022`
-     *  - `sonnet` should match `claude-3-5-sonnet-20241022`, `claude-3-sonnet-20240229`, etc.
-     *  - `claude` should match any Claude model
-     *
-     * The client MAY also map the string to a different provider's model name or a different model family, as long as it fills a similar niche; for example:
-     *  - `gemini-1.5-flash` could match `claude-3-haiku-20240307`
-     */
+    /** @description A hint for a model name.
+
+    The client SHOULD treat this as a substring of a model name; for example:
+     - `claude-3-5-sonnet` should match `claude-3-5-sonnet-20241022`
+     - `sonnet` should match `claude-3-5-sonnet-20241022`, `claude-3-sonnet-20240229`, etc.
+     - `claude` should match any Claude model
+
+    The client MAY also map the string to a different provider's model name or a different model family, as long as it fills a similar niche; for example:
+     - `gemini-1.5-flash` could match `claude-3-haiku-20240307` */
     name?: string;
 }
 
 /* Autocomplete */
 /**
- * Parameters for a `completion/complete` request.
- *
+ * @description Parameters for a `completion/complete` request.
  * @category `completion/complete`
  */
 export interface CompleteRequestParams extends RequestParams {
     ref: PromptReference | ResourceTemplateReference;
-    /**
-     * The argument's information
-     */
+    /** @description The argument's information */
     argument: {
         /**
          * The name of the argument
@@ -2004,9 +1652,7 @@ export interface CompleteRequestParams extends RequestParams {
         value: string;
     };
 
-    /**
-     * Additional, optional context for completions
-     */
+    /** @description Additional, optional context for completions */
     context?: {
         /**
          * Previously-resolved variables in a URI template or prompt.
@@ -2016,8 +1662,7 @@ export interface CompleteRequestParams extends RequestParams {
 }
 
 /**
- * A request from the client to the server, to ask for completion options.
- *
+ * @description A request from the client to the server, to ask for completion options.
  * @category `completion/complete`
  */
 export interface CompleteRequest extends Request {
@@ -2026,8 +1671,7 @@ export interface CompleteRequest extends Request {
 }
 
 /**
- * The server's response to a completion/complete request
- *
+ * @description The server's response to a completion/complete request
  * @category `completion/complete`
  */
 export interface CompleteResult extends Result {
@@ -2048,23 +1692,20 @@ export interface CompleteResult extends Result {
 }
 
 /**
- * A reference to a resource or resource template definition.
- *
+ * @description A reference to a resource or resource template definition.
  * @category `completion/complete`
  */
 export interface ResourceTemplateReference {
     type: 'ref/resource';
     /**
-     * The URI or URI template of the resource.
-     *
+     * @description The URI or URI template of the resource.
      * @format uri-template
      */
     uri: string;
 }
 
 /**
- * Identifies a prompt.
- *
+ * @description Identifies a prompt.
  * @category `completion/complete`
  */
 export interface PromptReference extends BaseMetadata {
@@ -2073,14 +1714,13 @@ export interface PromptReference extends BaseMetadata {
 
 /* Roots */
 /**
- * Sent from the server to request a list of root URIs from the client. Roots allow
- * servers to ask for specific directories or files to operate on. A common example
- * for roots is providing a set of repositories or directories a server should operate
- * on.
- *
- * This request is typically used when the server needs to understand the file system
- * structure or access specific locations that the client has permission to read from.
- *
+ * @description Sent from the server to request a list of root URIs from the client. Roots allow
+servers to ask for specific directories or files to operate on. A common example
+for roots is providing a set of repositories or directories a server should operate
+on.
+
+This request is typically used when the server needs to understand the file system
+structure or access specific locations that the client has permission to read from.
  * @category `roots/list`
  */
 export interface ListRootsRequest extends Request {
@@ -2089,10 +1729,9 @@ export interface ListRootsRequest extends Request {
 }
 
 /**
- * The client's response to a roots/list request from the server.
- * This result contains an array of Root objects, each representing a root directory
- * or file that the server can operate on.
- *
+ * @description The client's response to a roots/list request from the server.
+This result contains an array of Root objects, each representing a root directory
+or file that the server can operate on.
  * @category `roots/list`
  */
 export interface ListRootsResult extends Result {
@@ -2100,37 +1739,30 @@ export interface ListRootsResult extends Result {
 }
 
 /**
- * Represents a root directory or file that the server can operate on.
- *
+ * @description Represents a root directory or file that the server can operate on.
  * @category `roots/list`
  */
 export interface Root {
     /**
-     * The URI identifying the root. This *must* start with file:// for now.
-     * This restriction may be relaxed in future versions of the protocol to allow
-     * other URI schemes.
-     *
+     * @description The URI identifying the root. This *must* start with file:// for now.
+    This restriction may be relaxed in future versions of the protocol to allow
+    other URI schemes.
      * @format uri
      */
     uri: string;
-    /**
-     * An optional name for the root. This can be used to provide a human-readable
-     * identifier for the root, which may be useful for display purposes or for
-     * referencing the root in other parts of the application.
-     */
+    /** @description An optional name for the root. This can be used to provide a human-readable
+    identifier for the root, which may be useful for display purposes or for
+    referencing the root in other parts of the application. */
     name?: string;
 
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
+    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: { [key: string]: unknown };
 }
 
 /**
- * A notification from the client to the server, informing it that the list of roots has changed.
- * This notification should be sent whenever the client adds, removes, or modifies any root.
- * The server should then request an updated list of roots using the ListRootsRequest.
- *
+ * @description A notification from the client to the server, informing it that the list of roots has changed.
+This notification should be sent whenever the client adds, removes, or modifies any root.
+The server should then request an updated list of roots using the ListRootsRequest.
  * @category `notifications/roots/list_changed`
  */
 export interface RootsListChangedNotification extends Notification {
@@ -2139,25 +1771,18 @@ export interface RootsListChangedNotification extends Notification {
 }
 
 /**
- * The parameters for a request to elicit non-sensitive information from the user via a form in the client.
- *
+ * @description The parameters for a request to elicit non-sensitive information from the user via a form in the client.
  * @category `elicitation/create`
  */
 export interface ElicitRequestFormParams extends TaskAugmentedRequestParams {
-    /**
-     * The elicitation mode.
-     */
+    /** @description The elicitation mode. */
     mode?: 'form';
 
-    /**
-     * The message to present to the user describing what information is being requested.
-     */
+    /** @description The message to present to the user describing what information is being requested. */
     message: string;
 
-    /**
-     * A restricted subset of JSON Schema.
-     * Only top-level properties are allowed, without nesting.
-     */
+    /** @description A restricted subset of JSON Schema.
+    Only top-level properties are allowed, without nesting. */
     requestedSchema: {
         $schema?: string;
         type: 'object';
@@ -2169,45 +1794,35 @@ export interface ElicitRequestFormParams extends TaskAugmentedRequestParams {
 }
 
 /**
- * The parameters for a request to elicit information from the user via a URL in the client.
- *
+ * @description The parameters for a request to elicit information from the user via a URL in the client.
  * @category `elicitation/create`
  */
 export interface ElicitRequestURLParams extends TaskAugmentedRequestParams {
-    /**
-     * The elicitation mode.
-     */
+    /** @description The elicitation mode. */
     mode: 'url';
 
-    /**
-     * The message to present to the user explaining why the interaction is needed.
-     */
+    /** @description The message to present to the user explaining why the interaction is needed. */
     message: string;
 
-    /**
-     * The ID of the elicitation, which must be unique within the context of the server.
-     * The client MUST treat this ID as an opaque value.
-     */
+    /** @description The ID of the elicitation, which must be unique within the context of the server.
+    The client MUST treat this ID as an opaque value. */
     elicitationId: string;
 
     /**
-     * The URL that the user should navigate to.
-     *
+     * @description The URL that the user should navigate to.
      * @format uri
      */
     url: string;
 }
 
 /**
- * The parameters for a request to elicit additional information from the user via the client.
- *
+ * @description The parameters for a request to elicit additional information from the user via the client.
  * @category `elicitation/create`
  */
 export type ElicitRequestParams = ElicitRequestFormParams | ElicitRequestURLParams;
 
 /**
- * A request from the server to elicit additional information from the user via the client.
- *
+ * @description A request from the server to elicit additional information from the user via the client.
  * @category `elicitation/create`
  */
 export interface ElicitRequest extends Request {
@@ -2216,9 +1831,8 @@ export interface ElicitRequest extends Request {
 }
 
 /**
- * Restricted schema definitions that only allow primitive types
- * without nested objects or arrays.
- *
+ * @description Restricted schema definitions that only allow primitive types
+without nested objects or arrays.
  * @category `elicitation/create`
  */
 export type PrimitiveSchemaDefinition = StringSchema | NumberSchema | BooleanSchema | EnumSchema;
@@ -2259,48 +1873,32 @@ export interface BooleanSchema {
 }
 
 /**
- * Schema for single-selection enumeration without display titles for options.
- *
+ * @description Schema for single-selection enumeration without display titles for options.
  * @category `elicitation/create`
  */
 export interface UntitledSingleSelectEnumSchema {
     type: 'string';
-    /**
-     * Optional title for the enum field.
-     */
+    /** @description Optional title for the enum field. */
     title?: string;
-    /**
-     * Optional description for the enum field.
-     */
+    /** @description Optional description for the enum field. */
     description?: string;
-    /**
-     * Array of enum values to choose from.
-     */
+    /** @description Array of enum values to choose from. */
     enum: string[];
-    /**
-     * Optional default value.
-     */
+    /** @description Optional default value. */
     default?: string;
 }
 
 /**
- * Schema for single-selection enumeration with display titles for each option.
- *
+ * @description Schema for single-selection enumeration with display titles for each option.
  * @category `elicitation/create`
  */
 export interface TitledSingleSelectEnumSchema {
     type: 'string';
-    /**
-     * Optional title for the enum field.
-     */
+    /** @description Optional title for the enum field. */
     title?: string;
-    /**
-     * Optional description for the enum field.
-     */
+    /** @description Optional description for the enum field. */
     description?: string;
-    /**
-     * Array of enum options with values and display labels.
-     */
+    /** @description Array of enum options with values and display labels. */
     oneOf: Array<{
         /**
          * The enum value.
@@ -2311,9 +1909,7 @@ export interface TitledSingleSelectEnumSchema {
          */
         title: string;
     }>;
-    /**
-     * Optional default value.
-     */
+    /** @description Optional default value. */
     default?: string;
 }
 
@@ -2324,31 +1920,20 @@ export interface TitledSingleSelectEnumSchema {
 export type SingleSelectEnumSchema = UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema;
 
 /**
- * Schema for multiple-selection enumeration without display titles for options.
- *
+ * @description Schema for multiple-selection enumeration without display titles for options.
  * @category `elicitation/create`
  */
 export interface UntitledMultiSelectEnumSchema {
     type: 'array';
-    /**
-     * Optional title for the enum field.
-     */
+    /** @description Optional title for the enum field. */
     title?: string;
-    /**
-     * Optional description for the enum field.
-     */
+    /** @description Optional description for the enum field. */
     description?: string;
-    /**
-     * Minimum number of items to select.
-     */
+    /** @description Minimum number of items to select. */
     minItems?: number;
-    /**
-     * Maximum number of items to select.
-     */
+    /** @description Maximum number of items to select. */
     maxItems?: number;
-    /**
-     * Schema for the array items.
-     */
+    /** @description Schema for the array items. */
     items: {
         type: 'string';
         /**
@@ -2356,38 +1941,25 @@ export interface UntitledMultiSelectEnumSchema {
          */
         enum: string[];
     };
-    /**
-     * Optional default value.
-     */
+    /** @description Optional default value. */
     default?: string[];
 }
 
 /**
- * Schema for multiple-selection enumeration with display titles for each option.
- *
+ * @description Schema for multiple-selection enumeration with display titles for each option.
  * @category `elicitation/create`
  */
 export interface TitledMultiSelectEnumSchema {
     type: 'array';
-    /**
-     * Optional title for the enum field.
-     */
+    /** @description Optional title for the enum field. */
     title?: string;
-    /**
-     * Optional description for the enum field.
-     */
+    /** @description Optional description for the enum field. */
     description?: string;
-    /**
-     * Minimum number of items to select.
-     */
+    /** @description Minimum number of items to select. */
     minItems?: number;
-    /**
-     * Maximum number of items to select.
-     */
+    /** @description Maximum number of items to select. */
     maxItems?: number;
-    /**
-     * Schema for array items with enum options and display labels.
-     */
+    /** @description Schema for array items with enum options and display labels. */
     items: {
         /**
          * Array of enum options with values and display labels.
@@ -2403,9 +1975,7 @@ export interface TitledMultiSelectEnumSchema {
             title: string;
         }>;
     };
-    /**
-     * Optional default value.
-     */
+    /** @description Optional default value. */
     default?: string[];
 }
 
@@ -2416,9 +1986,8 @@ export interface TitledMultiSelectEnumSchema {
 export type MultiSelectEnumSchema = UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema;
 
 /**
- * Use TitledSingleSelectEnumSchema instead.
- * This interface will be removed in a future version.
- *
+ * @description Use TitledSingleSelectEnumSchema instead.
+This interface will be removed in a future version.
  * @category `elicitation/create`
  */
 export interface LegacyTitledEnumSchema {
@@ -2426,10 +1995,8 @@ export interface LegacyTitledEnumSchema {
     title?: string;
     description?: string;
     enum: string[];
-    /**
-     * (Legacy) Display names for enum values.
-     * Non-standard according to JSON schema 2020-12.
-     */
+    /** @description (Legacy) Display names for enum values.
+    Non-standard according to JSON schema 2020-12. */
     enumNames?: string[];
     default?: string;
 }
@@ -2441,30 +2008,24 @@ export interface LegacyTitledEnumSchema {
 export type EnumSchema = SingleSelectEnumSchema | MultiSelectEnumSchema | LegacyTitledEnumSchema;
 
 /**
- * The client's response to an elicitation request.
- *
+ * @description The client's response to an elicitation request.
  * @category `elicitation/create`
  */
 export interface ElicitResult extends Result {
-    /**
-     * The user action in response to the elicitation.
-     * - "accept": User submitted the form/confirmed the action
-     * - "decline": User explicitly decline the action
-     * - "cancel": User dismissed without making an explicit choice
-     */
+    /** @description The user action in response to the elicitation.
+    - "accept": User submitted the form/confirmed the action
+    - "decline": User explicitly decline the action
+    - "cancel": User dismissed without making an explicit choice */
     action: 'accept' | 'decline' | 'cancel';
 
-    /**
-     * The submitted form data, only present when action is "accept" and mode was "form".
-     * Contains values matching the requested schema.
-     * Omitted for out-of-band mode responses.
-     */
+    /** @description The submitted form data, only present when action is "accept" and mode was "form".
+    Contains values matching the requested schema.
+    Omitted for out-of-band mode responses. */
     content?: { [key: string]: string | number | boolean | string[] };
 }
 
 /**
- * An optional notification from the server to the client, informing it of a completion of a out-of-band elicitation request.
- *
+ * @description An optional notification from the server to the client, informing it of a completion of a out-of-band elicitation request.
  * @category `notifications/elicitation/complete`
  */
 export interface ElicitationCompleteNotification extends Notification {
