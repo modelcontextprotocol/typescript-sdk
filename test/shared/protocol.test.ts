@@ -4911,7 +4911,7 @@ describe('Error handling for missing resolvers', () => {
             await protocol.connect(transport);
 
             // Create a task
-            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} } as RequestBase);
+            const task = await taskStore.createTask({ ttl: 60000 }, 1, { method: 'test', params: {} } as unknown as Request);
 
             // Enqueue a response message without a corresponding resolver
             await taskMessageQueue.enqueue(task.taskId, {
