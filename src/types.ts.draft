@@ -1,0 +1,337 @@
+/**
+ * MCP SDK Types and Schemas
+ *
+ * This file re-exports generated types and schemas, then adds SDK-specific
+ * extras: constants, error classes, type guards, and utility schemas/types.
+ *
+ * Generated files:
+ * - generated/sdk.types.ts: Pre-processed types (SDK hierarchy)
+ * - generated/sdk.schemas.ts: Zod schemas from sdk.types.ts
+ *
+ * @see scripts/generate-schemas.ts for the generation pipeline
+ */
+import { z } from 'zod/v4';
+import type { AuthInfo } from './server/auth/types.js';
+
+// =============================================================================
+// Re-export generated schemas and types
+// =============================================================================
+
+export * from './generated/sdk.schemas.js';
+export type * from './generated/sdk.types.js';
+
+// =============================================================================
+// SDK Constants
+// =============================================================================
+
+export const LATEST_PROTOCOL_VERSION = '2025-11-25';
+export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = '2025-03-26';
+export const SUPPORTED_PROTOCOL_VERSIONS = [
+    LATEST_PROTOCOL_VERSION,
+    '2025-06-18',
+    '2025-03-26',
+    '2024-11-05',
+    '2024-10-07',
+];
+export const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
+export const JSONRPC_VERSION = '2.0';
+
+// =============================================================================
+// SDK Error Types
+// =============================================================================
+
+export enum ErrorCode {
+    // SDK error codes
+    ConnectionClosed = -32000,
+    RequestTimeout = -32001,
+
+    // Standard JSON-RPC error codes
+    ParseError = -32700,
+    InvalidRequest = -32600,
+    MethodNotFound = -32601,
+    InvalidParams = -32602,
+    InternalError = -32603,
+
+    // MCP-specific error codes
+    UrlElicitationRequired = -32042,
+}
+
+export class McpError extends Error {
+    constructor(
+        public readonly code: number,
+        message: string,
+        public readonly data?: unknown
+    ) {
+        super(`MCP error ${code}: ${message}`);
+        this.name = 'McpError';
+    }
+
+    static fromError(code: number, message: string, data?: unknown): McpError {
+        if (code === ErrorCode.UrlElicitationRequired && data) {
+            const errorData = data as { elicitations?: unknown[] };
+            if (errorData.elicitations) {
+                return new UrlElicitationRequiredError(
+                    errorData.elicitations as ElicitRequestURLParams[],
+                    message
+                );
+            }
+        }
+        return new McpError(code, message, data);
+    }
+}
+
+import type { ElicitRequestURLParams } from './generated/sdk.types.js';
+
+export class UrlElicitationRequiredError extends McpError {
+    constructor(
+        elicitations: ElicitRequestURLParams[],
+        message: string = `URL elicitation${elicitations.length > 1 ? 's' : ''} required`
+    ) {
+        super(ErrorCode.UrlElicitationRequired, message, { elicitations });
+    }
+
+    get elicitations(): ElicitRequestURLParams[] {
+        return (this.data as { elicitations: ElicitRequestURLParams[] })?.elicitations ?? [];
+    }
+}
+
+// =============================================================================
+// SDK-Specific Schemas (not in spec)
+// =============================================================================
+
+import {
+    ResultSchema,
+    CallToolResultSchema,
+    TextContentSchema,
+    ImageContentSchema,
+    AudioContentSchema,
+    RoleSchema,
+} from './generated/sdk.schemas.js';
+
+/** Task creation parameters */
+export const TaskCreationParamsSchema = z.looseObject({
+    ttl: z.union([z.number(), z.null()]).optional(),
+    pollInterval: z.number().optional(),
+});
+
+/** Client-side task capability */
+export const ClientTasksCapabilitySchema = z.looseObject({
+    list: z.object({}).passthrough().optional(),
+    cancel: z.object({}).passthrough().optional(),
+    requests: z
+        .looseObject({
+            sampling: z.looseObject({ createMessage: z.object({}).passthrough().optional() }).optional(),
+            elicitation: z.looseObject({ create: z.object({}).passthrough().optional() }).optional(),
+        })
+        .optional(),
+});
+
+/** Server-side task capability */
+export const ServerTasksCapabilitySchema = z.looseObject({
+    list: z.object({}).passthrough().optional(),
+    cancel: z.object({}).passthrough().optional(),
+    requests: z
+        .looseObject({
+            tools: z.looseObject({ call: z.object({}).passthrough().optional() }).optional(),
+        })
+        .optional(),
+});
+
+/** Backwards-compatible CallToolResult (accepts legacy `toolResult` field) */
+export const CompatibilityCallToolResultSchema = CallToolResultSchema.or(
+    ResultSchema.extend({ toolResult: z.unknown() })
+);
+
+/** Progress information for long-running operations */
+export const ProgressSchema = z.object({
+    progress: z.number(),
+    total: z.optional(z.number()),
+    message: z.optional(z.string()),
+});
+
+/** Content types for sampling messages */
+export const SamplingContentSchema = z.discriminatedUnion('type', [
+    TextContentSchema,
+    ImageContentSchema,
+    AudioContentSchema,
+]);
+
+/** CreateMessageResult with tools support */
+export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
+    model: z.string(),
+    stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens', 'toolUse']).or(z.string())),
+    role: RoleSchema,
+    content: z.union([
+        SamplingContentSchema,
+        z.array(SamplingContentSchema),
+    ]),
+});
+
+/** Elicitation complete notification params */
+export const ElicitationCompleteNotificationParamsSchema = z.object({
+    _meta: z.looseObject({ progressToken: z.union([z.string(), z.number()]).optional() }).optional(),
+    elicitationId: z.string(),
+});
+
+/** Base schema for list changed options */
+export const ListChangedOptionsBaseSchema = z.object({
+    autoRefresh: z.boolean().default(true),
+    debounceMs: z.number().int().nonnegative().default(300),
+});
+
+/** @deprecated Use ResourceTemplateReferenceSchema */
+import { ResourceTemplateReferenceSchema } from './generated/sdk.schemas.js';
+export const ResourceReferenceSchema = ResourceTemplateReferenceSchema;
+
+// =============================================================================
+// Type Guards
+// =============================================================================
+
+import {
+    JSONRPCRequestSchema,
+    JSONRPCNotificationSchema,
+    JSONRPCResultResponseSchema,
+    JSONRPCErrorResponseSchema,
+    InitializeRequestSchema,
+    InitializedNotificationSchema,
+    TaskAugmentedRequestParamsSchema,
+} from './generated/sdk.schemas.js';
+
+import type {
+    JSONRPCRequest,
+    JSONRPCNotification,
+    JSONRPCResultResponse,
+    JSONRPCErrorResponse,
+    InitializeRequest,
+    InitializedNotification,
+    TaskAugmentedRequestParams,
+    CompleteRequest,
+    PromptReference,
+    ResourceTemplateReference,
+    Tool,
+    Prompt,
+    Resource,
+} from './generated/sdk.types.js';
+
+export const isTaskAugmentedRequestParams = (value: unknown): value is TaskAugmentedRequestParams =>
+    TaskAugmentedRequestParamsSchema.safeParse(value).success &&
+    typeof (value as TaskAugmentedRequestParams)?.task !== 'undefined';
+
+export const isJSONRPCRequest = (value: unknown): value is JSONRPCRequest =>
+    JSONRPCRequestSchema.safeParse(value).success;
+
+export const isJSONRPCNotification = (value: unknown): value is JSONRPCNotification =>
+    JSONRPCNotificationSchema.safeParse(value).success;
+
+export const isJSONRPCResultResponse = (value: unknown): value is JSONRPCResultResponse =>
+    JSONRPCResultResponseSchema.safeParse(value).success;
+
+export const isJSONRPCErrorResponse = (value: unknown): value is JSONRPCErrorResponse =>
+    JSONRPCErrorResponseSchema.safeParse(value).success;
+
+export const isInitializeRequest = (value: unknown): value is InitializeRequest =>
+    InitializeRequestSchema.safeParse(value).success;
+
+export const isInitializedNotification = (value: unknown): value is InitializedNotification =>
+    InitializedNotificationSchema.safeParse(value).success;
+
+// =============================================================================
+// Assertion Functions
+// =============================================================================
+
+import type { CompleteRequestParams } from './generated/sdk.types.js';
+
+type ExpandRecursively<T> = T extends object
+    ? T extends infer O
+        ? { [K in keyof O]: ExpandRecursively<O[K]> }
+        : never
+    : T;
+
+export type CompleteRequestResourceTemplate = ExpandRecursively<
+    CompleteRequest & { params: CompleteRequestParams & { ref: ResourceTemplateReference } }
+>;
+
+export type CompleteRequestPrompt = ExpandRecursively<
+    CompleteRequest & { params: CompleteRequestParams & { ref: PromptReference } }
+>;
+
+export function assertCompleteRequestPrompt(request: CompleteRequest): asserts request is CompleteRequestPrompt {
+    if (request.params.ref.type !== 'ref/prompt') {
+        throw new TypeError(`Expected CompleteRequestPrompt, but got ${request.params.ref.type}`);
+    }
+}
+
+export function assertCompleteRequestResourceTemplate(
+    request: CompleteRequest
+): asserts request is CompleteRequestResourceTemplate {
+    if (request.params.ref.type !== 'ref/resource') {
+        throw new TypeError(`Expected CompleteRequestResourceTemplate, but got ${request.params.ref.type}`);
+    }
+}
+
+// =============================================================================
+// SDK-Specific Types
+// =============================================================================
+
+// Utility type for inferring from Zod schemas
+type Infer<Schema extends z.ZodTypeAny> = z.infer<Schema>;
+
+/** Headers compatible with Node.js and browser */
+export type IsomorphicHeaders = Record<string, string | string[] | undefined>;
+
+/** Information about the incoming request */
+export interface RequestInfo {
+    headers: IsomorphicHeaders;
+}
+
+/** Extra information about a message */
+export interface MessageExtraInfo {
+    requestInfo?: RequestInfo;
+    authInfo?: AuthInfo;
+    closeSSEStream?: () => void;
+    closeStandaloneSSEStream?: () => void;
+}
+
+/** Callback for list changed notifications */
+export type ListChangedCallback<T> = (error: Error | null, items: T[] | null) => void;
+
+/** Options for subscribing to list changed notifications */
+export type ListChangedOptions<T> = {
+    autoRefresh?: boolean;
+    debounceMs?: number;
+    onChanged: ListChangedCallback<T>;
+};
+
+/** Configuration for list changed notification handlers */
+export type ListChangedHandlers = {
+    tools?: ListChangedOptions<Tool>;
+    prompts?: ListChangedOptions<Prompt>;
+    resources?: ListChangedOptions<Resource>;
+};
+
+import type { CreateMessageRequestParams } from './generated/sdk.types.js';
+
+/** CreateMessageRequestParams without tools */
+export type CreateMessageRequestParamsBase = Omit<CreateMessageRequestParams, 'tools' | 'toolChoice'>;
+
+/** CreateMessageRequestParams with required tools */
+export interface CreateMessageRequestParamsWithTools extends CreateMessageRequestParams {
+    tools: Tool[];
+}
+
+/** @deprecated Use ResourceTemplateReference */
+export type ResourceReference = ResourceTemplateReference;
+
+// SDK-specific inferred types
+export type TaskCreationParams = Infer<typeof TaskCreationParamsSchema>;
+export type Progress = Infer<typeof ProgressSchema>;
+export type SamplingContent = Infer<typeof SamplingContentSchema>;
+export type CreateMessageResultWithTools = Infer<typeof CreateMessageResultWithToolsSchema>;
+export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
+export type ElicitationCompleteNotificationParams = Infer<typeof ElicitationCompleteNotificationParamsSchema>;
+
+// SDK-specific type (not in spec) - used internally for request metadata
+export type RequestMeta = {
+    progressToken?: string | number;
+    [key: string]: unknown;
+};
