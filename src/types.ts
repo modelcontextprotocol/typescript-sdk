@@ -75,6 +75,23 @@ import {
     JSONRPCNotificationSchema,
     JSONRPCResultResponseSchema,
     JSONRPCErrorResponseSchema,
+    // Resource request schemas
+    ListResourcesRequestSchema,
+    ListResourceTemplatesRequestSchema,
+    SubscribeRequestSchema,
+    UnsubscribeRequestSchema,
+    // Prompt request schemas
+    ListPromptsRequestSchema,
+    GetPromptRequestSchema,
+    // Tool request schemas
+    ListToolsRequestSchema,
+    // Task request schemas
+    GetTaskRequestSchema,
+    GetTaskPayloadRequestSchema,
+    ListTasksRequestSchema,
+    CancelTaskRequestSchema,
+    // Roots request schema
+    ListRootsRequestSchema,
 } from './generated/sdk.schemas.js';
 
 // Alias RequestParamsSchema to BaseRequestParamsSchema for internal use
@@ -131,6 +148,18 @@ export {
     JSONRPCNotificationSchema,
     JSONRPCResultResponseSchema,
     JSONRPCErrorResponseSchema,
+    ListResourcesRequestSchema,
+    ListResourceTemplatesRequestSchema,
+    SubscribeRequestSchema,
+    UnsubscribeRequestSchema,
+    ListPromptsRequestSchema,
+    GetPromptRequestSchema,
+    ListToolsRequestSchema,
+    GetTaskRequestSchema,
+    GetTaskPayloadRequestSchema,
+    ListTasksRequestSchema,
+    CancelTaskRequestSchema,
+    ListRootsRequestSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -586,15 +615,8 @@ export const TaskStatusNotificationSchema = NotificationSchema.extend({
     params: TaskStatusNotificationParamsSchema
 });
 
-/**
- * A request to get the state of a specific task.
- */
-export const GetTaskRequestSchema = RequestSchema.extend({
-    method: z.literal('tasks/get'),
-    params: BaseRequestParamsSchema.extend({
-        taskId: z.string()
-    })
-});
+// Note: Task request schemas (GetTaskRequestSchema, GetTaskPayloadRequestSchema,
+// ListTasksRequestSchema, CancelTaskRequestSchema) are re-exported from generated.
 
 /**
  * The response to a tasks/get request.
@@ -602,45 +624,17 @@ export const GetTaskRequestSchema = RequestSchema.extend({
 export const GetTaskResultSchema = ResultSchema.merge(TaskSchema);
 
 /**
- * A request to get the result of a specific task.
- */
-export const GetTaskPayloadRequestSchema = RequestSchema.extend({
-    method: z.literal('tasks/result'),
-    params: BaseRequestParamsSchema.extend({
-        taskId: z.string()
-    })
-});
-
-/**
  * The response to a tasks/result request.
  * The structure matches the result type of the original request.
  * For example, a tools/call task would return the CallToolResult structure.
- *
  */
 export const GetTaskPayloadResultSchema = ResultSchema.loose();
-
-/**
- * A request to list tasks.
- */
-export const ListTasksRequestSchema = PaginatedRequestSchema.extend({
-    method: z.literal('tasks/list')
-});
 
 /**
  * The response to a tasks/list request.
  */
 export const ListTasksResultSchema = PaginatedResultSchema.extend({
     tasks: z.array(TaskSchema)
-});
-
-/**
- * A request to cancel a specific task.
- */
-export const CancelTaskRequestSchema = RequestSchema.extend({
-    method: z.literal('tasks/cancel'),
-    params: BaseRequestParamsSchema.extend({
-        taskId: z.string()
-    })
 });
 
 /**
@@ -722,25 +716,14 @@ export const ResourceTemplateSchema = z.object({
     _meta: z.optional(z.looseObject({}))
 });
 
-/**
- * Sent from the client to request a list of resources the server has.
- */
-export const ListResourcesRequestSchema = PaginatedRequestSchema.extend({
-    method: z.literal('resources/list')
-});
+// Note: ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, SubscribeRequestSchema,
+// UnsubscribeRequestSchema are re-exported from generated.
 
 /**
  * The server's response to a resources/list request from the client.
  */
 export const ListResourcesResultSchema = PaginatedResultSchema.extend({
     resources: z.array(ResourceSchema)
-});
-
-/**
- * Sent from the client to request a list of resource templates the server has.
- */
-export const ListResourceTemplatesRequestSchema = PaginatedRequestSchema.extend({
-    method: z.literal('resources/templates/list')
 });
 
 /**
@@ -782,22 +765,7 @@ export const ReadResourceResultSchema = ResultSchema.extend({
 // Note: ResourceListChangedNotificationSchema is re-exported from generated.
 
 export const SubscribeRequestParamsSchema = ResourceRequestParamsSchema;
-/**
- * Sent from the client to request resources/updated notifications from the server whenever a particular resource changes.
- */
-export const SubscribeRequestSchema = RequestSchema.extend({
-    method: z.literal('resources/subscribe'),
-    params: SubscribeRequestParamsSchema
-});
-
 export const UnsubscribeRequestParamsSchema = ResourceRequestParamsSchema;
-/**
- * Sent from the client to request cancellation of resources/updated notifications from the server. This should follow a previous resources/subscribe request.
- */
-export const UnsubscribeRequestSchema = RequestSchema.extend({
-    method: z.literal('resources/unsubscribe'),
-    params: UnsubscribeRequestParamsSchema
-});
 
 /**
  * Parameters for a `notifications/resources/updated` notification.
@@ -857,12 +825,7 @@ export const PromptSchema = z.object({
     _meta: z.optional(z.looseObject({}))
 });
 
-/**
- * Sent from the client to request a list of prompts and prompt templates the server has.
- */
-export const ListPromptsRequestSchema = PaginatedRequestSchema.extend({
-    method: z.literal('prompts/list')
-});
+// Note: ListPromptsRequestSchema, GetPromptRequestSchema are re-exported from generated.
 
 /**
  * The server's response to a prompts/list request from the client.
@@ -883,13 +846,6 @@ export const GetPromptRequestParamsSchema = BaseRequestParamsSchema.extend({
      * Arguments to use for templating the prompt.
      */
     arguments: z.record(z.string(), z.string()).optional()
-});
-/**
- * Used by the client to get a prompt provided by the server.
- */
-export const GetPromptRequestSchema = RequestSchema.extend({
-    method: z.literal('prompts/get'),
-    params: GetPromptRequestParamsSchema
 });
 
 // Note: TextContentSchema, ImageContentSchema, AudioContentSchema are re-exported
@@ -1010,12 +966,7 @@ export const ToolSchema = z.object({
     _meta: z.record(z.string(), z.unknown()).optional()
 });
 
-/**
- * Sent from the client to request a list of tools the server has.
- */
-export const ListToolsRequestSchema = PaginatedRequestSchema.extend({
-    method: z.literal('tools/list')
-});
+// Note: ListToolsRequestSchema is re-exported from generated.
 
 /**
  * The server's response to a tools/list request from the client.
@@ -1693,14 +1644,7 @@ export const CompleteResultSchema = ResultSchema.extend({
 
 /* Roots */
 // Note: RootSchema is re-exported from generated with .startsWith('file://') validation.
-
-/**
- * Sent from the server to request a list of root URIs from the client.
- */
-export const ListRootsRequestSchema = RequestSchema.extend({
-    method: z.literal('roots/list'),
-    params: BaseRequestParamsSchema.optional()
-});
+// Note: ListRootsRequestSchema is re-exported from generated.
 
 /**
  * The client's response to a roots/list request from the server.
