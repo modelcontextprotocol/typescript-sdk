@@ -23,6 +23,7 @@ import type {
     ResourceTemplateReference,
     PromptReference,
     CompleteRequestParams,
+    ProgressNotificationParams,
 } from './generated/sdk.types.js';
 
 // =============================================================================
@@ -478,20 +479,11 @@ export const isInitializedNotification = (value: unknown): value is InitializedN
 /* Ping */
 
 /* Progress notifications */
-export const ProgressSchema = z.object({
-    /**
-     * The progress thus far. This should increase every time progress is made, even if the total is unknown.
-     */
-    progress: z.number(),
-    /**
-     * Total number of items to process (or total progress required), if known.
-     */
-    total: z.optional(z.number()),
-    /**
-     * An optional message describing the current progress.
-     */
-    message: z.optional(z.string())
-});
+/**
+ * Progress schema - derived from ProgressNotificationParams without progressToken.
+ * Used for the ProgressCallback signature in RequestOptions.
+ */
+export const ProgressSchema = ProgressNotificationParamsSchema.omit({ progressToken: true });
 
 /* Pagination */
 
@@ -995,8 +987,11 @@ export type RequestMeta = RequestParams['_meta'];
 // JSONRPCResponse is defined locally (union of result/error)
 export type JSONRPCResponse = Infer<typeof JSONRPCResponseSchema>;
 
-// Progress type (SDK-specific schema)
-export type Progress = Infer<typeof ProgressSchema>;
+// Progress type - derived from ProgressNotificationParams without progressToken
+export type Progress = Omit<ProgressNotificationParams, 'progressToken'>;
+// Type check: ensure Progress matches the inferred schema type
+type _ProgressCheck = Progress extends Infer<typeof ProgressSchema> ? Infer<typeof ProgressSchema> extends Progress ? true : never : never;
+const _progressTypeCheck: _ProgressCheck = true;
 
 // Task creation params (SDK-specific)
 export type TaskCreationParams = Infer<typeof TaskCreationParamsSchema>;
