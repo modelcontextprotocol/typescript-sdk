@@ -92,6 +92,52 @@ import {
     CancelTaskRequestSchema,
     // Roots request schema
     ListRootsRequestSchema,
+    // Initialize schemas
+    InitializeRequestParamsSchema,
+    InitializeRequestSchema,
+    InitializeResultSchema,
+    // Completion schemas
+    CompleteRequestParamsSchema,
+    CompleteRequestSchema,
+    CompleteResultSchema,
+    // Sampling schemas
+    CreateMessageRequestParamsSchema,
+    CreateMessageRequestSchema,
+    CreateMessageResultSchema,
+    // Elicitation schemas
+    ElicitRequestFormParamsSchema,
+    ElicitRequestURLParamsSchema,
+    ElicitRequestParamsSchema,
+    ElicitRequestSchema,
+    ElicitResultSchema,
+    ElicitationCompleteNotificationSchema,
+    // More result schemas
+    GetPromptResultSchema,
+    GetTaskResultSchema,
+    GetTaskPayloadResultSchema,
+    CreateTaskResultSchema,
+    CancelTaskResultSchema,
+    ListTasksResultSchema,
+    ListResourcesResultSchema,
+    ListResourceTemplatesResultSchema,
+    ListPromptsResultSchema,
+    ListToolsResultSchema,
+    ListRootsResultSchema,
+    // Call tool schemas
+    CallToolRequestParamsSchema,
+    CallToolRequestSchema,
+    CallToolResultSchema,
+    // Cancelled notification
+    CancelledNotificationParamsSchema,
+    // Logging
+    SetLevelRequestSchema,
+    LoggingMessageNotificationSchema,
+    // Progress
+    ProgressNotificationSchema,
+    // Resource updated
+    ResourceUpdatedNotificationSchema,
+    // Task status
+    TaskStatusNotificationSchema,
 } from './generated/sdk.schemas.js';
 
 // Alias RequestParamsSchema to BaseRequestParamsSchema for internal use
@@ -160,6 +206,41 @@ export {
     ListTasksRequestSchema,
     CancelTaskRequestSchema,
     ListRootsRequestSchema,
+    InitializeRequestParamsSchema,
+    InitializeRequestSchema,
+    InitializeResultSchema,
+    CompleteRequestParamsSchema,
+    CompleteRequestSchema,
+    CompleteResultSchema,
+    CreateMessageRequestParamsSchema,
+    CreateMessageRequestSchema,
+    CreateMessageResultSchema,
+    ElicitRequestFormParamsSchema,
+    ElicitRequestURLParamsSchema,
+    ElicitRequestParamsSchema,
+    ElicitRequestSchema,
+    ElicitResultSchema,
+    ElicitationCompleteNotificationSchema,
+    GetPromptResultSchema,
+    GetTaskResultSchema,
+    GetTaskPayloadResultSchema,
+    CreateTaskResultSchema,
+    CancelTaskResultSchema,
+    ListTasksResultSchema,
+    ListResourcesResultSchema,
+    ListResourceTemplatesResultSchema,
+    ListPromptsResultSchema,
+    ListToolsResultSchema,
+    ListRootsResultSchema,
+    CallToolRequestParamsSchema,
+    CallToolRequestSchema,
+    CallToolResultSchema,
+    CancelledNotificationParamsSchema,
+    SetLevelRequestSchema,
+    LoggingMessageNotificationSchema,
+    ProgressNotificationSchema,
+    ResourceUpdatedNotificationSchema,
+    TaskStatusNotificationSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -263,18 +344,8 @@ export const JSONRPCResponseSchema = z.union([JSONRPCResultResponseSchema, JSONR
  */
 export const EmptyResultSchema = ResultSchema.strict();
 
-export const CancelledNotificationParamsSchema = NotificationsParamsSchema.extend({
-    /**
-     * The ID of the request to cancel.
-     *
-     * This MUST correspond to the ID of a request previously issued in the same direction.
-     */
-    requestId: RequestIdSchema.optional(),
-    /**
-     * An optional string describing the reason for the cancellation. This MAY be logged or presented to the user.
-     */
-    reason: z.string().optional()
-});
+// Note: CancelledNotificationParamsSchema is re-exported from generated.
+
 /* Cancellation */
 /**
  * This notification can be sent by either side to indicate that it is cancelling a previously-issued request.
@@ -419,21 +490,7 @@ export const ClientCapabilitiesSchema = z.object({
     tasks: ClientTasksCapabilitySchema.optional()
 });
 
-export const InitializeRequestParamsSchema = BaseRequestParamsSchema.extend({
-    /**
-     * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
-     */
-    protocolVersion: z.string(),
-    capabilities: ClientCapabilitiesSchema,
-    clientInfo: ImplementationSchema
-});
-/**
- * This request is sent from the client to the server when it first connects, asking it to begin initialization.
- */
-export const InitializeRequestSchema = RequestSchema.extend({
-    method: z.literal('initialize'),
-    params: InitializeRequestParamsSchema
-});
+// Note: InitializeRequestParamsSchema, InitializeRequestSchema are re-exported from generated.
 
 export const isInitializeRequest = (value: unknown): value is InitializeRequest => InitializeRequestSchema.safeParse(value).success;
 
@@ -497,25 +554,7 @@ export const ServerCapabilitiesSchema = z.object({
     tasks: ServerTasksCapabilitySchema.optional()
 });
 
-/**
- * After receiving an initialize request from the client, the server sends this response.
- */
-export const InitializeResultSchema = ResultSchema.extend({
-    /**
-     * The version of the Model Context Protocol that the server wants to use. This may not match the version that the client requested. If the client cannot support this version, it MUST disconnect.
-     */
-    protocolVersion: z.string(),
-    capabilities: ServerCapabilitiesSchema,
-    serverInfo: ImplementationSchema,
-    /**
-     * Instructions describing how to use the server and its features.
-     *
-     * This can be used by clients to improve the LLM's understanding of available tools, resources, etc. It can be thought of like a "hint" to the model. For example, this information MAY be added to the system prompt.
-     */
-    instructions: z.string().optional()
-});
-
-// Note: InitializedNotificationSchema is re-exported from generated.
+// Note: InitializeResultSchema, InitializedNotificationSchema are re-exported from generated.
 
 export const isInitializedNotification = (value: unknown): value is InitializedNotification =>
     InitializedNotificationSchema.safeParse(value).success;
@@ -547,15 +586,7 @@ export const ProgressNotificationParamsSchema = z.object({
      */
     progressToken: ProgressTokenSchema
 });
-/**
- * An out-of-band notification used to inform the receiver of a progress update for a long-running request.
- *
- * @category notifications/progress
- */
-export const ProgressNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/progress'),
-    params: ProgressNotificationParamsSchema
-});
+// Note: ProgressNotificationSchema is re-exported from generated.
 
 export const PaginatedRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
@@ -595,52 +626,13 @@ export const TaskSchema = z.object({
     statusMessage: z.optional(z.string())
 });
 
-/**
- * Result returned when a task is created, containing the task data wrapped in a task field.
- */
-export const CreateTaskResultSchema = ResultSchema.extend({
-    task: TaskSchema
-});
+// Note: CreateTaskResultSchema, TaskStatusNotificationSchema, GetTaskResultSchema,
+// GetTaskPayloadResultSchema, ListTasksResultSchema, CancelTaskResultSchema are re-exported from generated.
 
 /**
  * Parameters for task status notification.
  */
 export const TaskStatusNotificationParamsSchema = NotificationsParamsSchema.merge(TaskSchema);
-
-/**
- * A notification sent when a task's status changes.
- */
-export const TaskStatusNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/tasks/status'),
-    params: TaskStatusNotificationParamsSchema
-});
-
-// Note: Task request schemas (GetTaskRequestSchema, GetTaskPayloadRequestSchema,
-// ListTasksRequestSchema, CancelTaskRequestSchema) are re-exported from generated.
-
-/**
- * The response to a tasks/get request.
- */
-export const GetTaskResultSchema = ResultSchema.merge(TaskSchema);
-
-/**
- * The response to a tasks/result request.
- * The structure matches the result type of the original request.
- * For example, a tools/call task would return the CallToolResult structure.
- */
-export const GetTaskPayloadResultSchema = ResultSchema.loose();
-
-/**
- * The response to a tasks/list request.
- */
-export const ListTasksResultSchema = PaginatedResultSchema.extend({
-    tasks: z.array(TaskSchema)
-});
-
-/**
- * The response to a tasks/cancel request.
- */
-export const CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
 
 /* Resources */
 // Note: ResourceContentsSchema, TextResourceContentsSchema, BlobResourceContentsSchema
@@ -719,19 +711,7 @@ export const ResourceTemplateSchema = z.object({
 // Note: ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, SubscribeRequestSchema,
 // UnsubscribeRequestSchema are re-exported from generated.
 
-/**
- * The server's response to a resources/list request from the client.
- */
-export const ListResourcesResultSchema = PaginatedResultSchema.extend({
-    resources: z.array(ResourceSchema)
-});
-
-/**
- * The server's response to a resources/templates/list request from the client.
- */
-export const ListResourceTemplatesResultSchema = PaginatedResultSchema.extend({
-    resourceTemplates: z.array(ResourceTemplateSchema)
-});
+// Note: ListResourcesResultSchema, ListResourceTemplatesResultSchema are re-exported from generated.
 
 export const ResourceRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
@@ -777,13 +757,7 @@ export const ResourceUpdatedNotificationParamsSchema = NotificationsParamsSchema
     uri: z.string()
 });
 
-/**
- * A notification from the server to the client, informing it that a resource has changed and may need to be read again. This should only be sent if the client previously sent a resources/subscribe request.
- */
-export const ResourceUpdatedNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/resources/updated'),
-    params: ResourceUpdatedNotificationParamsSchema
-});
+// Note: ResourceUpdatedNotificationSchema is re-exported from generated.
 
 /* Prompts */
 /**
@@ -827,12 +801,7 @@ export const PromptSchema = z.object({
 
 // Note: ListPromptsRequestSchema, GetPromptRequestSchema are re-exported from generated.
 
-/**
- * The server's response to a prompts/list request from the client.
- */
-export const ListPromptsResultSchema = PaginatedResultSchema.extend({
-    prompts: z.array(PromptSchema)
-});
+// Note: ListPromptsResultSchema is re-exported from generated.
 
 /**
  * Parameters for a `prompts/get` request.
@@ -889,18 +858,7 @@ export const PromptMessageSchema = z.object({
     content: ContentBlockSchema
 });
 
-/**
- * The server's response to a prompts/get request from the client.
- */
-export const GetPromptResultSchema = ResultSchema.extend({
-    /**
-     * An optional description for the prompt.
-     */
-    description: z.string().optional(),
-    messages: z.array(PromptMessageSchema)
-});
-
-// Note: PromptListChangedNotificationSchema is re-exported from generated.
+// Note: GetPromptResultSchema, PromptListChangedNotificationSchema are re-exported from generated.
 
 /* Tools */
 /**
@@ -968,48 +926,8 @@ export const ToolSchema = z.object({
 
 // Note: ListToolsRequestSchema is re-exported from generated.
 
-/**
- * The server's response to a tools/list request from the client.
- */
-export const ListToolsResultSchema = PaginatedResultSchema.extend({
-    tools: z.array(ToolSchema)
-});
-
-/**
- * The server's response to a tool call.
- */
-export const CallToolResultSchema = ResultSchema.extend({
-    /**
-     * A list of content objects that represent the result of the tool call.
-     *
-     * If the Tool does not define an outputSchema, this field MUST be present in the result.
-     * For backwards compatibility, this field is always present, but it may be empty.
-     */
-    content: z.array(ContentBlockSchema).default([]),
-
-    /**
-     * An object containing structured tool output.
-     *
-     * If the Tool defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
-     */
-    structuredContent: z.record(z.string(), z.unknown()).optional(),
-
-    /**
-     * Whether the tool call ended in an error.
-     *
-     * If not set, this is assumed to be false (the call was successful).
-     *
-     * Any errors that originate from the tool SHOULD be reported inside the result
-     * object, with `isError` set to true, _not_ as an MCP protocol-level error
-     * response. Otherwise, the LLM would not be able to see that an error occurred
-     * and self-correct.
-     *
-     * However, any errors in _finding_ the tool, an error indicating that the
-     * server does not support tool calls, or any other exceptional conditions,
-     * should be reported as an MCP error response.
-     */
-    isError: z.boolean().optional()
-});
+// Note: ListToolsResultSchema, CallToolResultSchema, CallToolRequestParamsSchema,
+// CallToolRequestSchema, ToolListChangedNotificationSchema are re-exported from generated.
 
 /**
  * CallToolResultSchema extended with backwards compatibility to protocol version 2024-10-07.
@@ -1019,30 +937,6 @@ export const CompatibilityCallToolResultSchema = CallToolResultSchema.or(
         toolResult: z.unknown()
     })
 );
-
-/**
- * Parameters for a `tools/call` request.
- */
-export const CallToolRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
-    /**
-     * The name of the tool to call.
-     */
-    name: z.string(),
-    /**
-     * Arguments to pass to the tool.
-     */
-    arguments: z.record(z.string(), z.unknown()).optional()
-});
-
-/**
- * Used by the client to invoke a tool provided by the server.
- */
-export const CallToolRequestSchema = RequestSchema.extend({
-    method: z.literal('tools/call'),
-    params: CallToolRequestParamsSchema
-});
-
-// Note: ToolListChangedNotificationSchema is re-exported from generated.
 
 /**
  * Callback type for list changed notifications.
@@ -1134,13 +1028,7 @@ export const SetLevelRequestParamsSchema = BaseRequestParamsSchema.extend({
      */
     level: LoggingLevelSchema
 });
-/**
- * A request from the client to the server, to enable or adjust logging.
- */
-export const SetLevelRequestSchema = RequestSchema.extend({
-    method: z.literal('logging/setLevel'),
-    params: SetLevelRequestParamsSchema
-});
+// Note: SetLevelRequestSchema, LoggingMessageNotificationSchema are re-exported from generated.
 
 /**
  * Parameters for a `notifications/message` notification.
@@ -1158,13 +1046,6 @@ export const LoggingMessageNotificationParamsSchema = NotificationsParamsSchema.
      * The data to be logged, such as a string message or an object. Any JSON serializable type is allowed here.
      */
     data: z.unknown()
-});
-/**
- * Notification of a log message passed from server to client. If no logging/setLevel request has been sent from the client, the server MAY decide which messages to send automatically.
- */
-export const LoggingMessageNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/message'),
-    params: LoggingMessageNotificationParamsSchema
 });
 
 /* Sampling */
@@ -1217,86 +1098,8 @@ export const SamplingMessageSchema = z.object({
     _meta: z.record(z.string(), z.unknown()).optional()
 });
 
-/**
- * Parameters for a `sampling/createMessage` request.
- */
-export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
-    messages: z.array(SamplingMessageSchema),
-    /**
-     * The server's preferences for which model to select. The client MAY modify or omit this request.
-     */
-    modelPreferences: ModelPreferencesSchema.optional(),
-    /**
-     * An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt.
-     */
-    systemPrompt: z.string().optional(),
-    /**
-     * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt.
-     * The client MAY ignore this request.
-     *
-     * Default is "none". Values "thisServer" and "allServers" are soft-deprecated. Servers SHOULD only use these values if the client
-     * declares ClientCapabilities.sampling.context. These values may be removed in future spec releases.
-     */
-    includeContext: z.enum(['none', 'thisServer', 'allServers']).optional(),
-    temperature: z.number().optional(),
-    /**
-     * The requested maximum number of tokens to sample (to prevent runaway completions).
-     *
-     * The client MAY choose to sample fewer tokens than the requested maximum.
-     */
-    maxTokens: z.number().int(),
-    stopSequences: z.array(z.string()).optional(),
-    /**
-     * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
-     */
-    metadata: AssertObjectSchema.optional(),
-    /**
-     * Tools that the model may use during generation.
-     * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
-     */
-    tools: z.array(ToolSchema).optional(),
-    /**
-     * Controls how the model uses tools.
-     * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
-     * Default is `{ mode: "auto" }`.
-     */
-    toolChoice: ToolChoiceSchema.optional()
-});
-/**
- * A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
- */
-export const CreateMessageRequestSchema = RequestSchema.extend({
-    method: z.literal('sampling/createMessage'),
-    params: CreateMessageRequestParamsSchema
-});
-
-/**
- * The client's response to a sampling/create_message request from the server.
- * This is the backwards-compatible version that returns single content (no arrays).
- * Used when the request does not include tools.
- */
-export const CreateMessageResultSchema = ResultSchema.extend({
-    /**
-     * The name of the model that generated the message.
-     */
-    model: z.string(),
-    /**
-     * The reason why sampling stopped, if known.
-     *
-     * Standard values:
-     * - "endTurn": Natural end of the assistant's turn
-     * - "stopSequence": A stop sequence was encountered
-     * - "maxTokens": Maximum token limit was reached
-     *
-     * This field is an open string to allow for provider-specific stop reasons.
-     */
-    stopReason: z.optional(z.enum(['endTurn', 'stopSequence', 'maxTokens']).or(z.string())),
-    role: RoleSchema,
-    /**
-     * Response content. Single content block (text, image, or audio).
-     */
-    content: SamplingContentSchema
-});
+// Note: CreateMessageRequestParamsSchema, CreateMessageRequestSchema, CreateMessageResultSchema
+// are re-exported from generated.
 
 /**
  * The client's response to a sampling/create_message request when tools were provided.
@@ -1437,68 +1240,8 @@ export const EnumSchemaSchema = z.union([LegacyTitledEnumSchemaSchema, SingleSel
  */
 export const PrimitiveSchemaDefinitionSchema = z.union([EnumSchemaSchema, BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema]);
 
-/**
- * Parameters for an `elicitation/create` request for form-based elicitation.
- */
-export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.extend({
-    /**
-     * The elicitation mode.
-     *
-     * Optional for backward compatibility. Clients MUST treat missing mode as "form".
-     */
-    mode: z.literal('form').optional(),
-    /**
-     * The message to present to the user describing what information is being requested.
-     */
-    message: z.string(),
-    /**
-     * A restricted subset of JSON Schema.
-     * Only top-level properties are allowed, without nesting.
-     */
-    requestedSchema: z.object({
-        type: z.literal('object'),
-        properties: z.record(z.string(), PrimitiveSchemaDefinitionSchema),
-        required: z.array(z.string()).optional()
-    })
-});
-
-/**
- * Parameters for an `elicitation/create` request for URL-based elicitation.
- */
-export const ElicitRequestURLParamsSchema = TaskAugmentedRequestParamsSchema.extend({
-    /**
-     * The elicitation mode.
-     */
-    mode: z.literal('url'),
-    /**
-     * The message to present to the user explaining why the interaction is needed.
-     */
-    message: z.string(),
-    /**
-     * The ID of the elicitation, which must be unique within the context of the server.
-     * The client MUST treat this ID as an opaque value.
-     */
-    elicitationId: z.string(),
-    /**
-     * The URL that the user should navigate to.
-     */
-    url: z.string().url()
-});
-
-/**
- * The parameters for a request to elicit additional information from the user via the client.
- */
-export const ElicitRequestParamsSchema = z.union([ElicitRequestFormParamsSchema, ElicitRequestURLParamsSchema]);
-
-/**
- * A request from the server to elicit user input via the client.
- * The client should present the message and form fields to the user (form mode)
- * or navigate to a URL (URL mode).
- */
-export const ElicitRequestSchema = RequestSchema.extend({
-    method: z.literal('elicitation/create'),
-    params: ElicitRequestParamsSchema
-});
+// Note: ElicitRequestFormParamsSchema, ElicitRequestURLParamsSchema, ElicitRequestParamsSchema,
+// ElicitRequestSchema, ElicitResultSchema, ElicitationCompleteNotificationSchema are re-exported from generated.
 
 /**
  * Parameters for a `notifications/elicitation/complete` notification.
@@ -1510,39 +1253,6 @@ export const ElicitationCompleteNotificationParamsSchema = NotificationsParamsSc
      * The ID of the elicitation that completed.
      */
     elicitationId: z.string()
-});
-
-/**
- * A notification from the server to the client, informing it of a completion of an out-of-band elicitation request.
- *
- * @category notifications/elicitation/complete
- */
-export const ElicitationCompleteNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/elicitation/complete'),
-    params: ElicitationCompleteNotificationParamsSchema
-});
-
-/**
- * The client's response to an elicitation/create request from the server.
- */
-export const ElicitResultSchema = ResultSchema.extend({
-    /**
-     * The user action in response to the elicitation.
-     * - "accept": User submitted the form/confirmed the action
-     * - "decline": User explicitly decline the action
-     * - "cancel": User dismissed without making an explicit choice
-     */
-    action: z.enum(['accept', 'decline', 'cancel']),
-    /**
-     * The submitted form data, only present when action is "accept".
-     * Contains values matching the requested schema.
-     * Per MCP spec, content is "typically omitted" for decline/cancel actions.
-     * We normalize null to undefined for leniency while maintaining type compatibility.
-     */
-    content: z.preprocess(
-        val => (val === null ? undefined : val),
-        z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional()
-    )
 });
 
 /* Autocomplete */
@@ -1573,40 +1283,8 @@ export const PromptReferenceSchema = z.object({
     name: z.string()
 });
 
-/**
- * Parameters for a `completion/complete` request.
- */
-export const CompleteRequestParamsSchema = BaseRequestParamsSchema.extend({
-    ref: z.union([PromptReferenceSchema, ResourceTemplateReferenceSchema]),
-    /**
-     * The argument's information
-     */
-    argument: z.object({
-        /**
-         * The name of the argument
-         */
-        name: z.string(),
-        /**
-         * The value of the argument to use for completion matching.
-         */
-        value: z.string()
-    }),
-    context: z
-        .object({
-            /**
-             * Previously-resolved variables in a URI template or prompt.
-             */
-            arguments: z.record(z.string(), z.string()).optional()
-        })
-        .optional()
-});
-/**
- * A request from the client to the server, to ask for completion options.
- */
-export const CompleteRequestSchema = RequestSchema.extend({
-    method: z.literal('completion/complete'),
-    params: CompleteRequestParamsSchema
-});
+// Note: CompleteRequestParamsSchema, CompleteRequestSchema, CompleteResultSchema
+// are re-exported from generated.
 
 export function assertCompleteRequestPrompt(request: CompleteRequest): asserts request is CompleteRequestPrompt {
     if (request.params.ref.type !== 'ref/prompt') {
@@ -1622,38 +1300,9 @@ export function assertCompleteRequestResourceTemplate(request: CompleteRequest):
     void (request as CompleteRequestResourceTemplate);
 }
 
-/**
- * The server's response to a completion/complete request
- */
-export const CompleteResultSchema = ResultSchema.extend({
-    completion: z.looseObject({
-        /**
-         * An array of completion values. Must not exceed 100 items.
-         */
-        values: z.array(z.string()).max(100),
-        /**
-         * The total number of completion options available. This can exceed the number of values actually sent in the response.
-         */
-        total: z.optional(z.number().int()),
-        /**
-         * Indicates whether there are additional completion options beyond those provided in the current response, even if the exact total is unknown.
-         */
-        hasMore: z.optional(z.boolean())
-    })
-});
-
 /* Roots */
-// Note: RootSchema is re-exported from generated with .startsWith('file://') validation.
-// Note: ListRootsRequestSchema is re-exported from generated.
-
-/**
- * The client's response to a roots/list request from the server.
- */
-export const ListRootsResultSchema = ResultSchema.extend({
-    roots: z.array(RootSchema)
-});
-
-// Note: RootsListChangedNotificationSchema is re-exported from generated.
+// Note: RootSchema, ListRootsRequestSchema, ListRootsResultSchema, RootsListChangedNotificationSchema
+// are re-exported from generated.
 
 /* Client messages */
 export const ClientRequestSchema = z.union([
