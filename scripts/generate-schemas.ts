@@ -170,11 +170,14 @@ function preProcessTypes(content: string): string {
     // (types.ts will define these locally with proper schema unions)
     inlineJSONRPCResponse(sourceFile);
 
-    // Transform 6: Convert JSDoc comments to @description tags for .describe() generation
+    // Transform 6: Inject SDK-specific extensions to spec types
+    injectSdkExtensions(sourceFile);
+
+    // Transform 7: Convert JSDoc comments to @description tags for .describe() generation
     // (Must run before injectDerivedCapabilityTypes so inline types get @description)
     convertJsDocToDescription(sourceFile);
 
-    // Transform 7: Add derived capability types (extracts from parent interfaces)
+    // Transform 8: Add derived capability types (extracts from parent interfaces)
     injectDerivedCapabilityTypes(sourceFile);
 
     return sourceFile.getFullText();
@@ -472,6 +475,34 @@ function inlineJSONRPCResponse(sourceFile: SourceFile): void {
     if (responseType) {
         responseType.remove();
         console.log('    ✓ Removed JSONRPCResponse type (defined locally in types.ts)');
+    }
+}
+
+/**
+ * Inject SDK-specific extensions to spec types.
+ * These are fields/types that the SDK adds beyond what the spec defines.
+ */
+function injectSdkExtensions(sourceFile: SourceFile): void {
+    // Add applyDefaults to ClientCapabilities.elicitation.form
+    // The SDK allows clients to request that servers apply schema defaults to elicitation responses
+    const clientCaps = sourceFile.getInterface('ClientCapabilities');
+    if (clientCaps) {
+        const elicitationProp = clientCaps.getProperty('elicitation');
+        if (elicitationProp) {
+            const typeNode = elicitationProp.getTypeNode();
+            if (typeNode) {
+                const originalType = typeNode.getText();
+                // Replace { form?: object; url?: object } with extended form type
+                if (originalType.includes('form?: object')) {
+                    const newType = originalType.replace(
+                        'form?: object',
+                        'form?: { applyDefaults?: boolean; [key: string]: unknown }'
+                    );
+                    typeNode.replaceWithText(newType);
+                    console.log('    ✓ Added applyDefaults to ClientCapabilities.elicitation.form');
+                }
+            }
+        }
     }
 }
 
@@ -1086,16 +1117,65 @@ function addElicitationPreprocess(sourceFile: SourceFile): void {
     let text = initializer.getText();
 
     // Find the elicitation field and wrap with preprocess
-    // Pattern: elicitation: z.object({ form: ..., url: ... }).optional().describe(...)
-    // We need to capture everything up to and including the object's closing paren, then handle the trailing .optional().describe() separately
-    const elicitationPattern = /elicitation:\s*(z\s*\.\s*object\(\s*\{[^}]*form:[^}]*url:[^}]*\}\s*\))\s*\.optional\(\)(\s*\.describe\([^)]*\))?/;
+    // Handle both z.object and z.looseObject patterns
+    // The inner schema structure may be complex (nested objects, etc.), so we use brace counting
+    const elicitationStart = text.indexOf('elicitation:');
+    if (elicitationStart === -1) return;
 
-    const match = text.match(elicitationPattern);
-    if (match) {
-        const innerSchema = match[1]; // z.object({...}) without .optional()
-        const describeCall = match[2] || ''; // .describe(...) if present
-        const replacement = `elicitation: z.preprocess(
-            (value) => {
+    // Find the schema after 'elicitation:'
+    const afterElicitation = text.substring(elicitationStart + 'elicitation:'.length);
+
+    // Find where z.object or z.looseObject starts
+    const objectMatch = afterElicitation.match(/^\s*(z\s*\.\s*(?:looseObject|object)\s*\()/);
+    if (!objectMatch) return;
+
+    const schemaStart = elicitationStart + 'elicitation:'.length + objectMatch.index!;
+
+    // Count braces/parens to find the end of the schema (before .optional())
+    let depth = 0;
+    let inString = false;
+    let stringChar = '';
+    let schemaEnd = schemaStart;
+    const startPos = schemaStart;
+
+    for (let i = startPos; i < text.length; i++) {
+        const char = text[i];
+        const prevChar = i > 0 ? text[i - 1] : '';
+
+        if (inString) {
+            if (char === stringChar && prevChar !== '\\') {
+                inString = false;
+            }
+        } else {
+            if (char === '"' || char === "'") {
+                inString = true;
+                stringChar = char;
+            } else if (char === '(' || char === '{' || char === '[') {
+                depth++;
+            } else if (char === ')' || char === '}' || char === ']') {
+                depth--;
+                if (depth === 0) {
+                    schemaEnd = i + 1;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Extract the inner schema (z.looseObject({...}) or z.object({...}))
+    const innerSchema = text.substring(schemaStart, schemaEnd).trim();
+
+    // Find what follows the schema (.optional().describe(...) etc)
+    const afterSchema = text.substring(schemaEnd);
+    const optionalMatch = afterSchema.match(/^\s*\.optional\(\)(\s*\.describe\([^)]*\))?/);
+    if (!optionalMatch) return;
+
+    const describeCall = optionalMatch[1] || '';
+    const fullMatchEnd = schemaEnd + optionalMatch[0].length;
+
+    // Build the replacement with preprocess
+    const replacement = `elicitation: z.preprocess(
+            value => {
                 if (value && typeof value === 'object' && !Array.isArray(value)) {
                     if (Object.keys(value as Record<string, unknown>).length === 0) {
                         return { form: {} };
@@ -1106,10 +1186,9 @@ function addElicitationPreprocess(sourceFile: SourceFile): void {
             ${innerSchema}${describeCall}
         ).optional()`;
 
-        text = text.replace(elicitationPattern, replacement);
-        varDecl.setInitializer(text);
-        console.log('    ✓ Added z.preprocess to ClientCapabilitiesSchema.elicitation');
-    }
+    text = text.substring(0, elicitationStart) + replacement + text.substring(fullMatchEnd);
+    varDecl.setInitializer(text);
+    console.log('    ✓ Added z.preprocess to ClientCapabilitiesSchema.elicitation');
 }
 
 // =============================================================================

@@ -265,7 +265,12 @@ export const ClientCapabilitiesSchema = z
                 },
                 z
                     .looseObject({
-                        form: AssertObjectSchema.optional(),
+                        form: z
+                            .looseObject({
+                                applyDefaults: z.boolean().optional()
+                            })
+                            .passthrough()
+                            .optional(),
                         url: AssertObjectSchema.optional()
                     })
                     .describe('Present if the client supports elicitation from the server.')

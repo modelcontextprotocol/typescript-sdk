@@ -340,7 +340,7 @@ export interface ClientCapabilities {
         tools?: object;
     };
     /** @description Present if the client supports elicitation from the server. */
-    elicitation?: { form?: object; url?: object };
+    elicitation?: { form?: { applyDefaults?: boolean; [key: string]: unknown }; url?: object };
 
     /** @description Present if the client supports task-augmented requests. */
     tasks?: {
