@@ -185,6 +185,13 @@ import {
     LoggingMessageNotificationParamsSchema,
     // EmptyResult (with .strict())
     EmptyResultSchema,
+    // Resource request params schemas
+    ResourceRequestParamsSchema,
+    ReadResourceRequestParamsSchema,
+    SubscribeRequestParamsSchema,
+    UnsubscribeRequestParamsSchema,
+    ResourceUpdatedNotificationParamsSchema,
+    SetLevelRequestParamsSchema,
 } from './generated/sdk.schemas.js';
 
 // Alias RequestParamsSchema to BaseRequestParamsSchema for internal use
@@ -323,6 +330,12 @@ export {
     GetPromptRequestParamsSchema,
     LoggingMessageNotificationParamsSchema,
     EmptyResultSchema,
+    ResourceRequestParamsSchema,
+    ReadResourceRequestParamsSchema,
+    SubscribeRequestParamsSchema,
+    UnsubscribeRequestParamsSchema,
+    ResourceUpdatedNotificationParamsSchema,
+    SetLevelRequestParamsSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -682,39 +695,11 @@ export const ProgressNotificationParamsSchema = z.object({
 // Note: ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, SubscribeRequestSchema,
 // UnsubscribeRequestSchema are re-exported from generated.
 
-// Note: ListResourcesResultSchema, ListResourceTemplatesResultSchema are re-exported from generated.
-
-export const ResourceRequestParamsSchema = BaseRequestParamsSchema.extend({
-    /**
-     * The URI of the resource to read. The URI can use any protocol; it is up to the server how to interpret it.
-     *
-     * @format uri
-     */
-    uri: z.string()
-});
-
-/**
- * Parameters for a `resources/read` request.
- */
-export const ReadResourceRequestParamsSchema = ResourceRequestParamsSchema;
-
-// Note: ReadResourceRequestSchema, ReadResourceResultSchema, ResourceListChangedNotificationSchema
-// are re-exported from generated.
-
-export const SubscribeRequestParamsSchema = ResourceRequestParamsSchema;
-export const UnsubscribeRequestParamsSchema = ResourceRequestParamsSchema;
-
-/**
- * Parameters for a `notifications/resources/updated` notification.
- */
-export const ResourceUpdatedNotificationParamsSchema = NotificationsParamsSchema.extend({
-    /**
-     * The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.
-     */
-    uri: z.string()
-});
-
-// Note: ResourceUpdatedNotificationSchema is re-exported from generated.
+// Note: ListResourcesResultSchema, ListResourceTemplatesResultSchema,
+// ResourceRequestParamsSchema, ReadResourceRequestParamsSchema,
+// SubscribeRequestParamsSchema, UnsubscribeRequestParamsSchema,
+// ReadResourceRequestSchema, ReadResourceResultSchema, ResourceListChangedNotificationSchema,
+// ResourceUpdatedNotificationParamsSchema, ResourceUpdatedNotificationSchema are re-exported from generated.
 
 /* Prompts */
 // Note: PromptArgumentSchema, PromptSchema, ListPromptsRequestSchema, GetPromptRequestSchema
@@ -823,17 +808,8 @@ export type ListChangedHandlers = {
 };
 
 /* Logging */
-/**
- * Parameters for a `logging/setLevel` request.
- */
-export const SetLevelRequestParamsSchema = BaseRequestParamsSchema.extend({
-    /**
-     * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/logging/message.
-     */
-    level: LoggingLevelSchema
-});
-// Note: SetLevelRequestSchema, LoggingMessageNotificationSchema, LoggingMessageNotificationParamsSchema
-// are re-exported from generated.
+// Note: SetLevelRequestParamsSchema, SetLevelRequestSchema, LoggingMessageNotificationSchema,
+// LoggingMessageNotificationParamsSchema are re-exported from generated.
 
 /* Sampling */
 // Note: ToolResultContentSchema is re-exported from generated.
