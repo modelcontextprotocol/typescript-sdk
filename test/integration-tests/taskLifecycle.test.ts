@@ -6,6 +6,7 @@ import { McpServer } from '../../src/server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
 import {
     CallToolResultSchema,
+    CancelTaskResultSchema,
     CreateTaskResultSchema,
     ElicitRequestSchema,
     ElicitResultSchema,
@@ -262,7 +263,7 @@ describe('Task Lifecycle Integration Tests', () => {
             // Verify result is stored
             const result = await taskStore.getTaskResult(taskId);
             expect(result).toBeDefined();
-            expect(result.content).toEqual([{ type: 'text', text: 'Completed after 500ms' }]);
+            expect((result as { content: unknown }).content).toEqual([{ type: 'text', text: 'Completed after 500ms' }]);
 
             await transport.close();
         });
@@ -304,8 +305,8 @@ describe('Task Lifecycle Integration Tests', () => {
 
             // Verify error result is stored
             const result = await taskStore.getTaskResult(taskId);
-            expect(result.content).toEqual([{ type: 'text', text: 'Task failed as requested' }]);
-            expect(result.isError).toBe(true);
+            expect((result as { content: unknown }).content).toEqual([{ type: 'text', text: 'Task failed as requested' }]);
+            expect((result as { isError?: boolean }).isError).toBe(true);
 
             await transport.close();
         });
@@ -1040,7 +1041,7 @@ describe('Task Lifecycle Integration Tests', () => {
                     method: 'tasks/cancel',
                     params: { taskId }
                 },
-                z.object({ _meta: z.record(z.unknown()).optional() })
+                CancelTaskResultSchema
             );
 
             // Verify task is cancelled

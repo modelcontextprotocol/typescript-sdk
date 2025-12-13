@@ -250,12 +250,12 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     Request: (sdk: SDKTypes.Request, spec: SpecTypes.Request) => {
-        sdk = spec;
-        spec = sdk;
+        sdk = spec as SDKTypes.Request;
+        spec = sdk as SpecTypes.Request;
     },
     Result: (sdk: SDKTypes.Result, spec: SpecTypes.Result) => {
-        sdk = spec;
-        spec = sdk;
+        sdk = spec as SDKTypes.Result;
+        spec = sdk as SpecTypes.Result;
     },
     RequestId: (sdk: SDKTypes.RequestId, spec: SpecTypes.RequestId) => {
         sdk = spec;
@@ -270,16 +270,16 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     JSONRPCResponse: (sdk: SDKTypes.JSONRPCResponse, spec: SpecTypes.JSONRPCResponse) => {
-        sdk = spec;
-        spec = sdk;
+        sdk = spec as SDKTypes.JSONRPCResponse;
+        spec = sdk as SpecTypes.JSONRPCResponse;
     },
     EmptyResult: (sdk: SDKTypes.EmptyResult, spec: SpecTypes.EmptyResult) => {
         sdk = spec;
         spec = sdk;
     },
     Notification: (sdk: SDKTypes.Notification, spec: SpecTypes.Notification) => {
-        sdk = spec;
-        spec = sdk;
+        sdk = spec as SDKTypes.Notification;
+        spec = sdk as SpecTypes.Notification;
     },
     ClientResult: (sdk: SDKTypes.ClientResult, spec: SpecTypes.ClientResult) => {
         sdk = spec;
@@ -526,12 +526,12 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     JSONRPCResultResponse: (sdk: SDKTypes.JSONRPCResultResponse, spec: SpecTypes.JSONRPCResultResponse) => {
-        sdk = spec;
-        spec = sdk;
+        sdk = spec as SDKTypes.JSONRPCResultResponse;
+        spec = sdk as SpecTypes.JSONRPCResultResponse;
     },
     JSONRPCMessage: (sdk: SDKTypes.JSONRPCMessage, spec: SpecTypes.JSONRPCMessage) => {
-        sdk = spec;
-        spec = sdk;
+        sdk = spec as SDKTypes.JSONRPCMessage;
+        spec = sdk as SpecTypes.JSONRPCMessage;
     },
     CreateMessageRequest: (sdk: WithJSONRPCRequest<SDKTypes.CreateMessageRequest>, spec: SpecTypes.CreateMessageRequest) => {
         sdk = spec;

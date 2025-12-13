@@ -223,7 +223,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         const responseMessage: JSONRPCMessage = {
             jsonrpc: '2.0',
-            result: { success: true },
+            result: { success: true } as { success: boolean; _meta?: { [key: string]: unknown } },
             id: 'test-id'
         };
 
