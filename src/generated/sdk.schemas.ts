@@ -832,7 +832,7 @@ export const AnnotationsSchema = z.object({
      * Examples: last activity timestamp in an open file, timestamp when the resource
      * was attached, etc.
      */
-    lastModified: z.string().optional()
+    lastModified: z.iso.datetime({ offset: true }).optional()
 });
 
 /**
@@ -1522,7 +1522,7 @@ export const RootSchema = z.object({
      *
      * @format uri
      */
-    uri: z.string(),
+    uri: z.string().startsWith('file://'),
     /**
      * An optional name for the root. This can be used to provide a human-readable
      * identifier for the root, which may be useful for display purposes or for
@@ -1583,7 +1583,7 @@ export const StringSchemaSchema = z.object({
     description: z.string().optional(),
     minLength: z.number().optional(),
     maxLength: z.number().optional(),
-    format: z.union([z.literal('email'), z.literal('uri'), z.literal('date'), z.literal('date-time')]).optional(),
+    format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
     default: z.string().optional()
 });
 

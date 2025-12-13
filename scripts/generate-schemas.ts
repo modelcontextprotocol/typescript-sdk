@@ -12,12 +12,13 @@
  *
  * 2. **Generate schemas** via ts-to-zod library
  *
- * 3. **Post-process schemas** for Zod v4 compatibility:
+ * 3. **Post-process schemas** using ts-morph AST transforms:
  *    - `"zod"` → `"zod/v4"`
  *    - `z.record().and(z.object())` → `z.looseObject()`
  *    - `jsonrpc: z.any()` → `z.literal("2.0")`
  *    - Add `.int()` refinements to ProgressTokenSchema, RequestIdSchema
- *    - `z.union([z.literal("a"), z.literal("b")])` → `z.enum(["a", "b"])`
+ *    - `z.union([z.literal("a"), ...])` → `z.enum(["a", ...])`
+ *    - Field-level validation overrides (datetime, startsWith, etc.)
  *
  * ## Why Pre-Process Types?
  *
@@ -29,11 +30,13 @@
  * the SDK's type hierarchy exactly, enabling types.ts to re-export from generated/.
  *
  * @see https://github.com/fabien0102/ts-to-zod
+ * @see https://github.com/dsherret/ts-morph
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generate } from 'ts-to-zod';
+import { Project, SyntaxKind, Node, CallExpression, PropertyAssignment } from 'ts-morph';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -46,49 +49,270 @@ const SCHEMA_OUTPUT_FILE = join(GENERATED_DIR, 'sdk.schemas.ts');
 const SCHEMA_TEST_OUTPUT_FILE = join(GENERATED_DIR, 'sdk.schemas.zod.test.ts');
 
 // =============================================================================
+// Configuration: Field-level validation overrides
+// =============================================================================
+
+/**
+ * Field-level overrides for enhanced validation.
+ * These replace generated z.string() with more specific validators.
+ */
+const FIELD_OVERRIDES: Record<string, Record<string, string>> = {
+    'AnnotationsSchema': {
+        'lastModified': 'z.iso.datetime({ offset: true }).optional()'
+    },
+    'RootSchema': {
+        'uri': 'z.string().startsWith("file://")'
+    }
+};
+
+/**
+ * Schemas that need .int() added to their z.number() members.
+ */
+const INTEGER_SCHEMAS = ['ProgressTokenSchema', 'RequestIdSchema'];
+
+// =============================================================================
 // Pre-processing: Transform spec types to SDK-compatible hierarchy
 // =============================================================================
 
 /**
  * Pre-process spec.types.ts to transform type hierarchy for SDK compatibility.
- *
- * The MCP spec defines:
- * - `interface InitializeRequest extends JSONRPCRequest { ... }`
- * - `interface CancelledNotification extends JSONRPCNotification { ... }`
- *
- * JSONRPCRequest/JSONRPCNotification include `jsonrpc` and `id` fields.
- * The SDK handles these at the transport layer, so SDK types should extend
- * the simpler Request/Notification without these fields.
- *
- * This transformation allows the generated schemas to match types.ts exactly.
- *
- * ## Alternative: ts-morph for AST-based transforms
- *
- * If regex becomes fragile, consider using ts-morph for precise AST manipulation:
- * ```typescript
- * import { Project } from 'ts-morph';
- * const project = new Project();
- * const sourceFile = project.createSourceFile('temp.ts', content);
- * for (const iface of sourceFile.getInterfaces()) {
- *     for (const ext of iface.getExtends()) {
- *         if (ext.getText() === 'JSONRPCRequest') ext.replaceWithText('Request');
- *         if (ext.getText() === 'JSONRPCNotification') ext.replaceWithText('Notification');
- *     }
- * }
- * return sourceFile.getFullText();
- * ```
  */
 function preProcessTypes(content: string): string {
-    // Transform extends clauses for requests
-    // e.g., "extends JSONRPCRequest" → "extends Request"
     content = content.replace(/\bextends\s+JSONRPCRequest\b/g, 'extends Request');
-
-    // Transform extends clauses for notifications
-    // e.g., "extends JSONRPCNotification" → "extends Notification"
     content = content.replace(/\bextends\s+JSONRPCNotification\b/g, 'extends Notification');
-
     return content;
 }
+
+// =============================================================================
+// Post-processing: AST-based transforms using ts-morph
+// =============================================================================
+
+type SourceFile = ReturnType<Project['createSourceFile']>;
+type Transform = (sourceFile: SourceFile) => void;
+
+/**
+ * AST transforms applied in order. Functions are named for logging.
+ */
+const AST_TRANSFORMS: Transform[] = [
+    transformRecordAndToLooseObject,
+    transformTypeofExpressions,
+    transformIntegerRefinements,
+    transformUnionToEnum,
+    applyFieldOverrides,
+];
+
+/**
+ * Post-process generated schemas using ts-morph for robust AST manipulation.
+ */
+function postProcess(content: string): string {
+    // Quick text-based transforms first (simpler cases)
+    content = content.replace(
+        'import { z } from "zod";',
+        'import { z } from "zod/v4";',
+    );
+
+    content = content.replace(
+        '// Generated by ts-to-zod',
+        `// Generated by ts-to-zod
+// Post-processed for Zod v4 compatibility
+// Run: npm run generate:schemas`,
+    );
+
+    // AST-based transforms using ts-morph
+    const project = new Project({ useInMemoryFileSystem: true });
+    const sourceFile = project.createSourceFile('schemas.ts', content);
+
+    console.log('  🔧 Applying AST transforms...');
+    for (const transform of AST_TRANSFORMS) {
+        console.log(`    - ${transform.name}`);
+        transform(sourceFile);
+    }
+
+    return sourceFile.getFullText();
+}
+
+/**
+ * Transform z.record(z.string(), z.unknown()).and(z.object({...})) to z.looseObject({...})
+ */
+function transformRecordAndToLooseObject(sourceFile: SourceFile): void {
+    // Find all call expressions
+    sourceFile.forEachDescendant((node) => {
+        if (!Node.isCallExpression(node)) return;
+
+        const text = node.getText();
+        // Match pattern: z.record(...).and(z.object({...}))
+        if (!text.startsWith('z.record(z.string(), z.unknown()).and(z.object(')) return;
+
+        // Extract the object contents from z.object({...})
+        const andCall = node;
+        const args = andCall.getArguments();
+        if (args.length !== 1) return;
+
+        const objectCall = args[0];
+        if (!Node.isCallExpression(objectCall)) return;
+
+        const objectArgs = objectCall.getArguments();
+        if (objectArgs.length !== 1) return;
+
+        const objectLiteral = objectArgs[0];
+        if (!Node.isObjectLiteralExpression(objectLiteral)) return;
+
+        // Replace with z.looseObject({...})
+        const objectContent = objectLiteral.getText();
+        node.replaceWithText(`z.looseObject(${objectContent})`);
+    });
+}
+
+/**
+ * Transform typeof expressions that became z.any() into proper literals.
+ */
+function transformTypeofExpressions(sourceFile: SourceFile): void {
+    // Find property assignments with jsonrpc: z.any()
+    sourceFile.forEachDescendant((node) => {
+        if (!Node.isPropertyAssignment(node)) return;
+
+        const name = node.getName();
+        const initializer = node.getInitializer();
+        if (!initializer) return;
+
+        const initText = initializer.getText();
+
+        if (name === 'jsonrpc' && initText === 'z.any()') {
+            node.setInitializer('z.literal("2.0")');
+        }
+    });
+}
+
+/**
+ * Add .int() refinement to z.number() in specific schemas.
+ */
+function transformIntegerRefinements(sourceFile: SourceFile): void {
+    for (const schemaName of INTEGER_SCHEMAS) {
+        const varDecl = sourceFile.getVariableDeclaration(schemaName);
+        if (!varDecl) continue;
+
+        const initializer = varDecl.getInitializer();
+        if (!initializer) continue;
+
+        // Collect nodes first to avoid modifying while iterating
+        const nodesToReplace: CallExpression[] = [];
+        initializer.forEachDescendant((node) => {
+            if (Node.isCallExpression(node) && node.getText() === 'z.number()') {
+                nodesToReplace.push(node);
+            }
+        });
+
+        // Replace in reverse order to maintain positions
+        for (const node of nodesToReplace.reverse()) {
+            node.replaceWithText('z.number().int()');
+        }
+    }
+}
+
+/**
+ * Transform z.union([z.literal('a'), z.literal('b'), ...]) to z.enum(['a', 'b', ...])
+ *
+ * This handles cases that the regex approach missed, including chained methods.
+ */
+function transformUnionToEnum(sourceFile: SourceFile): void {
+    // Collect union nodes that should be converted
+    const nodesToReplace: Array<{ node: CallExpression; values: string[] }> = [];
+
+    sourceFile.forEachDescendant((node) => {
+        if (!Node.isCallExpression(node)) return;
+
+        // Check if this is z.union(...)
+        const expr = node.getExpression();
+        if (!Node.isPropertyAccessExpression(expr)) return;
+        if (expr.getName() !== 'union') return;
+
+        const args = node.getArguments();
+        if (args.length !== 1) return;
+
+        const arrayArg = args[0];
+        if (!Node.isArrayLiteralExpression(arrayArg)) return;
+
+        // Check if ALL elements are z.literal('string')
+        const elements = arrayArg.getElements();
+        if (elements.length < 2) return;
+
+        const literalValues: string[] = [];
+        let allStringLiterals = true;
+
+        for (const element of elements) {
+            if (!Node.isCallExpression(element)) {
+                allStringLiterals = false;
+                break;
+            }
+
+            const elemExpr = element.getExpression();
+            if (!Node.isPropertyAccessExpression(elemExpr)) {
+                allStringLiterals = false;
+                break;
+            }
+
+            if (elemExpr.getName() !== 'literal') {
+                allStringLiterals = false;
+                break;
+            }
+
+            const elemArgs = element.getArguments();
+            if (elemArgs.length !== 1) {
+                allStringLiterals = false;
+                break;
+            }
+
+            const literalArg = elemArgs[0];
+            if (!Node.isStringLiteral(literalArg)) {
+                allStringLiterals = false;
+                break;
+            }
+
+            literalValues.push(literalArg.getLiteralValue());
+        }
+
+        if (allStringLiterals && literalValues.length >= 2) {
+            nodesToReplace.push({ node, values: literalValues });
+        }
+    });
+
+    // Replace in reverse order
+    for (const { node, values } of nodesToReplace.reverse()) {
+        const enumValues = values.map(v => `'${v}'`).join(', ');
+        node.replaceWithText(`z.enum([${enumValues}])`);
+    }
+}
+
+/**
+ * Apply field-level validation overrides to specific schemas.
+ */
+function applyFieldOverrides(sourceFile: SourceFile): void {
+    for (const [schemaName, fields] of Object.entries(FIELD_OVERRIDES)) {
+        const varDecl = sourceFile.getVariableDeclaration(schemaName);
+        if (!varDecl) {
+            console.warn(`    ⚠️  Schema not found for override: ${schemaName}`);
+            continue;
+        }
+
+        const initializer = varDecl.getInitializer();
+        if (!initializer) continue;
+
+        // Find property assignments matching the field names
+        initializer.forEachDescendant((node) => {
+            if (!Node.isPropertyAssignment(node)) return;
+
+            const propName = node.getName();
+            if (fields[propName]) {
+                console.log(`    ✓ Override: ${schemaName}.${propName}`);
+                node.setInitializer(fields[propName]);
+            }
+        });
+    }
+}
+
+// =============================================================================
+// Main
+// =============================================================================
 
 async function main() {
     console.log('🔧 Generating Zod schemas from spec.types.ts...\n');
@@ -125,7 +349,6 @@ ${sdkTypesContent.replace(/^\/\*\*[\s\S]*?\*\/\n/, '')}`;
         keepComments: true,
         skipParseJSDoc: false,
         // Use PascalCase naming to match existing types.ts convention
-        // e.g., ProgressToken → ProgressTokenSchema
         getSchemaName: (typeName: string) => `${typeName}Schema`,
     });
 
@@ -160,165 +383,6 @@ ${sdkTypesContent.replace(/^\/\*\*[\s\S]*?\*\/\n/, '')}`;
     }
 
     console.log('\n🎉 Schema generation complete!');
-}
-
-/**
- * Post-process generated schemas for project compatibility.
- */
-function postProcess(content: string): string {
-    // 1. Update import to use zod/v4
-    content = content.replace(
-        'import { z } from "zod";',
-        'import { z } from "zod/v4";',
-    );
-
-    // 2. Replace z.record().and(z.object({...})) with z.looseObject({...})
-    // Uses brace-counting to handle nested objects correctly.
-    content = replaceRecordAndWithLooseObject(content);
-
-    // 3. Fix typeof expressions that became z.any()
-    // ts-to-zod can't translate `typeof CONST` and falls back to z.any()
-    content = fixTypeOfExpressions(content);
-
-    // 4. Add integer refinements to match SDK types.ts
-    content = addIntegerRefinements(content);
-
-    // 5. Convert union of literals to z.enum for cleaner code
-    content = convertUnionOfLiteralsToEnum(content);
-
-    // Note: SDK hierarchy remapping is now done as PRE-processing on the types,
-    // not post-processing on the schemas. See preProcessTypes().
-
-    // 6. Add header comment
-    content = content.replace(
-        '// Generated by ts-to-zod',
-        `// Generated by ts-to-zod
-// Post-processed for Zod v4 compatibility
-// Run: npm run generate:schemas`,
-    );
-
-    return content;
-}
-
-/**
- * Fix typeof expressions that ts-to-zod couldn't translate.
- *
- * In the spec, these patterns use `typeof CONST`:
- * - `jsonrpc: typeof JSONRPC_VERSION` where JSONRPC_VERSION = "2.0"
- * - `code: typeof URL_ELICITATION_REQUIRED` where URL_ELICITATION_REQUIRED = -32042
- *
- * ts-to-zod generates `z.any()` for these, which we replace with proper literals.
- */
-function fixTypeOfExpressions(content: string): string {
-    // Fix jsonrpc: z.any() → jsonrpc: z.literal("2.0")
-    // This appears in JSONRPCRequest, JSONRPCNotification, JSONRPCResponse schemas
-    content = content.replace(
-        /jsonrpc: z\.any\(\)/g,
-        'jsonrpc: z.literal("2.0")'
-    );
-
-    // Note: URL_ELICITATION_REQUIRED code field is inside a more complex structure
-    // and may need specific handling if tests fail
-
-    return content;
-}
-
-/**
- * Add integer refinements to numeric schemas.
- *
- * The SDK uses .int() for:
- * - ProgressToken (numeric tokens should be integers)
- * - RequestId (numeric IDs should be integers)
- *
- * This matches the manual types.ts behavior.
- */
-function addIntegerRefinements(content: string): string {
-    // ProgressTokenSchema: z.union([z.string(), z.number()]) → z.union([z.string(), z.number().int()])
-    content = content.replace(
-        /export const ProgressTokenSchema = z\.union\(\[z\.string\(\), z\.number\(\)\]\)/,
-        'export const ProgressTokenSchema = z.union([z.string(), z.number().int()])'
-    );
-
-    // RequestIdSchema: z.union([z.string(), z.number()]) → z.union([z.string(), z.number().int()])
-    content = content.replace(
-        /export const RequestIdSchema = z\.union\(\[z\.string\(\), z\.number\(\)\]\)/,
-        'export const RequestIdSchema = z.union([z.string(), z.number().int()])'
-    );
-
-    return content;
-}
-
-/**
- * Convert union of string literals to z.enum for cleaner code.
- *
- * ts-to-zod generates:
- *   z.union([z.literal('a'), z.literal('b'), z.literal('c')])
- *
- * But z.enum is more idiomatic and what types.ts uses:
- *   z.enum(['a', 'b', 'c'])
- *
- * This only applies to unions of 2+ string literals with no other union members.
- */
-function convertUnionOfLiteralsToEnum(content: string): string {
-    // Match z.union([z.literal('...'), z.literal('...'), ...])
-    // This regex captures the full z.union([...]) pattern
-    const unionPattern = /z\.union\(\[\s*(z\.literal\(['"]\w+['"]\)(?:\s*,\s*z\.literal\(['"]\w+['"]\))+)\s*\]\)/g;
-
-    return content.replace(unionPattern, (match, literalsGroup: string) => {
-        // Extract each literal value
-        const literalPattern = /z\.literal\(['"](\w+)['"]\)/g;
-        const values: string[] = [];
-        let literalMatch;
-        while ((literalMatch = literalPattern.exec(literalsGroup)) !== null) {
-            values.push(literalMatch[1]);
-        }
-
-        if (values.length >= 2) {
-            // Convert to z.enum(['a', 'b', 'c'])
-            return `z.enum([${values.map(v => `'${v}'`).join(', ')}])`;
-        }
-        // If something went wrong, return the original
-        return match;
-    });
-}
-
-/**
- * Replace z.record(z.string(), z.unknown()).and(z.object({...})) with z.looseObject({...})
- * Uses brace-counting to handle nested objects correctly.
- */
-function replaceRecordAndWithLooseObject(content: string): string {
-    const pattern = 'z.record(z.string(), z.unknown()).and(z.object({';
-    let result = content;
-    let startIndex = 0;
-
-    while (true) {
-        const matchStart = result.indexOf(pattern, startIndex);
-        if (matchStart === -1) break;
-
-        // Find the matching closing brace for z.object({
-        const objectStart = matchStart + pattern.length;
-        let braceCount = 1;
-        let i = objectStart;
-
-        while (i < result.length && braceCount > 0) {
-            if (result[i] === '{') braceCount++;
-            else if (result[i] === '}') braceCount--;
-            i++;
-        }
-
-        // i now points after the closing } of z.object({...})
-        // Check if followed by ))
-        if (result.slice(i, i + 2) === '))') {
-            const objectContent = result.slice(objectStart, i - 1);
-            const replacement = `z.looseObject({${objectContent}})`;
-            result = result.slice(0, matchStart) + replacement + result.slice(i + 2);
-            startIndex = matchStart + replacement.length;
-        } else {
-            startIndex = i;
-        }
-    }
-
-    return result;
 }
 
 /**

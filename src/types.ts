@@ -37,6 +37,9 @@ import {
     // Elicitation primitive schemas
     BooleanSchemaSchema,
     NumberSchemaSchema,
+    // Schemas with enhanced validation (datetime, startsWith)
+    AnnotationsSchema,
+    RootSchema,
 } from './generated/sdk.schemas.js';
 
 export {
@@ -60,6 +63,8 @@ export {
     ToolExecutionSchema,
     BooleanSchemaSchema,
     NumberSchemaSchema,
+    AnnotationsSchema,
+    RootSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -765,25 +770,7 @@ export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
     blob: Base64Schema
 });
 
-/**
- * Optional annotations providing clients additional context about a resource.
- */
-export const AnnotationsSchema = z.object({
-    /**
-     * Intended audience(s) for the resource.
-     */
-    audience: z.array(RoleSchema).optional(),
-
-    /**
-     * Importance hint for the resource, from 0 (least) to 1 (most).
-     */
-    priority: z.number().min(0).max(1).optional(),
-
-    /**
-     * ISO 8601 timestamp for the most recent modification.
-     */
-    lastModified: z.iso.datetime({ offset: true }).optional()
-});
+// Note: AnnotationsSchema is re-exported from generated with z.iso.datetime validation.
 
 /**
  * A known resource that the server is capable of reading.
@@ -1949,25 +1936,7 @@ export const CompleteResultSchema = ResultSchema.extend({
 });
 
 /* Roots */
-/**
- * Represents a root directory or file that the server can operate on.
- */
-export const RootSchema = z.object({
-    /**
-     * The URI identifying the root. This *must* start with file:// for now.
-     */
-    uri: z.string().startsWith('file://'),
-    /**
-     * An optional name for the root.
-     */
-    name: z.string().optional(),
-
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.record(z.string(), z.unknown()).optional()
-});
+// Note: RootSchema is re-exported from generated with .startsWith('file://') validation.
 
 /**
  * Sent from the server to request a list of root URIs from the client.
