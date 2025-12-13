@@ -540,7 +540,7 @@ export const ClientCapabilitiesSchema = z.object({
 
 /**
  * Elicitation capability schema - extracted from ClientCapabilitiesSchema.
- * Includes preprocessing to handle empty objects as { form: {} }.
+ * Has special preprocessing to handle empty objects as { form: {} } for backwards compatibility.
  */
 export const ElicitationCapabilitySchema = ClientCapabilitiesSchema.shape.elicitation.unwrap();
 

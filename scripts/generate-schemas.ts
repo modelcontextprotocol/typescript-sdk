@@ -118,6 +118,7 @@ const DISCRIMINATED_UNIONS: Record<string, string> = {
 const DERIVED_CAPABILITY_TYPES: Record<string, { parent: string; property: string }> = {
     'ClientTasksCapability': { parent: 'ClientCapabilities', property: 'tasks' },
     'ServerTasksCapability': { parent: 'ServerCapabilities', property: 'tasks' },
+    // Note: ElicitationCapability is kept local in types.ts because it has z.preprocess for backwards compat
 };
 
 // =============================================================================
