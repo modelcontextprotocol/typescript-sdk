@@ -474,7 +474,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                                     taskId: taskId
                                 }
                             }
-                        } as SendResultT;
+                        } as unknown as SendResultT;
                     }
 
                     return await handleTaskResult();
