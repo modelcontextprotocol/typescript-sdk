@@ -2115,7 +2115,7 @@ export const ResourceLinkSchema = ResourceSchema.extend({
 /**
  * @category Content
  */
-export const ContentBlockSchema = z.union([
+export const ContentBlockSchema = z.discriminatedUnion('type', [
     TextContentSchema,
     ImageContentSchema,
     AudioContentSchema,
@@ -2384,7 +2384,7 @@ export const PromptMessageSchema = z.object({
     content: ContentBlockSchema
 });
 
-export const SamplingMessageContentBlockSchema = z.union([
+export const SamplingMessageContentBlockSchema = z.discriminatedUnion('type', [
     TextContentSchema,
     ImageContentSchema,
     AudioContentSchema,

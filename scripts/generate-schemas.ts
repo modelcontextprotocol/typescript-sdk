@@ -100,6 +100,16 @@ const STRICT_SCHEMAS = [
     'EmptyResultSchema',
 ];
 
+/**
+ * Schemas that should use z.discriminatedUnion instead of z.union for better performance.
+ * Maps schema name to the discriminator field name.
+ */
+const DISCRIMINATED_UNIONS: Record<string, string> = {
+    'SamplingContentSchema': 'type',
+    'SamplingMessageContentBlockSchema': 'type',
+    'ContentBlockSchema': 'type',
+};
+
 // =============================================================================
 // Pre-processing: Transform spec types to SDK-compatible hierarchy
 // =============================================================================
@@ -273,6 +283,7 @@ const AST_TRANSFORMS: Transform[] = [
     transformUnionToEnum,
     applyFieldOverrides,
     addStrictToSchemas,
+    convertToDiscriminatedUnion,
 ];
 
 /**
@@ -500,6 +511,30 @@ function addStrictToSchemas(sourceFile: SourceFile): void {
         const currentText = initializer.getText();
         varDecl.setInitializer(`${currentText}.strict()`);
         console.log(`    ✓ Added .strict() to ${schemaName}`);
+    }
+}
+
+/**
+ * Convert z.union() to z.discriminatedUnion() for specified schemas.
+ * This provides better performance and error messages for tagged unions.
+ */
+function convertToDiscriminatedUnion(sourceFile: SourceFile): void {
+    for (const [schemaName, discriminator] of Object.entries(DISCRIMINATED_UNIONS)) {
+        const varDecl = sourceFile.getVariableDeclaration(schemaName);
+        if (!varDecl) continue;
+
+        const initializer = varDecl.getInitializer();
+        if (!initializer) continue;
+
+        const text = initializer.getText();
+
+        // Match z.union([...]) pattern and convert to z.discriminatedUnion('discriminator', [...])
+        const unionMatch = text.match(/^z\.union\(\s*\[([\s\S]*)\]\s*\)$/);
+        if (unionMatch) {
+            const members = unionMatch[1];
+            varDecl.setInitializer(`z.discriminatedUnion('${discriminator}', [${members}])`);
+            console.log(`    ✓ Converted ${schemaName} to discriminatedUnion('${discriminator}')`);
+        }
     }
 }
 

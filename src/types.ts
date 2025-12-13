@@ -192,6 +192,8 @@ import {
     UnsubscribeRequestParamsSchema,
     ResourceUpdatedNotificationParamsSchema,
     SetLevelRequestParamsSchema,
+    // Sampling schemas (now using discriminatedUnion)
+    SamplingMessageContentBlockSchema,
 } from './generated/sdk.schemas.js';
 
 // Alias RequestParamsSchema to BaseRequestParamsSchema for internal use
@@ -336,6 +338,7 @@ export {
     UnsubscribeRequestParamsSchema,
     ResourceUpdatedNotificationParamsSchema,
     SetLevelRequestParamsSchema,
+    SamplingMessageContentBlockSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -820,19 +823,8 @@ export type ListChangedHandlers = {
  */
 export const SamplingContentSchema = z.discriminatedUnion('type', [TextContentSchema, ImageContentSchema, AudioContentSchema]);
 
-/**
- * Content block types allowed in sampling messages.
- * This includes text, image, audio, tool use requests, and tool results.
- */
-export const SamplingMessageContentBlockSchema = z.discriminatedUnion('type', [
-    TextContentSchema,
-    ImageContentSchema,
-    AudioContentSchema,
-    ToolUseContentSchema,
-    ToolResultContentSchema
-]);
-
-// Note: SamplingMessageSchema, CreateMessageRequestParamsSchema, CreateMessageRequestSchema,
+// Note: SamplingMessageContentBlockSchema (using discriminatedUnion),
+// SamplingMessageSchema, CreateMessageRequestParamsSchema, CreateMessageRequestSchema,
 // CreateMessageResultSchema are re-exported from generated.
 
 /**
