@@ -68,9 +68,9 @@
     ],
     "scripts": {
         "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
-        "generate:schemas": "tsx scripts/generate-schemas.ts && prettier --write \"src/generated/**/*\"",
+        "generate:schemas": "tsx scripts/generate-schemas.ts",
         "typecheck": "tsgo --noEmit",
-        "build": "npm run generate:schemas && npm run build:esm && npm run build:cjs",
+        "build": "tsx scripts/generate-schemas.ts --if-changed && npm run build:esm && npm run build:cjs",
         "build:esm": "mkdir -p dist/esm && echo '{\"type\": \"module\"}' > dist/esm/package.json && tsc -p tsconfig.prod.json",
         "build:esm:w": "npm run build:esm -- -w",
         "build:cjs": "mkdir -p dist/cjs && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json && tsc -p tsconfig.cjs.json",

@@ -35,7 +35,8 @@
  * @see https://github.com/fabien0102/ts-to-zod
  * @see https://github.com/dsherret/ts-morph
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generate } from 'ts-to-zod';
@@ -59,6 +60,42 @@ const SDK_TYPES_FILE = join(PROJECT_ROOT, 'src', 'generated', 'sdk.types.ts');
 const GENERATED_DIR = join(PROJECT_ROOT, 'src', 'generated');
 const SCHEMA_OUTPUT_FILE = join(GENERATED_DIR, 'sdk.schemas.ts');
 const SCHEMA_TEST_OUTPUT_FILE = join(GENERATED_DIR, 'sdk.schemas.zod.test.ts');
+const GENERATE_SCRIPT_FILE = join(PROJECT_ROOT, 'scripts', 'generate-schemas.ts');
+
+// Input files that trigger regeneration
+const INPUT_FILES = [SPEC_TYPES_FILE, GENERATE_SCRIPT_FILE];
+// Output files that are generated
+const OUTPUT_FILES = [SDK_TYPES_FILE, SCHEMA_OUTPUT_FILE, SCHEMA_TEST_OUTPUT_FILE];
+
+/**
+ * Check if any input file is newer than any output file.
+ * Returns true if regeneration is needed.
+ */
+function needsRegeneration(): boolean {
+    // Get the newest input mtime
+    let newestInput = 0;
+    for (const file of INPUT_FILES) {
+        if (!existsSync(file)) {
+            console.log(`  Input file missing: ${file}`);
+            return true;
+        }
+        const mtime = statSync(file).mtimeMs;
+        if (mtime > newestInput) newestInput = mtime;
+    }
+
+    // Get the oldest output mtime
+    let oldestOutput = Infinity;
+    for (const file of OUTPUT_FILES) {
+        if (!existsSync(file)) {
+            console.log(`  Output file missing: ${file}`);
+            return true;
+        }
+        const mtime = statSync(file).mtimeMs;
+        if (mtime < oldestOutput) oldestOutput = mtime;
+    }
+
+    return newestInput > oldestOutput;
+}
 
 // =============================================================================
 // Configuration: Field-level validation overrides
@@ -1344,7 +1381,17 @@ function addElicitationPreprocess(sourceFile: SourceFile): void {
 // =============================================================================
 
 async function main() {
-    console.log('🔧 Generating Zod schemas from spec.types.ts...\n');
+    const ifChanged = process.argv.includes('--if-changed');
+
+    if (ifChanged) {
+        if (!needsRegeneration()) {
+            console.log('✅ Schemas are up to date, skipping generation.');
+            return;
+        }
+        console.log('🔄 Input files changed, regenerating schemas...\n');
+    } else {
+        console.log('🔧 Generating Zod schemas from spec.types.ts...\n');
+    }
 
     // Ensure generated directory exists
     if (!existsSync(GENERATED_DIR)) {
@@ -1417,6 +1464,13 @@ ${cleanedTypesContent.replace(/^\/\*\*[\s\S]*?\*\/\n/, '')}`;
         writeFileSync(SCHEMA_TEST_OUTPUT_FILE, processedTests, 'utf-8');
         console.log(`✅ Written: ${SCHEMA_TEST_OUTPUT_FILE}`);
     }
+
+    // Format generated files with prettier
+    console.log('\n📝 Formatting generated files...');
+    execSync('npx prettier --write "src/generated/**/*"', {
+        cwd: PROJECT_ROOT,
+        stdio: 'inherit'
+    });
 
     console.log('\n🎉 Schema generation complete!');
 }
