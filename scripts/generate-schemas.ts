@@ -516,7 +516,12 @@ function postProcess(content: string): string {
 }
 
 /**
- * Transform z.record(z.string(), z.unknown()).and(z.object({...})) to z.looseObject({...})
+ * Transform z.record(z.string(), z.unknown()).and(z.object({...})) to z.object({...}).passthrough()
+ *
+ * Using .passthrough() instead of looseObject because:
+ * - looseObject adds [x: string]: unknown index signature to the inferred type
+ * - This breaks TypeScript union narrowing (can't check 'prop' in obj)
+ * - .passthrough() allows extra properties at runtime without affecting the type
  */
 function transformRecordAndToLooseObject(sourceFile: SourceFile): void {
     // Find all call expressions
@@ -541,9 +546,10 @@ function transformRecordAndToLooseObject(sourceFile: SourceFile): void {
         const objectLiteral = objectArgs[0];
         if (!Node.isObjectLiteralExpression(objectLiteral)) return;
 
-        // Replace with z.looseObject({...})
+        // Replace with z.object({...}).passthrough()
+        // This allows extra properties at runtime but doesn't add index signature to type
         const objectContent = objectLiteral.getText();
-        node.replaceWithText(`z.looseObject(${objectContent})`);
+        node.replaceWithText(`z.object(${objectContent}).passthrough()`);
     });
 }
 

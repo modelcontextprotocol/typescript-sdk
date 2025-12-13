@@ -58,7 +58,7 @@ export const RequestParamsSchema = z
     .object({
         /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
         _meta: z
-            .looseObject({
+            .object({
                 /** @description If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications. */
                 progressToken: ProgressTokenSchema.optional().describe(
                     'If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.'
@@ -68,6 +68,7 @@ export const RequestParamsSchema = z
                     'If specified, this request is related to the provided task.'
                 )
             })
+            .passthrough()
             .optional()
             .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
     })
@@ -93,13 +94,15 @@ export const NotificationSchema = z.object({
 /**
  * @category Common Types
  */
-export const ResultSchema = z.looseObject({
-    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
-});
+export const ResultSchema = z
+    .object({
+        /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
+    })
+    .passthrough();
 
 /**
  * @category Common Types
@@ -1991,9 +1994,11 @@ export const URLElicitationRequiredErrorSchema = JSONRPCErrorResponseSchema.omit
         error: ErrorSchema.and(
             z.object({
                 code: z.any(),
-                data: z.looseObject({
-                    elicitations: z.array(ElicitRequestURLParamsSchema)
-                })
+                data: z
+                    .object({
+                        elicitations: z.array(ElicitRequestURLParamsSchema)
+                    })
+                    .passthrough()
             })
         )
     })
