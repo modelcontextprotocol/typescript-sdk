@@ -380,7 +380,6 @@ export const TaskCreationParamsSchema = z.looseObject({
     pollInterval: z.number().optional()
 });
 
-// Note: RequestParamsSchema, NotificationParamsSchema, and TaskAugmentedRequestParamsSchema
 // are re-exported from generated. They include RELATED_TASK_META_KEY in _meta, injected
 // during pre-processing.
 
@@ -393,7 +392,6 @@ export const TaskCreationParamsSchema = z.looseObject({
 export const isTaskAugmentedRequestParams = (value: unknown): value is TaskAugmentedRequestParams =>
     TaskAugmentedRequestParamsSchema.safeParse(value).success;
 
-// Note: RequestSchema, NotificationSchema, ResultSchema, and JSON-RPC schemas
 // are re-exported from generated. They include proper _meta typing and .strict().
 
 export const isJSONRPCRequest = (value: unknown): value is JSONRPCRequest => JSONRPCRequestSchema.safeParse(value).success;
@@ -429,7 +427,6 @@ export const JSONRPCMessageSchema = z.union([
     JSONRPCErrorResponseSchema
 ]);
 
-// Note: JSONRPCResponseSchema, EmptyResultSchema (with .strict()), CancelledNotificationParamsSchema are re-exported from generated.
 
 /* Cancellation */
 /**
@@ -538,7 +535,6 @@ export const ClientCapabilitiesSchema = z.object({
         .optional()
 });
 
-// Note: ClientTasksCapabilitySchema is re-exported from generated (derived from ClientCapabilities.tasks).
 
 /**
  * Elicitation capability schema - extracted from ClientCapabilitiesSchema.
@@ -546,7 +542,6 @@ export const ClientCapabilitiesSchema = z.object({
  */
 export const ElicitationCapabilitySchema = ClientCapabilitiesSchema.shape.elicitation.unwrap();
 
-// Note: InitializeRequestParamsSchema, InitializeRequestSchema are re-exported from generated.
 
 export const isInitializeRequest = (value: unknown): value is InitializeRequest => InitializeRequestSchema.safeParse(value).success;
 
@@ -636,15 +631,12 @@ export const ServerCapabilitiesSchema = z.object({
         .optional()
 });
 
-// Note: ServerTasksCapabilitySchema is re-exported from generated (derived from ServerCapabilities.tasks).
 
-// Note: InitializeResultSchema, InitializedNotificationSchema are re-exported from generated.
 
 export const isInitializedNotification = (value: unknown): value is InitializedNotification =>
     InitializedNotificationSchema.safeParse(value).success;
 
 /* Ping */
-// Note: PingRequestSchema is re-exported from generated.
 
 /* Progress notifications */
 export const ProgressSchema = z.object({
@@ -670,46 +662,34 @@ export const ProgressNotificationParamsSchema = z.object({
      */
     progressToken: ProgressTokenSchema
 });
-// Note: ProgressNotificationSchema is re-exported from generated.
 
 /* Pagination */
-// Note: PaginatedRequestParamsSchema, PaginatedRequestSchema, PaginatedResultSchema
 // are re-exported from generated.
 
 /* Tasks */
-// Note: TaskSchema, TaskStatusNotificationParamsSchema, CreateTaskResultSchema,
 // TaskStatusNotificationSchema, GetTaskResultSchema, GetTaskPayloadResultSchema,
 // ListTasksResultSchema, CancelTaskResultSchema are re-exported from generated.
 
 /* Resources */
-// Note: ResourceContentsSchema, TextResourceContentsSchema, BlobResourceContentsSchema
 // are re-exported from generated with Base64 validation.
 
-// Note: ResourceSchema, ResourceTemplateSchema are re-exported from generated.
 
-// Note: ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, SubscribeRequestSchema,
 // UnsubscribeRequestSchema are re-exported from generated.
 
-// Note: ListResourcesResultSchema, ListResourceTemplatesResultSchema,
 // ResourceRequestParamsSchema, ReadResourceRequestParamsSchema,
 // SubscribeRequestParamsSchema, UnsubscribeRequestParamsSchema,
 // ReadResourceRequestSchema, ReadResourceResultSchema, ResourceListChangedNotificationSchema,
 // ResourceUpdatedNotificationParamsSchema, ResourceUpdatedNotificationSchema are re-exported from generated.
 
 /* Prompts */
-// Note: PromptArgumentSchema, PromptSchema, ListPromptsRequestSchema, GetPromptRequestSchema
 // are re-exported from generated.
 
-// Note: ListPromptsResultSchema, GetPromptRequestParamsSchema are re-exported from generated.
 
-// Note: TextContentSchema, ImageContentSchema, AudioContentSchema are re-exported
 // from generated with Base64 validation for data fields.
 
-// Note: ToolUseContentSchema, EmbeddedResourceSchema, ResourceLinkSchema, ContentBlockSchema,
 // PromptMessageSchema, GetPromptResultSchema, PromptListChangedNotificationSchema are re-exported from generated.
 
 /* Tools */
-// Note: ToolAnnotationsSchema, ToolExecutionSchema, ToolSchema, ListToolsRequestSchema,
 // ListToolsResultSchema, CallToolResultSchema, CallToolRequestParamsSchema,
 // CallToolRequestSchema, ToolListChangedNotificationSchema are re-exported from generated.
 
@@ -803,11 +783,9 @@ export type ListChangedHandlers = {
 };
 
 /* Logging */
-// Note: SetLevelRequestParamsSchema, SetLevelRequestSchema, LoggingMessageNotificationSchema,
 // LoggingMessageNotificationParamsSchema are re-exported from generated.
 
 /* Sampling */
-// Note: ToolResultContentSchema is re-exported from generated.
 
 /**
  * Basic content types for sampling responses (without tool use).
@@ -815,7 +793,6 @@ export type ListChangedHandlers = {
  */
 export const SamplingContentSchema = z.discriminatedUnion('type', [TextContentSchema, ImageContentSchema, AudioContentSchema]);
 
-// Note: SamplingMessageContentBlockSchema (using discriminatedUnion),
 // SamplingMessageSchema, CreateMessageRequestParamsSchema, CreateMessageRequestSchema,
 // CreateMessageResultSchema are re-exported from generated.
 
@@ -848,13 +825,11 @@ export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
 });
 
 /* Elicitation */
-// Note: BooleanSchemaSchema, NumberSchemaSchema, StringSchemaSchema,
 // UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema,
 // LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, UntitledMultiSelectEnumSchemaSchema,
 // TitledMultiSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema, EnumSchemaSchema,
 // PrimitiveSchemaDefinitionSchema are re-exported from generated.
 
-// Note: ElicitRequestFormParamsSchema, ElicitRequestURLParamsSchema, ElicitRequestParamsSchema,
 // ElicitRequestSchema, ElicitResultSchema, ElicitationCompleteNotificationSchema are re-exported from generated.
 
 /**
@@ -870,14 +845,12 @@ export const ElicitationCompleteNotificationParamsSchema = NotificationParamsSch
 });
 
 /* Autocomplete */
-// Note: ResourceTemplateReferenceSchema, PromptReferenceSchema are re-exported from generated.
 
 /**
  * @deprecated Use ResourceTemplateReferenceSchema instead
  */
 export const ResourceReferenceSchema = ResourceTemplateReferenceSchema;
 
-// Note: CompleteRequestParamsSchema, CompleteRequestSchema, CompleteResultSchema
 // are re-exported from generated.
 
 export function assertCompleteRequestPrompt(request: CompleteRequest): asserts request is CompleteRequestPrompt {
@@ -895,11 +868,9 @@ export function assertCompleteRequestResourceTemplate(request: CompleteRequest):
 }
 
 /* Roots */
-// Note: RootSchema, ListRootsRequestSchema, ListRootsResultSchema, RootsListChangedNotificationSchema
 // are re-exported from generated.
 
 /* Client/Server message types */
-// Note: ClientRequestSchema, ClientNotificationSchema, ClientResultSchema,
 // ServerRequestSchema, ServerNotificationSchema, ServerResultSchema are re-exported from generated.
 
 export class McpError extends Error {
