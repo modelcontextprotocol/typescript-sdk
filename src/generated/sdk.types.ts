@@ -81,7 +81,7 @@ export interface Request {
     method: string;
     // Allow unofficial extensions of `Request.params` without impacting `RequestParams`.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    params?: { [key: string]: any };
+    params?: RequestParams & { [key: string]: any };
 }
 
 /** @internal */
@@ -97,7 +97,7 @@ export interface Notification {
     method: string;
     // Allow unofficial extensions of `Notification.params` without impacting `NotificationParams`.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    params?: { [key: string]: any };
+    params?: NotificationParams & { [key: string]: any };
 }
 
 /**

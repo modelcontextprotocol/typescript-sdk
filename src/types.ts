@@ -54,10 +54,17 @@ import {
     // Request/notification base schemas (with RELATED_TASK_META_KEY injected)
     RequestParamsSchema,
     TaskAugmentedRequestParamsSchema,
+    NotificationParamsSchema,
+    // Core request/notification schemas (params include proper _meta typing)
+    RequestSchema,
+    NotificationSchema,
+    ResultSchema,
 } from './generated/sdk.schemas.js';
 
 // Alias RequestParamsSchema to BaseRequestParamsSchema for internal use
 const BaseRequestParamsSchema = RequestParamsSchema;
+// Alias NotificationParamsSchema to NotificationsParamsSchema (plural) for backwards compat
+const NotificationsParamsSchema = NotificationParamsSchema;
 
 export {
     ProgressTokenSchema,
@@ -91,6 +98,10 @@ export {
     ResourceContentsSchema,
     TextResourceContentsSchema,
     BlobResourceContentsSchema,
+    // Core protocol schemas
+    RequestSchema,
+    NotificationSchema,
+    ResultSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -151,31 +162,8 @@ const RequestMetaSchema = z.looseObject({
 export const isTaskAugmentedRequestParams = (value: unknown): value is TaskAugmentedRequestParams =>
     TaskAugmentedRequestParamsSchema.safeParse(value).success;
 
-export const RequestSchema = z.object({
-    method: z.string(),
-    params: BaseRequestParamsSchema.loose().optional()
-});
-
-const NotificationsParamsSchema = z.object({
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: RequestMetaSchema.optional()
-});
-
-export const NotificationSchema = z.object({
-    method: z.string(),
-    params: NotificationsParamsSchema.loose().optional()
-});
-
-export const ResultSchema = z.looseObject({
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: RequestMetaSchema.optional()
-});
+// Note: RequestSchema, NotificationSchema, ResultSchema are re-exported from generated.
+// They include proper _meta typing with RELATED_TASK_META_KEY.
 
 /**
  * A request that expects a response.

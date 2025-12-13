@@ -106,6 +106,7 @@ const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
  * 1. `extends JSONRPCRequest` → `extends Request`
  * 2. `extends JSONRPCNotification` → `extends Notification`
  * 3. Add RELATED_TASK_META_KEY to RequestParams._meta
+ * 4. Change Request.params type to use RequestParams (for proper _meta typing)
  */
 function preProcessTypes(content: string): string {
     const project = new Project({ useInMemoryFileSystem: true });
@@ -119,6 +120,9 @@ function preProcessTypes(content: string): string {
 
     // Transform 3: Add RELATED_TASK_META_KEY to RequestParams._meta
     injectRelatedTaskMetaKey(sourceFile);
+
+    // Transform 4: Update Request.params to use RequestParams
+    updateRequestParamsType(sourceFile);
 
     return sourceFile.getFullText();
 }
@@ -206,6 +210,39 @@ function injectRelatedTaskMetaKey(sourceFile: SourceFile): void {
     }
 
     console.log('    ✓ Injected RELATED_TASK_META_KEY into RequestParams._meta');
+}
+
+/**
+ * Update Request.params and Notification.params to use proper param types.
+ *
+ * Before:
+ *   interface Request { params?: { [key: string]: any }; }
+ *   interface Notification { params?: { [key: string]: any }; }
+ *
+ * After:
+ *   interface Request { params?: RequestParams & { [key: string]: any }; }
+ *   interface Notification { params?: NotificationParams & { [key: string]: any }; }
+ */
+function updateRequestParamsType(sourceFile: SourceFile): void {
+    // Update Request.params
+    const requestInterface = sourceFile.getInterface('Request');
+    if (requestInterface) {
+        const paramsProp = requestInterface.getProperty('params');
+        if (paramsProp) {
+            paramsProp.setType('RequestParams & { [key: string]: any }');
+            console.log('    ✓ Updated Request.params to include RequestParams');
+        }
+    }
+
+    // Update Notification.params
+    const notificationInterface = sourceFile.getInterface('Notification');
+    if (notificationInterface) {
+        const paramsProp = notificationInterface.getProperty('params');
+        if (paramsProp) {
+            paramsProp.setType('NotificationParams & { [key: string]: any }');
+            console.log('    ✓ Updated Notification.params to include NotificationParams');
+        }
+    }
 }
 
 // =============================================================================
