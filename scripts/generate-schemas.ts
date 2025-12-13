@@ -53,6 +53,15 @@ const SCHEMA_TEST_OUTPUT_FILE = join(GENERATED_DIR, 'sdk.schemas.zod.test.ts');
 // =============================================================================
 
 /**
+ * Base64 validation expression - validates that a string is valid base64.
+ * Used for image data, audio data, and blob contents.
+ */
+const BASE64_VALIDATOR = `z.string().refine(
+    (val) => { try { atob(val); return true; } catch { return false; } },
+    { message: 'Invalid base64 string' }
+)`;
+
+/**
  * Field-level overrides for enhanced validation.
  * These replace generated z.string() with more specific validators.
  */
@@ -62,6 +71,16 @@ const FIELD_OVERRIDES: Record<string, Record<string, string>> = {
     },
     'RootSchema': {
         'uri': 'z.string().startsWith("file://")'
+    },
+    // Base64 validation for binary content
+    'ImageContentSchema': {
+        'data': BASE64_VALIDATOR
+    },
+    'AudioContentSchema': {
+        'data': BASE64_VALIDATOR
+    },
+    'BlobResourceContentsSchema': {
+        'blob': BASE64_VALIDATOR
     }
 };
 

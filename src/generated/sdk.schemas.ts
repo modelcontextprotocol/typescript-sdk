@@ -738,7 +738,17 @@ export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
      *
      * @format byte
      */
-    blob: z.string()
+    blob: z.string().refine(
+        val => {
+            try {
+                atob(val);
+                return true;
+            } catch {
+                return false;
+            }
+        },
+        { message: 'Invalid base64 string' }
+    )
 });
 
 /* Prompts */
@@ -1296,7 +1306,17 @@ export const ImageContentSchema = z.object({
      *
      * @format byte
      */
-    data: z.string(),
+    data: z.string().refine(
+        val => {
+            try {
+                atob(val);
+                return true;
+            } catch {
+                return false;
+            }
+        },
+        { message: 'Invalid base64 string' }
+    ),
     /**
      * The MIME type of the image. Different providers may support different image types.
      */
@@ -1323,7 +1343,17 @@ export const AudioContentSchema = z.object({
      *
      * @format byte
      */
-    data: z.string(),
+    data: z.string().refine(
+        val => {
+            try {
+                atob(val);
+                return true;
+            } catch {
+                return false;
+            }
+        },
+        { message: 'Invalid base64 string' }
+    ),
     /**
      * The MIME type of the audio. Different providers may support different audio types.
      */

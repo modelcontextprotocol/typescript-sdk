@@ -37,9 +37,20 @@ import {
     // Elicitation primitive schemas
     BooleanSchemaSchema,
     NumberSchemaSchema,
-    // Schemas with enhanced validation (datetime, startsWith)
+    // Schemas with enhanced validation (datetime, startsWith, base64)
     AnnotationsSchema,
     RootSchema,
+    // Content schemas (with Base64 validation for data/blob fields)
+    TextContentSchema,
+    ImageContentSchema,
+    AudioContentSchema,
+    EmbeddedResourceSchema,
+    ResourceLinkSchema,
+    ContentBlockSchema,
+    // Resource content schemas
+    ResourceContentsSchema,
+    TextResourceContentsSchema,
+    BlobResourceContentsSchema,
 } from './generated/sdk.schemas.js';
 
 export {
@@ -65,6 +76,15 @@ export {
     NumberSchemaSchema,
     AnnotationsSchema,
     RootSchema,
+    TextContentSchema,
+    ImageContentSchema,
+    AudioContentSchema,
+    EmbeddedResourceSchema,
+    ResourceLinkSchema,
+    ContentBlockSchema,
+    ResourceContentsSchema,
+    TextResourceContentsSchema,
+    BlobResourceContentsSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -718,59 +738,8 @@ export const CancelTaskRequestSchema = RequestSchema.extend({
 export const CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
 
 /* Resources */
-/**
- * The contents of a specific resource or sub-resource.
- */
-export const ResourceContentsSchema = z.object({
-    /**
-     * The URI of this resource.
-     */
-    uri: z.string(),
-    /**
-     * The MIME type of this resource, if known.
-     */
-    mimeType: z.optional(z.string()),
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.record(z.string(), z.unknown()).optional()
-});
-
-export const TextResourceContentsSchema = ResourceContentsSchema.extend({
-    /**
-     * The text of the item. This must only be set if the item can actually be represented as text (not binary data).
-     */
-    text: z.string()
-});
-
-/**
- * A Zod schema for validating Base64 strings that is more performant and
- * robust for very large inputs than the default regex-based check. It avoids
- * stack overflows by using the native `atob` function for validation.
- */
-const Base64Schema = z.string().refine(
-    val => {
-        try {
-            // atob throws a DOMException if the string contains characters
-            // that are not part of the Base64 character set.
-            atob(val);
-            return true;
-        } catch {
-            return false;
-        }
-    },
-    { message: 'Invalid Base64 string' }
-);
-
-export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
-    /**
-     * A base64-encoded string representing the binary data of the item.
-     */
-    blob: Base64Schema
-});
-
-// Note: AnnotationsSchema is re-exported from generated with z.iso.datetime validation.
+// Note: ResourceContentsSchema, TextResourceContentsSchema, BlobResourceContentsSchema
+// are re-exported from generated with Base64 validation.
 
 /**
  * A known resource that the server is capable of reading.
@@ -1018,79 +987,8 @@ export const GetPromptRequestSchema = RequestSchema.extend({
     params: GetPromptRequestParamsSchema
 });
 
-/**
- * Text provided to or from an LLM.
- */
-export const TextContentSchema = z.object({
-    type: z.literal('text'),
-    /**
-     * The text content of the message.
-     */
-    text: z.string(),
-
-    /**
-     * Optional annotations for the client.
-     */
-    annotations: AnnotationsSchema.optional(),
-
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.record(z.string(), z.unknown()).optional()
-});
-
-/**
- * An image provided to or from an LLM.
- */
-export const ImageContentSchema = z.object({
-    type: z.literal('image'),
-    /**
-     * The base64-encoded image data.
-     */
-    data: Base64Schema,
-    /**
-     * The MIME type of the image. Different providers may support different image types.
-     */
-    mimeType: z.string(),
-
-    /**
-     * Optional annotations for the client.
-     */
-    annotations: AnnotationsSchema.optional(),
-
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.record(z.string(), z.unknown()).optional()
-});
-
-/**
- * An Audio provided to or from an LLM.
- */
-export const AudioContentSchema = z.object({
-    type: z.literal('audio'),
-    /**
-     * The base64-encoded audio data.
-     */
-    data: Base64Schema,
-    /**
-     * The MIME type of the audio. Different providers may support different audio types.
-     */
-    mimeType: z.string(),
-
-    /**
-     * Optional annotations for the client.
-     */
-    annotations: AnnotationsSchema.optional(),
-
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.record(z.string(), z.unknown()).optional()
-});
+// Note: TextContentSchema, ImageContentSchema, AudioContentSchema are re-exported
+// from generated with Base64 validation for data fields.
 
 /**
  * A tool call request from an assistant (LLM).
@@ -1120,42 +1018,7 @@ export const ToolUseContentSchema = z.object({
     _meta: z.record(z.string(), z.unknown()).optional()
 });
 
-/**
- * The contents of a resource, embedded into a prompt or tool call result.
- */
-export const EmbeddedResourceSchema = z.object({
-    type: z.literal('resource'),
-    resource: z.union([TextResourceContentsSchema, BlobResourceContentsSchema]),
-    /**
-     * Optional annotations for the client.
-     */
-    annotations: AnnotationsSchema.optional(),
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.record(z.string(), z.unknown()).optional()
-});
-
-/**
- * A resource that the server is capable of reading, included in a prompt or tool call result.
- *
- * Note: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.
- */
-export const ResourceLinkSchema = ResourceSchema.extend({
-    type: z.literal('resource_link')
-});
-
-/**
- * A content block that can be used in prompts and tool results.
- */
-export const ContentBlockSchema = z.union([
-    TextContentSchema,
-    ImageContentSchema,
-    AudioContentSchema,
-    ResourceLinkSchema,
-    EmbeddedResourceSchema
-]);
+// Note: EmbeddedResourceSchema, ResourceLinkSchema, ContentBlockSchema are re-exported from generated.
 
 /**
  * Describes a message returned as part of a prompt.
