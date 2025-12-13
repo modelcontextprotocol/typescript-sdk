@@ -2,7 +2,7 @@ import * as z from 'zod/v4';
 import { AuthInfo } from './server/auth/types.js';
 
 // =============================================================================
-// Type re-exports from generated sdk.types.ts (for type guards and early usage)
+// Type imports from generated sdk.types.ts (for use within this file)
 // =============================================================================
 import type {
     JSONRPCRequest,
@@ -10,6 +10,19 @@ import type {
     JSONRPCResultResponse,
     JSONRPCErrorResponse,
     RequestParams,
+    // Types used in schema definitions below
+    TaskAugmentedRequestParams,
+    InitializeRequest,
+    InitializedNotification,
+    Tool,
+    Prompt,
+    Resource,
+    CompleteRequest,
+    ElicitRequestURLParams,
+    CreateMessageRequestParams,
+    ResourceTemplateReference,
+    PromptReference,
+    CompleteRequestParams,
 } from './generated/sdk.types.js';
 
 // =============================================================================
@@ -791,9 +804,9 @@ export interface MessageExtraInfo {
     closeStandaloneSSEStream?: () => void;
 }
 
-/* JSON-RPC types - re-exported from generated sdk.types.ts */
+/* Types re-exported from generated sdk.types.ts */
 export type {
-    // Core protocol types (now unions for narrowing)
+    // Core protocol types (unions for narrowing)
     Request,
     Notification,
     Result,
@@ -804,153 +817,192 @@ export type {
     // Params types
     RequestParams,
     NotificationParams,
+    TaskAugmentedRequestParams,
     // Primitives
     ProgressToken,
     Cursor,
     RequestId,
-    // JSON-RPC wire types (already imported at top, re-export here)
+    // JSON-RPC wire types
     JSONRPCRequest,
     JSONRPCNotification,
     JSONRPCResultResponse,
     JSONRPCErrorResponse,
     JSONRPCMessage,
+    // Empty result
+    EmptyResult,
+    // Cancellation
+    CancelledNotificationParams,
+    CancelledNotification,
+    // Base Metadata
+    Icon,
+    Icons,
+    BaseMetadata,
+    Annotations,
+    Role,
+    // Initialization
+    Implementation,
+    ClientCapabilities,
+    InitializeRequestParams,
+    InitializeRequest,
+    ServerCapabilities,
+    InitializeResult,
+    InitializedNotification,
+    // Ping
+    PingRequest,
+    // Progress notifications
+    ProgressNotificationParams,
+    ProgressNotification,
+    // Tasks
+    Task,
+    TaskStatus,
+    TaskMetadata,
+    RelatedTaskMetadata,
+    CreateTaskResult,
+    TaskStatusNotificationParams,
+    TaskStatusNotification,
+    GetTaskRequest,
+    GetTaskResult,
+    GetTaskPayloadRequest,
+    ListTasksRequest,
+    ListTasksResult,
+    CancelTaskRequest,
+    CancelTaskResult,
+    GetTaskPayloadResult,
+    // Pagination
+    PaginatedRequestParams,
+    PaginatedRequest,
+    PaginatedResult,
+    // Resources
+    ResourceContents,
+    TextResourceContents,
+    BlobResourceContents,
+    Resource,
+    ResourceTemplate,
+    ListResourcesRequest,
+    ListResourcesResult,
+    ListResourceTemplatesRequest,
+    ListResourceTemplatesResult,
+    ResourceRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceRequest,
+    ReadResourceResult,
+    ResourceListChangedNotification,
+    SubscribeRequestParams,
+    SubscribeRequest,
+    UnsubscribeRequestParams,
+    UnsubscribeRequest,
+    ResourceUpdatedNotificationParams,
+    ResourceUpdatedNotification,
+    // Prompts
+    PromptArgument,
+    Prompt,
+    ListPromptsRequest,
+    ListPromptsResult,
+    GetPromptRequestParams,
+    GetPromptRequest,
+    TextContent,
+    ImageContent,
+    AudioContent,
+    ToolUseContent,
+    ToolResultContent,
+    EmbeddedResource,
+    ResourceLink,
+    ContentBlock,
+    PromptMessage,
+    GetPromptResult,
+    PromptListChangedNotification,
+    // Tools
+    ToolAnnotations,
+    ToolExecution,
+    Tool,
+    ListToolsRequest,
+    ListToolsResult,
+    CallToolRequestParams,
+    CallToolResult,
+    CallToolRequest,
+    ToolListChangedNotification,
+    // Logging
+    LoggingLevel,
+    SetLevelRequestParams,
+    SetLevelRequest,
+    LoggingMessageNotificationParams,
+    LoggingMessageNotification,
+    // Sampling
+    ToolChoice,
+    ModelHint,
+    ModelPreferences,
+    SamplingMessageContentBlock,
+    SamplingMessage,
+    CreateMessageRequestParams,
+    CreateMessageRequest,
+    CreateMessageResult,
+    // Elicitation
+    BooleanSchema,
+    StringSchema,
+    NumberSchema,
+    EnumSchema,
+    UntitledSingleSelectEnumSchema,
+    TitledSingleSelectEnumSchema,
+    LegacyTitledEnumSchema,
+    UntitledMultiSelectEnumSchema,
+    TitledMultiSelectEnumSchema,
+    SingleSelectEnumSchema,
+    MultiSelectEnumSchema,
+    PrimitiveSchemaDefinition,
+    ElicitRequestParams,
+    ElicitRequestFormParams,
+    ElicitRequestURLParams,
+    ElicitRequest,
+    ElicitationCompleteNotification,
+    ElicitResult,
+    // Autocomplete
+    ResourceTemplateReference,
+    PromptReference,
+    CompleteRequestParams,
+    CompleteRequest,
+    CompleteResult,
+    // Roots
+    Root,
+    ListRootsRequest,
+    ListRootsResult,
+    RootsListChangedNotification,
+    // Client messages
+    ClientRequest,
+    ClientNotification,
+    ClientResult,
+    // Server messages
+    ServerRequest,
+    ServerNotification,
+    ServerResult,
 } from './generated/sdk.types.js';
 
-// TaskAugmentedRequestParams still from schema (not in sdk.types.ts yet)
-export type TaskAugmentedRequestParams = Infer<typeof TaskAugmentedRequestParamsSchema>;
-
-// JSONRPCResponse is defined locally (union of result/error)
-export type JSONRPCResponse = Infer<typeof JSONRPCResponseSchema>;
 /**
  * Request metadata - the _meta field type from RequestParams.
  */
 export type RequestMeta = RequestParams['_meta'];
 
-/* Empty result */
-export type EmptyResult = Infer<typeof EmptyResultSchema>;
+/* SDK-specific types (not from spec, need Infer) */
 
-/* Cancellation */
-export type CancelledNotificationParams = Infer<typeof CancelledNotificationParamsSchema>;
-export type CancelledNotification = Infer<typeof CancelledNotificationSchema>;
+// JSONRPCResponse is defined locally (union of result/error)
+export type JSONRPCResponse = Infer<typeof JSONRPCResponseSchema>;
 
-/* Base Metadata */
-export type Icon = Infer<typeof IconSchema>;
-export type Icons = Infer<typeof IconsSchema>;
-export type BaseMetadata = Infer<typeof BaseMetadataSchema>;
-export type Annotations = Infer<typeof AnnotationsSchema>;
-export type Role = Infer<typeof RoleSchema>;
-
-/* Initialization */
-export type Implementation = Infer<typeof ImplementationSchema>;
-export type ClientCapabilities = Infer<typeof ClientCapabilitiesSchema>;
-export type InitializeRequestParams = Infer<typeof InitializeRequestParamsSchema>;
-export type InitializeRequest = Infer<typeof InitializeRequestSchema>;
-export type ServerCapabilities = Infer<typeof ServerCapabilitiesSchema>;
-export type InitializeResult = Infer<typeof InitializeResultSchema>;
-export type InitializedNotification = Infer<typeof InitializedNotificationSchema>;
-
-/* Ping */
-export type PingRequest = Infer<typeof PingRequestSchema>;
-
-/* Progress notifications */
+// Progress type (SDK-specific schema)
 export type Progress = Infer<typeof ProgressSchema>;
-export type ProgressNotificationParams = Infer<typeof ProgressNotificationParamsSchema>;
-export type ProgressNotification = Infer<typeof ProgressNotificationSchema>;
 
-/* Tasks */
-export type Task = Infer<typeof TaskSchema>;
-export type TaskStatus = Infer<typeof TaskStatusSchema>;
+// Task creation params (SDK-specific)
 export type TaskCreationParams = Infer<typeof TaskCreationParamsSchema>;
-export type TaskMetadata = Infer<typeof TaskMetadataSchema>;
-export type RelatedTaskMetadata = Infer<typeof RelatedTaskMetadataSchema>;
-export type CreateTaskResult = Infer<typeof CreateTaskResultSchema>;
-export type TaskStatusNotificationParams = Infer<typeof TaskStatusNotificationParamsSchema>;
-export type TaskStatusNotification = Infer<typeof TaskStatusNotificationSchema>;
-export type GetTaskRequest = Infer<typeof GetTaskRequestSchema>;
-export type GetTaskResult = Infer<typeof GetTaskResultSchema>;
-export type GetTaskPayloadRequest = Infer<typeof GetTaskPayloadRequestSchema>;
-export type ListTasksRequest = Infer<typeof ListTasksRequestSchema>;
-export type ListTasksResult = Infer<typeof ListTasksResultSchema>;
-export type CancelTaskRequest = Infer<typeof CancelTaskRequestSchema>;
-export type CancelTaskResult = Infer<typeof CancelTaskResultSchema>;
-export type GetTaskPayloadResult = Infer<typeof GetTaskPayloadResultSchema>;
 
-/* Pagination */
-export type PaginatedRequestParams = Infer<typeof PaginatedRequestParamsSchema>;
-export type PaginatedRequest = Infer<typeof PaginatedRequestSchema>;
-export type PaginatedResult = Infer<typeof PaginatedResultSchema>;
-
-/* Resources */
-export type ResourceContents = Infer<typeof ResourceContentsSchema>;
-export type TextResourceContents = Infer<typeof TextResourceContentsSchema>;
-export type BlobResourceContents = Infer<typeof BlobResourceContentsSchema>;
-export type Resource = Infer<typeof ResourceSchema>;
-export type ResourceTemplate = Infer<typeof ResourceTemplateSchema>;
-export type ListResourcesRequest = Infer<typeof ListResourcesRequestSchema>;
-export type ListResourcesResult = Infer<typeof ListResourcesResultSchema>;
-export type ListResourceTemplatesRequest = Infer<typeof ListResourceTemplatesRequestSchema>;
-export type ListResourceTemplatesResult = Infer<typeof ListResourceTemplatesResultSchema>;
-export type ResourceRequestParams = Infer<typeof ResourceRequestParamsSchema>;
-export type ReadResourceRequestParams = Infer<typeof ReadResourceRequestParamsSchema>;
-export type ReadResourceRequest = Infer<typeof ReadResourceRequestSchema>;
-export type ReadResourceResult = Infer<typeof ReadResourceResultSchema>;
-export type ResourceListChangedNotification = Infer<typeof ResourceListChangedNotificationSchema>;
-export type SubscribeRequestParams = Infer<typeof SubscribeRequestParamsSchema>;
-export type SubscribeRequest = Infer<typeof SubscribeRequestSchema>;
-export type UnsubscribeRequestParams = Infer<typeof UnsubscribeRequestParamsSchema>;
-export type UnsubscribeRequest = Infer<typeof UnsubscribeRequestSchema>;
-export type ResourceUpdatedNotificationParams = Infer<typeof ResourceUpdatedNotificationParamsSchema>;
-export type ResourceUpdatedNotification = Infer<typeof ResourceUpdatedNotificationSchema>;
-
-/* Prompts */
-export type PromptArgument = Infer<typeof PromptArgumentSchema>;
-export type Prompt = Infer<typeof PromptSchema>;
-export type ListPromptsRequest = Infer<typeof ListPromptsRequestSchema>;
-export type ListPromptsResult = Infer<typeof ListPromptsResultSchema>;
-export type GetPromptRequestParams = Infer<typeof GetPromptRequestParamsSchema>;
-export type GetPromptRequest = Infer<typeof GetPromptRequestSchema>;
-export type TextContent = Infer<typeof TextContentSchema>;
-export type ImageContent = Infer<typeof ImageContentSchema>;
-export type AudioContent = Infer<typeof AudioContentSchema>;
-export type ToolUseContent = Infer<typeof ToolUseContentSchema>;
-export type ToolResultContent = Infer<typeof ToolResultContentSchema>;
-export type EmbeddedResource = Infer<typeof EmbeddedResourceSchema>;
-export type ResourceLink = Infer<typeof ResourceLinkSchema>;
-export type ContentBlock = Infer<typeof ContentBlockSchema>;
-export type PromptMessage = Infer<typeof PromptMessageSchema>;
-export type GetPromptResult = Infer<typeof GetPromptResultSchema>;
-export type PromptListChangedNotification = Infer<typeof PromptListChangedNotificationSchema>;
-
-/* Tools */
-export type ToolAnnotations = Infer<typeof ToolAnnotationsSchema>;
-export type ToolExecution = Infer<typeof ToolExecutionSchema>;
-export type Tool = Infer<typeof ToolSchema>;
-export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
-export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
-export type CallToolRequestParams = Infer<typeof CallToolRequestParamsSchema>;
-export type CallToolResult = Infer<typeof CallToolResultSchema>;
+// Compatibility helper for older tool results
 export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
-export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
-export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
 
-/* Logging */
-export type LoggingLevel = Infer<typeof LoggingLevelSchema>;
-export type SetLevelRequestParams = Infer<typeof SetLevelRequestParamsSchema>;
-export type SetLevelRequest = Infer<typeof SetLevelRequestSchema>;
-export type LoggingMessageNotificationParams = Infer<typeof LoggingMessageNotificationParamsSchema>;
-export type LoggingMessageNotification = Infer<typeof LoggingMessageNotificationSchema>;
-
-/* Sampling */
-export type ToolChoice = Infer<typeof ToolChoiceSchema>;
-export type ModelHint = Infer<typeof ModelHintSchema>;
-export type ModelPreferences = Infer<typeof ModelPreferencesSchema>;
+// Sampling content (SDK-specific discriminated union)
 export type SamplingContent = Infer<typeof SamplingContentSchema>;
-export type SamplingMessageContentBlock = Infer<typeof SamplingMessageContentBlockSchema>;
-export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
-export type CreateMessageRequestParams = Infer<typeof CreateMessageRequestParamsSchema>;
-export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
-export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
+
+// CreateMessageResult with tools (SDK extension)
 export type CreateMessageResultWithTools = Infer<typeof CreateMessageResultWithToolsSchema>;
+
+// Elicitation complete notification params (SDK extension)
+export type ElicitationCompleteNotificationParams = Infer<typeof ElicitationCompleteNotificationParamsSchema>;
 
 /**
  * CreateMessageRequestParams without tools - for backwards-compatible overload.
@@ -965,57 +1017,13 @@ export interface CreateMessageRequestParamsWithTools extends CreateMessageReques
     tools: Tool[];
 }
 
-/* Elicitation */
-export type BooleanSchema = Infer<typeof BooleanSchemaSchema>;
-export type StringSchema = Infer<typeof StringSchemaSchema>;
-export type NumberSchema = Infer<typeof NumberSchemaSchema>;
-
-export type EnumSchema = Infer<typeof EnumSchemaSchema>;
-export type UntitledSingleSelectEnumSchema = Infer<typeof UntitledSingleSelectEnumSchemaSchema>;
-export type TitledSingleSelectEnumSchema = Infer<typeof TitledSingleSelectEnumSchemaSchema>;
-export type LegacyTitledEnumSchema = Infer<typeof LegacyTitledEnumSchemaSchema>;
-export type UntitledMultiSelectEnumSchema = Infer<typeof UntitledMultiSelectEnumSchemaSchema>;
-export type TitledMultiSelectEnumSchema = Infer<typeof TitledMultiSelectEnumSchemaSchema>;
-export type SingleSelectEnumSchema = Infer<typeof SingleSelectEnumSchemaSchema>;
-export type MultiSelectEnumSchema = Infer<typeof MultiSelectEnumSchemaSchema>;
-
-export type PrimitiveSchemaDefinition = Infer<typeof PrimitiveSchemaDefinitionSchema>;
-export type ElicitRequestParams = Infer<typeof ElicitRequestParamsSchema>;
-export type ElicitRequestFormParams = Infer<typeof ElicitRequestFormParamsSchema>;
-export type ElicitRequestURLParams = Infer<typeof ElicitRequestURLParamsSchema>;
-export type ElicitRequest = Infer<typeof ElicitRequestSchema>;
-export type ElicitationCompleteNotificationParams = Infer<typeof ElicitationCompleteNotificationParamsSchema>;
-export type ElicitationCompleteNotification = Infer<typeof ElicitationCompleteNotificationSchema>;
-export type ElicitResult = Infer<typeof ElicitResultSchema>;
-
-/* Autocomplete */
-export type ResourceTemplateReference = Infer<typeof ResourceTemplateReferenceSchema>;
 /**
  * @deprecated Use ResourceTemplateReference instead
  */
 export type ResourceReference = ResourceTemplateReference;
-export type PromptReference = Infer<typeof PromptReferenceSchema>;
-export type CompleteRequestParams = Infer<typeof CompleteRequestParamsSchema>;
-export type CompleteRequest = Infer<typeof CompleteRequestSchema>;
+
 export type CompleteRequestResourceTemplate = ExpandRecursively<
     CompleteRequest & { params: CompleteRequestParams & { ref: ResourceTemplateReference } }
 >;
 export type CompleteRequestPrompt = ExpandRecursively<CompleteRequest & { params: CompleteRequestParams & { ref: PromptReference } }>;
-export type CompleteResult = Infer<typeof CompleteResultSchema>;
-
-/* Roots */
-export type Root = Infer<typeof RootSchema>;
-export type ListRootsRequest = Infer<typeof ListRootsRequestSchema>;
-export type ListRootsResult = Infer<typeof ListRootsResultSchema>;
-export type RootsListChangedNotification = Infer<typeof RootsListChangedNotificationSchema>;
-
-/* Client messages */
-export type ClientRequest = Infer<typeof ClientRequestSchema>;
-export type ClientNotification = Infer<typeof ClientNotificationSchema>;
-export type ClientResult = Infer<typeof ClientResultSchema>;
-
-/* Server messages */
-export type ServerRequest = Infer<typeof ServerRequestSchema>;
-export type ServerNotification = Infer<typeof ServerNotificationSchema>;
-export type ServerResult = Infer<typeof ServerResultSchema>;
 

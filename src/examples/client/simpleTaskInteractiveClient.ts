@@ -14,6 +14,7 @@ import {
     CallToolResultSchema,
     TextContent,
     ElicitRequestSchema,
+    ElicitResult,
     CreateMessageRequestSchema,
     CreateMessageRequest,
     CreateMessageResult,
@@ -44,7 +45,7 @@ async function elicitationCallback(params: {
     mode?: string;
     message: string;
     requestedSchema?: object;
-}): Promise<{ action: string; content?: Record<string, unknown> }> {
+}): Promise<ElicitResult> {
     console.log(`\n[Elicitation] Server asks: ${params.message}`);
 
     // Simple terminal prompt for y/n
@@ -52,7 +53,7 @@ async function elicitationCallback(params: {
     const confirmed = ['y', 'yes', 'true', '1'].includes(response.toLowerCase());
 
     console.log(`[Elicitation] Responding with: confirm=${confirmed}`);
-    return { action: 'accept', content: { confirm: confirmed } };
+    return { action: 'accept' as const, content: { confirm: confirmed } };
 }
 
 async function samplingCallback(params: CreateMessageRequest['params']): Promise<CreateMessageResult> {

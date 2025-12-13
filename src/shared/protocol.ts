@@ -1584,7 +1584,7 @@ export abstract class Protocol<SendRequestT extends RequestBase, SendNotificatio
                         method: 'notifications/tasks/status',
                         params: task
                     });
-                    await this.notification(notification as SendNotificationT);
+                    await this.notification(notification as unknown as SendNotificationT);
 
                     if (isTerminal(task.status)) {
                         this._cleanupTaskProgressHandler(taskId);
@@ -1619,7 +1619,7 @@ export abstract class Protocol<SendRequestT extends RequestBase, SendNotificatio
                         method: 'notifications/tasks/status',
                         params: updatedTask
                     });
-                    await this.notification(notification as SendNotificationT);
+                    await this.notification(notification as unknown as SendNotificationT);
 
                     if (isTerminal(updatedTask.status)) {
                         this._cleanupTaskProgressHandler(taskId);
