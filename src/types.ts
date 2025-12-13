@@ -23,7 +23,7 @@ import type {
     ResourceTemplateReference,
     PromptReference,
     CompleteRequestParams,
-    ProgressNotificationParams,
+    ProgressNotificationParams
 } from './generated/sdk.types.js';
 
 // =============================================================================
@@ -77,7 +77,6 @@ import {
     TextResourceContentsSchema,
     BlobResourceContentsSchema,
     // Request/notification base schemas (with RELATED_TASK_META_KEY injected)
-    RequestParamsSchema,
     TaskAugmentedRequestParamsSchema,
     NotificationParamsSchema,
     // Core request/notification schemas (params include proper _meta typing)
@@ -227,7 +226,7 @@ import {
     ClientCapabilitiesSchema,
     ServerCapabilitiesSchema,
     // Progress
-    ProgressNotificationParamsSchema,
+    ProgressNotificationParamsSchema
 } from './generated/sdk.schemas.js';
 
 export {
@@ -375,7 +374,7 @@ export {
     ServerTasksCapabilitySchema,
     ClientCapabilitiesSchema,
     ServerCapabilitiesSchema,
-    ProgressNotificationParamsSchema,
+    ProgressNotificationParamsSchema
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -391,12 +390,6 @@ export const JSONRPC_VERSION = '2.0';
  * Utility types
  */
 type ExpandRecursively<T> = T extends object ? (T extends infer O ? { [K in keyof O]: ExpandRecursively<O[K]> } : never) : T;
-/**
- * Assert 'object' type schema.
- *
- * @internal
- */
-const AssertObjectSchema = z.custom<object>((v): v is object => v !== null && (typeof v === 'object' || typeof v === 'function'));
 
 /**
  * Task creation parameters, used to ask that the server create a task to represent a request.
@@ -424,7 +417,6 @@ export const TaskCreationParamsSchema = z.looseObject({
  */
 export const isTaskAugmentedRequestParams = (value: unknown): value is TaskAugmentedRequestParams =>
     TaskAugmentedRequestParamsSchema.safeParse(value).success;
-
 
 export const isJSONRPCRequest = (value: unknown): value is JSONRPCRequest => JSONRPCRequestSchema.safeParse(value).success;
 export const isJSONRPCNotification = (value: unknown): value is JSONRPCNotification => JSONRPCNotificationSchema.safeParse(value).success;
@@ -471,9 +463,6 @@ export const ElicitationCapabilitySchema = ClientCapabilitiesSchema.shape.elicit
 
 export const isInitializeRequest = (value: unknown): value is InitializeRequest => InitializeRequestSchema.safeParse(value).success;
 
-
-
-
 export const isInitializedNotification = (value: unknown): value is InitializedNotification =>
     InitializedNotificationSchema.safeParse(value).success;
 
@@ -492,17 +481,13 @@ export const ProgressSchema = ProgressNotificationParamsSchema.omit({ progressTo
 
 /* Resources */
 
-
-
 // ResourceRequestParamsSchema, ReadResourceRequestParamsSchema,
 // SubscribeRequestParamsSchema, UnsubscribeRequestParamsSchema,
 // ReadResourceRequestSchema, ReadResourceResultSchema, ResourceListChangedNotificationSchema,
 
 /* Prompts */
 
-
 // from generated with Base64 validation for data fields.
-
 
 /* Tools */
 // ListToolsResultSchema, CallToolResultSchema, CallToolRequestParamsSchema,
@@ -613,12 +598,10 @@ export const SamplingContentSchema = z.discriminatedUnion('type', [TextContentSc
  * Uses single content block without tool types for v1.x API compatibility.
  * For tool use support, use CreateMessageResultWithToolsSchema instead.
  */
-export const CreateMessageResultSchema = CreateMessageResultSpecSchema
-    .omit({ content: true })
-    .extend({
-        /** Response content. Single block, basic types only (text/image/audio). */
-        content: SamplingContentSchema
-    });
+export const CreateMessageResultSchema = CreateMessageResultSpecSchema.omit({ content: true }).extend({
+    /** Response content. Single block, basic types only (text/image/audio). */
+    content: SamplingContentSchema
+});
 
 /**
  * The client's response to a sampling/create_message request when tools were provided.
@@ -653,7 +636,6 @@ export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
 // LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, UntitledMultiSelectEnumSchemaSchema,
 // TitledMultiSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema, EnumSchemaSchema,
 
-
 /**
  * Parameters for a `notifications/elicitation/complete` notification.
  *
@@ -672,7 +654,6 @@ export const ElicitationCompleteNotificationParamsSchema = NotificationParamsSch
  * @deprecated Use ResourceTemplateReferenceSchema instead
  */
 export const ResourceReferenceSchema = ResourceTemplateReferenceSchema;
-
 
 export function assertCompleteRequestPrompt(request: CompleteRequest): asserts request is CompleteRequestPrompt {
     if (request.params.ref.type !== 'ref/prompt') {
@@ -793,11 +774,7 @@ export interface MessageExtraInfo {
 }
 
 // Import base types with aliases to avoid DOM collision, then re-export
-import type {
-    Request as _Request,
-    Notification as _Notification,
-    Result as _Result,
-} from './generated/sdk.types.js';
+import type { Request as _Request, Notification as _Notification, Result as _Result } from './generated/sdk.types.js';
 
 // Re-export with original names
 export type { _Request as Request, _Notification as Notification, _Result as Result };
@@ -967,7 +944,7 @@ export type {
     // Server messages
     ServerRequest,
     ServerNotification,
-    ServerResult,
+    ServerResult
 } from './generated/sdk.types.js';
 
 /**
@@ -983,7 +960,9 @@ export type JSONRPCResponse = Infer<typeof JSONRPCResponseSchema>;
 // Progress type - derived from ProgressNotificationParams without progressToken
 export type Progress = Omit<ProgressNotificationParams, 'progressToken'>;
 // Type check: ensure Progress matches the inferred schema type
-type _ProgressCheck = Progress extends Infer<typeof ProgressSchema> ? Infer<typeof ProgressSchema> extends Progress ? true : never : never;
+type _ProgressCheck =
+    Progress extends Infer<typeof ProgressSchema> ? (Infer<typeof ProgressSchema> extends Progress ? true : never) : never;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _progressTypeCheck: _ProgressCheck = true;
 
 // Task creation params (SDK-specific)
@@ -1023,4 +1002,3 @@ export type CompleteRequestResourceTemplate = ExpandRecursively<
     CompleteRequest & { params: CompleteRequestParams & { ref: ResourceTemplateReference } }
 >;
 export type CompleteRequestPrompt = ExpandRecursively<CompleteRequest & { params: CompleteRequestParams & { ref: PromptReference } }>;
-

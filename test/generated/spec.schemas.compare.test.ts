@@ -47,278 +47,188 @@ function schemasAreEquivalent(
 
 describe('Generated vs Manual Schema Equivalence', () => {
     // Test primitive/simple schemas
-    schemasAreEquivalent(
-        'ProgressTokenSchema',
-        generated.ProgressTokenSchema,
-        manual.ProgressTokenSchema,
-        {
-            valid: ['token123', 42, 0, 'abc'],
-            invalid: [null, undefined, {}, [], true],
-        }
-    );
+    schemasAreEquivalent('ProgressTokenSchema', generated.ProgressTokenSchema, manual.ProgressTokenSchema, {
+        valid: ['token123', 42, 0, 'abc'],
+        invalid: [null, undefined, {}, [], true]
+    });
 
-    schemasAreEquivalent(
-        'CursorSchema',
-        generated.CursorSchema,
-        manual.CursorSchema,
-        {
-            valid: ['cursor123', '', 'abc'],
-            invalid: [null, undefined, 42, {}, []],
-        }
-    );
+    schemasAreEquivalent('CursorSchema', generated.CursorSchema, manual.CursorSchema, {
+        valid: ['cursor123', '', 'abc'],
+        invalid: [null, undefined, 42, {}, []]
+    });
 
-    schemasAreEquivalent(
-        'RequestIdSchema',
-        generated.RequestIdSchema,
-        manual.RequestIdSchema,
-        {
-            valid: ['id123', 42, 0, 'abc'],
-            invalid: [null, undefined, {}, [], true],
-        }
-    );
+    schemasAreEquivalent('RequestIdSchema', generated.RequestIdSchema, manual.RequestIdSchema, {
+        valid: ['id123', 42, 0, 'abc'],
+        invalid: [null, undefined, {}, [], true]
+    });
 
     // Test object schemas
-    schemasAreEquivalent(
-        'ImplementationSchema',
-        generated.ImplementationSchema,
-        manual.ImplementationSchema,
-        {
-            valid: [
-                { name: 'test', version: '1.0.0' },
-                { name: 'test', version: '1.0.0', title: 'Test Title' },
-            ],
-            invalid: [
-                null,
-                {},
-                { name: 'test' }, // missing version
-                { version: '1.0.0' }, // missing name
-            ],
-        }
-    );
+    schemasAreEquivalent('ImplementationSchema', generated.ImplementationSchema, manual.ImplementationSchema, {
+        valid: [
+            { name: 'test', version: '1.0.0' },
+            { name: 'test', version: '1.0.0', title: 'Test Title' }
+        ],
+        invalid: [
+            null,
+            {},
+            { name: 'test' }, // missing version
+            { version: '1.0.0' } // missing name
+        ]
+    });
 
-    schemasAreEquivalent(
-        'ToolSchema',
-        generated.ToolSchema,
-        manual.ToolSchema,
-        {
-            valid: [
-                { name: 'myTool', inputSchema: { type: 'object' } },
-                { name: 'myTool', inputSchema: { type: 'object' }, description: 'A tool' },
-            ],
-            invalid: [
-                null,
-                {},
-                { name: 'myTool' }, // missing inputSchema
-                { inputSchema: { type: 'object' } }, // missing name
-            ],
-        }
-    );
+    schemasAreEquivalent('ToolSchema', generated.ToolSchema, manual.ToolSchema, {
+        valid: [
+            { name: 'myTool', inputSchema: { type: 'object' } },
+            { name: 'myTool', inputSchema: { type: 'object' }, description: 'A tool' }
+        ],
+        invalid: [
+            null,
+            {},
+            { name: 'myTool' }, // missing inputSchema
+            { inputSchema: { type: 'object' } } // missing name
+        ]
+    });
 
-    schemasAreEquivalent(
-        'ResourceSchema',
-        generated.ResourceSchema,
-        manual.ResourceSchema,
-        {
-            valid: [
-                { uri: 'file:///test.txt', name: 'test.txt' },
-                { uri: 'file:///test.txt', name: 'test.txt', description: 'A file', mimeType: 'text/plain' },
-            ],
-            invalid: [
-                null,
-                {},
-                { uri: 'file:///test.txt' }, // missing name
-                { name: 'test.txt' }, // missing uri
-            ],
-        }
-    );
+    schemasAreEquivalent('ResourceSchema', generated.ResourceSchema, manual.ResourceSchema, {
+        valid: [
+            { uri: 'file:///test.txt', name: 'test.txt' },
+            { uri: 'file:///test.txt', name: 'test.txt', description: 'A file', mimeType: 'text/plain' }
+        ],
+        invalid: [
+            null,
+            {},
+            { uri: 'file:///test.txt' }, // missing name
+            { name: 'test.txt' } // missing uri
+        ]
+    });
 
-    schemasAreEquivalent(
-        'PromptSchema',
-        generated.PromptSchema,
-        manual.PromptSchema,
-        {
-            valid: [
-                { name: 'myPrompt' },
-                { name: 'myPrompt', description: 'A prompt', arguments: [] },
-            ],
-            invalid: [
-                null,
-                {},
-                { description: 'A prompt' }, // missing name
-            ],
-        }
-    );
+    schemasAreEquivalent('PromptSchema', generated.PromptSchema, manual.PromptSchema, {
+        valid: [{ name: 'myPrompt' }, { name: 'myPrompt', description: 'A prompt', arguments: [] }],
+        invalid: [
+            null,
+            {},
+            { description: 'A prompt' } // missing name
+        ]
+    });
 
     // Test content schemas
-    schemasAreEquivalent(
-        'TextContentSchema',
-        generated.TextContentSchema,
-        manual.TextContentSchema,
-        {
-            valid: [
-                { type: 'text', text: 'Hello' },
-            ],
-            invalid: [
-                null,
-                {},
-                { type: 'text' }, // missing text
-                { text: 'Hello' }, // missing type
-                { type: 'image', text: 'Hello' }, // wrong type
-            ],
-        }
-    );
+    schemasAreEquivalent('TextContentSchema', generated.TextContentSchema, manual.TextContentSchema, {
+        valid: [{ type: 'text', text: 'Hello' }],
+        invalid: [
+            null,
+            {},
+            { type: 'text' }, // missing text
+            { text: 'Hello' }, // missing type
+            { type: 'image', text: 'Hello' } // wrong type
+        ]
+    });
 
-    schemasAreEquivalent(
-        'ImageContentSchema',
-        generated.ImageContentSchema,
-        manual.ImageContentSchema,
-        {
-            valid: [
-                { type: 'image', data: 'base64data', mimeType: 'image/png' },
-            ],
-            invalid: [
-                null,
-                {},
-                { type: 'image', data: 'base64data' }, // missing mimeType
-                { type: 'text', data: 'base64data', mimeType: 'image/png' }, // wrong type
-            ],
-        }
-    );
+    schemasAreEquivalent('ImageContentSchema', generated.ImageContentSchema, manual.ImageContentSchema, {
+        valid: [{ type: 'image', data: 'base64data', mimeType: 'image/png' }],
+        invalid: [
+            null,
+            {},
+            { type: 'image', data: 'base64data' }, // missing mimeType
+            { type: 'text', data: 'base64data', mimeType: 'image/png' } // wrong type
+        ]
+    });
 
     // Test JSON-RPC request schemas (now with proper jsonrpc literal after post-processing)
-    schemasAreEquivalent(
-        'JSONRPCRequestSchema',
-        generated.JSONRPCRequestSchema,
-        manual.JSONRPCRequestSchema,
-        {
-            valid: [
-                { jsonrpc: '2.0', id: 1, method: 'test' },
-                { jsonrpc: '2.0', id: 'abc', method: 'test', params: {} },
-            ],
-            invalid: [
-                null,
-                {},
-                { jsonrpc: '1.0', id: 1, method: 'test' }, // wrong jsonrpc version
-                { id: 1, method: 'test' }, // missing jsonrpc
-            ],
-        }
-    );
+    schemasAreEquivalent('JSONRPCRequestSchema', generated.JSONRPCRequestSchema, manual.JSONRPCRequestSchema, {
+        valid: [
+            { jsonrpc: '2.0', id: 1, method: 'test' },
+            { jsonrpc: '2.0', id: 'abc', method: 'test', params: {} }
+        ],
+        invalid: [
+            null,
+            {},
+            { jsonrpc: '1.0', id: 1, method: 'test' }, // wrong jsonrpc version
+            { id: 1, method: 'test' } // missing jsonrpc
+        ]
+    });
 
-    schemasAreEquivalent(
-        'InitializeRequestSchema',
-        generated.InitializeRequestSchema,
-        manual.InitializeRequestSchema,
-        {
-            valid: [
-                {
-                    jsonrpc: '2.0',
-                    id: 1,
-                    method: 'initialize',
-                    params: {
-                        protocolVersion: '2024-11-05',
-                        capabilities: {},
-                        clientInfo: { name: 'test', version: '1.0.0' },
-                    },
-                },
-            ],
-            invalid: [
-                null,
-                {},
-                { jsonrpc: '2.0', id: 1, method: 'initialize' }, // missing params
-                { jsonrpc: '2.0', id: 1, method: 'other', params: {} }, // wrong method
-            ],
-        }
-    );
-
-    schemasAreEquivalent(
-        'CallToolRequestSchema',
-        generated.CallToolRequestSchema,
-        manual.CallToolRequestSchema,
-        {
-            valid: [
-                { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'myTool' } },
-                { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'myTool', arguments: { foo: 'bar' } } },
-            ],
-            invalid: [
-                null,
-                {},
-                { jsonrpc: '2.0', id: 1, method: 'tools/call' }, // missing params
-                { jsonrpc: '2.0', id: 1, method: 'tools/call', params: {} }, // missing name in params
-            ],
-        }
-    );
-
-    // Also test request params schemas
-    schemasAreEquivalent(
-        'InitializeRequestParamsSchema',
-        generated.InitializeRequestParamsSchema,
-        manual.InitializeRequestParamsSchema,
-        {
-            valid: [
-                {
+    schemasAreEquivalent('InitializeRequestSchema', generated.InitializeRequestSchema, manual.InitializeRequestSchema, {
+        valid: [
+            {
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'initialize',
+                params: {
                     protocolVersion: '2024-11-05',
                     capabilities: {},
-                    clientInfo: { name: 'test', version: '1.0.0' },
-                },
-            ],
-            invalid: [
-                null,
-                {},
-                { protocolVersion: '2024-11-05' }, // missing capabilities and clientInfo
-            ],
-        }
-    );
+                    clientInfo: { name: 'test', version: '1.0.0' }
+                }
+            }
+        ],
+        invalid: [
+            null,
+            {},
+            { jsonrpc: '2.0', id: 1, method: 'initialize' }, // missing params
+            { jsonrpc: '2.0', id: 1, method: 'other', params: {} } // wrong method
+        ]
+    });
 
-    schemasAreEquivalent(
-        'CallToolRequestParamsSchema',
-        generated.CallToolRequestParamsSchema,
-        manual.CallToolRequestParamsSchema,
-        {
-            valid: [
-                { name: 'myTool' },
-                { name: 'myTool', arguments: { foo: 'bar' } },
-            ],
-            invalid: [
-                null,
-                {},
-                { arguments: { foo: 'bar' } }, // missing name
-            ],
-        }
-    );
+    schemasAreEquivalent('CallToolRequestSchema', generated.CallToolRequestSchema, manual.CallToolRequestSchema, {
+        valid: [
+            { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'myTool' } },
+            { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'myTool', arguments: { foo: 'bar' } } }
+        ],
+        invalid: [
+            null,
+            {},
+            { jsonrpc: '2.0', id: 1, method: 'tools/call' }, // missing params
+            { jsonrpc: '2.0', id: 1, method: 'tools/call', params: {} } // missing name in params
+        ]
+    });
+
+    // Also test request params schemas
+    schemasAreEquivalent('InitializeRequestParamsSchema', generated.InitializeRequestParamsSchema, manual.InitializeRequestParamsSchema, {
+        valid: [
+            {
+                protocolVersion: '2024-11-05',
+                capabilities: {},
+                clientInfo: { name: 'test', version: '1.0.0' }
+            }
+        ],
+        invalid: [
+            null,
+            {},
+            { protocolVersion: '2024-11-05' } // missing capabilities and clientInfo
+        ]
+    });
+
+    schemasAreEquivalent('CallToolRequestParamsSchema', generated.CallToolRequestParamsSchema, manual.CallToolRequestParamsSchema, {
+        valid: [{ name: 'myTool' }, { name: 'myTool', arguments: { foo: 'bar' } }],
+        invalid: [
+            null,
+            {},
+            { arguments: { foo: 'bar' } } // missing name
+        ]
+    });
 
     // Test notification schemas (now SDK-compatible, extending NotificationSchema)
-    schemasAreEquivalent(
-        'CancelledNotificationSchema',
-        generated.CancelledNotificationSchema,
-        manual.CancelledNotificationSchema,
-        {
-            valid: [
-                { method: 'notifications/cancelled', params: {} },
-                { method: 'notifications/cancelled', params: { requestId: '123', reason: 'timeout' } },
-            ],
-            invalid: [
-                null,
-                {},
-                { method: 'notifications/cancelled' }, // missing params
-                { method: 'other', params: {} }, // wrong method
-            ],
-        }
-    );
+    schemasAreEquivalent('CancelledNotificationSchema', generated.CancelledNotificationSchema, manual.CancelledNotificationSchema, {
+        valid: [
+            { method: 'notifications/cancelled', params: {} },
+            { method: 'notifications/cancelled', params: { requestId: '123', reason: 'timeout' } }
+        ],
+        invalid: [
+            null,
+            {},
+            { method: 'notifications/cancelled' }, // missing params
+            { method: 'other', params: {} } // wrong method
+        ]
+    });
 
-    schemasAreEquivalent(
-        'ProgressNotificationSchema',
-        generated.ProgressNotificationSchema,
-        manual.ProgressNotificationSchema,
-        {
-            valid: [
-                { method: 'notifications/progress', params: { progressToken: 'token', progress: 50 } },
-                { method: 'notifications/progress', params: { progressToken: 'token', progress: 50, total: 100 } },
-            ],
-            invalid: [
-                null,
-                {},
-                { method: 'notifications/progress' }, // missing params
-            ],
-        }
-    );
+    schemasAreEquivalent('ProgressNotificationSchema', generated.ProgressNotificationSchema, manual.ProgressNotificationSchema, {
+        valid: [
+            { method: 'notifications/progress', params: { progressToken: 'token', progress: 50 } },
+            { method: 'notifications/progress', params: { progressToken: 'token', progress: 50, total: 100 } }
+        ],
+        invalid: [
+            null,
+            {},
+            { method: 'notifications/progress' } // missing params
+        ]
+    });
 });

@@ -41,11 +41,7 @@ function getTextContent(result: { content: Array<{ type: string; text?: string }
     return textContent?.text ?? '(no text)';
 }
 
-async function elicitationCallback(params: {
-    mode?: string;
-    message: string;
-    requestedSchema?: object;
-}): Promise<ElicitResult> {
+async function elicitationCallback(params: { mode?: string; message: string; requestedSchema?: object }): Promise<ElicitResult> {
     console.log(`\n[Elicitation] Server asks: ${params.message}`);
 
     // Simple terminal prompt for y/n

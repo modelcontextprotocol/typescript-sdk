@@ -20,7 +20,6 @@ import {
     JSONRPCErrorResponse,
     JSONRPCNotification,
     JSONRPCRequest,
-    JSONRPCResponse,
     McpError,
     PingRequestSchema,
     Progress,

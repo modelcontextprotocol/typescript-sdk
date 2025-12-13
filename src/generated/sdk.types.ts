@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-empty-object-type */
 /**
  * SDK-compatible types generated from spec.types.ts
  *

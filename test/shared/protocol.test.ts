@@ -3075,7 +3075,10 @@ describe('Message interception for task-related notifications', () => {
         await server.connect(transport);
 
         // Create a task first
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: { name: 'test-tool', arguments: {} } } as unknown as Request);
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', {
+            method: 'tools/call',
+            params: { name: 'test-tool', arguments: {} }
+        } as unknown as Request);
 
         // Send a notification with related task metadata
         await server.notification(
@@ -3139,7 +3142,10 @@ describe('Message interception for task-related notifications', () => {
         await server.connect(transport);
 
         // Create a task
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: { name: 'test-tool', arguments: {} } } as unknown as Request);
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', {
+            method: 'tools/call',
+            params: { name: 'test-tool', arguments: {} }
+        } as unknown as Request);
 
         // Fill the queue to max capacity (100 messages)
         for (let i = 0; i < 100; i++) {
@@ -3219,7 +3225,10 @@ describe('Message interception for task-related notifications', () => {
         await server.connect(transport);
 
         // Create a task
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: { name: 'test-tool', arguments: {} } } as unknown as Request);
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', {
+            method: 'tools/call',
+            params: { name: 'test-tool', arguments: {} }
+        } as unknown as Request);
 
         // Send multiple notifications
         for (let i = 0; i < 5; i++) {
@@ -3261,7 +3270,10 @@ describe('Message interception for task-related requests', () => {
         await server.connect(transport);
 
         // Create a task first
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: { name: 'test-tool', arguments: {} } } as unknown as Request);
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', {
+            method: 'tools/call',
+            params: { name: 'test-tool', arguments: {} }
+        } as unknown as Request);
 
         // Send a request with related task metadata (don't await - we're testing queuing)
         const requestPromise = server.request(
@@ -3352,7 +3364,10 @@ describe('Message interception for task-related requests', () => {
         await server.connect(transport);
 
         // Create a task
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: { name: 'test-tool', arguments: {} } } as unknown as Request);
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', {
+            method: 'tools/call',
+            params: { name: 'test-tool', arguments: {} }
+        } as unknown as Request);
 
         // Send a request with related task metadata
         const requestPromise = server.request(
@@ -3405,7 +3420,10 @@ describe('Message interception for task-related requests', () => {
         await server.connect(transport);
 
         // Create a task
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: { name: 'test-tool', arguments: {} } } as unknown as Request);
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', {
+            method: 'tools/call',
+            params: { name: 'test-tool', arguments: {} }
+        } as unknown as Request);
 
         // Send a request with related task metadata
         const requestPromise = server.request(
@@ -3475,7 +3493,10 @@ describe('Message interception for task-related requests', () => {
         await server.connect(transport);
 
         // Create a task
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: { name: 'test-tool', arguments: {} } } as unknown as Request);
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', {
+            method: 'tools/call',
+            params: { name: 'test-tool', arguments: {} }
+        } as unknown as Request);
 
         // Send a request with related task metadata
         void server.request(
@@ -3546,7 +3567,10 @@ describe('Message interception for task-related requests', () => {
         await server.connect(transport);
 
         // Create a task
-        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', { method: 'tools/call', params: { name: 'test-tool', arguments: {} } } as unknown as Request);
+        const task = await taskStore.createTask({ ttl: 60000 }, 'test-request-1', {
+            method: 'tools/call',
+            params: { name: 'test-tool', arguments: {} }
+        } as unknown as Request);
 
         // Fill the queue to max capacity (100 messages)
         const promises: Promise<unknown>[] = [];

@@ -69,21 +69,21 @@ const BASE64_VALIDATOR = `z.string().refine(
  * These replace generated z.string() with more specific validators.
  */
 const FIELD_OVERRIDES: Record<string, Record<string, string>> = {
-    'AnnotationsSchema': {
-        'lastModified': 'z.iso.datetime({ offset: true }).optional()'
+    AnnotationsSchema: {
+        lastModified: 'z.iso.datetime({ offset: true }).optional()'
     },
-    'RootSchema': {
-        'uri': 'z.string().startsWith("file://")'
+    RootSchema: {
+        uri: 'z.string().startsWith("file://")'
     },
     // Base64 validation for binary content
-    'ImageContentSchema': {
-        'data': BASE64_VALIDATOR
+    ImageContentSchema: {
+        data: BASE64_VALIDATOR
     },
-    'AudioContentSchema': {
-        'data': BASE64_VALIDATOR
+    AudioContentSchema: {
+        data: BASE64_VALIDATOR
     },
-    'BlobResourceContentsSchema': {
-        'blob': BASE64_VALIDATOR
+    BlobResourceContentsSchema: {
+        blob: BASE64_VALIDATOR
     }
 };
 
@@ -97,8 +97,8 @@ const INTEGER_SCHEMAS = ['ProgressTokenSchema', 'RequestIdSchema'];
  * The SDK historically made these optional with empty array defaults.
  */
 const ARRAY_DEFAULT_FIELDS: Record<string, string[]> = {
-    'CallToolResultSchema': ['content'],
-    'ToolResultContentSchema': ['content'],
+    CallToolResultSchema: ['content'],
+    ToolResultContentSchema: ['content']
 };
 
 /**
@@ -111,9 +111,9 @@ const ARRAY_DEFAULT_FIELDS: Record<string, string[]> = {
  */
 const UNION_MEMBER_ORDER: Record<string, string[]> = {
     // EnumSchema must come before StringSchema (both have type: 'string')
-    'PrimitiveSchemaDefinitionSchema': ['EnumSchemaSchema', 'BooleanSchemaSchema', 'StringSchemaSchema', 'NumberSchemaSchema'],
+    PrimitiveSchemaDefinitionSchema: ['EnumSchemaSchema', 'BooleanSchemaSchema', 'StringSchemaSchema', 'NumberSchemaSchema'],
     // LegacyTitledEnumSchema must come first (has enumNames field)
-    'EnumSchemaSchema': ['LegacyTitledEnumSchemaSchema', 'SingleSelectEnumSchemaSchema', 'MultiSelectEnumSchemaSchema'],
+    EnumSchemaSchema: ['LegacyTitledEnumSchemaSchema', 'SingleSelectEnumSchemaSchema', 'MultiSelectEnumSchemaSchema']
 };
 
 /**
@@ -124,7 +124,7 @@ const STRICT_SCHEMAS = [
     'JSONRPCNotificationSchema',
     'JSONRPCResultResponseSchema',
     'JSONRPCErrorResponseSchema',
-    'EmptyResultSchema',
+    'EmptyResultSchema'
 ];
 
 /**
@@ -132,9 +132,9 @@ const STRICT_SCHEMAS = [
  * Maps schema name to the discriminator field name.
  */
 const DISCRIMINATED_UNIONS: Record<string, string> = {
-    'SamplingContentSchema': 'type',
-    'SamplingMessageContentBlockSchema': 'type',
-    'ContentBlockSchema': 'type',
+    SamplingContentSchema: 'type',
+    SamplingMessageContentBlockSchema: 'type',
+    ContentBlockSchema: 'type'
 };
 
 /**
@@ -143,8 +143,8 @@ const DISCRIMINATED_UNIONS: Record<string, string> = {
  * Format: { typeName: { parent: 'ParentInterface', property: 'propertyName' } }
  */
 const DERIVED_CAPABILITY_TYPES: Record<string, { parent: string; property: string }> = {
-    'ClientTasksCapability': { parent: 'ClientCapabilities', property: 'tasks' },
-    'ServerTasksCapability': { parent: 'ServerCapabilities', property: 'tasks' },
+    ClientTasksCapability: { parent: 'ClientCapabilities', property: 'tasks' },
+    ServerTasksCapability: { parent: 'ServerCapabilities', property: 'tasks' }
     // Note: ElicitationCapability is kept local in types.ts because it has z.preprocess for backwards compat
 };
 
@@ -229,7 +229,10 @@ function removeIndexSignaturesFromTypes(content: string): string {
     // These are lines that ONLY contain an index signature (with optional leading whitespace)
     // Pattern matches: `    [key: string]: unknown;\n`
     const standalonePattern = /^(\s*)\[key:\s*string\]:\s*unknown;\s*\n/gm;
-    result = result.replace(standalonePattern, () => { count++; return ''; });
+    result = result.replace(standalonePattern, () => {
+        count++;
+        return '';
+    });
 
     console.log(`    ✓ Removed ${count} standalone index signatures`);
 
@@ -241,7 +244,7 @@ function removeIndexSignaturesFromTypes(content: string): string {
  * Maps base interface name to its union members (the concrete types that extend it).
  */
 const BASE_TO_UNION_CONFIG: Record<string, string[]> = {
-    'Request': [
+    Request: [
         'InitializeRequest',
         'PingRequest',
         'ListResourcesRequest',
@@ -261,9 +264,9 @@ const BASE_TO_UNION_CONFIG: Record<string, string[]> = {
         'GetTaskRequest',
         'GetTaskPayloadRequest',
         'CancelTaskRequest',
-        'ListTasksRequest',
+        'ListTasksRequest'
     ],
-    'Notification': [
+    Notification: [
         'CancelledNotification',
         'InitializedNotification',
         'ProgressNotification',
@@ -274,9 +277,9 @@ const BASE_TO_UNION_CONFIG: Record<string, string[]> = {
         'LoggingMessageNotification',
         'RootsListChangedNotification',
         'TaskStatusNotification',
-        'ElicitationCompleteNotification',
+        'ElicitationCompleteNotification'
     ],
-    'Result': [
+    Result: [
         'EmptyResult',
         'InitializeResult',
         'CompleteResult',
@@ -294,8 +297,8 @@ const BASE_TO_UNION_CONFIG: Record<string, string[]> = {
         'CancelTaskResult',
         'CreateMessageResult',
         'ListRootsResult',
-        'ElicitResult',
-    ],
+        'ElicitResult'
+    ]
 };
 
 /**
@@ -333,7 +336,10 @@ function convertBaseTypesToUnions(content: string): string {
         // Add the union type alias after the base interface
         const unionType = unionMembers.join(' | ');
         const insertPos = baseInterface.getEnd();
-        sourceFile.insertText(insertPos, `\n\n/** Union of all MCP ${baseName.toLowerCase()} types for type narrowing. */\nexport type ${unionName} = ${unionType};`);
+        sourceFile.insertText(
+            insertPos,
+            `\n\n/** Union of all MCP ${baseName.toLowerCase()} types for type narrowing. */\nexport type ${unionName} = ${unionType};`
+        );
 
         console.log(`    ✓ Created ${unionName} as union of ${unionMembers.length} types`);
     }
@@ -478,10 +484,7 @@ function inlineJSONRPCResponse(sourceFile: SourceFile): void {
         if (typeNode) {
             const text = typeNode.getText();
             // Replace JSONRPCResponse with its components
-            const newType = text.replace(
-                'JSONRPCResponse',
-                'JSONRPCResultResponse | JSONRPCErrorResponse'
-            );
+            const newType = text.replace('JSONRPCResponse', 'JSONRPCResultResponse | JSONRPCErrorResponse');
             messageType.setType(newType);
             console.log('    ✓ Inlined JSONRPCResponse into JSONRPCMessage');
         }
@@ -511,10 +514,7 @@ function injectSdkExtensions(sourceFile: SourceFile): void {
                 const originalType = typeNode.getText();
                 // Replace { form?: object; url?: object } with extended form type
                 if (originalType.includes('form?: object')) {
-                    const newType = originalType.replace(
-                        'form?: object',
-                        'form?: { applyDefaults?: boolean; [key: string]: unknown }'
-                    );
+                    const newType = originalType.replace('form?: object', 'form?: { applyDefaults?: boolean; [key: string]: unknown }');
                     typeNode.replaceWithText(newType);
                     console.log('    ✓ Added applyDefaults to ClientCapabilities.elicitation.form');
                 }
@@ -633,7 +633,13 @@ function processPropertiesRecursively(node: { getProperties?: () => Array<unknow
  * Convert a node's JSDoc comment to use @description tag.
  * Returns 1 if converted, 0 otherwise.
  */
-function convertNodeJsDoc(node: { getJsDocs: () => Array<{ getDescription: () => string; getTags: () => Array<{ getTagName: () => string }>; replaceWithText: (text: string) => void }> }): number {
+function convertNodeJsDoc(node: {
+    getJsDocs: () => Array<{
+        getDescription: () => string;
+        getTags: () => Array<{ getTagName: () => string }>;
+        replaceWithText: (text: string) => void;
+    }>;
+}): number {
     const jsDocs = node.getJsDocs();
     if (jsDocs.length === 0) return 0;
 
@@ -645,16 +651,20 @@ function convertNodeJsDoc(node: { getJsDocs: () => Array<{ getDescription: () =>
     if (jsDoc.getTags().some(tag => tag.getTagName() === 'description')) return 0;
 
     // Get existing tags to preserve them
-    const existingTags = jsDoc.getTags().map(tag => {
-        const tagName = tag.getTagName();
-        const tagText = tag.getText().replace(new RegExp(`^@${tagName}\\s*`), '').trim();
-        return `@${tagName}${tagText ? ' ' + tagText : ''}`;
-    }).join('\n * ');
+    const existingTags = jsDoc
+        .getTags()
+        .map(tag => {
+            const tagName = tag.getTagName();
+            const tagText = tag
+                .getText()
+                .replace(new RegExp(`^@${tagName}\\s*`), '')
+                .trim();
+            return `@${tagName}${tagText ? ' ' + tagText : ''}`;
+        })
+        .join('\n * ');
 
     // Build new JSDoc with @description
-    const newJsDoc = existingTags
-        ? `/**\n * @description ${description}\n * ${existingTags}\n */`
-        : `/** @description ${description} */`;
+    const newJsDoc = existingTags ? `/**\n * @description ${description}\n * ${existingTags}\n */` : `/** @description ${description} */`;
 
     jsDoc.replaceWithText(newJsDoc);
     return 1;
@@ -683,7 +693,7 @@ const AST_TRANSFORMS: Transform[] = [
     addTopLevelDescribe,
     addAssertObjectSchema,
     addElicitationPreprocess,
-    convertCapabilitiesToLooseObject,
+    convertCapabilitiesToLooseObject
 ];
 
 /**
@@ -691,16 +701,13 @@ const AST_TRANSFORMS: Transform[] = [
  */
 function postProcess(content: string): string {
     // Quick text-based transforms first (simpler cases)
-    content = content.replace(
-        'import { z } from "zod";',
-        'import { z } from "zod/v4";',
-    );
+    content = content.replace('import { z } from "zod";', 'import { z } from "zod/v4";');
 
     content = content.replace(
         '// Generated by ts-to-zod',
         `// Generated by ts-to-zod
 // Post-processed for Zod v4 compatibility
-// Run: npm run generate:schemas`,
+// Run: npm run generate:schemas`
     );
 
     // Add .passthrough() to outputSchema to preserve JSON Schema properties like additionalProperties
@@ -734,7 +741,7 @@ function postProcess(content: string): string {
  */
 function transformRecordAndToLooseObject(sourceFile: SourceFile): void {
     // Find all call expressions
-    sourceFile.forEachDescendant((node) => {
+    sourceFile.forEachDescendant(node => {
         if (!Node.isCallExpression(node)) return;
 
         const text = node.getText();
@@ -767,7 +774,7 @@ function transformRecordAndToLooseObject(sourceFile: SourceFile): void {
  */
 function transformTypeofExpressions(sourceFile: SourceFile): void {
     // Find property assignments with jsonrpc: z.any()
-    sourceFile.forEachDescendant((node) => {
+    sourceFile.forEachDescendant(node => {
         if (!Node.isPropertyAssignment(node)) return;
 
         const name = node.getName();
@@ -795,7 +802,7 @@ function transformIntegerRefinements(sourceFile: SourceFile): void {
 
         // Collect nodes first to avoid modifying while iterating
         const nodesToReplace: CallExpression[] = [];
-        initializer.forEachDescendant((node) => {
+        initializer.forEachDescendant(node => {
             if (Node.isCallExpression(node) && node.getText() === 'z.number()') {
                 nodesToReplace.push(node);
             }
@@ -821,7 +828,7 @@ function transformArrayDefaults(sourceFile: SourceFile): void {
         if (!initializer) continue;
 
         // Find property assignments for the target fields
-        initializer.forEachDescendant((node) => {
+        initializer.forEachDescendant(node => {
             if (!Node.isPropertyAssignment(node)) return;
 
             const propName = node.getName();
@@ -855,7 +862,7 @@ function reorderUnionMembers(sourceFile: SourceFile): void {
 
         // Find the z.union([...]) call
         let unionCall: CallExpression | undefined;
-        initializer.forEachDescendant((node) => {
+        initializer.forEachDescendant(node => {
             if (!Node.isCallExpression(node)) return;
             const expr = node.getExpression();
             if (!Node.isPropertyAccessExpression(expr)) return;
@@ -913,7 +920,7 @@ function transformUnionToEnum(sourceFile: SourceFile): void {
     // Collect union nodes that should be converted
     const nodesToReplace: Array<{ node: CallExpression; values: string[] }> = [];
 
-    sourceFile.forEachDescendant((node) => {
+    sourceFile.forEachDescendant(node => {
         if (!Node.isCallExpression(node)) return;
 
         // Check if this is z.union(...)
@@ -993,7 +1000,7 @@ function applyFieldOverrides(sourceFile: SourceFile): void {
         if (!initializer) continue;
 
         // Find property assignments matching the field names
-        initializer.forEachDescendant((node) => {
+        initializer.forEachDescendant(node => {
             if (!Node.isPropertyAssignment(node)) return;
 
             const propName = node.getName();
@@ -1104,7 +1111,7 @@ const ASSERT_OBJECT_SCHEMAS = [
     'ClientCapabilitiesSchema',
     'ServerCapabilitiesSchema',
     'ClientTasksCapabilitySchema',
-    'ServerTasksCapabilitySchema',
+    'ServerTasksCapabilitySchema'
 ];
 
 /**
@@ -1140,8 +1147,7 @@ const AssertObjectSchema = z.custom<object>((v): v is object => v !== null && (t
 
         const text = initializer.getText();
         // Replace the pattern - note we need to handle optional() suffix too
-        const newText = text
-            .replace(/z\.record\(z\.string\(\), z\.any\(\)\)/g, 'AssertObjectSchema');
+        const newText = text.replace(/z\.record\(z\.string\(\), z\.any\(\)\)/g, 'AssertObjectSchema');
 
         if (newText !== text) {
             varDecl.setInitializer(newText);
@@ -1164,7 +1170,7 @@ function convertCapabilitiesToLooseObject(sourceFile: SourceFile): void {
         'ClientCapabilitiesSchema',
         'ServerCapabilitiesSchema',
         'ClientTasksCapabilitySchema',
-        'ServerTasksCapabilitySchema',
+        'ServerTasksCapabilitySchema'
     ];
 
     let count = 0;
@@ -1304,7 +1310,8 @@ async function main() {
     cleanedTypesContent = convertBaseTypesToUnions(cleanedTypesContent);
 
     // Write pre-processed types to sdk.types.ts
-    const sdkTypesWithHeader = `/**
+    const sdkTypesWithHeader = `/* eslint-disable @typescript-eslint/no-empty-object-type */
+/**
  * SDK-compatible types generated from spec.types.ts
  *
  * This file is auto-generated by scripts/generate-schemas.ts
@@ -1328,7 +1335,7 @@ ${cleanedTypesContent.replace(/^\/\*\*[\s\S]*?\*\/\n/, '')}`;
         keepComments: true,
         skipParseJSDoc: false,
         // Use PascalCase naming to match existing types.ts convention
-        getSchemaName: (typeName: string) => `${typeName}Schema`,
+        getSchemaName: (typeName: string) => `${typeName}Schema`
     });
 
     if (result.errors.length > 0) {
@@ -1351,10 +1358,7 @@ ${cleanedTypesContent.replace(/^\/\*\*[\s\S]*?\*\/\n/, '')}`;
     console.log(`✅ Written: ${SCHEMA_OUTPUT_FILE}`);
 
     // Generate integration tests that verify schemas match TypeScript types
-    const testsContent = result.getIntegrationTestFile(
-        './sdk.types.js',
-        './sdk.schemas.js',
-    );
+    const testsContent = result.getIntegrationTestFile('./sdk.types.js', './sdk.schemas.js');
     if (testsContent) {
         const processedTests = postProcessTests(testsContent);
         writeFileSync(SCHEMA_TEST_OUTPUT_FILE, processedTests, 'utf-8');
@@ -1368,16 +1372,13 @@ ${cleanedTypesContent.replace(/^\/\*\*[\s\S]*?\*\/\n/, '')}`;
  * Post-process generated integration tests.
  */
 function postProcessTests(content: string): string {
-    content = content.replace(
-        'import { z } from "zod";',
-        'import { z } from "zod/v4";',
-    );
+    content = content.replace('import { z } from "zod";', 'import { z } from "zod/v4";');
 
     content = content.replace(
         '// Generated by ts-to-zod',
         `// Generated by ts-to-zod
 // Integration tests verifying schemas match TypeScript types
-// Run: npm run generate:schemas`,
+// Run: npm run generate:schemas`
     );
 
     // Comment out bidirectional type checks for schemas that use looseObject or passthrough.
@@ -1421,7 +1422,7 @@ function postProcessTests(content: string): string {
         'RequestParams',
         'NotificationParams',
         // Union types that include passthrough schemas
-        'JSONRPCMessage',
+        'JSONRPCMessage'
     ];
 
     let commentedCount = 0;
@@ -1429,12 +1430,12 @@ function postProcessTests(content: string): string {
         // Comment out spec → schema-inferred checks (these fail with passthrough/looseObject)
         // ts-to-zod generates PascalCase type names
         // Pattern matches: expectType<FooSchemaInferredType>({} as spec.Foo)
-        const pattern = new RegExp(
-            `(expectType<${schemaName}SchemaInferredType>\\(\\{\\} as spec\\.${schemaName}\\))`,
-            'g'
-        );
+        const pattern = new RegExp(`(expectType<${schemaName}SchemaInferredType>\\(\\{\\} as spec\\.${schemaName}\\))`, 'g');
         const before = content;
-        content = content.replace(pattern, `// Skip: passthrough/looseObject index signature incompatible with clean spec interface\n// $1`);
+        content = content.replace(
+            pattern,
+            `// Skip: passthrough/looseObject index signature incompatible with clean spec interface\n// $1`
+        );
         if (before !== content) {
             commentedCount++;
         }
@@ -1449,10 +1450,7 @@ function postProcessTests(content: string): string {
     let unionCommentedCount = 0;
     for (const typeName of unionTypes) {
         // Comment out schema-inferred → spec checks (schema object can't satisfy union)
-        const specPattern = new RegExp(
-            `(expectType<spec\\.${typeName}>\\(\\{\\} as ${typeName}SchemaInferredType\\))`,
-            'g'
-        );
+        const specPattern = new RegExp(`(expectType<spec\\.${typeName}>\\(\\{\\} as ${typeName}SchemaInferredType\\))`, 'g');
         const before = content;
         content = content.replace(specPattern, `// Skip: schema-inferred object type incompatible with spec union type\n// $1`);
         if (before !== content) {
@@ -1466,7 +1464,7 @@ function postProcessTests(content: string): string {
     return content;
 }
 
-main().catch((error) => {
+main().catch(error => {
     console.error('❌ Schema generation failed:', error);
     process.exit(1);
 });
