@@ -431,7 +431,7 @@ export const IconSchema = z.object({
      *
      * If not provided, the client should assume the icon can be used with any theme.
      */
-    theme: z.union([z.literal('light'), z.literal('dark')]).optional()
+    theme: z.enum(['light', 'dark']).optional()
 });
 
 /**
@@ -798,7 +798,7 @@ export const PromptArgumentSchema = BaseMetadataSchema.extend({
  *
  * @category Common Types
  */
-export const RoleSchema = z.union([z.literal('user'), z.literal('assistant')]);
+export const RoleSchema = z.enum(['user', 'assistant']);
 
 /**
  * Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
@@ -967,7 +967,7 @@ export const ToolExecutionSchema = z.object({
      *
      * Default: "forbidden"
      */
-    taskSupport: z.union([z.literal('forbidden'), z.literal('optional'), z.literal('required')]).optional()
+    taskSupport: z.enum(['forbidden', 'optional', 'required']).optional()
 });
 
 /**
@@ -1028,13 +1028,7 @@ export const ToolSchema = BaseMetadataSchema.extend(IconsSchema.shape).extend({
  *
  * @category `tasks`
  */
-export const TaskStatusSchema = z.union([
-    z.literal('working'),
-    z.literal('input_required'),
-    z.literal('completed'),
-    z.literal('failed'),
-    z.literal('cancelled')
-]);
+export const TaskStatusSchema = z.enum(['working', 'input_required', 'completed', 'failed', 'cancelled']);
 
 /**
  * Metadata for associating messages with a task.
@@ -1209,16 +1203,7 @@ export const TaskStatusNotificationSchema = NotificationSchema.extend({
  *
  * @category Common Types
  */
-export const LoggingLevelSchema = z.union([
-    z.literal('debug'),
-    z.literal('info'),
-    z.literal('notice'),
-    z.literal('warning'),
-    z.literal('error'),
-    z.literal('critical'),
-    z.literal('alert'),
-    z.literal('emergency')
-]);
+export const LoggingLevelSchema = z.enum(['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency']);
 
 /* Logging */
 /**
@@ -1275,7 +1260,7 @@ export const ToolChoiceSchema = z.object({
      * - "required": Model MUST use at least one tool before completing
      * - "none": Model MUST NOT use any tools
      */
-    mode: z.union([z.literal('auto'), z.literal('required'), z.literal('none')]).optional()
+    mode: z.enum(['auto', 'required', 'none']).optional()
 });
 
 /**
@@ -1606,7 +1591,7 @@ export const StringSchemaSchema = z.object({
  * @category `elicitation/create`
  */
 export const NumberSchemaSchema = z.object({
-    type: z.union([z.literal('number'), z.literal('integer')]),
+    type: z.enum(['number', 'integer']),
     title: z.string().optional(),
     description: z.string().optional(),
     minimum: z.number().optional(),
@@ -1822,7 +1807,7 @@ export const ElicitResultSchema = ResultSchema.extend({
      * - "decline": User explicitly decline the action
      * - "cancel": User dismissed without making an explicit choice
      */
-    action: z.union([z.literal('accept'), z.literal('decline'), z.literal('cancel')]),
+    action: z.enum(['accept', 'decline', 'cancel']),
     /**
      * The submitted form data, only present when action is "accept" and mode was "form".
      * Contains values matching the requested schema.
@@ -2419,7 +2404,7 @@ export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema
      * Default is "none". Values "thisServer" and "allServers" are soft-deprecated. Servers SHOULD only use these values if the client
      * declares ClientCapabilities.sampling.context. These values may be removed in future spec releases.
      */
-    includeContext: z.union([z.literal('none'), z.literal('thisServer'), z.literal('allServers')]).optional(),
+    includeContext: z.enum(['none', 'thisServer', 'allServers']).optional(),
     /**
      * @TJS-type number
      */
