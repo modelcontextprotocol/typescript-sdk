@@ -17,7 +17,7 @@
  *
  * @category JSON-RPC
  */
-export type JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResponse;
+export type JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse;
 
 /** @internal */
 export const LATEST_PROTOCOL_VERSION = 'DRAFT-2026-v1';
@@ -149,9 +149,6 @@ export interface JSONRPCErrorResponse {
     id?: RequestId;
     error: Error;
 }
-
-/** @description A response to a request, containing either the result or error. */
-export type JSONRPCResponse = JSONRPCResultResponse | JSONRPCErrorResponse;
 
 // Standard JSON-RPC error codes
 export const PARSE_ERROR = -32700;

@@ -197,8 +197,6 @@ import {
     // Derived capability schemas (generated from extracted types)
     ClientTasksCapabilitySchema,
     ServerTasksCapabilitySchema,
-    // JSON-RPC schemas
-    JSONRPCResponseSchema,
     // Progress
     ProgressNotificationParamsSchema,
 } from './generated/sdk.schemas.js';
@@ -343,7 +341,6 @@ export {
     SamplingMessageContentBlockSchema,
     ClientTasksCapabilitySchema,
     ServerTasksCapabilitySchema,
-    JSONRPCResponseSchema,
     ProgressNotificationParamsSchema,
 };
 
@@ -421,13 +418,14 @@ export enum ErrorCode {
     UrlElicitationRequired = -32042
 }
 
+export const JSONRPCResponseSchema = z.union([JSONRPCResultResponseSchema, JSONRPCErrorResponseSchema]);
+
 export const JSONRPCMessageSchema = z.union([
     JSONRPCRequestSchema,
     JSONRPCNotificationSchema,
     JSONRPCResultResponseSchema,
     JSONRPCErrorResponseSchema
 ]);
-
 
 /* Cancellation */
 /**

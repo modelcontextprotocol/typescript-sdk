@@ -156,11 +156,15 @@ function preProcessTypes(content: string): string {
     // Transform 4: Update Request.params to use RequestParams
     updateRequestParamsType(sourceFile);
 
-    // Transform 5: Convert JSDoc comments to @description tags for .describe() generation
+    // Transform 5: Inline JSONRPCResponse into JSONRPCMessage and remove JSONRPCResponse
+    // (types.ts will define these locally with proper schema unions)
+    inlineJSONRPCResponse(sourceFile);
+
+    // Transform 6: Convert JSDoc comments to @description tags for .describe() generation
     // (Must run before injectDerivedCapabilityTypes so inline types get @description)
     convertJsDocToDescription(sourceFile);
 
-    // Transform 6: Add derived capability types (extracts from parent interfaces)
+    // Transform 7: Add derived capability types (extracts from parent interfaces)
     injectDerivedCapabilityTypes(sourceFile);
 
     return sourceFile.getFullText();
@@ -281,6 +285,42 @@ function updateRequestParamsType(sourceFile: SourceFile): void {
             paramsProp.setType('NotificationParams & { [key: string]: any }');
             console.log('    ✓ Updated Notification.params to include NotificationParams');
         }
+    }
+}
+
+/**
+ * Inline JSONRPCResponse into JSONRPCMessage and remove JSONRPCResponse type.
+ * This allows types.ts to define these as schema unions locally.
+ *
+ * Transforms:
+ *   type JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResponse;
+ *   type JSONRPCResponse = JSONRPCResultResponse | JSONRPCErrorResponse;
+ * Into:
+ *   type JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse;
+ *   (JSONRPCResponse removed)
+ */
+function inlineJSONRPCResponse(sourceFile: SourceFile): void {
+    // Find and update JSONRPCMessage
+    const messageType = sourceFile.getTypeAlias('JSONRPCMessage');
+    if (messageType) {
+        const typeNode = messageType.getTypeNode();
+        if (typeNode) {
+            const text = typeNode.getText();
+            // Replace JSONRPCResponse with its components
+            const newType = text.replace(
+                'JSONRPCResponse',
+                'JSONRPCResultResponse | JSONRPCErrorResponse'
+            );
+            messageType.setType(newType);
+            console.log('    ✓ Inlined JSONRPCResponse into JSONRPCMessage');
+        }
+    }
+
+    // Remove JSONRPCResponse type alias
+    const responseType = sourceFile.getTypeAlias('JSONRPCResponse');
+    if (responseType) {
+        responseType.remove();
+        console.log('    ✓ Removed JSONRPCResponse type (defined locally in types.ts)');
     }
 }
 
