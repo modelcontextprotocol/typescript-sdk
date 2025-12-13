@@ -22,41 +22,49 @@ export const CursorSchema = z.string().describe('An opaque token used to represe
 Include this in the `task` field of the request parameters.
  * @category `tasks`
  */
-export const TaskMetadataSchema = z.object({
-    /** @description Requested duration in milliseconds to retain task from creation. */
-    ttl: z.number().optional().describe('Requested duration in milliseconds to retain task from creation.')
-});
+export const TaskMetadataSchema = z
+    .object({
+        /** @description Requested duration in milliseconds to retain task from creation. */
+        ttl: z.number().optional().describe('Requested duration in milliseconds to retain task from creation.')
+    })
+    .describe('Metadata for augmenting a request with task execution. Include this in the `task` field of the request parameters.');
 
 /**
  * @description Metadata for associating messages with a task.
 Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
  * @category `tasks`
  */
-export const RelatedTaskMetadataSchema = z.object({
-    /** @description The task identifier this message is associated with. */
-    taskId: z.string().describe('The task identifier this message is associated with.')
-});
+export const RelatedTaskMetadataSchema = z
+    .object({
+        /** @description The task identifier this message is associated with. */
+        taskId: z.string().describe('The task identifier this message is associated with.')
+    })
+    .describe(
+        'Metadata for associating messages with a task. Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.'
+    );
 
 /**
  * @description Common params for any request.
  * @internal
  */
-export const RequestParamsSchema = z.object({
-    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .looseObject({
-            /** @description If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications. */
-            progressToken: ProgressTokenSchema.optional().describe(
-                'If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.'
-            ),
-            /** @description If specified, this request is related to the provided task. */
-            'io.modelcontextprotocol/related-task': RelatedTaskMetadataSchema.optional().describe(
-                'If specified, this request is related to the provided task.'
-            )
-        })
-        .optional()
-        .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
-});
+export const RequestParamsSchema = z
+    .object({
+        /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .looseObject({
+                /** @description If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications. */
+                progressToken: ProgressTokenSchema.optional().describe(
+                    'If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.'
+                ),
+                /** @description If specified, this request is related to the provided task. */
+                'io.modelcontextprotocol/related-task': RelatedTaskMetadataSchema.optional().describe(
+                    'If specified, this request is related to the provided task.'
+                )
+            })
+            .optional()
+            .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
+    })
+    .describe('Common params for any request.');
 
 /** @internal */
 export const NotificationParamsSchema = z.object({
@@ -123,7 +131,9 @@ export const RequestSchema = z.object({
  */
 export const JSONRPCNotificationSchema = NotificationSchema.extend({
     jsonrpc: z.literal('2.0')
-}).strict();
+})
+    .strict()
+    .describe('A notification which does not expect a response.');
 
 /**
  * @description A successful (non-error) response to a request.
@@ -135,7 +145,8 @@ export const JSONRPCResultResponseSchema = z
         id: RequestIdSchema,
         result: ResultSchema
     })
-    .strict();
+    .strict()
+    .describe('A successful (non-error) response to a request.');
 
 /**
  * @description A response to a request that indicates an error occurred.
@@ -147,7 +158,8 @@ export const JSONRPCErrorResponseSchema = z
         id: RequestIdSchema.optional(),
         error: ErrorSchema
     })
-    .strict();
+    .strict()
+    .describe('A response to a request that indicates an error occurred.');
 
 /** @description A response to a request, containing either the result or error. */
 export const JSONRPCResponseSchema = z
@@ -159,7 +171,9 @@ export const JSONRPCResponseSchema = z
  * @description A response that indicates success but carries no data.
  * @category Common Types
  */
-export const EmptyResultSchema = ResultSchema.describe('A response that indicates success but carries no data.').strict();
+export const EmptyResultSchema = ResultSchema.describe('A response that indicates success but carries no data.')
+    .strict()
+    .describe('A response that indicates success but carries no data.');
 
 /* Cancellation */
 /**
@@ -168,10 +182,10 @@ export const EmptyResultSchema = ResultSchema.describe('A response that indicate
  */
 export const CancelledNotificationParamsSchema = NotificationParamsSchema.extend({
     /** @description The ID of the request to cancel.
-  
-      This MUST correspond to the ID of a request previously issued in the same direction.
-      This MUST be provided for cancelling non-task requests.
-      This MUST NOT be used for cancelling tasks (use the `tasks/cancel` request instead). */
+          
+              This MUST correspond to the ID of a request previously issued in the same direction.
+              This MUST be provided for cancelling non-task requests.
+              This MUST NOT be used for cancelling tasks (use the `tasks/cancel` request instead). */
     requestId: RequestIdSchema.optional().describe(
         'The ID of the request to cancel.\n\nThis MUST correspond to the ID of a request previously issued in the same direction.\nThis MUST be provided for cancelling non-task requests.\nThis MUST NOT be used for cancelling tasks (use the `tasks/cancel` request instead).'
     ),
@@ -180,7 +194,7 @@ export const CancelledNotificationParamsSchema = NotificationParamsSchema.extend
         .string()
         .optional()
         .describe('An optional string describing the reason for the cancellation. This MAY be logged or presented to the user.')
-});
+}).describe('Parameters for a `notifications/cancelled` notification.');
 
 /**
  * @description This notification can be sent by either side to indicate that it is cancelling a previously-issued request.
@@ -197,161 +211,174 @@ For task cancellation, use the `tasks/cancel` request instead of this notificati
 export const CancelledNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/cancelled'),
     params: CancelledNotificationParamsSchema
-});
+}).describe(
+    'This notification can be sent by either side to indicate that it is cancelling a previously-issued request.  The request SHOULD still be in-flight, but due to communication latency, it is always possible that this notification MAY arrive after the request has already finished.  This notification indicates that the result will be unused, so any associated processing SHOULD cease.  A client MUST NOT attempt to cancel its `initialize` request.  For task cancellation, use the `tasks/cancel` request instead of this notification.'
+);
 
 /**
  * @description Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
  * @category `initialize`
  */
-export const ClientCapabilitiesSchema = z.object({
-    /** @description Experimental, non-standard capabilities that the client supports. */
-    experimental: z
-        .record(z.string(), z.record(z.string(), z.any()))
-        .optional()
-        .describe('Experimental, non-standard capabilities that the client supports.'),
-    /** @description Present if the client supports listing roots. */
-    roots: z
-        .object({
-            /** @description Whether the client supports notifications for changes to the roots list. */
-            listChanged: z.boolean().optional().describe('Whether the client supports notifications for changes to the roots list.')
-        })
-        .optional()
-        .describe('Present if the client supports listing roots.'),
-    /** @description Present if the client supports sampling from an LLM. */
-    sampling: z
-        .object({
-            /** @description Whether the client supports context inclusion via includeContext parameter.
-          If not declared, servers SHOULD only use `includeContext: "none"` (or omit it). */
-            context: z
-                .record(z.string(), z.any())
-                .optional()
-                .describe(
-                    'Whether the client supports context inclusion via includeContext parameter.\nIf not declared, servers SHOULD only use `includeContext: "none"` (or omit it).'
-                ),
-            /** @description Whether the client supports tool use via tools and toolChoice parameters. */
-            tools: z
-                .record(z.string(), z.any())
-                .optional()
-                .describe('Whether the client supports tool use via tools and toolChoice parameters.')
-        })
-        .optional()
-        .describe('Present if the client supports sampling from an LLM.'),
-    /** @description Present if the client supports elicitation from the server. */
-    elicitation: z
-        .object({
-            form: z.record(z.string(), z.any()).optional(),
-            url: z.record(z.string(), z.any()).optional()
-        })
-        .optional()
-        .describe('Present if the client supports elicitation from the server.'),
-    /** @description Present if the client supports task-augmented requests. */
-    tasks: z
-        .object({
-            /** @description Whether this client supports tasks/list. */
-            list: z.record(z.string(), z.any()).optional().describe('Whether this client supports tasks/list.'),
-            /** @description Whether this client supports tasks/cancel. */
-            cancel: z.record(z.string(), z.any()).optional().describe('Whether this client supports tasks/cancel.'),
-            /** @description Specifies which request types can be augmented with tasks. */
-            requests: z
-                .object({
-                    /** @description Task support for sampling-related requests. */
-                    sampling: z
-                        .object({
-                            /** @description Whether the client supports task-augmented sampling/createMessage requests. */
-                            createMessage: z
-                                .record(z.string(), z.any())
-                                .optional()
-                                .describe('Whether the client supports task-augmented sampling/createMessage requests.')
-                        })
-                        .optional()
-                        .describe('Task support for sampling-related requests.'),
-                    /** @description Task support for elicitation-related requests. */
-                    elicitation: z
-                        .object({
-                            /** @description Whether the client supports task-augmented elicitation/create requests. */
-                            create: z
-                                .record(z.string(), z.any())
-                                .optional()
-                                .describe('Whether the client supports task-augmented elicitation/create requests.')
-                        })
-                        .optional()
-                        .describe('Task support for elicitation-related requests.')
-                })
-                .optional()
-                .describe('Specifies which request types can be augmented with tasks.')
-        })
-        .optional()
-        .describe('Present if the client supports task-augmented requests.')
-});
+export const ClientCapabilitiesSchema = z
+    .object({
+        /** @description Experimental, non-standard capabilities that the client supports. */
+        experimental: z
+            .record(z.string(), z.record(z.string(), z.any()))
+            .optional()
+            .describe('Experimental, non-standard capabilities that the client supports.'),
+        /** @description Present if the client supports listing roots. */
+        roots: z
+            .object({
+                /** @description Whether the client supports notifications for changes to the roots list. */
+                listChanged: z.boolean().optional().describe('Whether the client supports notifications for changes to the roots list.')
+            })
+            .optional()
+            .describe('Present if the client supports listing roots.'),
+        /** @description Present if the client supports sampling from an LLM. */
+        sampling: z
+            .object({
+                /** @description Whether the client supports context inclusion via includeContext parameter.
+                  If not declared, servers SHOULD only use `includeContext: "none"` (or omit it). */
+                context: z
+                    .record(z.string(), z.any())
+                    .optional()
+                    .describe(
+                        'Whether the client supports context inclusion via includeContext parameter.\nIf not declared, servers SHOULD only use `includeContext: "none"` (or omit it).'
+                    ),
+                /** @description Whether the client supports tool use via tools and toolChoice parameters. */
+                tools: z
+                    .record(z.string(), z.any())
+                    .optional()
+                    .describe('Whether the client supports tool use via tools and toolChoice parameters.')
+            })
+            .optional()
+            .describe('Present if the client supports sampling from an LLM.'),
+        /** @description Present if the client supports elicitation from the server. */
+        elicitation: z
+            .object({
+                form: z.record(z.string(), z.any()).optional(),
+                url: z.record(z.string(), z.any()).optional()
+            })
+            .optional()
+            .describe('Present if the client supports elicitation from the server.'),
+        /** @description Present if the client supports task-augmented requests. */
+        tasks: z
+            .object({
+                /** @description Whether this client supports tasks/list. */
+                list: z.record(z.string(), z.any()).optional().describe('Whether this client supports tasks/list.'),
+                /** @description Whether this client supports tasks/cancel. */
+                cancel: z.record(z.string(), z.any()).optional().describe('Whether this client supports tasks/cancel.'),
+                /** @description Specifies which request types can be augmented with tasks. */
+                requests: z
+                    .object({
+                        /** @description Task support for sampling-related requests. */
+                        sampling: z
+                            .object({
+                                /** @description Whether the client supports task-augmented sampling/createMessage requests. */
+                                createMessage: z
+                                    .record(z.string(), z.any())
+                                    .optional()
+                                    .describe('Whether the client supports task-augmented sampling/createMessage requests.')
+                            })
+                            .optional()
+                            .describe('Task support for sampling-related requests.'),
+                        /** @description Task support for elicitation-related requests. */
+                        elicitation: z
+                            .object({
+                                /** @description Whether the client supports task-augmented elicitation/create requests. */
+                                create: z
+                                    .record(z.string(), z.any())
+                                    .optional()
+                                    .describe('Whether the client supports task-augmented elicitation/create requests.')
+                            })
+                            .optional()
+                            .describe('Task support for elicitation-related requests.')
+                    })
+                    .optional()
+                    .describe('Specifies which request types can be augmented with tasks.')
+            })
+            .optional()
+            .describe('Present if the client supports task-augmented requests.')
+    })
+    .describe(
+        'Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.'
+    );
 
 /**
  * @description Capabilities that a server may support. Known capabilities are defined here, in this schema, but this is not a closed set: any server can define its own, additional capabilities.
  * @category `initialize`
  */
-export const ServerCapabilitiesSchema = z.object({
-    /** @description Experimental, non-standard capabilities that the server supports. */
-    experimental: z
-        .record(z.string(), z.record(z.string(), z.any()))
-        .optional()
-        .describe('Experimental, non-standard capabilities that the server supports.'),
-    /** @description Present if the server supports sending log messages to the client. */
-    logging: z.record(z.string(), z.any()).optional().describe('Present if the server supports sending log messages to the client.'),
-    /** @description Present if the server supports argument autocompletion suggestions. */
-    completions: z.record(z.string(), z.any()).optional().describe('Present if the server supports argument autocompletion suggestions.'),
-    /** @description Present if the server offers any prompt templates. */
-    prompts: z
-        .object({
-            /** @description Whether this server supports notifications for changes to the prompt list. */
-            listChanged: z.boolean().optional().describe('Whether this server supports notifications for changes to the prompt list.')
-        })
-        .optional()
-        .describe('Present if the server offers any prompt templates.'),
-    /** @description Present if the server offers any resources to read. */
-    resources: z
-        .object({
-            /** @description Whether this server supports subscribing to resource updates. */
-            subscribe: z.boolean().optional().describe('Whether this server supports subscribing to resource updates.'),
-            /** @description Whether this server supports notifications for changes to the resource list. */
-            listChanged: z.boolean().optional().describe('Whether this server supports notifications for changes to the resource list.')
-        })
-        .optional()
-        .describe('Present if the server offers any resources to read.'),
-    /** @description Present if the server offers any tools to call. */
-    tools: z
-        .object({
-            /** @description Whether this server supports notifications for changes to the tool list. */
-            listChanged: z.boolean().optional().describe('Whether this server supports notifications for changes to the tool list.')
-        })
-        .optional()
-        .describe('Present if the server offers any tools to call.'),
-    /** @description Present if the server supports task-augmented requests. */
-    tasks: z
-        .object({
-            /** @description Whether this server supports tasks/list. */
-            list: z.record(z.string(), z.any()).optional().describe('Whether this server supports tasks/list.'),
-            /** @description Whether this server supports tasks/cancel. */
-            cancel: z.record(z.string(), z.any()).optional().describe('Whether this server supports tasks/cancel.'),
-            /** @description Specifies which request types can be augmented with tasks. */
-            requests: z
-                .object({
-                    /** @description Task support for tool-related requests. */
-                    tools: z
-                        .object({
-                            /** @description Whether the server supports task-augmented tools/call requests. */
-                            call: z
-                                .record(z.string(), z.any())
-                                .optional()
-                                .describe('Whether the server supports task-augmented tools/call requests.')
-                        })
-                        .optional()
-                        .describe('Task support for tool-related requests.')
-                })
-                .optional()
-                .describe('Specifies which request types can be augmented with tasks.')
-        })
-        .optional()
-        .describe('Present if the server supports task-augmented requests.')
-});
+export const ServerCapabilitiesSchema = z
+    .object({
+        /** @description Experimental, non-standard capabilities that the server supports. */
+        experimental: z
+            .record(z.string(), z.record(z.string(), z.any()))
+            .optional()
+            .describe('Experimental, non-standard capabilities that the server supports.'),
+        /** @description Present if the server supports sending log messages to the client. */
+        logging: z.record(z.string(), z.any()).optional().describe('Present if the server supports sending log messages to the client.'),
+        /** @description Present if the server supports argument autocompletion suggestions. */
+        completions: z
+            .record(z.string(), z.any())
+            .optional()
+            .describe('Present if the server supports argument autocompletion suggestions.'),
+        /** @description Present if the server offers any prompt templates. */
+        prompts: z
+            .object({
+                /** @description Whether this server supports notifications for changes to the prompt list. */
+                listChanged: z.boolean().optional().describe('Whether this server supports notifications for changes to the prompt list.')
+            })
+            .optional()
+            .describe('Present if the server offers any prompt templates.'),
+        /** @description Present if the server offers any resources to read. */
+        resources: z
+            .object({
+                /** @description Whether this server supports subscribing to resource updates. */
+                subscribe: z.boolean().optional().describe('Whether this server supports subscribing to resource updates.'),
+                /** @description Whether this server supports notifications for changes to the resource list. */
+                listChanged: z.boolean().optional().describe('Whether this server supports notifications for changes to the resource list.')
+            })
+            .optional()
+            .describe('Present if the server offers any resources to read.'),
+        /** @description Present if the server offers any tools to call. */
+        tools: z
+            .object({
+                /** @description Whether this server supports notifications for changes to the tool list. */
+                listChanged: z.boolean().optional().describe('Whether this server supports notifications for changes to the tool list.')
+            })
+            .optional()
+            .describe('Present if the server offers any tools to call.'),
+        /** @description Present if the server supports task-augmented requests. */
+        tasks: z
+            .object({
+                /** @description Whether this server supports tasks/list. */
+                list: z.record(z.string(), z.any()).optional().describe('Whether this server supports tasks/list.'),
+                /** @description Whether this server supports tasks/cancel. */
+                cancel: z.record(z.string(), z.any()).optional().describe('Whether this server supports tasks/cancel.'),
+                /** @description Specifies which request types can be augmented with tasks. */
+                requests: z
+                    .object({
+                        /** @description Task support for tool-related requests. */
+                        tools: z
+                            .object({
+                                /** @description Whether the server supports task-augmented tools/call requests. */
+                                call: z
+                                    .record(z.string(), z.any())
+                                    .optional()
+                                    .describe('Whether the server supports task-augmented tools/call requests.')
+                            })
+                            .optional()
+                            .describe('Task support for tool-related requests.')
+                    })
+                    .optional()
+                    .describe('Specifies which request types can be augmented with tasks.')
+            })
+            .optional()
+            .describe('Present if the server supports task-augmented requests.')
+    })
+    .describe(
+        'Capabilities that a server may support. Known capabilities are defined here, in this schema, but this is not a closed set: any server can define its own, additional capabilities.'
+    );
 
 /**
  * @description This notification is sent from the client to the server after initialization has finished.
@@ -360,130 +387,138 @@ export const ServerCapabilitiesSchema = z.object({
 export const InitializedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/initialized'),
     params: NotificationParamsSchema.optional()
-});
+}).describe('This notification is sent from the client to the server after initialization has finished.');
 
 /**
  * @description An optionally-sized icon that can be displayed in a user interface.
  * @category Common Types
  */
-export const IconSchema = z.object({
-    /**
-       * @description A standard URI pointing to an icon resource. May be an HTTP/HTTPS URL or a
-      `data:` URI with Base64-encoded image data.
-  
-      Consumers SHOULD takes steps to ensure URLs serving icons are from the
-      same domain as the client/server or a trusted domain.
-  
-      Consumers SHOULD take appropriate precautions when consuming SVGs as they can contain
-      executable JavaScript.
-       * @format uri
-       */
-    src: z
-        .string()
-        .describe(
-            'A standard URI pointing to an icon resource. May be an HTTP/HTTPS URL or a\n`data:` URI with Base64-encoded image data.\n\nConsumers SHOULD takes steps to ensure URLs serving icons are from the\nsame domain as the client/server or a trusted domain.\n\nConsumers SHOULD take appropriate precautions when consuming SVGs as they can contain\nexecutable JavaScript.'
-        ),
-    /** @description Optional MIME type override if the source MIME type is missing or generic.
-      For example: `"image/png"`, `"image/jpeg"`, or `"image/svg+xml"`. */
-    mimeType: z
-        .string()
-        .optional()
-        .describe(
-            'Optional MIME type override if the source MIME type is missing or generic.\nFor example: `"image/png"`, `"image/jpeg"`, or `"image/svg+xml"`.'
-        ),
-    /** @description Optional array of strings that specify sizes at which the icon can be used.
-      Each string should be in WxH format (e.g., `"48x48"`, `"96x96"`) or `"any"` for scalable formats like SVG.
-  
-      If not provided, the client should assume that the icon can be used at any size. */
-    sizes: z
-        .array(z.string())
-        .optional()
-        .describe(
-            'Optional array of strings that specify sizes at which the icon can be used.\nEach string should be in WxH format (e.g., `"48x48"`, `"96x96"`) or `"any"` for scalable formats like SVG.\n\nIf not provided, the client should assume that the icon can be used at any size.'
-        ),
-    /** @description Optional specifier for the theme this icon is designed for. `light` indicates
-      the icon is designed to be used with a light background, and `dark` indicates
-      the icon is designed to be used with a dark background.
-  
-      If not provided, the client should assume the icon can be used with any theme. */
-    theme: z
-        .enum(['light', 'dark'])
-        .optional()
-        .describe(
-            'Optional specifier for the theme this icon is designed for. `light` indicates\nthe icon is designed to be used with a light background, and `dark` indicates\nthe icon is designed to be used with a dark background.\n\nIf not provided, the client should assume the icon can be used with any theme.'
-        )
-});
+export const IconSchema = z
+    .object({
+        /**
+               * @description A standard URI pointing to an icon resource. May be an HTTP/HTTPS URL or a
+              `data:` URI with Base64-encoded image data.
+          
+              Consumers SHOULD takes steps to ensure URLs serving icons are from the
+              same domain as the client/server or a trusted domain.
+          
+              Consumers SHOULD take appropriate precautions when consuming SVGs as they can contain
+              executable JavaScript.
+               * @format uri
+               */
+        src: z
+            .string()
+            .describe(
+                'A standard URI pointing to an icon resource. May be an HTTP/HTTPS URL or a\n`data:` URI with Base64-encoded image data.\n\nConsumers SHOULD takes steps to ensure URLs serving icons are from the\nsame domain as the client/server or a trusted domain.\n\nConsumers SHOULD take appropriate precautions when consuming SVGs as they can contain\nexecutable JavaScript.'
+            ),
+        /** @description Optional MIME type override if the source MIME type is missing or generic.
+              For example: `"image/png"`, `"image/jpeg"`, or `"image/svg+xml"`. */
+        mimeType: z
+            .string()
+            .optional()
+            .describe(
+                'Optional MIME type override if the source MIME type is missing or generic.\nFor example: `"image/png"`, `"image/jpeg"`, or `"image/svg+xml"`.'
+            ),
+        /** @description Optional array of strings that specify sizes at which the icon can be used.
+              Each string should be in WxH format (e.g., `"48x48"`, `"96x96"`) or `"any"` for scalable formats like SVG.
+          
+              If not provided, the client should assume that the icon can be used at any size. */
+        sizes: z
+            .array(z.string())
+            .optional()
+            .describe(
+                'Optional array of strings that specify sizes at which the icon can be used.\nEach string should be in WxH format (e.g., `"48x48"`, `"96x96"`) or `"any"` for scalable formats like SVG.\n\nIf not provided, the client should assume that the icon can be used at any size.'
+            ),
+        /** @description Optional specifier for the theme this icon is designed for. `light` indicates
+              the icon is designed to be used with a light background, and `dark` indicates
+              the icon is designed to be used with a dark background.
+          
+              If not provided, the client should assume the icon can be used with any theme. */
+        theme: z
+            .enum(['light', 'dark'])
+            .optional()
+            .describe(
+                'Optional specifier for the theme this icon is designed for. `light` indicates\nthe icon is designed to be used with a light background, and `dark` indicates\nthe icon is designed to be used with a dark background.\n\nIf not provided, the client should assume the icon can be used with any theme.'
+            )
+    })
+    .describe('An optionally-sized icon that can be displayed in a user interface.');
 
 /**
  * @description Base interface to add `icons` property.
  * @internal
  */
-export const IconsSchema = z.object({
-    /** @description Optional set of sized icons that the client can display in a user interface.
-  
-      Clients that support rendering icons MUST support at least the following MIME types:
-      - `image/png` - PNG images (safe, universal compatibility)
-      - `image/jpeg` (and `image/jpg`) - JPEG images (safe, universal compatibility)
-  
-      Clients that support rendering icons SHOULD also support:
-      - `image/svg+xml` - SVG images (scalable but requires security precautions)
-      - `image/webp` - WebP images (modern, efficient format) */
-    icons: z
-        .array(IconSchema)
-        .optional()
-        .describe(
-            'Optional set of sized icons that the client can display in a user interface.\n\nClients that support rendering icons MUST support at least the following MIME types:\n- `image/png` - PNG images (safe, universal compatibility)\n- `image/jpeg` (and `image/jpg`) - JPEG images (safe, universal compatibility)\n\nClients that support rendering icons SHOULD also support:\n- `image/svg+xml` - SVG images (scalable but requires security precautions)\n- `image/webp` - WebP images (modern, efficient format)'
-        )
-});
+export const IconsSchema = z
+    .object({
+        /** @description Optional set of sized icons that the client can display in a user interface.
+          
+              Clients that support rendering icons MUST support at least the following MIME types:
+              - `image/png` - PNG images (safe, universal compatibility)
+              - `image/jpeg` (and `image/jpg`) - JPEG images (safe, universal compatibility)
+          
+              Clients that support rendering icons SHOULD also support:
+              - `image/svg+xml` - SVG images (scalable but requires security precautions)
+              - `image/webp` - WebP images (modern, efficient format) */
+        icons: z
+            .array(IconSchema)
+            .optional()
+            .describe(
+                'Optional set of sized icons that the client can display in a user interface.\n\nClients that support rendering icons MUST support at least the following MIME types:\n- `image/png` - PNG images (safe, universal compatibility)\n- `image/jpeg` (and `image/jpg`) - JPEG images (safe, universal compatibility)\n\nClients that support rendering icons SHOULD also support:\n- `image/svg+xml` - SVG images (scalable but requires security precautions)\n- `image/webp` - WebP images (modern, efficient format)'
+            )
+    })
+    .describe('Base interface to add `icons` property.');
 
 /**
  * @description Base interface for metadata with name (identifier) and title (display name) properties.
  * @internal
  */
-export const BaseMetadataSchema = z.object({
-    /** @description Intended for programmatic or logical use, but used as a display name in past specs or fallback (if title isn't present). */
-    name: z
-        .string()
-        .describe(
-            "Intended for programmatic or logical use, but used as a display name in past specs or fallback (if title isn't present)."
-        ),
-    /** @description Intended for UI and end-user contexts — optimized to be human-readable and easily understood,
-      even by those unfamiliar with domain-specific terminology.
-  
-      If not provided, the name should be used for display (except for Tool,
-      where `annotations.title` should be given precedence over using `name`,
-      if present). */
-    title: z
-        .string()
-        .optional()
-        .describe(
-            'Intended for UI and end-user contexts \u2014 optimized to be human-readable and easily understood,\neven by those unfamiliar with domain-specific terminology.\n\nIf not provided, the name should be used for display (except for Tool,\nwhere `annotations.title` should be given precedence over using `name`,\nif present).'
-        )
-});
+export const BaseMetadataSchema = z
+    .object({
+        /** @description Intended for programmatic or logical use, but used as a display name in past specs or fallback (if title isn't present). */
+        name: z
+            .string()
+            .describe(
+                "Intended for programmatic or logical use, but used as a display name in past specs or fallback (if title isn't present)."
+            ),
+        /** @description Intended for UI and end-user contexts — optimized to be human-readable and easily understood,
+              even by those unfamiliar with domain-specific terminology.
+          
+              If not provided, the name should be used for display (except for Tool,
+              where `annotations.title` should be given precedence over using `name`,
+              if present). */
+        title: z
+            .string()
+            .optional()
+            .describe(
+                'Intended for UI and end-user contexts \u2014 optimized to be human-readable and easily understood,\neven by those unfamiliar with domain-specific terminology.\n\nIf not provided, the name should be used for display (except for Tool,\nwhere `annotations.title` should be given precedence over using `name`,\nif present).'
+            )
+    })
+    .describe('Base interface for metadata with name (identifier) and title (display name) properties.');
 
 /**
  * @description Describes the MCP implementation.
  * @category `initialize`
  */
-export const ImplementationSchema = BaseMetadataSchema.extend(IconsSchema.shape).extend({
-    version: z.string(),
-    /** @description An optional human-readable description of what this implementation does.
-  
-      This can be used by clients or servers to provide context about their purpose
-      and capabilities. For example, a server might describe the types of resources
-      or tools it provides, while a client might describe its intended use case. */
-    description: z
-        .string()
-        .optional()
-        .describe(
-            'An optional human-readable description of what this implementation does.\n\nThis can be used by clients or servers to provide context about their purpose\nand capabilities. For example, a server might describe the types of resources\nor tools it provides, while a client might describe its intended use case.'
-        ),
-    /**
-     * @description An optional URL of the website for this implementation.
-     * @format uri
-     */
-    websiteUrl: z.string().optional().describe('An optional URL of the website for this implementation.')
-});
+export const ImplementationSchema = BaseMetadataSchema.extend(IconsSchema.shape)
+    .extend({
+        version: z.string(),
+        /** @description An optional human-readable description of what this implementation does.
+          
+              This can be used by clients or servers to provide context about their purpose
+              and capabilities. For example, a server might describe the types of resources
+              or tools it provides, while a client might describe its intended use case. */
+        description: z
+            .string()
+            .optional()
+            .describe(
+                'An optional human-readable description of what this implementation does.\n\nThis can be used by clients or servers to provide context about their purpose\nand capabilities. For example, a server might describe the types of resources\nor tools it provides, while a client might describe its intended use case.'
+            ),
+        /**
+         * @description An optional URL of the website for this implementation.
+         * @format uri
+         */
+        websiteUrl: z.string().optional().describe('An optional URL of the website for this implementation.')
+    })
+    .describe('Describes the MCP implementation.');
 
 /* Ping */
 /**
@@ -493,7 +528,9 @@ export const ImplementationSchema = BaseMetadataSchema.extend(IconsSchema.shape)
 export const PingRequestSchema = RequestSchema.extend({
     method: z.literal('ping'),
     params: RequestParamsSchema.optional()
-});
+}).describe(
+    'A ping, issued by either the server or the client, to check that the other party is still alive. The receiver must promptly respond, or else may be disconnected.'
+);
 
 /* Progress notifications */
 /**
@@ -517,7 +554,7 @@ export const ProgressNotificationParamsSchema = NotificationParamsSchema.extend(
     total: z.number().optional().describe('Total number of items to process (or total progress required), if known.'),
     /** @description An optional message describing the current progress. */
     message: z.string().optional().describe('An optional message describing the current progress.')
-});
+}).describe('Parameters for a `notifications/progress` notification.');
 
 /**
  * @description An out-of-band notification used to inform the receiver of a progress update for a long-running request.
@@ -526,7 +563,7 @@ export const ProgressNotificationParamsSchema = NotificationParamsSchema.extend(
 export const ProgressNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/progress'),
     params: ProgressNotificationParamsSchema
-});
+}).describe('An out-of-band notification used to inform the receiver of a progress update for a long-running request.');
 
 /* Pagination */
 /**
@@ -535,11 +572,11 @@ export const ProgressNotificationSchema = NotificationSchema.extend({
  */
 export const PaginatedRequestParamsSchema = RequestParamsSchema.extend({
     /** @description An opaque token representing the current pagination position.
-      If provided, the server should return results starting after this cursor. */
+              If provided, the server should return results starting after this cursor. */
     cursor: CursorSchema.optional().describe(
         'An opaque token representing the current pagination position.\nIf provided, the server should return results starting after this cursor.'
     )
-});
+}).describe('Common parameters for paginated requests.');
 
 /** @internal */
 export const PaginatedRequestSchema = RequestSchema.extend({
@@ -562,7 +599,7 @@ export const PaginatedResultSchema = ResultSchema.extend({
  */
 export const ListResourcesRequestSchema = PaginatedRequestSchema.extend({
     method: z.literal('resources/list')
-});
+}).describe('Sent from the client to request a list of resources the server has.');
 
 /**
  * @description Sent from the client to request a list of resource templates the server has.
@@ -570,7 +607,7 @@ export const ListResourcesRequestSchema = PaginatedRequestSchema.extend({
  */
 export const ListResourceTemplatesRequestSchema = PaginatedRequestSchema.extend({
     method: z.literal('resources/templates/list')
-});
+}).describe('Sent from the client to request a list of resource templates the server has.');
 
 /**
  * @description Common parameters when working with resources.
@@ -582,14 +619,14 @@ export const ResourceRequestParamsSchema = RequestParamsSchema.extend({
      * @format uri
      */
     uri: z.string().describe('The URI of the resource. The URI can use any protocol; it is up to the server how to interpret it.')
-});
+}).describe('Common parameters when working with resources.');
 
 /**
  * @description Parameters for a `resources/read` request.
  * @category `resources/read`
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export const ReadResourceRequestParamsSchema = ResourceRequestParamsSchema;
+export const ReadResourceRequestParamsSchema = ResourceRequestParamsSchema.describe('Parameters for a `resources/read` request.');
 
 /**
  * @description Sent from the client to the server, to read a specific resource URI.
@@ -598,7 +635,7 @@ export const ReadResourceRequestParamsSchema = ResourceRequestParamsSchema;
 export const ReadResourceRequestSchema = RequestSchema.extend({
     method: z.literal('resources/read'),
     params: ReadResourceRequestParamsSchema
-});
+}).describe('Sent from the client to the server, to read a specific resource URI.');
 
 /**
  * @description An optional notification from the server to the client, informing it that the list of resources it can read from has changed. This may be issued by servers without any previous subscription from the client.
@@ -607,14 +644,16 @@ export const ReadResourceRequestSchema = RequestSchema.extend({
 export const ResourceListChangedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/resources/list_changed'),
     params: NotificationParamsSchema.optional()
-});
+}).describe(
+    'An optional notification from the server to the client, informing it that the list of resources it can read from has changed. This may be issued by servers without any previous subscription from the client.'
+);
 
 /**
  * @description Parameters for a `resources/subscribe` request.
  * @category `resources/subscribe`
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export const SubscribeRequestParamsSchema = ResourceRequestParamsSchema;
+export const SubscribeRequestParamsSchema = ResourceRequestParamsSchema.describe('Parameters for a `resources/subscribe` request.');
 
 /**
  * @description Sent from the client to request resources/updated notifications from the server whenever a particular resource changes.
@@ -623,14 +662,14 @@ export const SubscribeRequestParamsSchema = ResourceRequestParamsSchema;
 export const SubscribeRequestSchema = RequestSchema.extend({
     method: z.literal('resources/subscribe'),
     params: SubscribeRequestParamsSchema
-});
+}).describe('Sent from the client to request resources/updated notifications from the server whenever a particular resource changes.');
 
 /**
  * @description Parameters for a `resources/unsubscribe` request.
  * @category `resources/unsubscribe`
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export const UnsubscribeRequestParamsSchema = ResourceRequestParamsSchema;
+export const UnsubscribeRequestParamsSchema = ResourceRequestParamsSchema.describe('Parameters for a `resources/unsubscribe` request.');
 
 /**
  * @description Sent from the client to request cancellation of resources/updated notifications from the server. This should follow a previous resources/subscribe request.
@@ -639,7 +678,9 @@ export const UnsubscribeRequestParamsSchema = ResourceRequestParamsSchema;
 export const UnsubscribeRequestSchema = RequestSchema.extend({
     method: z.literal('resources/unsubscribe'),
     params: UnsubscribeRequestParamsSchema
-});
+}).describe(
+    'Sent from the client to request cancellation of resources/updated notifications from the server. This should follow a previous resources/subscribe request.'
+);
 
 /**
  * @description Parameters for a `notifications/resources/updated` notification.
@@ -655,7 +696,7 @@ export const ResourceUpdatedNotificationParamsSchema = NotificationParamsSchema.
         .describe(
             'The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.'
         )
-});
+}).describe('Parameters for a `notifications/resources/updated` notification.');
 
 /**
  * @description A notification from the server to the client, informing it that a resource has changed and may need to be read again. This should only be sent if the client previously sent a resources/subscribe request.
@@ -664,26 +705,30 @@ export const ResourceUpdatedNotificationParamsSchema = NotificationParamsSchema.
 export const ResourceUpdatedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/resources/updated'),
     params: ResourceUpdatedNotificationParamsSchema
-});
+}).describe(
+    'A notification from the server to the client, informing it that a resource has changed and may need to be read again. This should only be sent if the client previously sent a resources/subscribe request.'
+);
 
 /**
  * @description The contents of a specific resource or sub-resource.
  * @internal
  */
-export const ResourceContentsSchema = z.object({
-    /**
-     * @description The URI of this resource.
-     * @format uri
-     */
-    uri: z.string().describe('The URI of this resource.'),
-    /** @description The MIME type of this resource, if known. */
-    mimeType: z.string().optional().describe('The MIME type of this resource, if known.'),
-    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
-});
+export const ResourceContentsSchema = z
+    .object({
+        /**
+         * @description The URI of this resource.
+         * @format uri
+         */
+        uri: z.string().describe('The URI of this resource.'),
+        /** @description The MIME type of this resource, if known. */
+        mimeType: z.string().optional().describe('The MIME type of this resource, if known.'),
+        /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
+    })
+    .describe('The contents of a specific resource or sub-resource.');
 
 /**
  * @category Content
@@ -723,7 +768,7 @@ export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
  */
 export const ListPromptsRequestSchema = PaginatedRequestSchema.extend({
     method: z.literal('prompts/list')
-});
+}).describe('Sent from the client to request a list of prompts and prompt templates the server has.');
 
 /**
  * @description Parameters for a `prompts/get` request.
@@ -734,7 +779,7 @@ export const GetPromptRequestParamsSchema = RequestParamsSchema.extend({
     name: z.string().describe('The name of the prompt or prompt template.'),
     /** @description Arguments to use for templating the prompt. */
     arguments: z.record(z.string(), z.string()).optional().describe('Arguments to use for templating the prompt.')
-});
+}).describe('Parameters for a `prompts/get` request.');
 
 /**
  * @description Used by the client to get a prompt provided by the server.
@@ -743,7 +788,7 @@ export const GetPromptRequestParamsSchema = RequestParamsSchema.extend({
 export const GetPromptRequestSchema = RequestSchema.extend({
     method: z.literal('prompts/get'),
     params: GetPromptRequestParamsSchema
-});
+}).describe('Used by the client to get a prompt provided by the server.');
 
 /**
  * @description Describes an argument that a prompt can accept.
@@ -754,7 +799,7 @@ export const PromptArgumentSchema = BaseMetadataSchema.extend({
     description: z.string().optional().describe('A human-readable description of the argument.'),
     /** @description Whether this argument must be provided. */
     required: z.boolean().optional().describe('Whether this argument must be provided.')
-});
+}).describe('Describes an argument that a prompt can accept.');
 
 /**
  * @description The sender or recipient of messages and data in a conversation.
@@ -766,44 +811,46 @@ export const RoleSchema = z.enum(['user', 'assistant']).describe('The sender or 
  * @description Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
  * @category Common Types
  */
-export const AnnotationsSchema = z.object({
-    /** @description Describes who the intended audience of this object or data is.
-  
-      It can include multiple entries to indicate content useful for multiple audiences (e.g., `["user", "assistant"]`). */
-    audience: z
-        .array(RoleSchema)
-        .optional()
-        .describe(
-            'Describes who the intended audience of this object or data is.\n\nIt can include multiple entries to indicate content useful for multiple audiences (e.g., `["user", "assistant"]`).'
-        ),
-    /**
-       * @description Describes how important this data is for operating the server.
-  
-      A value of 1 means "most important," and indicates that the data is
-      effectively required, while 0 means "least important," and indicates that
-      the data is entirely optional.
-       * @TJS-type number
-         *
-       * @minimum 0
-         *
-       * @maximum 1
-       */
-    priority: z
-        .number()
-        .min(0)
-        .max(1)
-        .optional()
-        .describe(
-            'Describes how important this data is for operating the server.\n\nA value of 1 means "most important," and indicates that the data is\neffectively required, while 0 means "least important," and indicates that\nthe data is entirely optional.'
-        ),
-    /** @description The moment the resource was last modified, as an ISO 8601 formatted string.
-  
-      Should be an ISO 8601 formatted string (e.g., "2025-01-12T15:00:58Z").
-  
-      Examples: last activity timestamp in an open file, timestamp when the resource
-      was attached, etc. */
-    lastModified: z.iso.datetime({ offset: true }).optional()
-});
+export const AnnotationsSchema = z
+    .object({
+        /** @description Describes who the intended audience of this object or data is.
+          
+              It can include multiple entries to indicate content useful for multiple audiences (e.g., `["user", "assistant"]`). */
+        audience: z
+            .array(RoleSchema)
+            .optional()
+            .describe(
+                'Describes who the intended audience of this object or data is.\n\nIt can include multiple entries to indicate content useful for multiple audiences (e.g., `["user", "assistant"]`).'
+            ),
+        /**
+               * @description Describes how important this data is for operating the server.
+          
+              A value of 1 means "most important," and indicates that the data is
+              effectively required, while 0 means "least important," and indicates that
+              the data is entirely optional.
+               * @TJS-type number
+                 *
+               * @minimum 0
+                 *
+               * @maximum 1
+               */
+        priority: z
+            .number()
+            .min(0)
+            .max(1)
+            .optional()
+            .describe(
+                'Describes how important this data is for operating the server.\n\nA value of 1 means "most important," and indicates that the data is\neffectively required, while 0 means "least important," and indicates that\nthe data is entirely optional.'
+            ),
+        /** @description The moment the resource was last modified, as an ISO 8601 formatted string.
+          
+              Should be an ISO 8601 formatted string (e.g., "2025-01-12T15:00:58Z").
+          
+              Examples: last activity timestamp in an open file, timestamp when the resource
+              was attached, etc. */
+        lastModified: z.iso.datetime({ offset: true }).optional()
+    })
+    .describe('Optional annotations for the client. The client can use annotations to inform how objects are used or displayed');
 
 /**
  * @description An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This may be issued by servers without any previous subscription from the client.
@@ -812,7 +859,9 @@ export const AnnotationsSchema = z.object({
 export const PromptListChangedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/prompts/list_changed'),
     params: NotificationParamsSchema.optional()
-});
+}).describe(
+    'An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This may be issued by servers without any previous subscription from the client.'
+);
 
 /* Tools */
 /**
@@ -821,7 +870,7 @@ export const PromptListChangedNotificationSchema = NotificationSchema.extend({
  */
 export const ListToolsRequestSchema = PaginatedRequestSchema.extend({
     method: z.literal('tools/list')
-});
+}).describe('Sent from the client to request a list of tools the server has.');
 
 /**
  * @description Common params for any task-augmented request.
@@ -829,15 +878,15 @@ export const ListToolsRequestSchema = PaginatedRequestSchema.extend({
  */
 export const TaskAugmentedRequestParamsSchema = RequestParamsSchema.extend({
     /** @description If specified, the caller is requesting task-augmented execution for this request.
-      The request will return a CreateTaskResult immediately, and the actual result can be
-      retrieved later via tasks/result.
-  
-      Task augmentation is subject to capability negotiation - receivers MUST declare support
-      for task augmentation of specific request types in their capabilities. */
+              The request will return a CreateTaskResult immediately, and the actual result can be
+              retrieved later via tasks/result.
+          
+              Task augmentation is subject to capability negotiation - receivers MUST declare support
+              for task augmentation of specific request types in their capabilities. */
     task: TaskMetadataSchema.optional().describe(
         'If specified, the caller is requesting task-augmented execution for this request.\nThe request will return a CreateTaskResult immediately, and the actual result can be\nretrieved later via tasks/result.\n\nTask augmentation is subject to capability negotiation - receivers MUST declare support\nfor task augmentation of specific request types in their capabilities.'
     )
-});
+}).describe('Common params for any task-augmented request.');
 
 /**
  * @description Parameters for a `tools/call` request.
@@ -848,7 +897,7 @@ export const CallToolRequestParamsSchema = TaskAugmentedRequestParamsSchema.exte
     name: z.string().describe('The name of the tool.'),
     /** @description Arguments to use for the tool call. */
     arguments: z.record(z.string(), z.unknown()).optional().describe('Arguments to use for the tool call.')
-});
+}).describe('Parameters for a `tools/call` request.');
 
 /**
  * @description An optional notification from the server to the client, informing it that the list of tools it offers has changed. This may be issued by servers without any previous subscription from the client.
@@ -857,7 +906,9 @@ export const CallToolRequestParamsSchema = TaskAugmentedRequestParamsSchema.exte
 export const ToolListChangedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/tools/list_changed'),
     params: NotificationParamsSchema.optional()
-});
+}).describe(
+    'An optional notification from the server to the client, informing it that the list of tools it offers has changed. This may be issued by servers without any previous subscription from the client.'
+);
 
 /**
  * @description Additional properties describing a Tool to clients.
@@ -870,126 +921,134 @@ Clients should never make tool use decisions based on ToolAnnotations
 received from untrusted servers.
  * @category `tools/list`
  */
-export const ToolAnnotationsSchema = z.object({
-    /** @description A human-readable title for the tool. */
-    title: z.string().optional().describe('A human-readable title for the tool.'),
-    /** @description If true, the tool does not modify its environment.
-  
-      Default: false */
-    readOnlyHint: z.boolean().optional().describe('If true, the tool does not modify its environment.\n\nDefault: false'),
-    /** @description If true, the tool may perform destructive updates to its environment.
-      If false, the tool performs only additive updates.
-  
-      (This property is meaningful only when `readOnlyHint == false`)
-  
-      Default: true */
-    destructiveHint: z
-        .boolean()
-        .optional()
-        .describe(
-            'If true, the tool may perform destructive updates to its environment.\nIf false, the tool performs only additive updates.\n\n(This property is meaningful only when `readOnlyHint == false`)\n\nDefault: true'
-        ),
-    /** @description If true, calling the tool repeatedly with the same arguments
-      will have no additional effect on its environment.
-  
-      (This property is meaningful only when `readOnlyHint == false`)
-  
-      Default: false */
-    idempotentHint: z
-        .boolean()
-        .optional()
-        .describe(
-            'If true, calling the tool repeatedly with the same arguments\nwill have no additional effect on its environment.\n\n(This property is meaningful only when `readOnlyHint == false`)\n\nDefault: false'
-        ),
-    /** @description If true, this tool may interact with an "open world" of external
-      entities. If false, the tool's domain of interaction is closed.
-      For example, the world of a web search tool is open, whereas that
-      of a memory tool is not.
-  
-      Default: true */
-    openWorldHint: z
-        .boolean()
-        .optional()
-        .describe(
-            'If true, this tool may interact with an "open world" of external\nentities. If false, the tool\'s domain of interaction is closed.\nFor example, the world of a web search tool is open, whereas that\nof a memory tool is not.\n\nDefault: true'
-        )
-});
+export const ToolAnnotationsSchema = z
+    .object({
+        /** @description A human-readable title for the tool. */
+        title: z.string().optional().describe('A human-readable title for the tool.'),
+        /** @description If true, the tool does not modify its environment.
+          
+              Default: false */
+        readOnlyHint: z.boolean().optional().describe('If true, the tool does not modify its environment.\n\nDefault: false'),
+        /** @description If true, the tool may perform destructive updates to its environment.
+              If false, the tool performs only additive updates.
+          
+              (This property is meaningful only when `readOnlyHint == false`)
+          
+              Default: true */
+        destructiveHint: z
+            .boolean()
+            .optional()
+            .describe(
+                'If true, the tool may perform destructive updates to its environment.\nIf false, the tool performs only additive updates.\n\n(This property is meaningful only when `readOnlyHint == false`)\n\nDefault: true'
+            ),
+        /** @description If true, calling the tool repeatedly with the same arguments
+              will have no additional effect on its environment.
+          
+              (This property is meaningful only when `readOnlyHint == false`)
+          
+              Default: false */
+        idempotentHint: z
+            .boolean()
+            .optional()
+            .describe(
+                'If true, calling the tool repeatedly with the same arguments\nwill have no additional effect on its environment.\n\n(This property is meaningful only when `readOnlyHint == false`)\n\nDefault: false'
+            ),
+        /** @description If true, this tool may interact with an "open world" of external
+              entities. If false, the tool's domain of interaction is closed.
+              For example, the world of a web search tool is open, whereas that
+              of a memory tool is not.
+          
+              Default: true */
+        openWorldHint: z
+            .boolean()
+            .optional()
+            .describe(
+                'If true, this tool may interact with an "open world" of external\nentities. If false, the tool\'s domain of interaction is closed.\nFor example, the world of a web search tool is open, whereas that\nof a memory tool is not.\n\nDefault: true'
+            )
+    })
+    .describe(
+        'Additional properties describing a Tool to clients.  NOTE: all properties in ToolAnnotations are **hints**. They are not guaranteed to provide a faithful description of tool behavior (including descriptive properties like `title`).  Clients should never make tool use decisions based on ToolAnnotations received from untrusted servers.'
+    );
 
 /**
  * @description Execution-related properties for a tool.
  * @category `tools/list`
  */
-export const ToolExecutionSchema = z.object({
-    /** @description Indicates whether this tool supports task-augmented execution.
-      This allows clients to handle long-running operations through polling
-      the task system.
-  
-      - "forbidden": Tool does not support task-augmented execution (default when absent)
-      - "optional": Tool may support task-augmented execution
-      - "required": Tool requires task-augmented execution
-  
-      Default: "forbidden" */
-    taskSupport: z
-        .enum(['forbidden', 'optional', 'required'])
-        .optional()
-        .describe(
-            'Indicates whether this tool supports task-augmented execution.\nThis allows clients to handle long-running operations through polling\nthe task system.\n\n- "forbidden": Tool does not support task-augmented execution (default when absent)\n- "optional": Tool may support task-augmented execution\n- "required": Tool requires task-augmented execution\n\nDefault: "forbidden"'
-        )
-});
+export const ToolExecutionSchema = z
+    .object({
+        /** @description Indicates whether this tool supports task-augmented execution.
+              This allows clients to handle long-running operations through polling
+              the task system.
+          
+              - "forbidden": Tool does not support task-augmented execution (default when absent)
+              - "optional": Tool may support task-augmented execution
+              - "required": Tool requires task-augmented execution
+          
+              Default: "forbidden" */
+        taskSupport: z
+            .enum(['forbidden', 'optional', 'required'])
+            .optional()
+            .describe(
+                'Indicates whether this tool supports task-augmented execution.\nThis allows clients to handle long-running operations through polling\nthe task system.\n\n- "forbidden": Tool does not support task-augmented execution (default when absent)\n- "optional": Tool may support task-augmented execution\n- "required": Tool requires task-augmented execution\n\nDefault: "forbidden"'
+            )
+    })
+    .describe('Execution-related properties for a tool.');
 
 /**
  * @description Definition for a tool the client can call.
  * @category `tools/list`
  */
-export const ToolSchema = BaseMetadataSchema.extend(IconsSchema.shape).extend({
-    /** @description A human-readable description of the tool.
-  
-      This can be used by clients to improve the LLM's understanding of available tools. It can be thought of like a "hint" to the model. */
-    description: z
-        .string()
-        .optional()
-        .describe(
-            'A human-readable description of the tool.\n\nThis can be used by clients to improve the LLM\'s understanding of available tools. It can be thought of like a "hint" to the model.'
+export const ToolSchema = BaseMetadataSchema.extend(IconsSchema.shape)
+    .extend({
+        /** @description A human-readable description of the tool.
+          
+              This can be used by clients to improve the LLM's understanding of available tools. It can be thought of like a "hint" to the model. */
+        description: z
+            .string()
+            .optional()
+            .describe(
+                'A human-readable description of the tool.\n\nThis can be used by clients to improve the LLM\'s understanding of available tools. It can be thought of like a "hint" to the model.'
+            ),
+        /** @description A JSON Schema object defining the expected parameters for the tool. */
+        inputSchema: z
+            .object({
+                $schema: z.string().optional(),
+                type: z.literal('object'),
+                properties: z.record(z.string(), z.record(z.string(), z.any())).optional(),
+                required: z.array(z.string()).optional()
+            })
+            .describe('A JSON Schema object defining the expected parameters for the tool.'),
+        /** @description Execution-related properties for this tool. */
+        execution: ToolExecutionSchema.optional().describe('Execution-related properties for this tool.'),
+        /** @description An optional JSON Schema object defining the structure of the tool's output returned in
+              the structuredContent field of a CallToolResult.
+          
+              Defaults to JSON Schema 2020-12 when no explicit $schema is provided.
+              Currently restricted to type: "object" at the root level. */
+        outputSchema: z
+            .object({
+                $schema: z.string().optional(),
+                type: z.literal('object'),
+                properties: z.record(z.string(), z.record(z.string(), z.any())).optional(),
+                required: z.array(z.string()).optional()
+            })
+            .optional()
+            .describe(
+                'An optional JSON Schema object defining the structure of the tool\'s output returned in\nthe structuredContent field of a CallToolResult.\n\nDefaults to JSON Schema 2020-12 when no explicit $schema is provided.\nCurrently restricted to type: "object" at the root level.'
+            ),
+        /** @description Optional additional tool information.
+          
+              Display name precedence order is: title, annotations.title, then name. */
+        annotations: ToolAnnotationsSchema.optional().describe(
+            'Optional additional tool information.\n\nDisplay name precedence order is: title, annotations.title, then name.'
         ),
-    /** @description A JSON Schema object defining the expected parameters for the tool. */
-    inputSchema: z
-        .object({
-            $schema: z.string().optional(),
-            type: z.literal('object'),
-            properties: z.record(z.string(), z.record(z.string(), z.any())).optional(),
-            required: z.array(z.string()).optional()
-        })
-        .describe('A JSON Schema object defining the expected parameters for the tool.'),
-    /** @description Execution-related properties for this tool. */
-    execution: ToolExecutionSchema.optional().describe('Execution-related properties for this tool.'),
-    /** @description An optional JSON Schema object defining the structure of the tool's output returned in
-      the structuredContent field of a CallToolResult.
-  
-      Defaults to JSON Schema 2020-12 when no explicit $schema is provided.
-      Currently restricted to type: "object" at the root level. */
-    outputSchema: z
-        .object({
-            $schema: z.string().optional(),
-            type: z.literal('object'),
-            properties: z.record(z.string(), z.record(z.string(), z.any())).optional(),
-            required: z.array(z.string()).optional()
-        })
-        .optional()
-        .describe(
-            'An optional JSON Schema object defining the structure of the tool\'s output returned in\nthe structuredContent field of a CallToolResult.\n\nDefaults to JSON Schema 2020-12 when no explicit $schema is provided.\nCurrently restricted to type: "object" at the root level.'
-        ),
-    /** @description Optional additional tool information.
-  
-      Display name precedence order is: title, annotations.title, then name. */
-    annotations: ToolAnnotationsSchema.optional().describe(
-        'Optional additional tool information.\n\nDisplay name precedence order is: title, annotations.title, then name.'
-    ),
-    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
-});
+        /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
+    })
+    .describe('Definition for a tool the client can call.');
 
 /* Tasks */
 /**
@@ -1002,31 +1061,33 @@ export const TaskStatusSchema = z.enum(['working', 'input_required', 'completed'
  * @description Data associated with a task.
  * @category `tasks`
  */
-export const TaskSchema = z.object({
-    /** @description The task identifier. */
-    taskId: z.string().describe('The task identifier.'),
-    /** @description Current task state. */
-    status: TaskStatusSchema.describe('Current task state.'),
-    /** @description Optional human-readable message describing the current task state.
-      This can provide context for any status, including:
-      - Reasons for "cancelled" status
-      - Summaries for "completed" status
-      - Diagnostic information for "failed" status (e.g., error details, what went wrong) */
-    statusMessage: z
-        .string()
-        .optional()
-        .describe(
-            'Optional human-readable message describing the current task state.\nThis can provide context for any status, including:\n- Reasons for "cancelled" status\n- Summaries for "completed" status\n- Diagnostic information for "failed" status (e.g., error details, what went wrong)'
-        ),
-    /** @description ISO 8601 timestamp when the task was created. */
-    createdAt: z.string().describe('ISO 8601 timestamp when the task was created.'),
-    /** @description ISO 8601 timestamp when the task was last updated. */
-    lastUpdatedAt: z.string().describe('ISO 8601 timestamp when the task was last updated.'),
-    /** @description Actual retention duration from creation in milliseconds, null for unlimited. */
-    ttl: z.number().nullable().describe('Actual retention duration from creation in milliseconds, null for unlimited.'),
-    /** @description Suggested polling interval in milliseconds. */
-    pollInterval: z.number().optional().describe('Suggested polling interval in milliseconds.')
-});
+export const TaskSchema = z
+    .object({
+        /** @description The task identifier. */
+        taskId: z.string().describe('The task identifier.'),
+        /** @description Current task state. */
+        status: TaskStatusSchema.describe('Current task state.'),
+        /** @description Optional human-readable message describing the current task state.
+              This can provide context for any status, including:
+              - Reasons for "cancelled" status
+              - Summaries for "completed" status
+              - Diagnostic information for "failed" status (e.g., error details, what went wrong) */
+        statusMessage: z
+            .string()
+            .optional()
+            .describe(
+                'Optional human-readable message describing the current task state.\nThis can provide context for any status, including:\n- Reasons for "cancelled" status\n- Summaries for "completed" status\n- Diagnostic information for "failed" status (e.g., error details, what went wrong)'
+            ),
+        /** @description ISO 8601 timestamp when the task was created. */
+        createdAt: z.string().describe('ISO 8601 timestamp when the task was created.'),
+        /** @description ISO 8601 timestamp when the task was last updated. */
+        lastUpdatedAt: z.string().describe('ISO 8601 timestamp when the task was last updated.'),
+        /** @description Actual retention duration from creation in milliseconds, null for unlimited. */
+        ttl: z.number().nullable().describe('Actual retention duration from creation in milliseconds, null for unlimited.'),
+        /** @description Suggested polling interval in milliseconds. */
+        pollInterval: z.number().optional().describe('Suggested polling interval in milliseconds.')
+    })
+    .describe('Data associated with a task.');
 
 /**
  * @description A response to a task-augmented request.
@@ -1034,7 +1095,7 @@ export const TaskSchema = z.object({
  */
 export const CreateTaskResultSchema = ResultSchema.extend({
     task: TaskSchema
-});
+}).describe('A response to a task-augmented request.');
 
 /**
  * @description A request to retrieve the state of a task.
@@ -1046,7 +1107,7 @@ export const GetTaskRequestSchema = RequestSchema.extend({
         /** @description The task identifier to query. */
         taskId: z.string().describe('The task identifier to query.')
     })
-});
+}).describe('A request to retrieve the state of a task.');
 
 /**
  * @description The response to a tasks/get request.
@@ -1064,7 +1125,7 @@ export const GetTaskPayloadRequestSchema = RequestSchema.extend({
         /** @description The task identifier to retrieve results for. */
         taskId: z.string().describe('The task identifier to retrieve results for.')
     })
-});
+}).describe('A request to retrieve the result of a completed task.');
 
 /**
  * @description The response to a tasks/result request.
@@ -1072,7 +1133,9 @@ The structure matches the result type of the original request.
 For example, a tools/call task would return the CallToolResult structure.
  * @category `tasks/result`
  */
-export const GetTaskPayloadResultSchema = ResultSchema.and(z.record(z.string(), z.unknown()));
+export const GetTaskPayloadResultSchema = ResultSchema.and(z.record(z.string(), z.unknown())).describe(
+    'The response to a tasks/result request. The structure matches the result type of the original request. For example, a tools/call task would return the CallToolResult structure.'
+);
 
 /**
  * @description A request to cancel a task.
@@ -1084,7 +1147,7 @@ export const CancelTaskRequestSchema = RequestSchema.extend({
         /** @description The task identifier to cancel. */
         taskId: z.string().describe('The task identifier to cancel.')
     })
-});
+}).describe('A request to cancel a task.');
 
 /**
  * @description The response to a tasks/cancel request.
@@ -1098,7 +1161,7 @@ export const CancelTaskResultSchema = ResultSchema.and(TaskSchema).describe('The
  */
 export const ListTasksRequestSchema = PaginatedRequestSchema.extend({
     method: z.literal('tasks/list')
-});
+}).describe('A request to retrieve a list of tasks.');
 
 /**
  * @description The response to a tasks/list request.
@@ -1106,7 +1169,7 @@ export const ListTasksRequestSchema = PaginatedRequestSchema.extend({
  */
 export const ListTasksResultSchema = PaginatedResultSchema.extend({
     tasks: z.array(TaskSchema)
-});
+}).describe('The response to a tasks/list request.');
 
 /**
  * @description Parameters for a `notifications/tasks/status` notification.
@@ -1123,7 +1186,9 @@ export const TaskStatusNotificationParamsSchema = NotificationParamsSchema.and(T
 export const TaskStatusNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/tasks/status'),
     params: TaskStatusNotificationParamsSchema
-});
+}).describe(
+    "An optional notification from the receiver to the requestor, informing them that a task's status has changed. Receivers are not required to send these notifications."
+);
 
 /**
  * @description The severity of a log message.
@@ -1148,7 +1213,7 @@ export const SetLevelRequestParamsSchema = RequestParamsSchema.extend({
     level: LoggingLevelSchema.describe(
         'The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/message.'
     )
-});
+}).describe('Parameters for a `logging/setLevel` request.');
 
 /**
  * @description Parameters for a `notifications/message` notification.
@@ -1161,7 +1226,7 @@ export const LoggingMessageNotificationParamsSchema = NotificationParamsSchema.e
     logger: z.string().optional().describe('An optional name of the logger issuing this message.'),
     /** @description The data to be logged, such as a string message or an object. Any JSON serializable type is allowed here. */
     data: z.unknown().describe('The data to be logged, such as a string message or an object. Any JSON serializable type is allowed here.')
-});
+}).describe('Parameters for a `notifications/message` notification.');
 
 /**
  * @description JSONRPCNotification of a log message passed from server to client. If no logging/setLevel request has been sent from the client, the server MAY decide which messages to send automatically.
@@ -1170,133 +1235,145 @@ export const LoggingMessageNotificationParamsSchema = NotificationParamsSchema.e
 export const LoggingMessageNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/message'),
     params: LoggingMessageNotificationParamsSchema
-});
+}).describe(
+    'JSONRPCNotification of a log message passed from server to client. If no logging/setLevel request has been sent from the client, the server MAY decide which messages to send automatically.'
+);
 
 /**
  * @description Controls tool selection behavior for sampling requests.
  * @category `sampling/createMessage`
  */
-export const ToolChoiceSchema = z.object({
-    /** @description Controls the tool use ability of the model:
-      - "auto": Model decides whether to use tools (default)
-      - "required": Model MUST use at least one tool before completing
-      - "none": Model MUST NOT use any tools */
-    mode: z
-        .enum(['auto', 'required', 'none'])
-        .optional()
-        .describe(
-            'Controls the tool use ability of the model:\n- "auto": Model decides whether to use tools (default)\n- "required": Model MUST use at least one tool before completing\n- "none": Model MUST NOT use any tools'
-        )
-});
+export const ToolChoiceSchema = z
+    .object({
+        /** @description Controls the tool use ability of the model:
+              - "auto": Model decides whether to use tools (default)
+              - "required": Model MUST use at least one tool before completing
+              - "none": Model MUST NOT use any tools */
+        mode: z
+            .enum(['auto', 'required', 'none'])
+            .optional()
+            .describe(
+                'Controls the tool use ability of the model:\n- "auto": Model decides whether to use tools (default)\n- "required": Model MUST use at least one tool before completing\n- "none": Model MUST NOT use any tools'
+            )
+    })
+    .describe('Controls tool selection behavior for sampling requests.');
 
 /**
  * @description Text provided to or from an LLM.
  * @category Content
  */
-export const TextContentSchema = z.object({
-    type: z.literal('text'),
-    /** @description The text content of the message. */
-    text: z.string().describe('The text content of the message.'),
-    /** @description Optional annotations for the client. */
-    annotations: AnnotationsSchema.optional().describe('Optional annotations for the client.'),
-    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
-});
+export const TextContentSchema = z
+    .object({
+        type: z.literal('text'),
+        /** @description The text content of the message. */
+        text: z.string().describe('The text content of the message.'),
+        /** @description Optional annotations for the client. */
+        annotations: AnnotationsSchema.optional().describe('Optional annotations for the client.'),
+        /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
+    })
+    .describe('Text provided to or from an LLM.');
 
 /**
  * @description An image provided to or from an LLM.
  * @category Content
  */
-export const ImageContentSchema = z.object({
-    type: z.literal('image'),
-    /**
-     * @description The base64-encoded image data.
-     * @format byte
-     */
-    data: z.string().refine(
-        val => {
-            try {
-                atob(val);
-                return true;
-            } catch {
-                return false;
-            }
-        },
-        { message: 'Invalid base64 string' }
-    ),
-    /** @description The MIME type of the image. Different providers may support different image types. */
-    mimeType: z.string().describe('The MIME type of the image. Different providers may support different image types.'),
-    /** @description Optional annotations for the client. */
-    annotations: AnnotationsSchema.optional().describe('Optional annotations for the client.'),
-    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
-});
+export const ImageContentSchema = z
+    .object({
+        type: z.literal('image'),
+        /**
+         * @description The base64-encoded image data.
+         * @format byte
+         */
+        data: z.string().refine(
+            val => {
+                try {
+                    atob(val);
+                    return true;
+                } catch {
+                    return false;
+                }
+            },
+            { message: 'Invalid base64 string' }
+        ),
+        /** @description The MIME type of the image. Different providers may support different image types. */
+        mimeType: z.string().describe('The MIME type of the image. Different providers may support different image types.'),
+        /** @description Optional annotations for the client. */
+        annotations: AnnotationsSchema.optional().describe('Optional annotations for the client.'),
+        /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
+    })
+    .describe('An image provided to or from an LLM.');
 
 /**
  * @description Audio provided to or from an LLM.
  * @category Content
  */
-export const AudioContentSchema = z.object({
-    type: z.literal('audio'),
-    /**
-     * @description The base64-encoded audio data.
-     * @format byte
-     */
-    data: z.string().refine(
-        val => {
-            try {
-                atob(val);
-                return true;
-            } catch {
-                return false;
-            }
-        },
-        { message: 'Invalid base64 string' }
-    ),
-    /** @description The MIME type of the audio. Different providers may support different audio types. */
-    mimeType: z.string().describe('The MIME type of the audio. Different providers may support different audio types.'),
-    /** @description Optional annotations for the client. */
-    annotations: AnnotationsSchema.optional().describe('Optional annotations for the client.'),
-    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
-});
+export const AudioContentSchema = z
+    .object({
+        type: z.literal('audio'),
+        /**
+         * @description The base64-encoded audio data.
+         * @format byte
+         */
+        data: z.string().refine(
+            val => {
+                try {
+                    atob(val);
+                    return true;
+                } catch {
+                    return false;
+                }
+            },
+            { message: 'Invalid base64 string' }
+        ),
+        /** @description The MIME type of the audio. Different providers may support different audio types. */
+        mimeType: z.string().describe('The MIME type of the audio. Different providers may support different audio types.'),
+        /** @description Optional annotations for the client. */
+        annotations: AnnotationsSchema.optional().describe('Optional annotations for the client.'),
+        /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
+    })
+    .describe('Audio provided to or from an LLM.');
 
 /**
  * @description A request from the assistant to call a tool.
  * @category `sampling/createMessage`
  */
-export const ToolUseContentSchema = z.object({
-    type: z.literal('tool_use'),
-    /** @description A unique identifier for this tool use.
-  
-      This ID is used to match tool results to their corresponding tool uses. */
-    id: z
-        .string()
-        .describe('A unique identifier for this tool use.\n\nThis ID is used to match tool results to their corresponding tool uses.'),
-    /** @description The name of the tool to call. */
-    name: z.string().describe('The name of the tool to call.'),
-    /** @description The arguments to pass to the tool, conforming to the tool's input schema. */
-    input: z.record(z.string(), z.unknown()).describe("The arguments to pass to the tool, conforming to the tool's input schema."),
-    /** @description Optional metadata about the tool use. Clients SHOULD preserve this field when
-      including tool uses in subsequent sampling requests to enable caching optimizations.
-  
-      See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe(
-            'Optional metadata about the tool use. Clients SHOULD preserve this field when\nincluding tool uses in subsequent sampling requests to enable caching optimizations.\n\nSee [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.'
-        )
-});
+export const ToolUseContentSchema = z
+    .object({
+        type: z.literal('tool_use'),
+        /** @description A unique identifier for this tool use.
+          
+              This ID is used to match tool results to their corresponding tool uses. */
+        id: z
+            .string()
+            .describe('A unique identifier for this tool use.\n\nThis ID is used to match tool results to their corresponding tool uses.'),
+        /** @description The name of the tool to call. */
+        name: z.string().describe('The name of the tool to call.'),
+        /** @description The arguments to pass to the tool, conforming to the tool's input schema. */
+        input: z.record(z.string(), z.unknown()).describe("The arguments to pass to the tool, conforming to the tool's input schema."),
+        /** @description Optional metadata about the tool use. Clients SHOULD preserve this field when
+              including tool uses in subsequent sampling requests to enable caching optimizations.
+          
+              See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe(
+                'Optional metadata about the tool use. Clients SHOULD preserve this field when\nincluding tool uses in subsequent sampling requests to enable caching optimizations.\n\nSee [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.'
+            )
+    })
+    .describe('A request from the assistant to call a tool.');
 
 /**
  * @description The contents of a resource, embedded into a prompt or tool call result.
@@ -1305,17 +1382,21 @@ It is up to the client how best to render embedded resources for the benefit
 of the LLM and/or the user.
  * @category Content
  */
-export const EmbeddedResourceSchema = z.object({
-    type: z.literal('resource'),
-    resource: z.union([TextResourceContentsSchema, BlobResourceContentsSchema]),
-    /** @description Optional annotations for the client. */
-    annotations: AnnotationsSchema.optional().describe('Optional annotations for the client.'),
-    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
-});
+export const EmbeddedResourceSchema = z
+    .object({
+        type: z.literal('resource'),
+        resource: z.union([TextResourceContentsSchema, BlobResourceContentsSchema]),
+        /** @description Optional annotations for the client. */
+        annotations: AnnotationsSchema.optional().describe('Optional annotations for the client.'),
+        /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
+    })
+    .describe(
+        'The contents of a resource, embedded into a prompt or tool call result.  It is up to the client how best to render embedded resources for the benefit of the LLM and/or the user.'
+    );
 
 /**
  * @description Hints to use for model selection.
@@ -1324,23 +1405,27 @@ Keys not declared here are currently left unspecified by the spec and are up
 to the client to interpret.
  * @category `sampling/createMessage`
  */
-export const ModelHintSchema = z.object({
-    /** @description A hint for a model name.
-  
-      The client SHOULD treat this as a substring of a model name; for example:
-       - `claude-3-5-sonnet` should match `claude-3-5-sonnet-20241022`
-       - `sonnet` should match `claude-3-5-sonnet-20241022`, `claude-3-sonnet-20240229`, etc.
-       - `claude` should match any Claude model
-  
-      The client MAY also map the string to a different provider's model name or a different model family, as long as it fills a similar niche; for example:
-       - `gemini-1.5-flash` could match `claude-3-haiku-20240307` */
-    name: z
-        .string()
-        .optional()
-        .describe(
-            "A hint for a model name.\n\nThe client SHOULD treat this as a substring of a model name; for example:\n- `claude-3-5-sonnet` should match `claude-3-5-sonnet-20241022`\n- `sonnet` should match `claude-3-5-sonnet-20241022`, `claude-3-sonnet-20240229`, etc.\n- `claude` should match any Claude model\n\nThe client MAY also map the string to a different provider's model name or a different model family, as long as it fills a similar niche; for example:\n- `gemini-1.5-flash` could match `claude-3-haiku-20240307`"
-        )
-});
+export const ModelHintSchema = z
+    .object({
+        /** @description A hint for a model name.
+          
+              The client SHOULD treat this as a substring of a model name; for example:
+               - `claude-3-5-sonnet` should match `claude-3-5-sonnet-20241022`
+               - `sonnet` should match `claude-3-5-sonnet-20241022`, `claude-3-sonnet-20240229`, etc.
+               - `claude` should match any Claude model
+          
+              The client MAY also map the string to a different provider's model name or a different model family, as long as it fills a similar niche; for example:
+               - `gemini-1.5-flash` could match `claude-3-haiku-20240307` */
+        name: z
+            .string()
+            .optional()
+            .describe(
+                "A hint for a model name.\n\nThe client SHOULD treat this as a substring of a model name; for example:\n- `claude-3-5-sonnet` should match `claude-3-5-sonnet-20241022`\n- `sonnet` should match `claude-3-5-sonnet-20241022`, `claude-3-sonnet-20240229`, etc.\n- `claude` should match any Claude model\n\nThe client MAY also map the string to a different provider's model name or a different model family, as long as it fills a similar niche; for example:\n- `gemini-1.5-flash` could match `claude-3-haiku-20240307`"
+            )
+    })
+    .describe(
+        'Hints to use for model selection.  Keys not declared here are currently left unspecified by the spec and are up to the client to interpret.'
+    );
 
 /**
  * @description Identifies a prompt.
@@ -1348,20 +1433,22 @@ export const ModelHintSchema = z.object({
  */
 export const PromptReferenceSchema = BaseMetadataSchema.extend({
     type: z.literal('ref/prompt')
-});
+}).describe('Identifies a prompt.');
 
 /**
  * @description A reference to a resource or resource template definition.
  * @category `completion/complete`
  */
-export const ResourceTemplateReferenceSchema = z.object({
-    type: z.literal('ref/resource'),
-    /**
-     * @description The URI or URI template of the resource.
-     * @format uri-template
-     */
-    uri: z.string().describe('The URI or URI template of the resource.')
-});
+export const ResourceTemplateReferenceSchema = z
+    .object({
+        type: z.literal('ref/resource'),
+        /**
+         * @description The URI or URI template of the resource.
+         * @format uri-template
+         */
+        uri: z.string().describe('The URI or URI template of the resource.')
+    })
+    .describe('A reference to a resource or resource template definition.');
 
 /* Autocomplete */
 /**
@@ -1387,7 +1474,7 @@ export const CompleteRequestParamsSchema = RequestParamsSchema.extend({
         })
         .optional()
         .describe('Additional, optional context for completions')
-});
+}).describe('Parameters for a `completion/complete` request.');
 
 /**
  * @description The server's response to a completion/complete request
@@ -1412,7 +1499,7 @@ export const CompleteResultSchema = ResultSchema.extend({
                 'Indicates whether there are additional completion options beyond those provided in the current response, even if the exact total is unknown.'
             )
     })
-});
+}).describe("The server's response to a completion/complete request");
 
 /* Roots */
 /**
@@ -1428,35 +1515,39 @@ structure or access specific locations that the client has permission to read fr
 export const ListRootsRequestSchema = RequestSchema.extend({
     method: z.literal('roots/list'),
     params: RequestParamsSchema.optional()
-});
+}).describe(
+    'Sent from the server to request a list of root URIs from the client. Roots allow servers to ask for specific directories or files to operate on. A common example for roots is providing a set of repositories or directories a server should operate on.  This request is typically used when the server needs to understand the file system structure or access specific locations that the client has permission to read from.'
+);
 
 /**
  * @description Represents a root directory or file that the server can operate on.
  * @category `roots/list`
  */
-export const RootSchema = z.object({
-    /**
-       * @description The URI identifying the root. This *must* start with file:// for now.
-      This restriction may be relaxed in future versions of the protocol to allow
-      other URI schemes.
-       * @format uri
-       */
-    uri: z.string().startsWith('file://'),
-    /** @description An optional name for the root. This can be used to provide a human-readable
-      identifier for the root, which may be useful for display purposes or for
-      referencing the root in other parts of the application. */
-    name: z
-        .string()
-        .optional()
-        .describe(
-            'An optional name for the root. This can be used to provide a human-readable\nidentifier for the root, which may be useful for display purposes or for\nreferencing the root in other parts of the application.'
-        ),
-    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
-});
+export const RootSchema = z
+    .object({
+        /**
+               * @description The URI identifying the root. This *must* start with file:// for now.
+              This restriction may be relaxed in future versions of the protocol to allow
+              other URI schemes.
+               * @format uri
+               */
+        uri: z.string().startsWith('file://'),
+        /** @description An optional name for the root. This can be used to provide a human-readable
+              identifier for the root, which may be useful for display purposes or for
+              referencing the root in other parts of the application. */
+        name: z
+            .string()
+            .optional()
+            .describe(
+                'An optional name for the root. This can be used to provide a human-readable\nidentifier for the root, which may be useful for display purposes or for\nreferencing the root in other parts of the application.'
+            ),
+        /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
+    })
+    .describe('Represents a root directory or file that the server can operate on.');
 
 /**
  * @description A notification from the client to the server, informing it that the list of roots has changed.
@@ -1467,7 +1558,9 @@ The server should then request an updated list of roots using the ListRootsReque
 export const RootsListChangedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/roots/list_changed'),
     params: NotificationParamsSchema.optional()
-});
+}).describe(
+    'A notification from the client to the server, informing it that the list of roots has changed. This notification should be sent whenever the client adds, removes, or modifies any root. The server should then request an updated list of roots using the ListRootsRequest.'
+);
 
 /**
  * @description The parameters for a request to elicit information from the user via a URL in the client.
@@ -1479,7 +1572,7 @@ export const ElicitRequestURLParamsSchema = TaskAugmentedRequestParamsSchema.ext
     /** @description The message to present to the user explaining why the interaction is needed. */
     message: z.string().describe('The message to present to the user explaining why the interaction is needed.'),
     /** @description The ID of the elicitation, which must be unique within the context of the server.
-      The client MUST treat this ID as an opaque value. */
+              The client MUST treat this ID as an opaque value. */
     elicitationId: z
         .string()
         .describe(
@@ -1490,7 +1583,7 @@ export const ElicitRequestURLParamsSchema = TaskAugmentedRequestParamsSchema.ext
      * @format uri
      */
     url: z.string().describe('The URL that the user should navigate to.')
-});
+}).describe('The parameters for a request to elicit information from the user via a URL in the client.');
 
 /**
  * @category `elicitation/create`
@@ -1531,46 +1624,50 @@ export const BooleanSchemaSchema = z.object({
  * @description Schema for single-selection enumeration without display titles for options.
  * @category `elicitation/create`
  */
-export const UntitledSingleSelectEnumSchemaSchema = z.object({
-    type: z.literal('string'),
-    /** @description Optional title for the enum field. */
-    title: z.string().optional().describe('Optional title for the enum field.'),
-    /** @description Optional description for the enum field. */
-    description: z.string().optional().describe('Optional description for the enum field.'),
-    /** @description Array of enum values to choose from. */
-    enum: z.array(z.string()).describe('Array of enum values to choose from.'),
-    /** @description Optional default value. */
-    default: z.string().optional().describe('Optional default value.')
-});
+export const UntitledSingleSelectEnumSchemaSchema = z
+    .object({
+        type: z.literal('string'),
+        /** @description Optional title for the enum field. */
+        title: z.string().optional().describe('Optional title for the enum field.'),
+        /** @description Optional description for the enum field. */
+        description: z.string().optional().describe('Optional description for the enum field.'),
+        /** @description Array of enum values to choose from. */
+        enum: z.array(z.string()).describe('Array of enum values to choose from.'),
+        /** @description Optional default value. */
+        default: z.string().optional().describe('Optional default value.')
+    })
+    .describe('Schema for single-selection enumeration without display titles for options.');
 
 /**
  * @description Schema for single-selection enumeration with display titles for each option.
  * @category `elicitation/create`
  */
-export const TitledSingleSelectEnumSchemaSchema = z.object({
-    type: z.literal('string'),
-    /** @description Optional title for the enum field. */
-    title: z.string().optional().describe('Optional title for the enum field.'),
-    /** @description Optional description for the enum field. */
-    description: z.string().optional().describe('Optional description for the enum field.'),
-    /** @description Array of enum options with values and display labels. */
-    oneOf: z
-        .array(
-            z.object({
-                /**
-                 * The enum value.
-                 */
-                const: z.string(),
-                /**
-                 * Display label for this option.
-                 */
-                title: z.string()
-            })
-        )
-        .describe('Array of enum options with values and display labels.'),
-    /** @description Optional default value. */
-    default: z.string().optional().describe('Optional default value.')
-});
+export const TitledSingleSelectEnumSchemaSchema = z
+    .object({
+        type: z.literal('string'),
+        /** @description Optional title for the enum field. */
+        title: z.string().optional().describe('Optional title for the enum field.'),
+        /** @description Optional description for the enum field. */
+        description: z.string().optional().describe('Optional description for the enum field.'),
+        /** @description Array of enum options with values and display labels. */
+        oneOf: z
+            .array(
+                z.object({
+                    /**
+                     * The enum value.
+                     */
+                    const: z.string(),
+                    /**
+                     * Display label for this option.
+                     */
+                    title: z.string()
+                })
+            )
+            .describe('Array of enum options with values and display labels.'),
+        /** @description Optional default value. */
+        default: z.string().optional().describe('Optional default value.')
+    })
+    .describe('Schema for single-selection enumeration with display titles for each option.');
 
 /**
  * @category `elicitation/create`
@@ -1582,65 +1679,69 @@ export const SingleSelectEnumSchemaSchema = z.union([UntitledSingleSelectEnumSch
  * @description Schema for multiple-selection enumeration without display titles for options.
  * @category `elicitation/create`
  */
-export const UntitledMultiSelectEnumSchemaSchema = z.object({
-    type: z.literal('array'),
-    /** @description Optional title for the enum field. */
-    title: z.string().optional().describe('Optional title for the enum field.'),
-    /** @description Optional description for the enum field. */
-    description: z.string().optional().describe('Optional description for the enum field.'),
-    /** @description Minimum number of items to select. */
-    minItems: z.number().optional().describe('Minimum number of items to select.'),
-    /** @description Maximum number of items to select. */
-    maxItems: z.number().optional().describe('Maximum number of items to select.'),
-    /** @description Schema for the array items. */
-    items: z
-        .object({
-            type: z.literal('string'),
-            /** @description Array of enum values to choose from. */
-            enum: z.array(z.string()).describe('Array of enum values to choose from.')
-        })
-        .describe('Schema for the array items.'),
-    /** @description Optional default value. */
-    default: z.array(z.string()).optional().describe('Optional default value.')
-});
+export const UntitledMultiSelectEnumSchemaSchema = z
+    .object({
+        type: z.literal('array'),
+        /** @description Optional title for the enum field. */
+        title: z.string().optional().describe('Optional title for the enum field.'),
+        /** @description Optional description for the enum field. */
+        description: z.string().optional().describe('Optional description for the enum field.'),
+        /** @description Minimum number of items to select. */
+        minItems: z.number().optional().describe('Minimum number of items to select.'),
+        /** @description Maximum number of items to select. */
+        maxItems: z.number().optional().describe('Maximum number of items to select.'),
+        /** @description Schema for the array items. */
+        items: z
+            .object({
+                type: z.literal('string'),
+                /** @description Array of enum values to choose from. */
+                enum: z.array(z.string()).describe('Array of enum values to choose from.')
+            })
+            .describe('Schema for the array items.'),
+        /** @description Optional default value. */
+        default: z.array(z.string()).optional().describe('Optional default value.')
+    })
+    .describe('Schema for multiple-selection enumeration without display titles for options.');
 
 /**
  * @description Schema for multiple-selection enumeration with display titles for each option.
  * @category `elicitation/create`
  */
-export const TitledMultiSelectEnumSchemaSchema = z.object({
-    type: z.literal('array'),
-    /** @description Optional title for the enum field. */
-    title: z.string().optional().describe('Optional title for the enum field.'),
-    /** @description Optional description for the enum field. */
-    description: z.string().optional().describe('Optional description for the enum field.'),
-    /** @description Minimum number of items to select. */
-    minItems: z.number().optional().describe('Minimum number of items to select.'),
-    /** @description Maximum number of items to select. */
-    maxItems: z.number().optional().describe('Maximum number of items to select.'),
-    /** @description Schema for array items with enum options and display labels. */
-    items: z
-        .object({
-            /** @description Array of enum options with values and display labels. */
-            anyOf: z
-                .array(
-                    z.object({
-                        /**
-                         * The constant enum value.
-                         */
-                        const: z.string(),
-                        /**
-                         * Display title for this option.
-                         */
-                        title: z.string()
-                    })
-                )
-                .describe('Array of enum options with values and display labels.')
-        })
-        .describe('Schema for array items with enum options and display labels.'),
-    /** @description Optional default value. */
-    default: z.array(z.string()).optional().describe('Optional default value.')
-});
+export const TitledMultiSelectEnumSchemaSchema = z
+    .object({
+        type: z.literal('array'),
+        /** @description Optional title for the enum field. */
+        title: z.string().optional().describe('Optional title for the enum field.'),
+        /** @description Optional description for the enum field. */
+        description: z.string().optional().describe('Optional description for the enum field.'),
+        /** @description Minimum number of items to select. */
+        minItems: z.number().optional().describe('Minimum number of items to select.'),
+        /** @description Maximum number of items to select. */
+        maxItems: z.number().optional().describe('Maximum number of items to select.'),
+        /** @description Schema for array items with enum options and display labels. */
+        items: z
+            .object({
+                /** @description Array of enum options with values and display labels. */
+                anyOf: z
+                    .array(
+                        z.object({
+                            /**
+                             * The constant enum value.
+                             */
+                            const: z.string(),
+                            /**
+                             * Display title for this option.
+                             */
+                            title: z.string()
+                        })
+                    )
+                    .describe('Array of enum options with values and display labels.')
+            })
+            .describe('Schema for array items with enum options and display labels.'),
+        /** @description Optional default value. */
+        default: z.array(z.string()).optional().describe('Optional default value.')
+    })
+    .describe('Schema for multiple-selection enumeration with display titles for each option.');
 
 /**
  * @category `elicitation/create`
@@ -1653,19 +1754,21 @@ export const MultiSelectEnumSchemaSchema = z.union([UntitledMultiSelectEnumSchem
 This interface will be removed in a future version.
  * @category `elicitation/create`
  */
-export const LegacyTitledEnumSchemaSchema = z.object({
-    type: z.literal('string'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    enum: z.array(z.string()),
-    /** @description (Legacy) Display names for enum values.
-      Non-standard according to JSON schema 2020-12. */
-    enumNames: z
-        .array(z.string())
-        .optional()
-        .describe('(Legacy) Display names for enum values.\nNon-standard according to JSON schema 2020-12.'),
-    default: z.string().optional()
-});
+export const LegacyTitledEnumSchemaSchema = z
+    .object({
+        type: z.literal('string'),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        enum: z.array(z.string()),
+        /** @description (Legacy) Display names for enum values.
+              Non-standard according to JSON schema 2020-12. */
+        enumNames: z
+            .array(z.string())
+            .optional()
+            .describe('(Legacy) Display names for enum values.\nNon-standard according to JSON schema 2020-12.'),
+        default: z.string().optional()
+    })
+    .describe('Use TitledSingleSelectEnumSchema instead. This interface will be removed in a future version.');
 
 /**
  * @category `elicitation/create`
@@ -1679,24 +1782,24 @@ export const EnumSchemaSchema = z.union([SingleSelectEnumSchemaSchema, MultiSele
  */
 export const ElicitResultSchema = ResultSchema.extend({
     /** @description The user action in response to the elicitation.
-      - "accept": User submitted the form/confirmed the action
-      - "decline": User explicitly decline the action
-      - "cancel": User dismissed without making an explicit choice */
+              - "accept": User submitted the form/confirmed the action
+              - "decline": User explicitly decline the action
+              - "cancel": User dismissed without making an explicit choice */
     action: z
         .enum(['accept', 'decline', 'cancel'])
         .describe(
             'The user action in response to the elicitation.\n- "accept": User submitted the form/confirmed the action\n- "decline": User explicitly decline the action\n- "cancel": User dismissed without making an explicit choice'
         ),
     /** @description The submitted form data, only present when action is "accept" and mode was "form".
-      Contains values matching the requested schema.
-      Omitted for out-of-band mode responses. */
+              Contains values matching the requested schema.
+              Omitted for out-of-band mode responses. */
     content: z
         .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
         .optional()
         .describe(
             'The submitted form data, only present when action is "accept" and mode was "form".\nContains values matching the requested schema.\nOmitted for out-of-band mode responses.'
         )
-});
+}).describe("The client's response to an elicitation request.");
 
 /**
  * @description An optional notification from the server to the client, informing it of a completion of a out-of-band elicitation request.
@@ -1708,7 +1811,7 @@ export const ElicitationCompleteNotificationSchema = NotificationSchema.extend({
         /** @description The ID of the elicitation that completed. */
         elicitationId: z.string().describe('The ID of the elicitation that completed.')
     })
-});
+}).describe('An optional notification from the server to the client, informing it of a completion of a out-of-band elicitation request.');
 
 /**
  * @description A request from the client to the server, to ask for completion options.
@@ -1717,7 +1820,7 @@ export const ElicitationCompleteNotificationSchema = NotificationSchema.extend({
 export const CompleteRequestSchema = RequestSchema.extend({
     method: z.literal('completion/complete'),
     params: CompleteRequestParamsSchema
-});
+}).describe('A request from the client to the server, to ask for completion options.');
 
 /**
  * @description A request from the client to the server, to enable or adjust logging.
@@ -1726,7 +1829,7 @@ export const CompleteRequestSchema = RequestSchema.extend({
 export const SetLevelRequestSchema = RequestSchema.extend({
     method: z.literal('logging/setLevel'),
     params: SetLevelRequestParamsSchema
-});
+}).describe('A request from the client to the server, to enable or adjust logging.');
 
 /**
  * @description Used by the client to invoke a tool provided by the server.
@@ -1735,7 +1838,7 @@ export const SetLevelRequestSchema = RequestSchema.extend({
 export const CallToolRequestSchema = RequestSchema.extend({
     method: z.literal('tools/call'),
     params: CallToolRequestParamsSchema
-});
+}).describe('Used by the client to invoke a tool provided by the server.');
 
 /** @internal */
 export const ClientNotificationSchema = z.union([
@@ -1754,7 +1857,9 @@ or file that the server can operate on.
  */
 export const ListRootsResultSchema = ResultSchema.extend({
     roots: z.array(RootSchema)
-});
+}).describe(
+    "The client's response to a roots/list request from the server. This result contains an array of Root objects, each representing a root directory or file that the server can operate on."
+);
 
 /** @internal */
 export const ServerNotificationSchema = z.union([
@@ -1783,15 +1888,15 @@ export const InitializeResultSchema = ResultSchema.extend({
     capabilities: ServerCapabilitiesSchema,
     serverInfo: ImplementationSchema,
     /** @description Instructions describing how to use the server and its features.
-  
-      This can be used by clients to improve the LLM's understanding of available tools, resources, etc. It can be thought of like a "hint" to the model. For example, this information MAY be added to the system prompt. */
+          
+              This can be used by clients to improve the LLM's understanding of available tools, resources, etc. It can be thought of like a "hint" to the model. For example, this information MAY be added to the system prompt. */
     instructions: z
         .string()
         .optional()
         .describe(
             'Instructions describing how to use the server and its features.\n\nThis can be used by clients to improve the LLM\'s understanding of available tools, resources, etc. It can be thought of like a "hint" to the model. For example, this information MAY be added to the system prompt.'
         )
-});
+}).describe('After receiving an initialize request from the client, the server sends this response.');
 
 /**
  * @description The server's response to a resources/read request from the client.
@@ -1799,7 +1904,7 @@ export const InitializeResultSchema = ResultSchema.extend({
  */
 export const ReadResourceResultSchema = ResultSchema.extend({
     contents: z.array(z.union([TextResourceContentsSchema, BlobResourceContentsSchema]))
-});
+}).describe("The server's response to a resources/read request from the client.");
 
 /**
  * @description The server's response to a tools/list request from the client.
@@ -1807,7 +1912,7 @@ export const ReadResourceResultSchema = ResultSchema.extend({
  */
 export const ListToolsResultSchema = PaginatedResultSchema.extend({
     tools: z.array(ToolSchema)
-});
+}).describe("The server's response to a tools/list request from the client.");
 
 /** Extracted from ClientCapabilities["tasks"]. */
 export const ClientTasksCapabilitySchema = z.object({
@@ -1877,22 +1982,28 @@ export const ServerTasksCapabilitySchema = z.object({
 export const JSONRPCRequestSchema = RequestSchema.extend({
     jsonrpc: z.literal('2.0'),
     id: RequestIdSchema
-}).strict();
+})
+    .strict()
+    .describe('A request that expects a response.');
 
 /**
  * @description An error response that indicates that the server requires the client to provide additional information via an elicitation request.
  * @internal
  */
-export const URLElicitationRequiredErrorSchema = JSONRPCErrorResponseSchema.omit({ error: true }).extend({
-    error: ErrorSchema.and(
-        z.object({
-            code: z.any(),
-            data: z.looseObject({
-                elicitations: z.array(ElicitRequestURLParamsSchema)
+export const URLElicitationRequiredErrorSchema = JSONRPCErrorResponseSchema.omit({ error: true })
+    .extend({
+        error: ErrorSchema.and(
+            z.object({
+                code: z.any(),
+                data: z.looseObject({
+                    elicitations: z.array(ElicitRequestURLParamsSchema)
+                })
             })
-        })
-    )
-});
+        )
+    })
+    .describe(
+        'An error response that indicates that the server requires the client to provide additional information via an elicitation request.'
+    );
 
 /* Initialization */
 /**
@@ -1908,7 +2019,7 @@ export const InitializeRequestParamsSchema = RequestParamsSchema.extend({
         ),
     capabilities: ClientCapabilitiesSchema,
     clientInfo: ImplementationSchema
-});
+}).describe('Parameters for an `initialize` request.');
 
 /**
  * @description This request is sent from the client to the server when it first connects, asking it to begin initialization.
@@ -1917,97 +2028,103 @@ export const InitializeRequestParamsSchema = RequestParamsSchema.extend({
 export const InitializeRequestSchema = RequestSchema.extend({
     method: z.literal('initialize'),
     params: InitializeRequestParamsSchema
-});
+}).describe('This request is sent from the client to the server when it first connects, asking it to begin initialization.');
 
 /**
  * @description A known resource that the server is capable of reading.
  * @category `resources/list`
  */
-export const ResourceSchema = BaseMetadataSchema.extend(IconsSchema.shape).extend({
-    /**
-     * @description The URI of this resource.
-     * @format uri
-     */
-    uri: z.string().describe('The URI of this resource.'),
-    /** @description A description of what this resource represents.
-  
-      This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model. */
-    description: z
-        .string()
-        .optional()
-        .describe(
-            'A description of what this resource represents.\n\nThis can be used by clients to improve the LLM\'s understanding of available resources. It can be thought of like a "hint" to the model.'
-        ),
-    /** @description The MIME type of this resource, if known. */
-    mimeType: z.string().optional().describe('The MIME type of this resource, if known.'),
-    /** @description Optional annotations for the client. */
-    annotations: AnnotationsSchema.optional().describe('Optional annotations for the client.'),
-    /** @description The size of the raw resource content, in bytes (i.e., before base64 encoding or any tokenization), if known.
-  
-      This can be used by Hosts to display file sizes and estimate context window usage. */
-    size: z
-        .number()
-        .optional()
-        .describe(
-            'The size of the raw resource content, in bytes (i.e., before base64 encoding or any tokenization), if known.\n\nThis can be used by Hosts to display file sizes and estimate context window usage.'
-        ),
-    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
-});
+export const ResourceSchema = BaseMetadataSchema.extend(IconsSchema.shape)
+    .extend({
+        /**
+         * @description The URI of this resource.
+         * @format uri
+         */
+        uri: z.string().describe('The URI of this resource.'),
+        /** @description A description of what this resource represents.
+          
+              This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model. */
+        description: z
+            .string()
+            .optional()
+            .describe(
+                'A description of what this resource represents.\n\nThis can be used by clients to improve the LLM\'s understanding of available resources. It can be thought of like a "hint" to the model.'
+            ),
+        /** @description The MIME type of this resource, if known. */
+        mimeType: z.string().optional().describe('The MIME type of this resource, if known.'),
+        /** @description Optional annotations for the client. */
+        annotations: AnnotationsSchema.optional().describe('Optional annotations for the client.'),
+        /** @description The size of the raw resource content, in bytes (i.e., before base64 encoding or any tokenization), if known.
+          
+              This can be used by Hosts to display file sizes and estimate context window usage. */
+        size: z
+            .number()
+            .optional()
+            .describe(
+                'The size of the raw resource content, in bytes (i.e., before base64 encoding or any tokenization), if known.\n\nThis can be used by Hosts to display file sizes and estimate context window usage.'
+            ),
+        /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
+    })
+    .describe('A known resource that the server is capable of reading.');
 
 /**
  * @description A template description for resources available on the server.
  * @category `resources/templates/list`
  */
-export const ResourceTemplateSchema = BaseMetadataSchema.extend(IconsSchema.shape).extend({
-    /**
-     * @description A URI template (according to RFC 6570) that can be used to construct resource URIs.
-     * @format uri-template
-     */
-    uriTemplate: z.string().describe('A URI template (according to RFC 6570) that can be used to construct resource URIs.'),
-    /** @description A description of what this template is for.
-  
-      This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model. */
-    description: z
-        .string()
-        .optional()
-        .describe(
-            'A description of what this template is for.\n\nThis can be used by clients to improve the LLM\'s understanding of available resources. It can be thought of like a "hint" to the model.'
-        ),
-    /** @description The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type. */
-    mimeType: z
-        .string()
-        .optional()
-        .describe(
-            'The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.'
-        ),
-    /** @description Optional annotations for the client. */
-    annotations: AnnotationsSchema.optional().describe('Optional annotations for the client.'),
-    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
-});
+export const ResourceTemplateSchema = BaseMetadataSchema.extend(IconsSchema.shape)
+    .extend({
+        /**
+         * @description A URI template (according to RFC 6570) that can be used to construct resource URIs.
+         * @format uri-template
+         */
+        uriTemplate: z.string().describe('A URI template (according to RFC 6570) that can be used to construct resource URIs.'),
+        /** @description A description of what this template is for.
+          
+              This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model. */
+        description: z
+            .string()
+            .optional()
+            .describe(
+                'A description of what this template is for.\n\nThis can be used by clients to improve the LLM\'s understanding of available resources. It can be thought of like a "hint" to the model.'
+            ),
+        /** @description The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type. */
+        mimeType: z
+            .string()
+            .optional()
+            .describe(
+                'The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.'
+            ),
+        /** @description Optional annotations for the client. */
+        annotations: AnnotationsSchema.optional().describe('Optional annotations for the client.'),
+        /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
+    })
+    .describe('A template description for resources available on the server.');
 
 /**
  * @description A prompt or prompt template that the server offers.
  * @category `prompts/list`
  */
-export const PromptSchema = BaseMetadataSchema.extend(IconsSchema.shape).extend({
-    /** @description An optional description of what this prompt provides */
-    description: z.string().optional().describe('An optional description of what this prompt provides'),
-    /** @description A list of arguments to use for templating the prompt. */
-    arguments: z.array(PromptArgumentSchema).optional().describe('A list of arguments to use for templating the prompt.'),
-    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
-});
+export const PromptSchema = BaseMetadataSchema.extend(IconsSchema.shape)
+    .extend({
+        /** @description An optional description of what this prompt provides */
+        description: z.string().optional().describe('An optional description of what this prompt provides'),
+        /** @description A list of arguments to use for templating the prompt. */
+        arguments: z.array(PromptArgumentSchema).optional().describe('A list of arguments to use for templating the prompt.'),
+        /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
+    })
+    .describe('A prompt or prompt template that the server offers.');
 
 /**
  * @description A resource that the server is capable of reading, included in a prompt or tool call result.
@@ -2017,7 +2134,9 @@ Note: resource links returned by tools are not guaranteed to appear in the resul
  */
 export const ResourceLinkSchema = ResourceSchema.extend({
     type: z.literal('resource_link')
-});
+}).describe(
+    'A resource that the server is capable of reading, included in a prompt or tool call result.  Note: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.'
+);
 
 /**
  * @category Content
@@ -2044,125 +2163,131 @@ up to the client to decide how to interpret these preferences and how to
 balance them against other considerations.
  * @category `sampling/createMessage`
  */
-export const ModelPreferencesSchema = z.object({
-    /** @description Optional hints to use for model selection.
-  
-      If multiple hints are specified, the client MUST evaluate them in order
-      (such that the first match is taken).
-  
-      The client SHOULD prioritize these hints over the numeric priorities, but
-      MAY still use the priorities to select from ambiguous matches. */
-    hints: z
-        .array(ModelHintSchema)
-        .optional()
-        .describe(
-            'Optional hints to use for model selection.\n\nIf multiple hints are specified, the client MUST evaluate them in order\n(such that the first match is taken).\n\nThe client SHOULD prioritize these hints over the numeric priorities, but\nMAY still use the priorities to select from ambiguous matches.'
-        ),
-    /**
-       * @description How much to prioritize cost when selecting a model. A value of 0 means cost
-      is not important, while a value of 1 means cost is the most important
-      factor.
-       * @TJS-type number
-         *
-       * @minimum 0
-         *
-       * @maximum 1
-       */
-    costPriority: z
-        .number()
-        .min(0)
-        .max(1)
-        .optional()
-        .describe(
-            'How much to prioritize cost when selecting a model. A value of 0 means cost\nis not important, while a value of 1 means cost is the most important\nfactor.'
-        ),
-    /**
-       * @description How much to prioritize sampling speed (latency) when selecting a model. A
-      value of 0 means speed is not important, while a value of 1 means speed is
-      the most important factor.
-       * @TJS-type number
-         *
-       * @minimum 0
-         *
-       * @maximum 1
-       */
-    speedPriority: z
-        .number()
-        .min(0)
-        .max(1)
-        .optional()
-        .describe(
-            'How much to prioritize sampling speed (latency) when selecting a model. A\nvalue of 0 means speed is not important, while a value of 1 means speed is\nthe most important factor.'
-        ),
-    /**
-       * @description How much to prioritize intelligence and capabilities when selecting a
-      model. A value of 0 means intelligence is not important, while a value of 1
-      means intelligence is the most important factor.
-       * @TJS-type number
-         *
-       * @minimum 0
-         *
-       * @maximum 1
-       */
-    intelligencePriority: z
-        .number()
-        .min(0)
-        .max(1)
-        .optional()
-        .describe(
-            'How much to prioritize intelligence and capabilities when selecting a\nmodel. A value of 0 means intelligence is not important, while a value of 1\nmeans intelligence is the most important factor.'
-        )
-});
+export const ModelPreferencesSchema = z
+    .object({
+        /** @description Optional hints to use for model selection.
+          
+              If multiple hints are specified, the client MUST evaluate them in order
+              (such that the first match is taken).
+          
+              The client SHOULD prioritize these hints over the numeric priorities, but
+              MAY still use the priorities to select from ambiguous matches. */
+        hints: z
+            .array(ModelHintSchema)
+            .optional()
+            .describe(
+                'Optional hints to use for model selection.\n\nIf multiple hints are specified, the client MUST evaluate them in order\n(such that the first match is taken).\n\nThe client SHOULD prioritize these hints over the numeric priorities, but\nMAY still use the priorities to select from ambiguous matches.'
+            ),
+        /**
+               * @description How much to prioritize cost when selecting a model. A value of 0 means cost
+              is not important, while a value of 1 means cost is the most important
+              factor.
+               * @TJS-type number
+                 *
+               * @minimum 0
+                 *
+               * @maximum 1
+               */
+        costPriority: z
+            .number()
+            .min(0)
+            .max(1)
+            .optional()
+            .describe(
+                'How much to prioritize cost when selecting a model. A value of 0 means cost\nis not important, while a value of 1 means cost is the most important\nfactor.'
+            ),
+        /**
+               * @description How much to prioritize sampling speed (latency) when selecting a model. A
+              value of 0 means speed is not important, while a value of 1 means speed is
+              the most important factor.
+               * @TJS-type number
+                 *
+               * @minimum 0
+                 *
+               * @maximum 1
+               */
+        speedPriority: z
+            .number()
+            .min(0)
+            .max(1)
+            .optional()
+            .describe(
+                'How much to prioritize sampling speed (latency) when selecting a model. A\nvalue of 0 means speed is not important, while a value of 1 means speed is\nthe most important factor.'
+            ),
+        /**
+               * @description How much to prioritize intelligence and capabilities when selecting a
+              model. A value of 0 means intelligence is not important, while a value of 1
+              means intelligence is the most important factor.
+               * @TJS-type number
+                 *
+               * @minimum 0
+                 *
+               * @maximum 1
+               */
+        intelligencePriority: z
+            .number()
+            .min(0)
+            .max(1)
+            .optional()
+            .describe(
+                'How much to prioritize intelligence and capabilities when selecting a\nmodel. A value of 0 means intelligence is not important, while a value of 1\nmeans intelligence is the most important factor.'
+            )
+    })
+    .describe(
+        'The server\'s preferences for model selection, requested of the client during sampling.  Because LLMs can vary along multiple dimensions, choosing the "best" model is rarely straightforward.  Different models excel in different areas—some are faster but less capable, others are more capable but more expensive, and so on. This interface allows servers to express their priorities across multiple dimensions to help clients make an appropriate selection for their use case.  These preferences are always advisory. The client MAY ignore them. It is also up to the client to decide how to interpret these preferences and how to balance them against other considerations.'
+    );
 
 /**
  * @description The result of a tool use, provided by the user back to the assistant.
  * @category `sampling/createMessage`
  */
-export const ToolResultContentSchema = z.object({
-    type: z.literal('tool_result'),
-    /** @description The ID of the tool use this result corresponds to.
-  
-      This MUST match the ID from a previous ToolUseContent. */
-    toolUseId: z
-        .string()
-        .describe('The ID of the tool use this result corresponds to.\n\nThis MUST match the ID from a previous ToolUseContent.'),
-    /** @description The unstructured result content of the tool use.
-  
-      This has the same format as CallToolResult.content and can include text, images,
-      audio, resource links, and embedded resources. */
-    content: z
-        .array(ContentBlockSchema)
-        .describe(
-            'The unstructured result content of the tool use.\n\nThis has the same format as CallToolResult.content and can include text, images,\naudio, resource links, and embedded resources.'
-        ),
-    /** @description An optional structured result object.
-  
-      If the tool defined an outputSchema, this SHOULD conform to that schema. */
-    structuredContent: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe('An optional structured result object.\n\nIf the tool defined an outputSchema, this SHOULD conform to that schema.'),
-    /** @description Whether the tool use resulted in an error.
-  
-      If true, the content typically describes the error that occurred.
-      Default: false */
-    isError: z
-        .boolean()
-        .optional()
-        .describe(
-            'Whether the tool use resulted in an error.\n\nIf true, the content typically describes the error that occurred.\nDefault: false'
-        ),
-    /** @description Optional metadata about the tool result. Clients SHOULD preserve this field when
-      including tool results in subsequent sampling requests to enable caching optimizations.
-  
-      See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe(
-            'Optional metadata about the tool result. Clients SHOULD preserve this field when\nincluding tool results in subsequent sampling requests to enable caching optimizations.\n\nSee [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.'
-        )
-});
+export const ToolResultContentSchema = z
+    .object({
+        type: z.literal('tool_result'),
+        /** @description The ID of the tool use this result corresponds to.
+          
+              This MUST match the ID from a previous ToolUseContent. */
+        toolUseId: z
+            .string()
+            .describe('The ID of the tool use this result corresponds to.\n\nThis MUST match the ID from a previous ToolUseContent.'),
+        /** @description The unstructured result content of the tool use.
+          
+              This has the same format as CallToolResult.content and can include text, images,
+              audio, resource links, and embedded resources. */
+        content: z
+            .array(ContentBlockSchema)
+            .describe(
+                'The unstructured result content of the tool use.\n\nThis has the same format as CallToolResult.content and can include text, images,\naudio, resource links, and embedded resources.'
+            ),
+        /** @description An optional structured result object.
+          
+              If the tool defined an outputSchema, this SHOULD conform to that schema. */
+        structuredContent: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe('An optional structured result object.\n\nIf the tool defined an outputSchema, this SHOULD conform to that schema.'),
+        /** @description Whether the tool use resulted in an error.
+          
+              If true, the content typically describes the error that occurred.
+              Default: false */
+        isError: z
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the tool use resulted in an error.\n\nIf true, the content typically describes the error that occurred.\nDefault: false'
+            ),
+        /** @description Optional metadata about the tool result. Clients SHOULD preserve this field when
+              including tool results in subsequent sampling requests to enable caching optimizations.
+          
+              See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe(
+                'Optional metadata about the tool result. Clients SHOULD preserve this field when\nincluding tool results in subsequent sampling requests to enable caching optimizations.\n\nSee [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.'
+            )
+    })
+    .describe('The result of a tool use, provided by the user back to the assistant.');
 
 /**
  * @description Restricted schema definitions that only allow primitive types
@@ -2183,7 +2308,7 @@ export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.ex
     /** @description The message to present to the user describing what information is being requested. */
     message: z.string().describe('The message to present to the user describing what information is being requested.'),
     /** @description A restricted subset of JSON Schema.
-      Only top-level properties are allowed, without nesting. */
+              Only top-level properties are allowed, without nesting. */
     requestedSchema: z
         .object({
             $schema: z.string().optional(),
@@ -2192,7 +2317,7 @@ export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.ex
             required: z.array(z.string()).optional()
         })
         .describe('A restricted subset of JSON Schema.\nOnly top-level properties are allowed, without nesting.')
-});
+}).describe('The parameters for a request to elicit non-sensitive information from the user via a form in the client.');
 
 /**
  * @description The parameters for a request to elicit additional information from the user via the client.
@@ -2231,7 +2356,7 @@ export const ClientRequestSchema = z.union([
 export const ElicitRequestSchema = RequestSchema.extend({
     method: z.literal('elicitation/create'),
     params: ElicitRequestParamsSchema
-});
+}).describe('A request from the server to elicit additional information from the user via the client.');
 
 /**
  * @description The server's response to a prompts/list request from the client.
@@ -2239,7 +2364,7 @@ export const ElicitRequestSchema = RequestSchema.extend({
  */
 export const ListPromptsResultSchema = PaginatedResultSchema.extend({
     prompts: z.array(PromptSchema)
-});
+}).describe("The server's response to a prompts/list request from the client.");
 
 /**
  * @description The server's response to a resources/templates/list request from the client.
@@ -2247,7 +2372,7 @@ export const ListPromptsResultSchema = PaginatedResultSchema.extend({
  */
 export const ListResourceTemplatesResultSchema = PaginatedResultSchema.extend({
     resourceTemplates: z.array(ResourceTemplateSchema)
-});
+}).describe("The server's response to a resources/templates/list request from the client.");
 
 /**
  * @description The server's response to a resources/list request from the client.
@@ -2255,7 +2380,7 @@ export const ListResourceTemplatesResultSchema = PaginatedResultSchema.extend({
  */
 export const ListResourcesResultSchema = PaginatedResultSchema.extend({
     resources: z.array(ResourceSchema)
-});
+}).describe("The server's response to a resources/list request from the client.");
 
 /**
  * @description The server's response to a tool call.
@@ -2270,24 +2395,24 @@ export const CallToolResultSchema = ResultSchema.extend({
         .optional()
         .describe('An optional JSON object that represents the structured result of the tool call.'),
     /** @description Whether the tool call ended in an error.
-  
-      If not set, this is assumed to be false (the call was successful).
-  
-      Any errors that originate from the tool SHOULD be reported inside the result
-      object, with `isError` set to true, _not_ as an MCP protocol-level error
-      response. Otherwise, the LLM would not be able to see that an error occurred
-      and self-correct.
-  
-      However, any errors in _finding_ the tool, an error indicating that the
-      server does not support tool calls, or any other exceptional conditions,
-      should be reported as an MCP error response. */
+          
+              If not set, this is assumed to be false (the call was successful).
+          
+              Any errors that originate from the tool SHOULD be reported inside the result
+              object, with `isError` set to true, _not_ as an MCP protocol-level error
+              response. Otherwise, the LLM would not be able to see that an error occurred
+              and self-correct.
+          
+              However, any errors in _finding_ the tool, an error indicating that the
+              server does not support tool calls, or any other exceptional conditions,
+              should be reported as an MCP error response. */
     isError: z
         .boolean()
         .optional()
         .describe(
             'Whether the tool call ended in an error.\n\nIf not set, this is assumed to be false (the call was successful).\n\nAny errors that originate from the tool SHOULD be reported inside the result\nobject, with `isError` set to true, _not_ as an MCP protocol-level error\nresponse. Otherwise, the LLM would not be able to see that an error occurred\nand self-correct.\n\nHowever, any errors in _finding_ the tool, an error indicating that the\nserver does not support tool calls, or any other exceptional conditions,\nshould be reported as an MCP error response.'
         )
-});
+}).describe("The server's response to a tool call.");
 
 /** @description This file is automatically generated from the Model Context Protocol specification.
 
@@ -2315,10 +2440,14 @@ This is similar to `SamplingMessage`, but also supports the embedding of
 resources from the MCP server.
  * @category `prompts/get`
  */
-export const PromptMessageSchema = z.object({
-    role: RoleSchema,
-    content: ContentBlockSchema
-});
+export const PromptMessageSchema = z
+    .object({
+        role: RoleSchema,
+        content: ContentBlockSchema
+    })
+    .describe(
+        'Describes a message returned as part of a prompt.  This is similar to `SamplingMessage`, but also supports the embedding of resources from the MCP server.'
+    );
 
 export const SamplingMessageContentBlockSchema = z.discriminatedUnion('type', [
     TextContentSchema,
@@ -2336,21 +2465,23 @@ export const GetPromptResultSchema = ResultSchema.extend({
     /** @description An optional description for the prompt. */
     description: z.string().optional().describe('An optional description for the prompt.'),
     messages: z.array(PromptMessageSchema)
-});
+}).describe("The server's response to a prompts/get request from the client.");
 
 /**
  * @description Describes a message issued to or received from an LLM API.
  * @category `sampling/createMessage`
  */
-export const SamplingMessageSchema = z.object({
-    role: RoleSchema,
-    content: z.union([SamplingMessageContentBlockSchema, z.array(SamplingMessageContentBlockSchema)]),
-    /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
-    _meta: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
-});
+export const SamplingMessageSchema = z
+    .object({
+        role: RoleSchema,
+        content: z.union([SamplingMessageContentBlockSchema, z.array(SamplingMessageContentBlockSchema)]),
+        /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
+        _meta: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
+    })
+    .describe('Describes a message issued to or received from an LLM API.');
 
 /* Sampling */
 /**
@@ -2369,10 +2500,10 @@ export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema
         .optional()
         .describe('An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt.'),
     /** @description A request to include context from one or more MCP servers (including the caller), to be attached to the prompt.
-      The client MAY ignore this request.
-  
-      Default is "none". Values "thisServer" and "allServers" are soft-deprecated. Servers SHOULD only use these values if the client
-      declares ClientCapabilities.sampling.context. These values may be removed in future spec releases. */
+              The client MAY ignore this request.
+          
+              Default is "none". Values "thisServer" and "allServers" are soft-deprecated. Servers SHOULD only use these values if the client
+              declares ClientCapabilities.sampling.context. These values may be removed in future spec releases. */
     includeContext: z
         .enum(['none', 'thisServer', 'allServers'])
         .optional()
@@ -2384,8 +2515,8 @@ export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema
      */
     temperature: z.number().optional(),
     /** @description The requested maximum number of tokens to sample (to prevent runaway completions).
-  
-      The client MAY choose to sample fewer tokens than the requested maximum. */
+          
+              The client MAY choose to sample fewer tokens than the requested maximum. */
     maxTokens: z
         .number()
         .describe(
@@ -2398,7 +2529,7 @@ export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema
         .optional()
         .describe('Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.'),
     /** @description Tools that the model may use during generation.
-      The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared. */
+              The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared. */
     tools: z
         .array(ToolSchema)
         .optional()
@@ -2406,12 +2537,12 @@ export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema
             'Tools that the model may use during generation.\nThe client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.'
         ),
     /** @description Controls how the model uses tools.
-      The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
-      Default is `{ mode: "auto" }`. */
+              The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
+              Default is `{ mode: "auto" }`. */
     toolChoice: ToolChoiceSchema.optional().describe(
         'Controls how the model uses tools.\nThe client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.\nDefault is `{ mode: "auto" }`.'
     )
-});
+}).describe('Parameters for a `sampling/createMessage` request.');
 
 /**
  * @description The client's response to a sampling/createMessage request from the server.
@@ -2419,25 +2550,29 @@ The client should inform the user before returning the sampled message, to allow
 to inspect the response (human in the loop) and decide whether to allow the server to see it.
  * @category `sampling/createMessage`
  */
-export const CreateMessageResultSchema = ResultSchema.extend(SamplingMessageSchema.shape).extend({
-    /** @description The name of the model that generated the message. */
-    model: z.string().describe('The name of the model that generated the message.'),
-    /** @description The reason why sampling stopped, if known.
-  
-      Standard values:
-      - "endTurn": Natural end of the assistant's turn
-      - "stopSequence": A stop sequence was encountered
-      - "maxTokens": Maximum token limit was reached
-      - "toolUse": The model wants to use one or more tools
-  
-      This field is an open string to allow for provider-specific stop reasons. */
-    stopReason: z
-        .union([z.literal('endTurn'), z.literal('stopSequence'), z.literal('maxTokens'), z.literal('toolUse'), z.string()])
-        .optional()
-        .describe(
-            'The reason why sampling stopped, if known.\n\nStandard values:\n- "endTurn": Natural end of the assistant\'s turn\n- "stopSequence": A stop sequence was encountered\n- "maxTokens": Maximum token limit was reached\n- "toolUse": The model wants to use one or more tools\n\nThis field is an open string to allow for provider-specific stop reasons.'
-        )
-});
+export const CreateMessageResultSchema = ResultSchema.extend(SamplingMessageSchema.shape)
+    .extend({
+        /** @description The name of the model that generated the message. */
+        model: z.string().describe('The name of the model that generated the message.'),
+        /** @description The reason why sampling stopped, if known.
+          
+              Standard values:
+              - "endTurn": Natural end of the assistant's turn
+              - "stopSequence": A stop sequence was encountered
+              - "maxTokens": Maximum token limit was reached
+              - "toolUse": The model wants to use one or more tools
+          
+              This field is an open string to allow for provider-specific stop reasons. */
+        stopReason: z
+            .union([z.literal('endTurn'), z.literal('stopSequence'), z.literal('maxTokens'), z.literal('toolUse'), z.string()])
+            .optional()
+            .describe(
+                'The reason why sampling stopped, if known.\n\nStandard values:\n- "endTurn": Natural end of the assistant\'s turn\n- "stopSequence": A stop sequence was encountered\n- "maxTokens": Maximum token limit was reached\n- "toolUse": The model wants to use one or more tools\n\nThis field is an open string to allow for provider-specific stop reasons.'
+            )
+    })
+    .describe(
+        "The client's response to a sampling/createMessage request from the server. The client should inform the user before returning the sampled message, to allow them to inspect the response (human in the loop) and decide whether to allow the server to see it."
+    );
 
 /** @internal */
 export const ClientResultSchema = z.union([
@@ -2458,7 +2593,9 @@ export const ClientResultSchema = z.union([
 export const CreateMessageRequestSchema = RequestSchema.extend({
     method: z.literal('sampling/createMessage'),
     params: CreateMessageRequestParamsSchema
-});
+}).describe(
+    'A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.'
+);
 
 /** @internal */
 export const ServerResultSchema = z.union([

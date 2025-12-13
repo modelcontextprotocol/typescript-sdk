@@ -438,6 +438,7 @@ const AST_TRANSFORMS: Transform[] = [
     applyFieldOverrides,
     addStrictToSchemas,
     convertToDiscriminatedUnion,
+    addTopLevelDescribe,
 ];
 
 /**
@@ -689,6 +690,54 @@ function convertToDiscriminatedUnion(sourceFile: SourceFile): void {
             varDecl.setInitializer(`z.discriminatedUnion('${discriminator}', [${members}])`);
             console.log(`    ✓ Converted ${schemaName} to discriminatedUnion('${discriminator}')`);
         }
+    }
+}
+
+/**
+ * Add .describe() to top-level schemas based on their JSDoc @description tag.
+ * ts-to-zod only adds .describe() to properties, not to the schema itself.
+ */
+function addTopLevelDescribe(sourceFile: SourceFile): void {
+    let count = 0;
+
+    for (const varStmt of sourceFile.getVariableStatements()) {
+        // Get JSDoc from the variable statement
+        const jsDocs = varStmt.getJsDocs();
+        if (jsDocs.length === 0) continue;
+
+        const jsDoc = jsDocs[0];
+        const descTag = jsDoc.getTags().find(tag => tag.getTagName() === 'description');
+        if (!descTag) continue;
+
+        // Get the description text
+        const descText = descTag.getCommentText()?.trim();
+        if (!descText) continue;
+
+        // Get the variable declaration
+        const decl = varStmt.getDeclarations()[0];
+        if (!decl) continue;
+
+        const schemaName = decl.getName();
+        if (!schemaName.endsWith('Schema')) continue;
+
+        const initializer = decl.getInitializer();
+        if (!initializer) continue;
+
+        const currentText = initializer.getText();
+
+        // Skip if already has .describe() at the end
+        if (/\.describe\([^)]+\)\s*$/.test(currentText)) continue;
+
+        // Escape quotes in description
+        const escapedDesc = descText.replace(/'/g, "\\'").replace(/\n/g, ' ');
+
+        // Add .describe() to the schema
+        decl.setInitializer(`${currentText}.describe('${escapedDesc}')`);
+        count++;
+    }
+
+    if (count > 0) {
+        console.log(`    ✓ Added .describe() to ${count} top-level schemas`);
     }
 }
 
