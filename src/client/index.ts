@@ -407,7 +407,8 @@ export class Client<
                 const requestedSchema = params.mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
 
                 if (params.mode === 'form' && validatedResult.action === 'accept' && validatedResult.content && requestedSchema) {
-                    if (this._capabilities.elicitation?.form?.applyDefaults) {
+                    // applyDefaults is an SDK extension not in the spec, so cast to access it
+                    if ((this._capabilities.elicitation?.form as { applyDefaults?: boolean } | undefined)?.applyDefaults) {
                         try {
                             applyElicitationDefaults(requestedSchema, validatedResult.content);
                         } catch {

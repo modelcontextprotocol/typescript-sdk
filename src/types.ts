@@ -197,6 +197,9 @@ import {
     // Derived capability schemas (generated from extracted types)
     ClientTasksCapabilitySchema,
     ServerTasksCapabilitySchema,
+    // Main capability schemas (with AssertObjectSchema and preprocess transforms)
+    ClientCapabilitiesSchema,
+    ServerCapabilitiesSchema,
     // Progress
     ProgressNotificationParamsSchema,
 } from './generated/sdk.schemas.js';
@@ -341,6 +344,8 @@ export {
     SamplingMessageContentBlockSchema,
     ClientTasksCapabilitySchema,
     ServerTasksCapabilitySchema,
+    ClientCapabilitiesSchema,
+    ServerCapabilitiesSchema,
     ProgressNotificationParamsSchema,
 };
 
@@ -435,105 +440,6 @@ export const JSONRPCMessageSchema = z.union([
  */
 
 /* Initialization */
-/**
- * Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
- */
-export const ClientCapabilitiesSchema = z.object({
-    /**
-     * Experimental, non-standard capabilities that the client supports.
-     */
-    experimental: z.record(z.string(), AssertObjectSchema).optional(),
-    /**
-     * Present if the client supports sampling from an LLM.
-     */
-    sampling: z
-        .object({
-            /**
-             * Present if the client supports context inclusion via includeContext parameter.
-             * If not declared, servers SHOULD only use `includeContext: "none"` (or omit it).
-             */
-            context: AssertObjectSchema.optional(),
-            /**
-             * Present if the client supports tool use via tools and toolChoice parameters.
-             */
-            tools: AssertObjectSchema.optional()
-        })
-        .optional(),
-    /**
-     * Present if the client supports eliciting user input.
-     */
-    elicitation: z
-        .preprocess(
-            value => {
-                if (value && typeof value === 'object' && !Array.isArray(value)) {
-                    if (Object.keys(value as Record<string, unknown>).length === 0) {
-                        return { form: {} };
-                    }
-                }
-                return value;
-            },
-            z.intersection(
-                z.object({
-                    form: z
-                        .intersection(z.object({ applyDefaults: z.boolean().optional() }), z.record(z.string(), z.unknown()))
-                        .optional(),
-                    url: AssertObjectSchema.optional()
-                }),
-                z.record(z.string(), z.unknown()).optional()
-            )
-        )
-        .optional(),
-    /**
-     * Present if the client supports listing roots.
-     */
-    roots: z
-        .object({
-            /**
-             * Whether the client supports issuing notifications for changes to the roots list.
-             */
-            listChanged: z.boolean().optional()
-        })
-        .optional(),
-    /**
-     * Present if the client supports task creation.
-     */
-    tasks: z
-        .looseObject({
-            /**
-             * Present if the client supports listing tasks.
-             */
-            list: AssertObjectSchema.optional(),
-            /**
-             * Present if the client supports cancelling tasks.
-             */
-            cancel: AssertObjectSchema.optional(),
-            /**
-             * Capabilities for task creation on specific request types.
-             */
-            requests: z
-                .looseObject({
-                    /**
-                     * Task support for sampling requests.
-                     */
-                    sampling: z
-                        .looseObject({
-                            createMessage: AssertObjectSchema.optional()
-                        })
-                        .optional(),
-                    /**
-                     * Task support for elicitation requests.
-                     */
-                    elicitation: z
-                        .looseObject({
-                            create: AssertObjectSchema.optional()
-                        })
-                        .optional()
-                })
-                .optional()
-        })
-        .optional()
-});
-
 
 /**
  * Elicitation capability schema - extracted from ClientCapabilitiesSchema.
@@ -541,94 +447,8 @@ export const ClientCapabilitiesSchema = z.object({
  */
 export const ElicitationCapabilitySchema = ClientCapabilitiesSchema.shape.elicitation.unwrap();
 
-
 export const isInitializeRequest = (value: unknown): value is InitializeRequest => InitializeRequestSchema.safeParse(value).success;
 
-/**
- * Capabilities that a server may support. Known capabilities are defined here, in this schema, but this is not a closed set: any server can define its own, additional capabilities.
- */
-export const ServerCapabilitiesSchema = z.object({
-    /**
-     * Experimental, non-standard capabilities that the server supports.
-     */
-    experimental: z.record(z.string(), AssertObjectSchema).optional(),
-    /**
-     * Present if the server supports sending log messages to the client.
-     */
-    logging: AssertObjectSchema.optional(),
-    /**
-     * Present if the server supports sending completions to the client.
-     */
-    completions: AssertObjectSchema.optional(),
-    /**
-     * Present if the server offers any prompt templates.
-     */
-    prompts: z
-        .object({
-            /**
-             * Whether this server supports issuing notifications for changes to the prompt list.
-             */
-            listChanged: z.boolean().optional()
-        })
-        .optional(),
-    /**
-     * Present if the server offers any resources to read.
-     */
-    resources: z
-        .object({
-            /**
-             * Whether this server supports clients subscribing to resource updates.
-             */
-            subscribe: z.boolean().optional(),
-
-            /**
-             * Whether this server supports issuing notifications for changes to the resource list.
-             */
-            listChanged: z.boolean().optional()
-        })
-        .optional(),
-    /**
-     * Present if the server offers any tools to call.
-     */
-    tools: z
-        .object({
-            /**
-             * Whether this server supports issuing notifications for changes to the tool list.
-             */
-            listChanged: z.boolean().optional()
-        })
-        .optional(),
-    /**
-     * Present if the server supports task creation.
-     */
-    tasks: z
-        .looseObject({
-            /**
-             * Present if the server supports listing tasks.
-             */
-            list: AssertObjectSchema.optional(),
-            /**
-             * Present if the server supports cancelling tasks.
-             */
-            cancel: AssertObjectSchema.optional(),
-            /**
-             * Capabilities for task creation on specific request types.
-             */
-            requests: z
-                .looseObject({
-                    /**
-                     * Task support for tool requests.
-                     */
-                    tools: z
-                        .looseObject({
-                            call: AssertObjectSchema.optional()
-                        })
-                        .optional()
-                })
-                .optional()
-        })
-        .optional()
-});
 
 
 

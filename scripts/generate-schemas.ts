@@ -480,6 +480,9 @@ const AST_TRANSFORMS: Transform[] = [
     addStrictToSchemas,
     convertToDiscriminatedUnion,
     addTopLevelDescribe,
+    addAssertObjectSchema,
+    addElicitationPreprocess,
+    convertCapabilitiesToLooseObject,
 ];
 
 /**
@@ -782,6 +785,142 @@ function addTopLevelDescribe(sourceFile: SourceFile): void {
     }
 }
 
+/**
+ * Schemas where z.record(z.string(), z.any()) should be replaced with AssertObjectSchema.
+ * These are capability schemas that use `object` type for extensibility.
+ */
+const ASSERT_OBJECT_SCHEMAS = [
+    'ClientCapabilitiesSchema',
+    'ServerCapabilitiesSchema',
+    'ClientTasksCapabilitySchema',
+    'ServerTasksCapabilitySchema',
+];
+
+/**
+ * Add AssertObjectSchema definition and replace z.record(z.string(), z.any()) with it
+ * in capability schemas. This provides better TypeScript typing (object vs { [x: string]: any }).
+ */
+function addAssertObjectSchema(sourceFile: SourceFile): void {
+    // Check if any of the target schemas exist
+    const hasTargetSchemas = ASSERT_OBJECT_SCHEMAS.some(name => sourceFile.getVariableDeclaration(name));
+    if (!hasTargetSchemas) return;
+
+    // Add AssertObjectSchema definition after imports
+    const lastImport = sourceFile.getImportDeclarations().at(-1);
+    if (lastImport) {
+        lastImport.replaceWithText(`${lastImport.getText()}
+
+/**
+ * Assert 'object' type schema - validates that value is a non-null object.
+ * Provides better TypeScript typing than z.record(z.string(), z.any()).
+ * @internal
+ */
+const AssertObjectSchema = z.custom<object>((v): v is object => v !== null && (typeof v === 'object' || typeof v === 'function'));`);
+    }
+
+    // Replace z.record(z.string(), z.any()) with AssertObjectSchema in target schemas
+    let count = 0;
+    for (const schemaName of ASSERT_OBJECT_SCHEMAS) {
+        const varDecl = sourceFile.getVariableDeclaration(schemaName);
+        if (!varDecl) continue;
+
+        const initializer = varDecl.getInitializer();
+        if (!initializer) continue;
+
+        const text = initializer.getText();
+        // Replace the pattern - note we need to handle optional() suffix too
+        const newText = text
+            .replace(/z\.record\(z\.string\(\), z\.any\(\)\)/g, 'AssertObjectSchema');
+
+        if (newText !== text) {
+            varDecl.setInitializer(newText);
+            count++;
+        }
+    }
+
+    if (count > 0) {
+        console.log(`    ✓ Replaced z.record(z.string(), z.any()) with AssertObjectSchema in ${count} schemas`);
+    }
+}
+
+/**
+ * Convert capability schemas to use looseObject for extensibility.
+ * The spec says capabilities are "not a closed set" - any client/server can define
+ * additional capabilities. Using looseObject allows extra properties.
+ */
+function convertCapabilitiesToLooseObject(sourceFile: SourceFile): void {
+    const CAPABILITY_SCHEMAS = [
+        'ClientCapabilitiesSchema',
+        'ServerCapabilitiesSchema',
+        'ClientTasksCapabilitySchema',
+        'ServerTasksCapabilitySchema',
+    ];
+
+    let count = 0;
+    for (const schemaName of CAPABILITY_SCHEMAS) {
+        const varDecl = sourceFile.getVariableDeclaration(schemaName);
+        if (!varDecl) continue;
+
+        const initializer = varDecl.getInitializer();
+        if (!initializer) continue;
+
+        const text = initializer.getText();
+        // Replace z.object( with z.looseObject( for nested objects in capabilities
+        // This allows extensibility for additional capability properties
+        const newText = text.replace(/z\.object\(/g, 'z.looseObject(');
+
+        if (newText !== text) {
+            varDecl.setInitializer(newText);
+            count++;
+        }
+    }
+
+    if (count > 0) {
+        console.log(`    ✓ Converted ${count} capability schemas to use looseObject for extensibility`);
+    }
+}
+
+/**
+ * Add z.preprocess to ClientCapabilitiesSchema.elicitation for backwards compatibility.
+ * - preprocess: transforms empty {} to { form: {} } for SDK backwards compatibility
+ * - keeps original schema structure to maintain type compatibility with spec
+ */
+function addElicitationPreprocess(sourceFile: SourceFile): void {
+    const varDecl = sourceFile.getVariableDeclaration('ClientCapabilitiesSchema');
+    if (!varDecl) return;
+
+    const initializer = varDecl.getInitializer();
+    if (!initializer) return;
+
+    let text = initializer.getText();
+
+    // Find the elicitation field and wrap with preprocess
+    // Pattern: elicitation: z.object({ form: ..., url: ... }).optional().describe(...)
+    // We need to capture everything up to and including the object's closing paren, then handle the trailing .optional().describe() separately
+    const elicitationPattern = /elicitation:\s*(z\s*\.\s*object\(\s*\{[^}]*form:[^}]*url:[^}]*\}\s*\))\s*\.optional\(\)(\s*\.describe\([^)]*\))?/;
+
+    const match = text.match(elicitationPattern);
+    if (match) {
+        const innerSchema = match[1]; // z.object({...}) without .optional()
+        const describeCall = match[2] || ''; // .describe(...) if present
+        const replacement = `elicitation: z.preprocess(
+            (value) => {
+                if (value && typeof value === 'object' && !Array.isArray(value)) {
+                    if (Object.keys(value as Record<string, unknown>).length === 0) {
+                        return { form: {} };
+                    }
+                }
+                return value;
+            },
+            ${innerSchema}${describeCall}
+        ).optional()`;
+
+        text = text.replace(elicitationPattern, replacement);
+        varDecl.setInitializer(text);
+        console.log('    ✓ Added z.preprocess to ClientCapabilitiesSchema.elicitation');
+    }
+}
+
 // =============================================================================
 // Main
 // =============================================================================
@@ -872,6 +1011,40 @@ function postProcessTests(content: string): string {
 // Integration tests verifying schemas match TypeScript types
 // Run: npm run generate:schemas`,
     );
+
+    // Comment out bidirectional type checks for schemas that use looseObject.
+    // looseObject adds an index signature [x: string]: unknown which makes
+    // spec types (without index signature) not assignable to schema-inferred types.
+    // The one-way check (schema-inferred → spec) is kept to ensure compatibility.
+    const looseObjectSchemas = [
+        'ClientCapabilities',
+        'ServerCapabilities',
+        'ClientTasksCapability',
+        'ServerTasksCapability',
+        'InitializeResult',
+        'InitializeRequestParams',
+        'InitializeRequest',
+        'ClientRequest', // Contains InitializeRequest
+    ];
+
+    let commentedCount = 0;
+    for (const schemaName of looseObjectSchemas) {
+        // Comment out spec → schema-inferred checks (these fail with looseObject)
+        // ts-to-zod generates PascalCase type names
+        // Pattern matches: expectType<FooSchemaInferredType>({} as spec.Foo)
+        const pattern = new RegExp(
+            `(expectType<${schemaName}SchemaInferredType>\\(\\{\\} as spec\\.${schemaName}\\))`,
+            'g'
+        );
+        const before = content;
+        content = content.replace(pattern, `// Skip: looseObject index signature incompatible with spec interface\n// $1`);
+        if (before !== content) {
+            commentedCount++;
+        }
+    }
+    if (commentedCount > 0) {
+        console.log(`    ✓ Commented out ${commentedCount} looseObject type checks in test file`);
+    }
 
     return content;
 }

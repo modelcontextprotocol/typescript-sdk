@@ -4,6 +4,13 @@
 import { z } from 'zod/v4';
 
 /**
+ * Assert 'object' type schema - validates that value is a non-null object.
+ * Provides better TypeScript typing than z.record(z.string(), z.any()).
+ * @internal
+ */
+const AssertObjectSchema = z.custom<object>((v): v is object => v !== null && (typeof v === 'object' || typeof v === 'function'));
+
+/**
  * @description A progress token, used to associate progress notifications with the original request.
  * @category Common Types
  */
@@ -215,15 +222,15 @@ export const CancelledNotificationSchema = NotificationSchema.extend({
  * @category `initialize`
  */
 export const ClientCapabilitiesSchema = z
-    .object({
+    .looseObject({
         /** @description Experimental, non-standard capabilities that the client supports. */
         experimental: z
-            .record(z.string(), z.record(z.string(), z.any()))
+            .record(z.string(), AssertObjectSchema)
             .optional()
             .describe('Experimental, non-standard capabilities that the client supports.'),
         /** @description Present if the client supports listing roots. */
         roots: z
-            .object({
+            .looseObject({
                 /** @description Whether the client supports notifications for changes to the roots list. */
                 listChanged: z.boolean().optional().describe('Whether the client supports notifications for changes to the roots list.')
             })
@@ -231,60 +238,63 @@ export const ClientCapabilitiesSchema = z
             .describe('Present if the client supports listing roots.'),
         /** @description Present if the client supports sampling from an LLM. */
         sampling: z
-            .object({
+            .looseObject({
                 /** @description Whether the client supports context inclusion via includeContext parameter.
-                  If not declared, servers SHOULD only use `includeContext: "none"` (or omit it). */
-                context: z
-                    .record(z.string(), z.any())
-                    .optional()
-                    .describe(
-                        'Whether the client supports context inclusion via includeContext parameter.\nIf not declared, servers SHOULD only use `includeContext: "none"` (or omit it).'
-                    ),
+                                          If not declared, servers SHOULD only use `includeContext: "none"` (or omit it). */
+                context: AssertObjectSchema.optional().describe(
+                    'Whether the client supports context inclusion via includeContext parameter.\nIf not declared, servers SHOULD only use `includeContext: "none"` (or omit it).'
+                ),
                 /** @description Whether the client supports tool use via tools and toolChoice parameters. */
-                tools: z
-                    .record(z.string(), z.any())
-                    .optional()
-                    .describe('Whether the client supports tool use via tools and toolChoice parameters.')
+                tools: AssertObjectSchema.optional().describe('Whether the client supports tool use via tools and toolChoice parameters.')
             })
             .optional()
             .describe('Present if the client supports sampling from an LLM.'),
         /** @description Present if the client supports elicitation from the server. */
         elicitation: z
-            .object({
-                form: z.record(z.string(), z.any()).optional(),
-                url: z.record(z.string(), z.any()).optional()
-            })
-            .optional()
-            .describe('Present if the client supports elicitation from the server.'),
+            .preprocess(
+                value => {
+                    if (value && typeof value === 'object' && !Array.isArray(value)) {
+                        if (Object.keys(value as Record<string, unknown>).length === 0) {
+                            return { form: {} };
+                        }
+                    }
+                    return value;
+                },
+                z
+                    .looseObject({
+                        form: AssertObjectSchema.optional(),
+                        url: AssertObjectSchema.optional()
+                    })
+                    .describe('Present if the client supports elicitation from the server.')
+            )
+            .optional(),
         /** @description Present if the client supports task-augmented requests. */
         tasks: z
-            .object({
+            .looseObject({
                 /** @description Whether this client supports tasks/list. */
-                list: z.record(z.string(), z.any()).optional().describe('Whether this client supports tasks/list.'),
+                list: AssertObjectSchema.optional().describe('Whether this client supports tasks/list.'),
                 /** @description Whether this client supports tasks/cancel. */
-                cancel: z.record(z.string(), z.any()).optional().describe('Whether this client supports tasks/cancel.'),
+                cancel: AssertObjectSchema.optional().describe('Whether this client supports tasks/cancel.'),
                 /** @description Specifies which request types can be augmented with tasks. */
                 requests: z
-                    .object({
+                    .looseObject({
                         /** @description Task support for sampling-related requests. */
                         sampling: z
-                            .object({
+                            .looseObject({
                                 /** @description Whether the client supports task-augmented sampling/createMessage requests. */
-                                createMessage: z
-                                    .record(z.string(), z.any())
-                                    .optional()
-                                    .describe('Whether the client supports task-augmented sampling/createMessage requests.')
+                                createMessage: AssertObjectSchema.optional().describe(
+                                    'Whether the client supports task-augmented sampling/createMessage requests.'
+                                )
                             })
                             .optional()
                             .describe('Task support for sampling-related requests.'),
                         /** @description Task support for elicitation-related requests. */
                         elicitation: z
-                            .object({
+                            .looseObject({
                                 /** @description Whether the client supports task-augmented elicitation/create requests. */
-                                create: z
-                                    .record(z.string(), z.any())
-                                    .optional()
-                                    .describe('Whether the client supports task-augmented elicitation/create requests.')
+                                create: AssertObjectSchema.optional().describe(
+                                    'Whether the client supports task-augmented elicitation/create requests.'
+                                )
                             })
                             .optional()
                             .describe('Task support for elicitation-related requests.')
@@ -304,22 +314,19 @@ export const ClientCapabilitiesSchema = z
  * @category `initialize`
  */
 export const ServerCapabilitiesSchema = z
-    .object({
+    .looseObject({
         /** @description Experimental, non-standard capabilities that the server supports. */
         experimental: z
-            .record(z.string(), z.record(z.string(), z.any()))
+            .record(z.string(), AssertObjectSchema)
             .optional()
             .describe('Experimental, non-standard capabilities that the server supports.'),
         /** @description Present if the server supports sending log messages to the client. */
-        logging: z.record(z.string(), z.any()).optional().describe('Present if the server supports sending log messages to the client.'),
+        logging: AssertObjectSchema.optional().describe('Present if the server supports sending log messages to the client.'),
         /** @description Present if the server supports argument autocompletion suggestions. */
-        completions: z
-            .record(z.string(), z.any())
-            .optional()
-            .describe('Present if the server supports argument autocompletion suggestions.'),
+        completions: AssertObjectSchema.optional().describe('Present if the server supports argument autocompletion suggestions.'),
         /** @description Present if the server offers any prompt templates. */
         prompts: z
-            .object({
+            .looseObject({
                 /** @description Whether this server supports notifications for changes to the prompt list. */
                 listChanged: z.boolean().optional().describe('Whether this server supports notifications for changes to the prompt list.')
             })
@@ -327,7 +334,7 @@ export const ServerCapabilitiesSchema = z
             .describe('Present if the server offers any prompt templates.'),
         /** @description Present if the server offers any resources to read. */
         resources: z
-            .object({
+            .looseObject({
                 /** @description Whether this server supports subscribing to resource updates. */
                 subscribe: z.boolean().optional().describe('Whether this server supports subscribing to resource updates.'),
                 /** @description Whether this server supports notifications for changes to the resource list. */
@@ -337,7 +344,7 @@ export const ServerCapabilitiesSchema = z
             .describe('Present if the server offers any resources to read.'),
         /** @description Present if the server offers any tools to call. */
         tools: z
-            .object({
+            .looseObject({
                 /** @description Whether this server supports notifications for changes to the tool list. */
                 listChanged: z.boolean().optional().describe('Whether this server supports notifications for changes to the tool list.')
             })
@@ -345,22 +352,21 @@ export const ServerCapabilitiesSchema = z
             .describe('Present if the server offers any tools to call.'),
         /** @description Present if the server supports task-augmented requests. */
         tasks: z
-            .object({
+            .looseObject({
                 /** @description Whether this server supports tasks/list. */
-                list: z.record(z.string(), z.any()).optional().describe('Whether this server supports tasks/list.'),
+                list: AssertObjectSchema.optional().describe('Whether this server supports tasks/list.'),
                 /** @description Whether this server supports tasks/cancel. */
-                cancel: z.record(z.string(), z.any()).optional().describe('Whether this server supports tasks/cancel.'),
+                cancel: AssertObjectSchema.optional().describe('Whether this server supports tasks/cancel.'),
                 /** @description Specifies which request types can be augmented with tasks. */
                 requests: z
-                    .object({
+                    .looseObject({
                         /** @description Task support for tool-related requests. */
                         tools: z
-                            .object({
+                            .looseObject({
                                 /** @description Whether the server supports task-augmented tools/call requests. */
-                                call: z
-                                    .record(z.string(), z.any())
-                                    .optional()
-                                    .describe('Whether the server supports task-augmented tools/call requests.')
+                                call: AssertObjectSchema.optional().describe(
+                                    'Whether the server supports task-augmented tools/call requests.'
+                                )
                             })
                             .optional()
                             .describe('Task support for tool-related requests.')
@@ -1910,33 +1916,31 @@ export const ListToolsResultSchema = PaginatedResultSchema.extend({
 }).describe("The server's response to a tools/list request from the client.");
 
 /** Extracted from ClientCapabilities["tasks"]. */
-export const ClientTasksCapabilitySchema = z.object({
+export const ClientTasksCapabilitySchema = z.looseObject({
     /** @description Whether this client supports tasks/list. */
-    list: z.record(z.string(), z.any()).optional().describe('Whether this client supports tasks/list.'),
+    list: AssertObjectSchema.optional().describe('Whether this client supports tasks/list.'),
     /** @description Whether this client supports tasks/cancel. */
-    cancel: z.record(z.string(), z.any()).optional().describe('Whether this client supports tasks/cancel.'),
+    cancel: AssertObjectSchema.optional().describe('Whether this client supports tasks/cancel.'),
     /** @description Specifies which request types can be augmented with tasks. */
     requests: z
-        .object({
+        .looseObject({
             /** @description Task support for sampling-related requests. */
             sampling: z
-                .object({
+                .looseObject({
                     /** @description Whether the client supports task-augmented sampling/createMessage requests. */
-                    createMessage: z
-                        .record(z.string(), z.any())
-                        .optional()
-                        .describe('Whether the client supports task-augmented sampling/createMessage requests.')
+                    createMessage: AssertObjectSchema.optional().describe(
+                        'Whether the client supports task-augmented sampling/createMessage requests.'
+                    )
                 })
                 .optional()
                 .describe('Task support for sampling-related requests.'),
             /** @description Task support for elicitation-related requests. */
             elicitation: z
-                .object({
+                .looseObject({
                     /** @description Whether the client supports task-augmented elicitation/create requests. */
-                    create: z
-                        .record(z.string(), z.any())
-                        .optional()
-                        .describe('Whether the client supports task-augmented elicitation/create requests.')
+                    create: AssertObjectSchema.optional().describe(
+                        'Whether the client supports task-augmented elicitation/create requests.'
+                    )
                 })
                 .optional()
                 .describe('Task support for elicitation-related requests.')
@@ -1946,22 +1950,19 @@ export const ClientTasksCapabilitySchema = z.object({
 });
 
 /** Extracted from ServerCapabilities["tasks"]. */
-export const ServerTasksCapabilitySchema = z.object({
+export const ServerTasksCapabilitySchema = z.looseObject({
     /** @description Whether this server supports tasks/list. */
-    list: z.record(z.string(), z.any()).optional().describe('Whether this server supports tasks/list.'),
+    list: AssertObjectSchema.optional().describe('Whether this server supports tasks/list.'),
     /** @description Whether this server supports tasks/cancel. */
-    cancel: z.record(z.string(), z.any()).optional().describe('Whether this server supports tasks/cancel.'),
+    cancel: AssertObjectSchema.optional().describe('Whether this server supports tasks/cancel.'),
     /** @description Specifies which request types can be augmented with tasks. */
     requests: z
-        .object({
+        .looseObject({
             /** @description Task support for tool-related requests. */
             tools: z
-                .object({
+                .looseObject({
                     /** @description Whether the server supports task-augmented tools/call requests. */
-                    call: z
-                        .record(z.string(), z.any())
-                        .optional()
-                        .describe('Whether the server supports task-augmented tools/call requests.')
+                    call: AssertObjectSchema.optional().describe('Whether the server supports task-augmented tools/call requests.')
                 })
                 .optional()
                 .describe('Task support for tool-related requests.')
