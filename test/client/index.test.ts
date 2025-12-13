@@ -30,7 +30,8 @@ import {
     type Result,
     type RequestBase,
     type NotificationBase,
-    type ResultBase
+    type ResultBase,
+    type ClientCapabilities
 } from '../../src/types.js';
 import { Transport } from '../../src/shared/transport.js';
 import { Server } from '../../src/server/index.js';
@@ -1853,16 +1854,8 @@ describe('outputSchema validation', () => {
             {
                 capabilities: {
                     tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            },
-                            tasks: {
-                                get: true,
-                                list: {},
-                                result: true
-                            }
-                        }
+                        list: {},
+                        cancel: {}
                     }
                 }
             }
@@ -1947,16 +1940,8 @@ describe('outputSchema validation', () => {
             {
                 capabilities: {
                     tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            },
-                            tasks: {
-                                get: true,
-                                list: {},
-                                result: true
-                            }
-                        }
+                        list: {},
+                        cancel: {}
                     }
                 }
             }
@@ -2037,16 +2022,8 @@ describe('outputSchema validation', () => {
             {
                 capabilities: {
                     tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            },
-                            tasks: {
-                                get: true,
-                                list: {},
-                                result: true
-                            }
-                        }
+                        list: {},
+                        cancel: {}
                     }
                 }
             }
@@ -2123,16 +2100,8 @@ describe('outputSchema validation', () => {
             {
                 capabilities: {
                     tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            },
-                            tasks: {
-                                get: true,
-                                list: {},
-                                result: true
-                            }
-                        }
+                        list: {},
+                        cancel: {}
                     }
                 }
             }
@@ -2237,16 +2206,8 @@ describe('outputSchema validation', () => {
             {
                 capabilities: {
                     tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            },
-                            tasks: {
-                                get: true,
-                                list: {},
-                                result: true
-                            }
-                        }
+                        list: {},
+                        cancel: {}
                     }
                 }
             }
@@ -2520,10 +2481,11 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
+                            list: {},
+                            cancel: {},
                             requests: {
                                 tools: {
-                                    call: {},
-                                    list: {}
+                                    call: {}
                                 }
                             }
                         }
@@ -2745,11 +2707,8 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -2838,11 +2797,8 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -2930,11 +2886,8 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -3021,11 +2974,8 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -3139,11 +3089,8 @@ describe('Task-based execution', () => {
             {
                 capabilities: {
                     tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            }
-                        }
+                        list: {},
+                        cancel: {}
                     }
                 }
             }
@@ -3226,11 +3173,8 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -3273,11 +3217,8 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -3325,11 +3266,8 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
