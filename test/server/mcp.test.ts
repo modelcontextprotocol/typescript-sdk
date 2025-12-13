@@ -6456,8 +6456,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            list: {},
-                            cancel: {}
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
                         }
                     },
                     taskStore

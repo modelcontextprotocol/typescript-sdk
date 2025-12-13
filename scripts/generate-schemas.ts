@@ -17,6 +17,7 @@
  *    - `z.record().and(z.object())` → `z.looseObject()`
  *    - `jsonrpc: z.any()` → `z.literal("2.0")`
  *    - Add `.int()` refinements to ProgressTokenSchema, RequestIdSchema
+ *    - Add `.default([])` to content arrays for backwards compatibility
  *    - `z.union([z.literal("a"), ...])` → `z.enum(["a", ...])`
  *    - Field-level validation overrides (datetime, startsWith, etc.)
  *
@@ -88,6 +89,15 @@ const FIELD_OVERRIDES: Record<string, Record<string, string>> = {
  * Schemas that need .int() added to their z.number() members.
  */
 const INTEGER_SCHEMAS = ['ProgressTokenSchema', 'RequestIdSchema'];
+
+/**
+ * Fields that need .default([]) for backwards compatibility.
+ * The SDK historically made these optional with empty array defaults.
+ */
+const ARRAY_DEFAULT_FIELDS: Record<string, string[]> = {
+    'CallToolResultSchema': ['content'],
+    'ToolResultContentSchema': ['content'],
+};
 
 /**
  * Schemas that need .strict() added for stricter validation.
@@ -616,6 +626,7 @@ const AST_TRANSFORMS: Transform[] = [
     transformRecordAndToLooseObject,
     transformTypeofExpressions,
     transformIntegerRefinements,
+    transformArrayDefaults,
     transformUnionToEnum,
     applyFieldOverrides,
     addStrictToSchemas,
@@ -737,6 +748,39 @@ function transformIntegerRefinements(sourceFile: SourceFile): void {
         for (const node of nodesToReplace.reverse()) {
             node.replaceWithText('z.number().int()');
         }
+    }
+}
+
+/**
+ * Add .default([]) to array fields for backwards compatibility.
+ * The SDK historically made certain content arrays optional with empty defaults.
+ */
+function transformArrayDefaults(sourceFile: SourceFile): void {
+    for (const [schemaName, fieldNames] of Object.entries(ARRAY_DEFAULT_FIELDS)) {
+        const varDecl = sourceFile.getVariableDeclaration(schemaName);
+        if (!varDecl) continue;
+
+        const initializer = varDecl.getInitializer();
+        if (!initializer) continue;
+
+        // Find property assignments for the target fields
+        initializer.forEachDescendant((node) => {
+            if (!Node.isPropertyAssignment(node)) return;
+
+            const propName = node.getName();
+            if (!fieldNames.includes(propName)) return;
+
+            // Get the initializer (the value assigned to the property)
+            const propInit = node.getInitializer();
+            if (!propInit) return;
+
+            const propText = propInit.getText();
+            // Only add .default([]) if it's a z.array() and doesn't already have .default()
+            if (propText.includes('z.array(') && !propText.includes('.default(')) {
+                // Append .default([]) to the existing expression
+                propInit.replaceWithText(propText + '.default([])');
+            }
+        });
     }
 }
 

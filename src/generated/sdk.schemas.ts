@@ -2259,7 +2259,8 @@ export const ToolResultContentSchema = z
             .array(ContentBlockSchema)
             .describe(
                 'The unstructured result content of the tool use.\n\nThis has the same format as CallToolResult.content and can include text, images,\naudio, resource links, and embedded resources.'
-            ),
+            )
+            .default([]),
         /** @description An optional structured result object.
           
               If the tool defined an outputSchema, this SHOULD conform to that schema. */
@@ -2389,7 +2390,10 @@ export const ListResourcesResultSchema = PaginatedResultSchema.extend({
  */
 export const CallToolResultSchema = ResultSchema.extend({
     /** @description A list of content objects that represent the unstructured result of the tool call. */
-    content: z.array(ContentBlockSchema).describe('A list of content objects that represent the unstructured result of the tool call.'),
+    content: z
+        .array(ContentBlockSchema)
+        .describe('A list of content objects that represent the unstructured result of the tool call.')
+        .default([]),
     /** @description An optional JSON object that represents the structured result of the tool call. */
     structuredContent: z
         .record(z.string(), z.unknown())
