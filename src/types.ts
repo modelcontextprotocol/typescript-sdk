@@ -163,6 +163,19 @@ import {
     // ReadResource schemas
     ReadResourceRequestSchema,
     ReadResourceResultSchema,
+    // Prompt schemas
+    PromptMessageSchema,
+    PromptSchema,
+    PromptArgumentSchema,
+    // Resource schemas
+    ResourceSchema,
+    ResourceTemplateSchema,
+    // Tool schemas
+    ToolSchema,
+    ToolUseContentSchema,
+    ToolResultContentSchema,
+    // String schema
+    StringSchemaSchema,
 } from './generated/sdk.schemas.js';
 
 // Alias RequestParamsSchema to BaseRequestParamsSchema for internal use
@@ -286,6 +299,15 @@ export {
     ResourceTemplateReferenceSchema,
     ReadResourceRequestSchema,
     ReadResourceResultSchema,
+    PromptMessageSchema,
+    PromptSchema,
+    PromptArgumentSchema,
+    ResourceSchema,
+    ResourceTemplateSchema,
+    ToolSchema,
+    ToolUseContentSchema,
+    ToolResultContentSchema,
+    StringSchemaSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -683,75 +705,7 @@ export const TaskStatusNotificationParamsSchema = NotificationsParamsSchema.merg
 // Note: ResourceContentsSchema, TextResourceContentsSchema, BlobResourceContentsSchema
 // are re-exported from generated with Base64 validation.
 
-/**
- * A known resource that the server is capable of reading.
- */
-export const ResourceSchema = z.object({
-    ...BaseMetadataSchema.shape,
-    ...IconsSchema.shape,
-    /**
-     * The URI of this resource.
-     */
-    uri: z.string(),
-
-    /**
-     * A description of what this resource represents.
-     *
-     * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
-     */
-    description: z.optional(z.string()),
-
-    /**
-     * The MIME type of this resource, if known.
-     */
-    mimeType: z.optional(z.string()),
-
-    /**
-     * Optional annotations for the client.
-     */
-    annotations: AnnotationsSchema.optional(),
-
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.optional(z.looseObject({}))
-});
-
-/**
- * A template description for resources available on the server.
- */
-export const ResourceTemplateSchema = z.object({
-    ...BaseMetadataSchema.shape,
-    ...IconsSchema.shape,
-    /**
-     * A URI template (according to RFC 6570) that can be used to construct resource URIs.
-     */
-    uriTemplate: z.string(),
-
-    /**
-     * A description of what this template is for.
-     *
-     * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
-     */
-    description: z.optional(z.string()),
-
-    /**
-     * The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
-     */
-    mimeType: z.optional(z.string()),
-
-    /**
-     * Optional annotations for the client.
-     */
-    annotations: AnnotationsSchema.optional(),
-
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.optional(z.looseObject({}))
-});
+// Note: ResourceSchema, ResourceTemplateSchema are re-exported from generated.
 
 // Note: ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, SubscribeRequestSchema,
 // UnsubscribeRequestSchema are re-exported from generated.
@@ -791,46 +745,8 @@ export const ResourceUpdatedNotificationParamsSchema = NotificationsParamsSchema
 // Note: ResourceUpdatedNotificationSchema is re-exported from generated.
 
 /* Prompts */
-/**
- * Describes an argument that a prompt can accept.
- */
-export const PromptArgumentSchema = z.object({
-    /**
-     * The name of the argument.
-     */
-    name: z.string(),
-    /**
-     * A human-readable description of the argument.
-     */
-    description: z.optional(z.string()),
-    /**
-     * Whether this argument must be provided.
-     */
-    required: z.optional(z.boolean())
-});
-
-/**
- * A prompt or prompt template that the server offers.
- */
-export const PromptSchema = z.object({
-    ...BaseMetadataSchema.shape,
-    ...IconsSchema.shape,
-    /**
-     * An optional description of what this prompt provides
-     */
-    description: z.optional(z.string()),
-    /**
-     * A list of arguments to use for templating the prompt.
-     */
-    arguments: z.optional(z.array(PromptArgumentSchema)),
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.optional(z.looseObject({}))
-});
-
-// Note: ListPromptsRequestSchema, GetPromptRequestSchema are re-exported from generated.
+// Note: PromptArgumentSchema, PromptSchema, ListPromptsRequestSchema, GetPromptRequestSchema
+// are re-exported from generated.
 
 // Note: ListPromptsResultSchema is re-exported from generated.
 
@@ -851,113 +767,12 @@ export const GetPromptRequestParamsSchema = BaseRequestParamsSchema.extend({
 // Note: TextContentSchema, ImageContentSchema, AudioContentSchema are re-exported
 // from generated with Base64 validation for data fields.
 
-/**
- * A tool call request from an assistant (LLM).
- * Represents the assistant's request to use a tool.
- */
-export const ToolUseContentSchema = z.object({
-    type: z.literal('tool_use'),
-    /**
-     * The name of the tool to invoke.
-     * Must match a tool name from the request's tools array.
-     */
-    name: z.string(),
-    /**
-     * Unique identifier for this tool call.
-     * Used to correlate with ToolResultContent in subsequent messages.
-     */
-    id: z.string(),
-    /**
-     * Arguments to pass to the tool.
-     * Must conform to the tool's inputSchema.
-     */
-    input: z.record(z.string(), z.unknown()),
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.record(z.string(), z.unknown()).optional()
-});
-
-// Note: EmbeddedResourceSchema, ResourceLinkSchema, ContentBlockSchema are re-exported from generated.
-
-/**
- * Describes a message returned as part of a prompt.
- */
-export const PromptMessageSchema = z.object({
-    role: RoleSchema,
-    content: ContentBlockSchema
-});
-
-// Note: GetPromptResultSchema, PromptListChangedNotificationSchema are re-exported from generated.
+// Note: ToolUseContentSchema, EmbeddedResourceSchema, ResourceLinkSchema, ContentBlockSchema,
+// PromptMessageSchema, GetPromptResultSchema, PromptListChangedNotificationSchema are re-exported from generated.
 
 /* Tools */
-/**
- * Additional properties describing a Tool to clients.
- *
- * NOTE: all properties in ToolAnnotations are **hints**.
- * They are not guaranteed to provide a faithful description of
- * tool behavior (including descriptive properties like `title`).
- *
- * Clients should never make tool use decisions based on ToolAnnotations
- * received from untrusted servers.
- *
- * Note: ToolAnnotationsSchema and ToolExecutionSchema are re-exported from generated schemas.
- */
-
-/**
- * Definition for a tool the client can call.
- */
-export const ToolSchema = z.object({
-    ...BaseMetadataSchema.shape,
-    ...IconsSchema.shape,
-    /**
-     * A human-readable description of the tool.
-     */
-    description: z.string().optional(),
-    /**
-     * A JSON Schema 2020-12 object defining the expected parameters for the tool.
-     * Must have type: 'object' at the root level per MCP spec.
-     */
-    inputSchema: z
-        .object({
-            type: z.literal('object'),
-            properties: z.record(z.string(), AssertObjectSchema).optional(),
-            required: z.array(z.string()).optional()
-        })
-        .catchall(z.unknown()),
-    /**
-     * An optional JSON Schema 2020-12 object defining the structure of the tool's output
-     * returned in the structuredContent field of a CallToolResult.
-     * Must have type: 'object' at the root level per MCP spec.
-     */
-    outputSchema: z
-        .object({
-            type: z.literal('object'),
-            properties: z.record(z.string(), AssertObjectSchema).optional(),
-            required: z.array(z.string()).optional()
-        })
-        .catchall(z.unknown())
-        .optional(),
-    /**
-     * Optional additional tool information.
-     */
-    annotations: ToolAnnotationsSchema.optional(),
-    /**
-     * Execution-related properties for this tool.
-     */
-    execution: ToolExecutionSchema.optional(),
-
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.record(z.string(), z.unknown()).optional()
-});
-
-// Note: ListToolsRequestSchema is re-exported from generated.
-
-// Note: ListToolsResultSchema, CallToolResultSchema, CallToolRequestParamsSchema,
+// Note: ToolAnnotationsSchema, ToolExecutionSchema, ToolSchema, ListToolsRequestSchema,
+// ListToolsResultSchema, CallToolResultSchema, CallToolRequestParamsSchema,
 // CallToolRequestSchema, ToolListChangedNotificationSchema are re-exported from generated.
 
 /**
@@ -1080,23 +895,7 @@ export const LoggingMessageNotificationParamsSchema = NotificationsParamsSchema.
 });
 
 /* Sampling */
-/**
- * The result of a tool execution, provided by the user (server).
- * Represents the outcome of invoking a tool requested via ToolUseContent.
- */
-export const ToolResultContentSchema = z.object({
-    type: z.literal('tool_result'),
-    toolUseId: z.string().describe('The unique identifier for the corresponding tool call.'),
-    content: z.array(ContentBlockSchema).default([]),
-    structuredContent: z.object({}).loose().optional(),
-    isError: z.boolean().optional(),
-
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.record(z.string(), z.unknown()).optional()
-});
+// Note: ToolResultContentSchema is re-exported from generated.
 
 /**
  * Basic content types for sampling responses (without tool use).
@@ -1148,26 +947,11 @@ export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
 });
 
 /* Elicitation */
-// Note: BooleanSchemaSchema and NumberSchemaSchema are re-exported from generated schemas.
-// StringSchemaSchema differs slightly (enum vs union for format) so kept here.
-
-/**
- * Primitive schema definition for string fields.
- */
-export const StringSchemaSchema = z.object({
-    type: z.literal('string'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    minLength: z.number().optional(),
-    maxLength: z.number().optional(),
-    format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
-    default: z.string().optional()
-});
-
-// Note: Enum schemas (UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema,
+// Note: BooleanSchemaSchema, NumberSchemaSchema, StringSchemaSchema,
+// UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema,
 // LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, UntitledMultiSelectEnumSchemaSchema,
 // TitledMultiSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema, EnumSchemaSchema,
-// PrimitiveSchemaDefinitionSchema) are re-exported from generated.
+// PrimitiveSchemaDefinitionSchema are re-exported from generated.
 
 // Note: ElicitRequestFormParamsSchema, ElicitRequestURLParamsSchema, ElicitRequestParamsSchema,
 // ElicitRequestSchema, ElicitResultSchema, ElicitationCompleteNotificationSchema are re-exported from generated.
