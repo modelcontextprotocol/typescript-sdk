@@ -457,9 +457,9 @@ test('should respect client elicitation capabilities', async () => {
     );
 
     client.setRequestHandler(ElicitRequestSchema, params => ({
-        action: 'accept',
+        action: 'accept' as const,
         content: {
-            username: params.params.message.includes('username') ? 'test-user' : undefined,
+            ...(params.params.message.includes('username') ? { username: 'test-user' } : {}),
             confirmed: true
         }
     }));
@@ -541,9 +541,9 @@ test('should use elicitInput with mode: "form" by default for backwards compatib
     );
 
     client.setRequestHandler(ElicitRequestSchema, params => ({
-        action: 'accept',
+        action: 'accept' as const,
         content: {
-            username: params.params.message.includes('username') ? 'test-user' : undefined,
+            ...(params.params.message.includes('username') ? { username: 'test-user' } : {}),
             confirmed: true
         }
     }));
@@ -1955,9 +1955,10 @@ describe('createMessage backwards compatibility', () => {
         // Backwards compat: result.content should be single (not array)
         expect(result.model).toBe('test-model');
         expect(Array.isArray(result.content)).toBe(false);
-        expect(result.content.type).toBe('text');
-        if (result.content.type === 'text') {
-            expect(result.content.text).toBe('Hello from LLM');
+        const content = Array.isArray(result.content) ? result.content[0] : result.content;
+        expect(content.type).toBe('text');
+        if (content.type === 'text') {
+            expect(content.text).toBe('Hello from LLM');
         }
     });
 
@@ -2233,12 +2234,9 @@ describe('Task-based execution', () => {
             {
                 capabilities: {
                     tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            }
+                            list: {},
+                            cancel: {}
                         }
-                    }
                 },
                 taskStore
             }
@@ -2290,12 +2288,9 @@ describe('Task-based execution', () => {
             {
                 capabilities: {
                     tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            }
+                            list: {},
+                            cancel: {}
                         }
-                    }
                 }
             }
         );
@@ -2380,12 +2375,9 @@ describe('Task-based execution', () => {
             {
                 capabilities: {
                     tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            }
+                            list: {},
+                            cancel: {}
                         }
-                    }
                 }
             }
         );
@@ -2410,12 +2402,9 @@ describe('Task-based execution', () => {
             {
                 capabilities: {
                     tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            }
+                            list: {},
+                            cancel: {}
                         }
-                    }
                 },
                 taskStore
             }
@@ -2867,11 +2856,8 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -2931,12 +2917,9 @@ describe('Task-based execution', () => {
             {
                 capabilities: {
                     tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            }
+                            list: {},
+                            cancel: {}
                         }
-                    }
                 },
                 taskStore
             }
@@ -2991,12 +2974,9 @@ describe('Task-based execution', () => {
             {
                 capabilities: {
                     tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            }
+                            list: {},
+                            cancel: {}
                         }
-                    }
                 }
             }
         );
@@ -3067,11 +3047,8 @@ describe('Task-based execution', () => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
@@ -3086,11 +3063,8 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -3138,11 +3112,8 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -3210,11 +3181,8 @@ test('should respect client task capabilities', async () => {
         {
             capabilities: {
                 tasks: {
-                    requests: {
-                        elicitation: {
-                            create: {}
-                        }
-                    }
+                    list: {},
+                    cancel: {}
                 }
             },
             enforceStrictCapabilities: true
@@ -3227,9 +3195,7 @@ test('should respect client task capabilities', async () => {
     // Client supports task creation for elicitation/create and task methods
     expect(server.getClientCapabilities()).toEqual({
         sampling: {},
-        elicitation: {
-            form: {}
-        },
+        elicitation: {},
         tasks: {
             requests: {
                 elicitation: {

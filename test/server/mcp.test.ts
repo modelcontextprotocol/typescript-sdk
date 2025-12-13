@@ -1877,11 +1877,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
@@ -1946,11 +1943,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
@@ -6261,11 +6255,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
@@ -6280,11 +6271,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -6366,11 +6354,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
@@ -6385,11 +6370,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -6474,11 +6456,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
@@ -6493,11 +6472,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -6594,11 +6570,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
@@ -6613,11 +6586,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -6700,11 +6670,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
@@ -6719,11 +6686,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -6801,11 +6765,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
