@@ -68,6 +68,10 @@ export interface RequestParams {
          * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
          */
         progressToken?: ProgressToken;
+        /**
+         * If specified, this request is related to the provided task.
+         */
+        'io.modelcontextprotocol/related-task'?: RelatedTaskMetadata;
         [key: string]: unknown;
     };
 }

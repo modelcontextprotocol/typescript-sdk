@@ -94,12 +94,118 @@ const INTEGER_SCHEMAS = ['ProgressTokenSchema', 'RequestIdSchema'];
 // =============================================================================
 
 /**
- * Pre-process spec.types.ts to transform type hierarchy for SDK compatibility.
+ * The SDK-specific meta key for relating messages to tasks.
+ * This is added to RequestParams._meta during pre-processing.
+ */
+const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
+
+/**
+ * Pre-process spec.types.ts using ts-morph to transform for SDK compatibility.
+ *
+ * Transforms:
+ * 1. `extends JSONRPCRequest` → `extends Request`
+ * 2. `extends JSONRPCNotification` → `extends Notification`
+ * 3. Add RELATED_TASK_META_KEY to RequestParams._meta
  */
 function preProcessTypes(content: string): string {
-    content = content.replace(/\bextends\s+JSONRPCRequest\b/g, 'extends Request');
-    content = content.replace(/\bextends\s+JSONRPCNotification\b/g, 'extends Notification');
-    return content;
+    const project = new Project({ useInMemoryFileSystem: true });
+    const sourceFile = project.createSourceFile('types.ts', content);
+
+    console.log('  🔧 Pre-processing types...');
+
+    // Transform 1 & 2: Change extends clauses
+    transformExtendsClause(sourceFile, 'JSONRPCRequest', 'Request');
+    transformExtendsClause(sourceFile, 'JSONRPCNotification', 'Notification');
+
+    // Transform 3: Add RELATED_TASK_META_KEY to RequestParams._meta
+    injectRelatedTaskMetaKey(sourceFile);
+
+    return sourceFile.getFullText();
+}
+
+/**
+ * Transform extends clauses from one type to another.
+ */
+function transformExtendsClause(sourceFile: SourceFile, from: string, to: string): void {
+    for (const iface of sourceFile.getInterfaces()) {
+        for (const ext of iface.getExtends()) {
+            if (ext.getText() === from) {
+                ext.replaceWithText(to);
+                console.log(`    - ${iface.getName()}: extends ${from} → extends ${to}`);
+            }
+        }
+    }
+}
+
+/**
+ * Inject RELATED_TASK_META_KEY into RequestParams._meta interface.
+ *
+ * Before:
+ *   _meta?: {
+ *     progressToken?: ProgressToken;
+ *     [key: string]: unknown;
+ *   };
+ *
+ * After:
+ *   _meta?: {
+ *     progressToken?: ProgressToken;
+ *     'io.modelcontextprotocol/related-task'?: RelatedTaskMetadata;
+ *     [key: string]: unknown;
+ *   };
+ */
+function injectRelatedTaskMetaKey(sourceFile: SourceFile): void {
+    const requestParams = sourceFile.getInterface('RequestParams');
+    if (!requestParams) {
+        console.warn('    ⚠️  RequestParams interface not found');
+        return;
+    }
+
+    const metaProp = requestParams.getProperty('_meta');
+    if (!metaProp) {
+        console.warn('    ⚠️  _meta property not found in RequestParams');
+        return;
+    }
+
+    // Get the type of _meta (it's an inline type literal)
+    const typeNode = metaProp.getTypeNode();
+    if (!typeNode || !Node.isTypeLiteral(typeNode)) {
+        console.warn('    ⚠️  _meta is not a type literal');
+        return;
+    }
+
+    // Check if already has the key
+    const existingMember = typeNode.getMembers().find(m => {
+        if (Node.isPropertySignature(m)) {
+            const name = m.getName();
+            return name === `'${RELATED_TASK_META_KEY}'` || name === `"${RELATED_TASK_META_KEY}"`;
+        }
+        return false;
+    });
+
+    if (existingMember) {
+        console.log('    - RequestParams._meta already has RELATED_TASK_META_KEY');
+        return;
+    }
+
+    // Find the index signature ([key: string]: unknown) to insert before it
+    const members = typeNode.getMembers();
+    const indexSignatureIndex = members.findIndex(m => Node.isIndexSignatureDeclaration(m));
+
+    // Create the new property
+    const newProperty = `/**
+     * If specified, this request is related to the provided task.
+     */
+    '${RELATED_TASK_META_KEY}'?: RelatedTaskMetadata;`;
+
+    if (indexSignatureIndex >= 0) {
+        // Insert before index signature
+        typeNode.insertMember(indexSignatureIndex, newProperty);
+    } else {
+        // Add at the end
+        typeNode.addMember(newProperty);
+    }
+
+    console.log('    ✓ Injected RELATED_TASK_META_KEY into RequestParams._meta');
 }
 
 // =============================================================================

@@ -18,25 +18,6 @@ export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
 export const CursorSchema = z.string();
 
 /**
- * Common params for any request.
- *
- * @internal
- */
-export const RequestParamsSchema = z.object({
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
-    _meta: z
-        .looseObject({
-            /**
-             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
-             */
-            progressToken: ProgressTokenSchema.optional()
-        })
-        .optional()
-});
-
-/**
  * Metadata for augmenting a request with task execution.
  * Include this in the `task` field of the request parameters.
  *
@@ -47,6 +28,19 @@ export const TaskMetadataSchema = z.object({
      * Requested duration in milliseconds to retain task from creation.
      */
     ttl: z.number().optional()
+});
+
+/**
+ * Metadata for associating messages with a task.
+ * Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
+ *
+ * @category `tasks`
+ */
+export const RelatedTaskMetadataSchema = z.object({
+    /**
+     * The task identifier this message is associated with.
+     */
+    taskId: z.string()
 });
 
 /** @internal */
@@ -199,6 +193,29 @@ export const CancelledNotificationParamsSchema = NotificationParamsSchema.extend
 export const CancelledNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/cancelled'),
     params: CancelledNotificationParamsSchema
+});
+
+/**
+ * Common params for any request.
+ *
+ * @internal
+ */
+export const RequestParamsSchema = z.object({
+    /**
+     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
+     */
+    _meta: z
+        .looseObject({
+            /**
+             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+             */
+            progressToken: ProgressTokenSchema.optional(),
+            /**
+             * If specified, this request is related to the provided task.
+             */
+            'io.modelcontextprotocol/related-task': RelatedTaskMetadataSchema.optional()
+        })
+        .optional()
 });
 
 /**
@@ -1039,19 +1056,6 @@ export const ToolSchema = BaseMetadataSchema.extend(IconsSchema.shape).extend({
  * @category `tasks`
  */
 export const TaskStatusSchema = z.enum(['working', 'input_required', 'completed', 'failed', 'cancelled']);
-
-/**
- * Metadata for associating messages with a task.
- * Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
- *
- * @category `tasks`
- */
-export const RelatedTaskMetadataSchema = z.object({
-    /**
-     * The task identifier this message is associated with.
-     */
-    taskId: z.string()
-});
 
 /**
  * Data associated with a task.

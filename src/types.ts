@@ -51,7 +51,13 @@ import {
     ResourceContentsSchema,
     TextResourceContentsSchema,
     BlobResourceContentsSchema,
+    // Request/notification base schemas (with RELATED_TASK_META_KEY injected)
+    RequestParamsSchema,
+    TaskAugmentedRequestParamsSchema,
 } from './generated/sdk.schemas.js';
+
+// Alias RequestParamsSchema to BaseRequestParamsSchema for internal use
+const BaseRequestParamsSchema = RequestParamsSchema;
 
 export {
     ProgressTokenSchema,
@@ -123,40 +129,17 @@ export const TaskCreationParamsSchema = z.looseObject({
     pollInterval: z.number().optional()
 });
 
+// Note: RequestParamsSchema (aliased as BaseRequestParamsSchema) and
+// TaskAugmentedRequestParamsSchema are re-exported from generated.
+// They include RELATED_TASK_META_KEY in _meta, injected during pre-processing.
+
+/**
+ * Request metadata schema - used in _meta field of requests, notifications, and results.
+ * This is extracted for reuse but the canonical definition is in RequestParamsSchema.
+ */
 const RequestMetaSchema = z.looseObject({
-    /**
-     * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
-     */
     progressToken: ProgressTokenSchema.optional(),
-    /**
-     * If specified, this request is related to the provided task.
-     */
     [RELATED_TASK_META_KEY]: RelatedTaskMetadataSchema.optional()
-});
-
-/**
- * Common params for any request.
- */
-const BaseRequestParamsSchema = z.object({
-    /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
-     */
-    _meta: RequestMetaSchema.optional()
-});
-
-/**
- * Common params for any task-augmented request.
- */
-export const TaskAugmentedRequestParamsSchema = BaseRequestParamsSchema.extend({
-    /**
-     * If specified, the caller is requesting task-augmented execution for this request.
-     * The request will return a CreateTaskResult immediately, and the actual result can be
-     * retrieved later via tasks/result.
-     *
-     * Task augmentation is subject to capability negotiation - receivers MUST declare support
-     * for task augmentation of specific request types in their capabilities.
-     */
-    task: TaskMetadataSchema.optional()
 });
 
 /**
