@@ -19,19 +19,17 @@ import {
     NotificationSchema,
     RequestSchema,
     ResultSchema,
-    type Request,
-    type Notification,
-    type Result,
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS,
     CreateTaskResultSchema,
     type ElicitResult,
-    type CreateTaskResult
+    type CreateTaskResult,
+    type Result
 } from '../../src/types.js';
 import { Server } from '../../src/server/index.js';
 import { McpServer } from '../../src/server/mcp.js';
 import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../../src/experimental/tasks/stores/in-memory.js';
-import { CallToolRequestSchema, CallToolResultSchema } from '../../src/types.js';
+import { CallToolRequestSchema, CallToolResultSchema, type CallToolResult } from '../../src/types.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../../src/validation/types.js';
 import type { AnyObjectSchema } from '../../src/server/zod-compat.js';
 import * as z3 from 'zod/v3';
@@ -155,7 +153,7 @@ describe('Zod v4', () => {
         type WeatherNotification = z4.infer<typeof WeatherNotificationSchema>;
         type WeatherResult = z4.infer<typeof WeatherResultSchema>;
 
-        // Create a typed Server for weather data - custom types extend the base types
+        // Create a typed Server for weather data
         const weatherServer = new Server<WeatherRequest, WeatherNotification, WeatherResult>(
             {
                 name: 'WeatherServer',
@@ -460,7 +458,7 @@ test('should respect client elicitation capabilities', async () => {
     client.setRequestHandler(ElicitRequestSchema, params => ({
         action: 'accept' as const,
         content: {
-            ...(params.params.message.includes('username') ? { username: 'test-user' } : {}),
+            username: params.params.message.includes('username') ? 'test-user' : '',
             confirmed: true
         }
     }));
@@ -496,7 +494,7 @@ test('should respect client elicitation capabilities', async () => {
             }
         })
     ).resolves.toEqual({
-        action: 'accept',
+        action: 'accept' as const,
         content: {
             username: 'test-user',
             confirmed: true
@@ -544,7 +542,7 @@ test('should use elicitInput with mode: "form" by default for backwards compatib
     client.setRequestHandler(ElicitRequestSchema, params => ({
         action: 'accept' as const,
         content: {
-            ...(params.params.message.includes('username') ? { username: 'test-user' } : {}),
+            username: params.params.message.includes('username') ? 'test-user' : '',
             confirmed: true
         }
     }));
@@ -579,7 +577,7 @@ test('should use elicitInput with mode: "form" by default for backwards compatib
             }
         })
     ).resolves.toEqual({
-        action: 'accept',
+        action: 'accept' as const,
         content: {
             username: 'test-user',
             confirmed: true
@@ -716,7 +714,7 @@ test('should include form mode when sending elicitation form requests', async ()
     client.setRequestHandler(ElicitRequestSchema, request => {
         receivedModes.push(request.params.mode ?? '');
         return {
-            action: 'accept',
+            action: 'accept' as const,
             content: {
                 confirmation: true
             }
@@ -741,7 +739,7 @@ test('should include form mode when sending elicitation form requests', async ()
             }
         })
     ).resolves.toEqual({
-        action: 'accept',
+        action: 'accept' as const,
         content: {
             confirmation: true
         }
@@ -832,7 +830,7 @@ test('should reject elicitInput when client response violates requested schema',
     );
 
     client.setRequestHandler(ElicitRequestSchema, () => ({
-        action: 'accept',
+        action: 'accept' as const,
 
         // Bad response: missing required field `username`
         content: {}
@@ -891,7 +889,7 @@ test('should wrap unexpected validator errors during elicitInput', async () => {
     );
 
     client.setRequestHandler(ElicitRequestSchema, () => ({
-        action: 'accept',
+        action: 'accept' as const,
         content: {
             username: 'ignored'
         }
@@ -1154,7 +1152,7 @@ test('should validate elicitation response against requested schema', async () =
 
     // Set up client to return valid response
     client.setRequestHandler(ElicitRequestSchema, _request => ({
-        action: 'accept',
+        action: 'accept' as const,
         content: {
             name: 'John Doe',
             email: 'john@example.com',
@@ -1192,7 +1190,7 @@ test('should validate elicitation response against requested schema', async () =
             }
         })
     ).resolves.toEqual({
-        action: 'accept',
+        action: 'accept' as const,
         content: {
             name: 'John Doe',
             email: 'john@example.com',
@@ -1232,7 +1230,7 @@ test('should reject elicitation response with invalid data', async () => {
 
     // Set up client to return invalid response (missing required field, invalid age)
     client.setRequestHandler(ElicitRequestSchema, _request => ({
-        action: 'accept',
+        action: 'accept' as const,
         content: {
             email: '', // Invalid - too short
             age: -5 // Invalid age
@@ -1956,10 +1954,11 @@ describe('createMessage backwards compatibility', () => {
         // Backwards compat: result.content should be single (not array)
         expect(result.model).toBe('test-model');
         expect(Array.isArray(result.content)).toBe(false);
-        const content = Array.isArray(result.content) ? result.content[0] : result.content;
-        expect(content.type).toBe('text');
-        if (content.type === 'text') {
-            expect(content.text).toBe('Hello from LLM');
+        if (!Array.isArray(result.content)) {
+            expect(result.content.type).toBe('text');
+            if (result.content.type === 'text') {
+                expect(result.content.text).toBe('Hello from LLM');
+            }
         }
     });
 
@@ -2235,9 +2234,12 @@ describe('Task-based execution', () => {
             {
                 capabilities: {
                     tasks: {
-                            list: {},
-                            cancel: {}
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
                         }
+                    }
                 },
                 taskStore
             }
@@ -2261,8 +2263,8 @@ describe('Task-based execution', () => {
                         await new Promise(resolve => setTimeout(resolve, 10));
                         const result = {
                             content: [{ type: 'text', text: 'Tool executed successfully!' }]
-                        } as Result;
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        } as CallToolResult;
+                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result as Result);
                     })();
 
                     return { task };
@@ -2289,9 +2291,13 @@ describe('Task-based execution', () => {
             {
                 capabilities: {
                     tasks: {
-                            list: {},
-                            cancel: {}
+                        requests: {
+                            // @ts-expect-error - tools not in ClientCapabilities.tasks.requests in generated types, but needed for test
+                            tools: {
+                                call: {}
+                            }
                         }
+                    }
                 }
             }
         );
@@ -2376,9 +2382,13 @@ describe('Task-based execution', () => {
             {
                 capabilities: {
                     tasks: {
-                            list: {},
-                            cancel: {}
+                        requests: {
+                            // @ts-expect-error - tools not in ClientCapabilities.tasks.requests in generated types, but needed for test
+                            tools: {
+                                call: {}
+                            }
                         }
+                    }
                 }
             }
         );
@@ -2403,9 +2413,12 @@ describe('Task-based execution', () => {
             {
                 capabilities: {
                     tasks: {
-                            list: {},
-                            cancel: {}
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
                         }
+                    }
                 },
                 taskStore
             }
@@ -2449,7 +2462,7 @@ describe('Task-based execution', () => {
             capturedElicitRequest = request;
 
             return {
-                action: 'accept',
+                action: 'accept' as const,
                 content: {
                     username: 'test-user'
                 }
@@ -2497,8 +2510,8 @@ describe('Task-based execution', () => {
                                     text: `Collected username: ${elicitResult.action === 'accept' && elicitResult.content ? (elicitResult.content as Record<string, unknown>).username : 'none'}`
                                 }
                             ]
-                        } as Result;
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        } as CallToolResult;
+                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result as Result);
                     })();
 
                     return { task };
@@ -2589,7 +2602,7 @@ describe('Task-based execution', () => {
             );
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra): Promise<ElicitResult | CreateTaskResult> => {
-                const result: ElicitResult = {
+                const result = {
                     action: 'accept' as const,
                     content: { username: 'server-test-user', confirmed: true }
                 };
@@ -2599,7 +2612,7 @@ describe('Task-based execution', () => {
                     const task = await extra.taskStore.createTask({
                         ttl: extra.taskRequestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result as Result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2670,7 +2683,7 @@ describe('Task-based execution', () => {
             );
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra): Promise<ElicitResult | CreateTaskResult> => {
-                const result: ElicitResult = {
+                const result = {
                     action: 'accept' as const,
                     content: { username: 'list-user' }
                 };
@@ -2680,7 +2693,7 @@ describe('Task-based execution', () => {
                     const task = await extra.taskStore.createTask({
                         ttl: extra.taskRequestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result as Result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2749,7 +2762,7 @@ describe('Task-based execution', () => {
             );
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra): Promise<ElicitResult | CreateTaskResult> => {
-                const result: ElicitResult = {
+                const result = {
                     action: 'accept' as const,
                     content: { username: 'result-user', confirmed: true }
                 };
@@ -2759,7 +2772,7 @@ describe('Task-based execution', () => {
                     const task = await extra.taskStore.createTask({
                         ttl: extra.taskRequestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result as Result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2830,7 +2843,7 @@ describe('Task-based execution', () => {
             );
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra): Promise<ElicitResult | CreateTaskResult> => {
-                const result: ElicitResult = {
+                const result = {
                     action: 'accept' as const,
                     content: { username: 'list-user' }
                 };
@@ -2840,7 +2853,7 @@ describe('Task-based execution', () => {
                     const task = await extra.taskStore.createTask({
                         ttl: extra.taskRequestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result as Result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2857,8 +2870,12 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
-                            list: {},
-                            cancel: {}
+                            requests: {
+                                // @ts-expect-error - elicitation not in ServerCapabilities.tasks.requests in generated types, but needed for test
+                                elicitation: {
+                                    create: {}
+                                }
+                            }
                         }
                     }
                 }
@@ -2918,9 +2935,12 @@ describe('Task-based execution', () => {
             {
                 capabilities: {
                     tasks: {
-                            list: {},
-                            cancel: {}
+                        requests: {
+                            tools: {
+                                call: {}
+                            }
                         }
+                    }
                 },
                 taskStore
             }
@@ -2947,8 +2967,8 @@ describe('Task-based execution', () => {
                         await new Promise(resolve => setTimeout(resolve, delay));
                         const result = {
                             content: [{ type: 'text', text: `Completed task ${taskNum || 'unknown'}` }]
-                        } as Result;
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        } as CallToolResult;
+                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result as Result);
                     })();
 
                     return { task };
@@ -2975,9 +2995,13 @@ describe('Task-based execution', () => {
             {
                 capabilities: {
                     tasks: {
-                            list: {},
-                            cancel: {}
+                        requests: {
+                            // @ts-expect-error - tools not in ClientCapabilities.tasks.requests in generated types, but needed for test
+                            tools: {
+                                call: {}
+                            }
                         }
+                    }
                 }
             }
         );
@@ -3048,8 +3072,11 @@ describe('Task-based execution', () => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            list: {},
-                            cancel: {}
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
                         }
                     },
                     taskStore
@@ -3064,8 +3091,12 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
-                            list: {},
-                            cancel: {}
+                            requests: {
+                                // @ts-expect-error - tools not in ClientCapabilities.tasks.requests in generated types, but needed for test
+                                tools: {
+                                    call: {}
+                                }
+                            }
                         }
                     }
                 }
@@ -3101,7 +3132,7 @@ describe('Task-based execution', () => {
             );
 
             client.setRequestHandler(ElicitRequestSchema, async () => ({
-                action: 'accept',
+                action: 'accept' as const,
                 content: { username: 'test' }
             }));
 
@@ -3113,8 +3144,12 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
-                            list: {},
-                            cancel: {}
+                            requests: {
+                                // @ts-expect-error - elicitation not in ServerCapabilities.tasks.requests in generated types, but needed for test
+                                elicitation: {
+                                    create: {}
+                                }
+                            }
                         }
                     }
                 }
@@ -3155,7 +3190,7 @@ test('should respect client task capabilities', async () => {
     );
 
     client.setRequestHandler(ElicitRequestSchema, async (request, extra): Promise<ElicitResult | CreateTaskResult> => {
-        const result: ElicitResult = {
+        const result = {
             action: 'accept' as const,
             content: { username: 'test-user' }
         };
@@ -3165,7 +3200,7 @@ test('should respect client task capabilities', async () => {
             const task = await extra.taskStore.createTask({
                 ttl: extra.taskRequestedTtl
             });
-            await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+            await extra.taskStore.storeTaskResult(task.taskId, 'completed', result as Result);
             // Return CreateTaskResult when task creation is requested
             return { task };
         }
@@ -3182,8 +3217,12 @@ test('should respect client task capabilities', async () => {
         {
             capabilities: {
                 tasks: {
-                    list: {},
-                    cancel: {}
+                    requests: {
+                        // @ts-expect-error - elicitation not in ServerCapabilities.tasks.requests in generated types, but needed for test
+                        elicitation: {
+                            create: {}
+                        }
+                    }
                 }
             },
             enforceStrictCapabilities: true
@@ -3196,7 +3235,9 @@ test('should respect client task capabilities', async () => {
     // Client supports task creation for elicitation/create and task methods
     expect(server.getClientCapabilities()).toEqual({
         sampling: {},
-        elicitation: {},
+        elicitation: {
+            form: {}
+        },
         tasks: {
             requests: {
                 elicitation: {
