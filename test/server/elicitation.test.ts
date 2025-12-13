@@ -9,7 +9,7 @@
 
 import { Client } from '../../src/client/index.js';
 import { InMemoryTransport } from '../../src/inMemory.js';
-import { ElicitRequestFormParams, ElicitRequestSchema } from '../../src/types.js';
+import { ElicitRequestFormParams, ElicitRequestSchema, ElicitResult } from '../../src/types.js';
 import { AjvJsonSchemaValidator } from '../../src/validation/ajv-provider.js';
 import { CfWorkerJsonSchemaValidator } from '../../src/validation/cfworker-provider.js';
 import { Server } from '../../src/server/index.js';
@@ -341,13 +341,13 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         client.setRequestHandler(ElicitRequestSchema, request => {
             requestCount++;
             if (request.params.message.includes('name')) {
-                return { action: 'accept', content: { name: 'Alice' } };
+                return { action: 'accept' as const, content: { name: 'Alice' } } as ElicitResult;
             } else if (request.params.message.includes('age')) {
-                return { action: 'accept', content: { age: 30 } };
+                return { action: 'accept' as const, content: { age: 30 } } as ElicitResult;
             } else if (request.params.message.includes('city')) {
-                return { action: 'accept', content: { city: 'New York' } };
+                return { action: 'accept' as const, content: { city: 'New York' } } as ElicitResult;
             }
-            return { action: 'decline' };
+            return { action: 'decline' as const } as ElicitResult;
         });
 
         const nameResult = await server.elicitInput({

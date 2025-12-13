@@ -33,12 +33,13 @@ mcpServer.registerTool(
             maxTokens: 500
         });
 
-        // Since we're not passing tools param to createMessage, response.content is single content
+        // Extract text from response content (could be single block or array)
+        const contentBlock = Array.isArray(response.content) ? response.content[0] : response.content;
         return {
             content: [
                 {
                     type: 'text',
-                    text: response.content.type === 'text' ? response.content.text : 'Unable to generate summary'
+                    text: contentBlock?.type === 'text' ? contentBlock.text : 'Unable to generate summary'
                 }
             ]
         };

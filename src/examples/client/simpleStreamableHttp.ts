@@ -381,7 +381,7 @@ async function connect(url?: string): Promise<void> {
                 }
 
                 if (inputCancelled) {
-                    return { action: 'cancel' };
+                    return { action: 'cancel' as const };
                 }
 
                 // If we didn't complete all fields due to an error, try again
@@ -394,7 +394,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return { action: 'decline' };
+                        return { action: 'decline' as const };
                     }
                 }
 
@@ -412,7 +412,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return { action: 'decline' };
+                        return { action: 'decline' as const };
                     }
                 }
 
@@ -428,23 +428,23 @@ async function connect(url?: string): Promise<void> {
 
                 if (confirmAnswer === 'yes' || confirmAnswer === 'y') {
                     return {
-                        action: 'accept',
-                        content
+                        action: 'accept' as const,
+                        content: content as { [key: string]: string | number | boolean | string[] }
                     };
                 } else if (confirmAnswer === 'cancel' || confirmAnswer === 'c') {
-                    return { action: 'cancel' };
+                    return { action: 'cancel' as const };
                 } else if (confirmAnswer === 'no' || confirmAnswer === 'n') {
                     if (attempts < maxAttempts) {
                         console.log('Please re-enter the information...');
                         continue;
                     } else {
-                        return { action: 'decline' };
+                        return { action: 'decline' as const };
                     }
                 }
             }
 
             console.log('Maximum attempts reached. Declining request.');
-            return { action: 'decline' };
+            return { action: 'decline' as const };
         });
 
         transport = new StreamableHTTPClientTransport(new URL(serverUrl), {

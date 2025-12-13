@@ -488,7 +488,7 @@ const getServer = () => {
                                 text: `Completed ${duration}ms delay`
                             }
                         ]
-                    });
+                    } as CallToolResult);
                 })();
 
                 // Return CreateTaskResult with the created task

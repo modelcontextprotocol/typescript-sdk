@@ -8,6 +8,7 @@ import {
     CompleteResultSchema,
     ElicitRequestSchema,
     GetPromptResultSchema,
+    type JSONRPCNotification,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListResourceTemplatesResultSchema,
@@ -68,7 +69,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 { capabilities: { logging: {} } }
             );
 
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -262,7 +263,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -329,7 +330,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -394,7 +395,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -488,7 +489,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -577,7 +578,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -1875,11 +1876,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
@@ -1944,11 +1942,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
@@ -2099,7 +2094,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -2167,7 +2162,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -2239,7 +2234,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -2290,7 +2285,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -2343,7 +2338,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -3048,7 +3043,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -3125,7 +3120,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -3227,7 +3222,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -3284,7 +3279,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -5182,7 +5177,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 name: 'test server',
                 version: '1.0'
             });
-            const notifications: Notification[] = [];
+            const notifications: JSONRPCNotification[] = [];
             const client = new Client({
                 name: 'test client',
                 version: '1.0'
@@ -6259,11 +6254,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
@@ -6278,11 +6270,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -6311,7 +6300,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         setTimeout(async () => {
                             await store.storeTaskResult(task.taskId, 'completed', {
                                 content: [{ type: 'text' as const, text: `Processed: ${input}` }]
-                            });
+                            } as CallToolResult);
                         }, 200);
 
                         return { task };
@@ -6364,11 +6353,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
@@ -6383,11 +6369,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -6416,7 +6399,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         setTimeout(async () => {
                             await store.storeTaskResult(task.taskId, 'completed', {
                                 content: [{ type: 'text' as const, text: `Result: ${value * 2}` }]
-                            });
+                            } as CallToolResult);
                             releaseLatch();
                         }, 150);
 
@@ -6491,11 +6474,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -6524,7 +6504,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         setTimeout(async () => {
                             await store.storeTaskResult(task.taskId, 'completed', {
                                 content: [{ type: 'text' as const, text: `Completed: ${data}` }]
-                            });
+                            } as CallToolResult);
                             releaseLatch();
                         }, 200);
 
@@ -6592,11 +6572,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
@@ -6611,11 +6588,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -6642,7 +6616,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                             await store.storeTaskResult(task.taskId, 'failed', {
                                 content: [{ type: 'text' as const, text: 'Error occurred' }],
                                 isError: true
-                            });
+                            } as CallToolResult);
                             releaseLatch();
                         }, 150);
 
@@ -6698,11 +6672,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
@@ -6717,11 +6688,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     capabilities: {
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     }
                 }
@@ -6799,11 +6767,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     capabilities: {
                         tools: {},
                         tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
+                            list: {},
+                            cancel: {}
                         }
                     },
                     taskStore
