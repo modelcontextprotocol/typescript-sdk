@@ -1960,6 +1960,77 @@ export const ListToolsResultSchema = PaginatedResultSchema.extend({
     tools: z.array(ToolSchema)
 });
 
+/** Extracted from ClientCapabilities["tasks"] for standalone use. */
+export const ClientTasksCapabilitySchema = z.object({
+    /**
+     * Whether this client supports tasks/list.
+     */
+    list: z.record(z.string(), z.any()).optional(),
+    /**
+     * Whether this client supports tasks/cancel.
+     */
+    cancel: z.record(z.string(), z.any()).optional(),
+    /**
+     * Specifies which request types can be augmented with tasks.
+     */
+    requests: z
+        .object({
+            /**
+             * Task support for sampling-related requests.
+             */
+            sampling: z
+                .object({
+                    /**
+                     * Whether the client supports task-augmented sampling/createMessage requests.
+                     */
+                    createMessage: z.record(z.string(), z.any()).optional()
+                })
+                .optional(),
+            /**
+             * Task support for elicitation-related requests.
+             */
+            elicitation: z
+                .object({
+                    /**
+                     * Whether the client supports task-augmented elicitation/create requests.
+                     */
+                    create: z.record(z.string(), z.any()).optional()
+                })
+                .optional()
+        })
+        .optional()
+});
+
+/** Extracted from ServerCapabilities["tasks"] for standalone use. */
+export const ServerTasksCapabilitySchema = z.object({
+    /**
+     * Whether this server supports tasks/list.
+     */
+    list: z.record(z.string(), z.any()).optional(),
+    /**
+     * Whether this server supports tasks/cancel.
+     */
+    cancel: z.record(z.string(), z.any()).optional(),
+    /**
+     * Specifies which request types can be augmented with tasks.
+     */
+    requests: z
+        .object({
+            /**
+             * Task support for tool-related requests.
+             */
+            tools: z
+                .object({
+                    /**
+                     * Whether the server supports task-augmented tools/call requests.
+                     */
+                    call: z.record(z.string(), z.any()).optional()
+                })
+                .optional()
+        })
+        .optional()
+});
+
 /**
  * A request that expects a response.
  *

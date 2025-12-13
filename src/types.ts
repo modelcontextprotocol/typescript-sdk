@@ -194,6 +194,9 @@ import {
     SetLevelRequestParamsSchema,
     // Sampling schemas (now using discriminatedUnion)
     SamplingMessageContentBlockSchema,
+    // Derived capability schemas (generated from extracted types)
+    ClientTasksCapabilitySchema,
+    ServerTasksCapabilitySchema,
 } from './generated/sdk.schemas.js';
 
 export {
@@ -334,6 +337,8 @@ export {
     ResourceUpdatedNotificationParamsSchema,
     SetLevelRequestParamsSchema,
     SamplingMessageContentBlockSchema,
+    ClientTasksCapabilitySchema,
+    ServerTasksCapabilitySchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -531,10 +536,7 @@ export const ClientCapabilitiesSchema = z.object({
         .optional()
 });
 
-/**
- * Task capabilities for clients - extracted from ClientCapabilitiesSchema.
- */
-export const ClientTasksCapabilitySchema = ClientCapabilitiesSchema.shape.tasks.unwrap();
+// Note: ClientTasksCapabilitySchema is re-exported from generated (derived from ClientCapabilities.tasks).
 
 /**
  * Elicitation capability schema - extracted from ClientCapabilitiesSchema.
@@ -632,10 +634,7 @@ export const ServerCapabilitiesSchema = z.object({
         .optional()
 });
 
-/**
- * Task capabilities for servers - extracted from ServerCapabilitiesSchema.
- */
-export const ServerTasksCapabilitySchema = ServerCapabilitiesSchema.shape.tasks.unwrap();
+// Note: ServerTasksCapabilitySchema is re-exported from generated (derived from ServerCapabilities.tasks).
 
 // Note: InitializeResultSchema, InitializedNotificationSchema are re-exported from generated.
 

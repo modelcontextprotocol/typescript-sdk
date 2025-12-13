@@ -113,11 +113,11 @@ const DISCRIMINATED_UNIONS: Record<string, string> = {
 /**
  * Derived capability types to add during pre-processing.
  * These are extracted from parent capability interfaces for convenience.
- * Format: { typeName: 'ParentType["property"]' }
+ * Format: { typeName: { parent: 'ParentInterface', property: 'propertyName' } }
  */
-const DERIVED_CAPABILITY_TYPES: Record<string, string> = {
-    'ClientTasksCapability': 'ClientCapabilities["tasks"]',
-    'ServerTasksCapability': 'ServerCapabilities["tasks"]',
+const DERIVED_CAPABILITY_TYPES: Record<string, { parent: string; property: string }> = {
+    'ClientTasksCapability': { parent: 'ClientCapabilities', property: 'tasks' },
+    'ServerTasksCapability': { parent: 'ServerCapabilities', property: 'tasks' },
 };
 
 // =============================================================================
@@ -280,27 +280,52 @@ function updateRequestParamsType(sourceFile: SourceFile): void {
 }
 
 /**
- * Add derived capability types that extract nested capabilities from parent types.
- * This allows reusing types like ClientCapabilities["tasks"] as standalone types.
+ * Add derived capability types by extracting nested properties from parent interfaces.
+ * This creates concrete interface definitions that ts-to-zod can generate schemas for.
  *
- * Adds type aliases like:
- *   export type ClientTasksCapability = NonNullable<ClientCapabilities["tasks"]>;
+ * Example: ClientCapabilities.tasks becomes a standalone ClientTasksCapability interface.
  */
 function injectDerivedCapabilityTypes(sourceFile: SourceFile): void {
-    for (const [typeName, sourceExpression] of Object.entries(DERIVED_CAPABILITY_TYPES)) {
+    for (const [typeName, { parent, property }] of Object.entries(DERIVED_CAPABILITY_TYPES)) {
         // Check if already exists
-        if (sourceFile.getTypeAlias(typeName)) {
+        if (sourceFile.getInterface(typeName) || sourceFile.getTypeAlias(typeName)) {
             console.log(`    - ${typeName} already exists`);
             continue;
         }
 
+        // Find the parent interface
+        const parentInterface = sourceFile.getInterface(parent);
+        if (!parentInterface) {
+            console.warn(`    ⚠️  Parent interface ${parent} not found for ${typeName}`);
+            continue;
+        }
+
+        // Find the property
+        const prop = parentInterface.getProperty(property);
+        if (!prop) {
+            console.warn(`    ⚠️  Property ${property} not found in ${parent} for ${typeName}`);
+            continue;
+        }
+
+        // Get the type text and remove the optional marker if present
+        const typeNode = prop.getTypeNode();
+        if (!typeNode) {
+            console.warn(`    ⚠️  No type node for ${parent}.${property}`);
+            continue;
+        }
+
+        let typeText = typeNode.getText();
+        // Remove trailing '?' or '| undefined' to get the non-optional type
+        typeText = typeText.replace(/\s*\|\s*undefined\s*$/, '').trim();
+
+        // Create the derived type alias
         sourceFile.addTypeAlias({
             name: typeName,
             isExported: true,
-            type: `NonNullable<${sourceExpression}>`,
-            docs: [`Derived from ${sourceExpression} for convenience.`]
+            type: typeText,
+            docs: [`Extracted from ${parent}["${property}"] for standalone use.`]
         });
-        console.log(`    ✓ Added derived type: ${typeName}`);
+        console.log(`    ✓ Added derived type: ${typeName} from ${parent}.${property}`);
     }
 }
 

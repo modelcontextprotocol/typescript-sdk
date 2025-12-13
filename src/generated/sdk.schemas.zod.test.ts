@@ -239,6 +239,10 @@ export type ReadResourceResultSchemaInferredType = z.infer<typeof generated.Read
 
 export type ListToolsResultSchemaInferredType = z.infer<typeof generated.ListToolsResultSchema>;
 
+export type ClientTasksCapabilitySchemaInferredType = z.infer<typeof generated.ClientTasksCapabilitySchema>;
+
+export type ServerTasksCapabilitySchemaInferredType = z.infer<typeof generated.ServerTasksCapabilitySchema>;
+
 export type JSONRPCRequestSchemaInferredType = z.infer<typeof generated.JSONRPCRequestSchema>;
 
 export type URLElicitationRequiredErrorSchemaInferredType = z.infer<typeof generated.URLElicitationRequiredErrorSchema>;
@@ -529,6 +533,10 @@ expectType<spec.ReadResourceResult>({} as ReadResourceResultSchemaInferredType);
 expectType<ReadResourceResultSchemaInferredType>({} as spec.ReadResourceResult);
 expectType<spec.ListToolsResult>({} as ListToolsResultSchemaInferredType);
 expectType<ListToolsResultSchemaInferredType>({} as spec.ListToolsResult);
+expectType<spec.ClientTasksCapability>({} as ClientTasksCapabilitySchemaInferredType);
+expectType<ClientTasksCapabilitySchemaInferredType>({} as spec.ClientTasksCapability);
+expectType<spec.ServerTasksCapability>({} as ServerTasksCapabilitySchemaInferredType);
+expectType<ServerTasksCapabilitySchemaInferredType>({} as spec.ServerTasksCapability);
 expectType<spec.JSONRPCRequest>({} as JSONRPCRequestSchemaInferredType);
 expectType<JSONRPCRequestSchemaInferredType>({} as spec.JSONRPCRequest);
 expectType<spec.URLElicitationRequiredError>({} as URLElicitationRequiredErrorSchemaInferredType);
