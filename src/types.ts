@@ -138,6 +138,31 @@ import {
     ResourceUpdatedNotificationSchema,
     // Task status
     TaskStatusNotificationSchema,
+    // Sampling schemas
+    SamplingMessageSchema,
+    // Server/Client message type unions
+    ServerRequestSchema,
+    ServerNotificationSchema,
+    ServerResultSchema,
+    ClientRequestSchema,
+    ClientNotificationSchema,
+    ClientResultSchema,
+    // Enum schemas
+    SingleSelectEnumSchemaSchema,
+    MultiSelectEnumSchemaSchema,
+    UntitledSingleSelectEnumSchemaSchema,
+    TitledSingleSelectEnumSchemaSchema,
+    UntitledMultiSelectEnumSchemaSchema,
+    TitledMultiSelectEnumSchemaSchema,
+    LegacyTitledEnumSchemaSchema,
+    EnumSchemaSchema,
+    PrimitiveSchemaDefinitionSchema,
+    // Reference schemas
+    PromptReferenceSchema,
+    ResourceTemplateReferenceSchema,
+    // ReadResource schemas
+    ReadResourceRequestSchema,
+    ReadResourceResultSchema,
 } from './generated/sdk.schemas.js';
 
 // Alias RequestParamsSchema to BaseRequestParamsSchema for internal use
@@ -241,6 +266,26 @@ export {
     ProgressNotificationSchema,
     ResourceUpdatedNotificationSchema,
     TaskStatusNotificationSchema,
+    SamplingMessageSchema,
+    ServerRequestSchema,
+    ServerNotificationSchema,
+    ServerResultSchema,
+    ClientRequestSchema,
+    ClientNotificationSchema,
+    ClientResultSchema,
+    SingleSelectEnumSchemaSchema,
+    MultiSelectEnumSchemaSchema,
+    UntitledSingleSelectEnumSchemaSchema,
+    TitledSingleSelectEnumSchemaSchema,
+    UntitledMultiSelectEnumSchemaSchema,
+    TitledMultiSelectEnumSchemaSchema,
+    LegacyTitledEnumSchemaSchema,
+    EnumSchemaSchema,
+    PrimitiveSchemaDefinitionSchema,
+    PromptReferenceSchema,
+    ResourceTemplateReferenceSchema,
+    ReadResourceRequestSchema,
+    ReadResourceResultSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -727,22 +772,8 @@ export const ResourceRequestParamsSchema = BaseRequestParamsSchema.extend({
  */
 export const ReadResourceRequestParamsSchema = ResourceRequestParamsSchema;
 
-/**
- * Sent from the client to the server, to read a specific resource URI.
- */
-export const ReadResourceRequestSchema = RequestSchema.extend({
-    method: z.literal('resources/read'),
-    params: ReadResourceRequestParamsSchema
-});
-
-/**
- * The server's response to a resources/read request from the client.
- */
-export const ReadResourceResultSchema = ResultSchema.extend({
-    contents: z.array(z.union([TextResourceContentsSchema, BlobResourceContentsSchema]))
-});
-
-// Note: ResourceListChangedNotificationSchema is re-exported from generated.
+// Note: ReadResourceRequestSchema, ReadResourceResultSchema, ResourceListChangedNotificationSchema
+// are re-exported from generated.
 
 export const SubscribeRequestParamsSchema = ResourceRequestParamsSchema;
 export const UnsubscribeRequestParamsSchema = ResourceRequestParamsSchema;
@@ -1085,21 +1116,8 @@ export const SamplingMessageContentBlockSchema = z.discriminatedUnion('type', [
     ToolResultContentSchema
 ]);
 
-/**
- * Describes a message issued to or received from an LLM API.
- */
-export const SamplingMessageSchema = z.object({
-    role: RoleSchema,
-    content: z.union([SamplingMessageContentBlockSchema, z.array(SamplingMessageContentBlockSchema)]),
-    /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-     * for notes on _meta usage.
-     */
-    _meta: z.record(z.string(), z.unknown()).optional()
-});
-
-// Note: CreateMessageRequestParamsSchema, CreateMessageRequestSchema, CreateMessageResultSchema
-// are re-exported from generated.
+// Note: SamplingMessageSchema, CreateMessageRequestParamsSchema, CreateMessageRequestSchema,
+// CreateMessageResultSchema are re-exported from generated.
 
 /**
  * The client's response to a sampling/create_message request when tools were provided.
@@ -1146,99 +1164,10 @@ export const StringSchemaSchema = z.object({
     default: z.string().optional()
 });
 
-/**
- * Schema for single-selection enumeration without display titles for options.
- */
-export const UntitledSingleSelectEnumSchemaSchema = z.object({
-    type: z.literal('string'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    enum: z.array(z.string()),
-    default: z.string().optional()
-});
-
-/**
- * Schema for single-selection enumeration with display titles for each option.
- */
-export const TitledSingleSelectEnumSchemaSchema = z.object({
-    type: z.literal('string'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    oneOf: z.array(
-        z.object({
-            const: z.string(),
-            title: z.string()
-        })
-    ),
-    default: z.string().optional()
-});
-
-/**
- * Use TitledSingleSelectEnumSchema instead.
- * This interface will be removed in a future version.
- */
-export const LegacyTitledEnumSchemaSchema = z.object({
-    type: z.literal('string'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    enum: z.array(z.string()),
-    enumNames: z.array(z.string()).optional(),
-    default: z.string().optional()
-});
-
-// Combined single selection enumeration
-export const SingleSelectEnumSchemaSchema = z.union([UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema]);
-
-/**
- * Schema for multiple-selection enumeration without display titles for options.
- */
-export const UntitledMultiSelectEnumSchemaSchema = z.object({
-    type: z.literal('array'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    minItems: z.number().optional(),
-    maxItems: z.number().optional(),
-    items: z.object({
-        type: z.literal('string'),
-        enum: z.array(z.string())
-    }),
-    default: z.array(z.string()).optional()
-});
-
-/**
- * Schema for multiple-selection enumeration with display titles for each option.
- */
-export const TitledMultiSelectEnumSchemaSchema = z.object({
-    type: z.literal('array'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    minItems: z.number().optional(),
-    maxItems: z.number().optional(),
-    items: z.object({
-        anyOf: z.array(
-            z.object({
-                const: z.string(),
-                title: z.string()
-            })
-        )
-    }),
-    default: z.array(z.string()).optional()
-});
-
-/**
- * Combined schema for multiple-selection enumeration
- */
-export const MultiSelectEnumSchemaSchema = z.union([UntitledMultiSelectEnumSchemaSchema, TitledMultiSelectEnumSchemaSchema]);
-
-/**
- * Primitive schema definition for enum fields.
- */
-export const EnumSchemaSchema = z.union([LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema]);
-
-/**
- * Union of all primitive schema definitions.
- */
-export const PrimitiveSchemaDefinitionSchema = z.union([EnumSchemaSchema, BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema]);
+// Note: Enum schemas (UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema,
+// LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, UntitledMultiSelectEnumSchemaSchema,
+// TitledMultiSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema, EnumSchemaSchema,
+// PrimitiveSchemaDefinitionSchema) are re-exported from generated.
 
 // Note: ElicitRequestFormParamsSchema, ElicitRequestURLParamsSchema, ElicitRequestParamsSchema,
 // ElicitRequestSchema, ElicitResultSchema, ElicitationCompleteNotificationSchema are re-exported from generated.
@@ -1256,32 +1185,12 @@ export const ElicitationCompleteNotificationParamsSchema = NotificationsParamsSc
 });
 
 /* Autocomplete */
-/**
- * A reference to a resource or resource template definition.
- */
-export const ResourceTemplateReferenceSchema = z.object({
-    type: z.literal('ref/resource'),
-    /**
-     * The URI or URI template of the resource.
-     */
-    uri: z.string()
-});
+// Note: ResourceTemplateReferenceSchema, PromptReferenceSchema are re-exported from generated.
 
 /**
  * @deprecated Use ResourceTemplateReferenceSchema instead
  */
 export const ResourceReferenceSchema = ResourceTemplateReferenceSchema;
-
-/**
- * Identifies a prompt.
- */
-export const PromptReferenceSchema = z.object({
-    type: z.literal('ref/prompt'),
-    /**
-     * The name of the prompt or prompt template
-     */
-    name: z.string()
-});
 
 // Note: CompleteRequestParamsSchema, CompleteRequestSchema, CompleteResultSchema
 // are re-exported from generated.
@@ -1304,85 +1213,9 @@ export function assertCompleteRequestResourceTemplate(request: CompleteRequest):
 // Note: RootSchema, ListRootsRequestSchema, ListRootsResultSchema, RootsListChangedNotificationSchema
 // are re-exported from generated.
 
-/* Client messages */
-export const ClientRequestSchema = z.union([
-    PingRequestSchema,
-    InitializeRequestSchema,
-    CompleteRequestSchema,
-    SetLevelRequestSchema,
-    GetPromptRequestSchema,
-    ListPromptsRequestSchema,
-    ListResourcesRequestSchema,
-    ListResourceTemplatesRequestSchema,
-    ReadResourceRequestSchema,
-    SubscribeRequestSchema,
-    UnsubscribeRequestSchema,
-    CallToolRequestSchema,
-    ListToolsRequestSchema,
-    GetTaskRequestSchema,
-    GetTaskPayloadRequestSchema,
-    ListTasksRequestSchema,
-    CancelTaskRequestSchema
-]);
-
-export const ClientNotificationSchema = z.union([
-    CancelledNotificationSchema,
-    ProgressNotificationSchema,
-    InitializedNotificationSchema,
-    RootsListChangedNotificationSchema,
-    TaskStatusNotificationSchema
-]);
-
-export const ClientResultSchema = z.union([
-    EmptyResultSchema,
-    CreateMessageResultSchema,
-    CreateMessageResultWithToolsSchema,
-    ElicitResultSchema,
-    ListRootsResultSchema,
-    GetTaskResultSchema,
-    ListTasksResultSchema,
-    CreateTaskResultSchema
-]);
-
-/* Server messages */
-export const ServerRequestSchema = z.union([
-    PingRequestSchema,
-    CreateMessageRequestSchema,
-    ElicitRequestSchema,
-    ListRootsRequestSchema,
-    GetTaskRequestSchema,
-    GetTaskPayloadRequestSchema,
-    ListTasksRequestSchema,
-    CancelTaskRequestSchema
-]);
-
-export const ServerNotificationSchema = z.union([
-    CancelledNotificationSchema,
-    ProgressNotificationSchema,
-    LoggingMessageNotificationSchema,
-    ResourceUpdatedNotificationSchema,
-    ResourceListChangedNotificationSchema,
-    ToolListChangedNotificationSchema,
-    PromptListChangedNotificationSchema,
-    TaskStatusNotificationSchema,
-    ElicitationCompleteNotificationSchema
-]);
-
-export const ServerResultSchema = z.union([
-    EmptyResultSchema,
-    InitializeResultSchema,
-    CompleteResultSchema,
-    GetPromptResultSchema,
-    ListPromptsResultSchema,
-    ListResourcesResultSchema,
-    ListResourceTemplatesResultSchema,
-    ReadResourceResultSchema,
-    CallToolResultSchema,
-    ListToolsResultSchema,
-    GetTaskResultSchema,
-    ListTasksResultSchema,
-    CreateTaskResultSchema
-]);
+/* Client/Server message types */
+// Note: ClientRequestSchema, ClientNotificationSchema, ClientResultSchema,
+// ServerRequestSchema, ServerNotificationSchema, ServerResultSchema are re-exported from generated.
 
 export class McpError extends Error {
     constructor(
