@@ -705,6 +705,24 @@ function postProcess(content: string): string {
         console.log('    ✓ Added .passthrough() to ToolSchema.outputSchema');
     }
 
+    // Reorder PrimitiveSchemaDefinitionSchema union: EnumSchemaSchema must come FIRST
+    // Otherwise, { type: 'string', enum: [...] } matches StringSchemaSchema and loses the enum field
+    const primitiveUnionPattern = /PrimitiveSchemaDefinitionSchema\s*=\s*z\s*\n?\s*\.union\(\[StringSchemaSchema,\s*NumberSchemaSchema,\s*BooleanSchemaSchema,\s*EnumSchemaSchema\]\)/;
+    const reorderedUnion = 'PrimitiveSchemaDefinitionSchema = z\n    .union([EnumSchemaSchema, BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema])';
+    if (primitiveUnionPattern.test(content)) {
+        content = content.replace(primitiveUnionPattern, reorderedUnion);
+        console.log('    ✓ Reordered PrimitiveSchemaDefinitionSchema union (EnumSchemaSchema first)');
+    }
+
+    // Reorder EnumSchemaSchema union: LegacyTitledEnumSchemaSchema must come FIRST
+    // Otherwise, { type: 'string', enum: [...], enumNames: [...] } matches UntitledSingleSelectEnumSchema and loses enumNames
+    const enumUnionPattern = /EnumSchemaSchema\s*=\s*z\.union\(\[SingleSelectEnumSchemaSchema,\s*MultiSelectEnumSchemaSchema,\s*LegacyTitledEnumSchemaSchema\]\)/;
+    const reorderedEnumUnion = 'EnumSchemaSchema = z.union([LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema])';
+    if (enumUnionPattern.test(content)) {
+        content = content.replace(enumUnionPattern, reorderedEnumUnion);
+        console.log('    ✓ Reordered EnumSchemaSchema union (LegacyTitledEnumSchemaSchema first)');
+    }
+
     // AST-based transforms using ts-morph
     const project = new Project({ useInMemoryFileSystem: true });
     const sourceFile = project.createSourceFile('schemas.ts', content);

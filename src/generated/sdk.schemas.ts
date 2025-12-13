@@ -1784,7 +1784,7 @@ export const LegacyTitledEnumSchemaSchema = z
  * @category `elicitation/create`
  */
 // Union type for all enum schemas
-export const EnumSchemaSchema = z.union([SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema, LegacyTitledEnumSchemaSchema]);
+export const EnumSchemaSchema = z.union([LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema]);
 
 /**
  * @description The client's response to an elicitation request.
@@ -2303,7 +2303,7 @@ without nested objects or arrays.
  * @category `elicitation/create`
  */
 export const PrimitiveSchemaDefinitionSchema = z
-    .union([StringSchemaSchema, NumberSchemaSchema, BooleanSchemaSchema, EnumSchemaSchema])
+    .union([EnumSchemaSchema, BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema])
     .describe('Restricted schema definitions that only allow primitive types\nwithout nested objects or arrays.');
 
 /**
