@@ -99,6 +99,7 @@ import {
     JSONRPCNotificationSchema,
     JSONRPCResultResponseSchema,
     JSONRPCErrorResponseSchema,
+    JSONRPCMessageSchema,
     // Resource request schemas
     ListResourcesRequestSchema,
     ListResourceTemplatesRequestSchema,
@@ -277,6 +278,7 @@ export {
     JSONRPCNotificationSchema,
     JSONRPCResultResponseSchema,
     JSONRPCErrorResponseSchema,
+    JSONRPCMessageSchema,
     ListResourcesRequestSchema,
     ListResourceTemplatesRequestSchema,
     SubscribeRequestSchema,
@@ -449,13 +451,6 @@ export enum ErrorCode {
 }
 
 export const JSONRPCResponseSchema = z.union([JSONRPCResultResponseSchema, JSONRPCErrorResponseSchema]);
-
-export const JSONRPCMessageSchema = z.union([
-    JSONRPCRequestSchema,
-    JSONRPCNotificationSchema,
-    JSONRPCResultResponseSchema,
-    JSONRPCErrorResponseSchema
-]);
 
 /* Cancellation */
 /**
