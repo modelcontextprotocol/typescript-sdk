@@ -266,6 +266,7 @@ export {
     RequestSchema,
     NotificationSchema,
     ResultSchema,
+    TaskAugmentedRequestParamsSchema,
     PaginatedResultSchema,
     PaginatedRequestSchema,
     PingRequestSchema,
