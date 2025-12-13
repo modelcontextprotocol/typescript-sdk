@@ -39,7 +39,16 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generate } from 'ts-to-zod';
-import { Project, SyntaxKind, Node, CallExpression, PropertyAssignment } from 'ts-morph';
+import {
+    Project,
+    SyntaxKind,
+    Node,
+    CallExpression,
+    PropertyAssignment,
+    SourceFile,
+    InterfaceDeclaration,
+    TypeAliasDeclaration
+} from 'ts-morph';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -240,66 +249,94 @@ function removeIndexSignaturesFromTypes(content: string): string {
 }
 
 /**
- * Configuration for converting base interfaces to union types.
- * Maps base interface name to its union members (the concrete types that extend it).
+ * Check if an interface transitively extends a base interface.
  */
-const BASE_TO_UNION_CONFIG: Record<string, string[]> = {
-    Request: [
-        'InitializeRequest',
-        'PingRequest',
-        'ListResourcesRequest',
-        'ListResourceTemplatesRequest',
-        'ReadResourceRequest',
-        'SubscribeRequest',
-        'UnsubscribeRequest',
-        'ListPromptsRequest',
-        'GetPromptRequest',
-        'ListToolsRequest',
-        'CallToolRequest',
-        'SetLevelRequest',
-        'CompleteRequest',
-        'CreateMessageRequest',
-        'ListRootsRequest',
-        'ElicitRequest',
-        'GetTaskRequest',
-        'GetTaskPayloadRequest',
-        'CancelTaskRequest',
-        'ListTasksRequest'
-    ],
-    Notification: [
-        'CancelledNotification',
-        'InitializedNotification',
-        'ProgressNotification',
-        'ResourceListChangedNotification',
-        'ResourceUpdatedNotification',
-        'PromptListChangedNotification',
-        'ToolListChangedNotification',
-        'LoggingMessageNotification',
-        'RootsListChangedNotification',
-        'TaskStatusNotification',
-        'ElicitationCompleteNotification'
-    ],
-    Result: [
-        'EmptyResult',
-        'InitializeResult',
-        'CompleteResult',
-        'GetPromptResult',
-        'ListPromptsResult',
-        'ListResourceTemplatesResult',
-        'ListResourcesResult',
-        'ReadResourceResult',
-        'CallToolResult',
-        'ListToolsResult',
-        'CreateTaskResult',
-        'GetTaskResult',
-        'GetTaskPayloadResult',
-        'ListTasksResult',
-        'CancelTaskResult',
-        'CreateMessageResult',
-        'ListRootsResult',
-        'ElicitResult'
-    ]
-};
+function extendsBase(
+    iface: InterfaceDeclaration,
+    baseName: string,
+    sourceFile: SourceFile,
+    checked: Set<string> = new Set()
+): boolean {
+    const name = iface.getName();
+    if (checked.has(name)) return false;
+    checked.add(name);
+
+    for (const ext of iface.getExtends()) {
+        // Handle generic types like "Foo<T>" -> "Foo"
+        const extName = ext.getText().split('<')[0].trim();
+        if (extName === baseName) return true;
+
+        const parent = sourceFile.getInterface(extName);
+        if (parent && extendsBase(parent, baseName, sourceFile, checked)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Check if a type alias references a base type (e.g., `type EmptyResult = Result`).
+ */
+function referencesBase(alias: TypeAliasDeclaration, baseName: string): boolean {
+    const typeText = alias.getTypeNode()?.getText() || '';
+    // Match patterns like "Result", "Result & Foo", "Foo & Result"
+    const pattern = new RegExp(`\\b${baseName}\\b`);
+    return pattern.test(typeText);
+}
+
+/**
+ * Auto-discover union members by finding types that extend/reference a base type.
+ *
+ * Finds:
+ * - Interfaces that transitively extend the base (e.g., ListResourcesRequest → PaginatedRequest → Request)
+ * - Type aliases that reference the base (e.g., type EmptyResult = Result)
+ *
+ * Filters by naming convention (*Request, *Notification, *Result) and excludes abstract bases.
+ */
+function findUnionMembers(
+    sourceFile: SourceFile,
+    baseName: string,
+    exclusions: Set<string>
+): string[] {
+    const members: string[] = [];
+
+    // Find interfaces that extend base (transitively)
+    for (const iface of sourceFile.getInterfaces()) {
+        const name = iface.getName();
+        if (exclusions.has(name)) continue;
+        if (!name.endsWith(baseName)) continue;
+        if (extendsBase(iface, baseName, sourceFile)) {
+            members.push(name);
+        }
+    }
+
+    // Find type aliases that reference base
+    for (const alias of sourceFile.getTypeAliases()) {
+        const name = alias.getName();
+        if (exclusions.has(name)) continue;
+        if (!name.endsWith(baseName)) continue;
+        // Skip union types we're creating (McpRequest, etc.)
+        if (name.startsWith('Mcp')) continue;
+        // Skip Client/Server subsets
+        if (name.startsWith('Client') || name.startsWith('Server')) continue;
+        if (referencesBase(alias, baseName)) {
+            members.push(name);
+        }
+    }
+
+    return members.sort();
+}
+
+/**
+ * Abstract base types that should be excluded from union discovery.
+ * These are intermediate types in the hierarchy, not concrete MCP messages.
+ */
+const UNION_EXCLUSIONS = new Set([
+    'JSONRPCRequest',
+    'JSONRPCNotification',
+    'PaginatedRequest',
+    'PaginatedResult'
+]);
 
 /**
  * Convert base interfaces to union types in sdk.types.ts.
@@ -313,6 +350,12 @@ const BASE_TO_UNION_CONFIG: Record<string, string[]> = {
  *   interface InitializeResult extends Result { ... }
  *   type McpResult = InitializeResult | CompleteResult | ...  // Union with Mcp prefix
  *
+ * Union members are auto-discovered by finding types that:
+ * - Extend the base interface (transitively), or
+ * - Are type aliases referencing the base type
+ * - Match the naming convention (*Request, *Notification, *Result)
+ * - Are not in the exclusion list (abstract bases like PaginatedRequest)
+ *
  * This enables TypeScript union narrowing while preserving backwards compatibility.
  * The base type keeps its original name, and the union gets an "Mcp" prefix.
  */
@@ -320,12 +363,22 @@ function convertBaseTypesToUnions(content: string): string {
     const project = new Project({ useInMemoryFileSystem: true });
     const sourceFile = project.createSourceFile('types.ts', content);
 
-    console.log('  🔧 Converting base types to unions...');
+    console.log('  🔧 Converting base types to unions (auto-discovering members)...');
 
-    for (const [baseName, unionMembers] of Object.entries(BASE_TO_UNION_CONFIG)) {
+    const baseNames = ['Request', 'Notification', 'Result'];
+
+    for (const baseName of baseNames) {
         const baseInterface = sourceFile.getInterface(baseName);
         if (!baseInterface) {
             console.warn(`    ⚠️  Interface ${baseName} not found`);
+            continue;
+        }
+
+        // Auto-discover union members
+        const unionMembers = findUnionMembers(sourceFile, baseName, UNION_EXCLUSIONS);
+
+        if (unionMembers.length === 0) {
+            console.warn(`    ⚠️  No members found for ${baseName}`);
             continue;
         }
 
@@ -334,14 +387,14 @@ function convertBaseTypesToUnions(content: string): string {
         const unionName = `Mcp${baseName}`;
 
         // Add the union type alias after the base interface
-        const unionType = unionMembers.join(' | ');
+        const unionType = unionMembers.join('\n    | ');
         const insertPos = baseInterface.getEnd();
         sourceFile.insertText(
             insertPos,
-            `\n\n/** Union of all MCP ${baseName.toLowerCase()} types for type narrowing. */\nexport type ${unionName} = ${unionType};`
+            `\n\n/** Union of all MCP ${baseName.toLowerCase()} types for type narrowing. */\nexport type ${unionName} =\n    | ${unionType};`
         );
 
-        console.log(`    ✓ Created ${unionName} as union of ${unionMembers.length} types`);
+        console.log(`    ✓ Created ${unionName} with ${unionMembers.length} auto-discovered members`);
     }
 
     return sourceFile.getFullText();

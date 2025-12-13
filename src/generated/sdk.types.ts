@@ -76,26 +76,26 @@ export interface Request {
 
 /** Union of all MCP request types for type narrowing. */
 export type McpRequest =
-    | InitializeRequest
-    | PingRequest
-    | ListResourcesRequest
-    | ListResourceTemplatesRequest
-    | ReadResourceRequest
-    | SubscribeRequest
-    | UnsubscribeRequest
-    | ListPromptsRequest
-    | GetPromptRequest
-    | ListToolsRequest
     | CallToolRequest
-    | SetLevelRequest
+    | CancelTaskRequest
     | CompleteRequest
     | CreateMessageRequest
-    | ListRootsRequest
     | ElicitRequest
-    | GetTaskRequest
+    | GetPromptRequest
     | GetTaskPayloadRequest
-    | CancelTaskRequest
-    | ListTasksRequest;
+    | GetTaskRequest
+    | InitializeRequest
+    | ListPromptsRequest
+    | ListResourceTemplatesRequest
+    | ListResourcesRequest
+    | ListRootsRequest
+    | ListTasksRequest
+    | ListToolsRequest
+    | PingRequest
+    | ReadResourceRequest
+    | SetLevelRequest
+    | SubscribeRequest
+    | UnsubscribeRequest;
 
 /** @internal */
 export interface NotificationParams {
@@ -114,16 +114,16 @@ export interface Notification {
 /** Union of all MCP notification types for type narrowing. */
 export type McpNotification =
     | CancelledNotification
+    | ElicitationCompleteNotification
     | InitializedNotification
+    | LoggingMessageNotification
     | ProgressNotification
+    | PromptListChangedNotification
     | ResourceListChangedNotification
     | ResourceUpdatedNotification
-    | PromptListChangedNotification
-    | ToolListChangedNotification
-    | LoggingMessageNotification
     | RootsListChangedNotification
     | TaskStatusNotification
-    | ElicitationCompleteNotification;
+    | ToolListChangedNotification;
 
 /**
  * @category Common Types
@@ -135,24 +135,24 @@ export interface Result {
 
 /** Union of all MCP result types for type narrowing. */
 export type McpResult =
-    | EmptyResult
-    | InitializeResult
+    | CallToolResult
+    | CancelTaskResult
     | CompleteResult
+    | CreateMessageResult
+    | CreateTaskResult
+    | ElicitResult
+    | EmptyResult
     | GetPromptResult
+    | GetTaskPayloadResult
+    | GetTaskResult
+    | InitializeResult
     | ListPromptsResult
     | ListResourceTemplatesResult
     | ListResourcesResult
-    | ReadResourceResult
-    | CallToolResult
-    | ListToolsResult
-    | CreateTaskResult
-    | GetTaskResult
-    | GetTaskPayloadResult
-    | ListTasksResult
-    | CancelTaskResult
-    | CreateMessageResult
     | ListRootsResult
-    | ElicitResult;
+    | ListTasksResult
+    | ListToolsResult
+    | ReadResourceResult;
 
 /**
  * @category Common Types
