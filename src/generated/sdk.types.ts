@@ -2557,7 +2557,7 @@ export type ServerResult =
     | GetTaskPayloadResult
     | ListTasksResult
     | CancelTaskResult;
-/** Extracted from ClientCapabilities["tasks"] for standalone use. */
+/** @description Present if the client supports task-augmented requests. */
 export type ClientTasksCapability = {
     /**
      * Whether this client supports tasks/list.
@@ -2591,7 +2591,7 @@ export type ClientTasksCapability = {
         };
     };
 };
-/** Extracted from ServerCapabilities["tasks"] for standalone use. */
+/** @description Present if the server supports task-augmented requests. */
 export type ServerTasksCapability = {
     /**
      * Whether this server supports tasks/list.

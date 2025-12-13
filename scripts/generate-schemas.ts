@@ -318,12 +318,16 @@ function injectDerivedCapabilityTypes(sourceFile: SourceFile): void {
         // Remove trailing '?' or '| undefined' to get the non-optional type
         typeText = typeText.replace(/\s*\|\s*undefined\s*$/, '').trim();
 
-        // Create the derived type alias
+        // Get the JSDoc comment from the parent property for @description
+        const jsDocs = prop.getJsDocs();
+        const description = jsDocs.length > 0 ? jsDocs[0].getDescription().trim() : '';
+
+        // Create the derived type alias with @description for .describe() generation
         sourceFile.addTypeAlias({
             name: typeName,
             isExported: true,
             type: typeText,
-            docs: [`Extracted from ${parent}["${property}"] for standalone use.`]
+            docs: [description ? `@description ${description}` : `Extracted from ${parent}["${property}"].`]
         });
         console.log(`    ✓ Added derived type: ${typeName} from ${parent}.${property}`);
     }
