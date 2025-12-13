@@ -16,6 +16,21 @@ import {
     RoleSchema,
     TaskStatusSchema,
     LoggingLevelSchema,
+    // Base metadata schemas (IconSchema adds 'theme' field from latest spec)
+    IconSchema,
+    IconsSchema,
+    BaseMetadataSchema,
+    // ImplementationSchema adds 'description' field from latest spec
+    ImplementationSchema,
+    // Error schema for JSON-RPC errors
+    ErrorSchema,
+    // Task-related schemas
+    TaskMetadataSchema,
+    RelatedTaskMetadataSchema,
+    // Sampling-related schemas
+    ModelHintSchema,
+    ModelPreferencesSchema,
+    ToolChoiceSchema,
 } from './generated/sdk.schemas.js';
 
 export {
@@ -25,6 +40,16 @@ export {
     RoleSchema,
     TaskStatusSchema,
     LoggingLevelSchema,
+    IconSchema,
+    IconsSchema,
+    BaseMetadataSchema,
+    ImplementationSchema,
+    ErrorSchema,
+    TaskMetadataSchema,
+    RelatedTaskMetadataSchema,
+    ModelHintSchema,
+    ModelPreferencesSchema,
+    ToolChoiceSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -61,18 +86,6 @@ export const TaskCreationParamsSchema = z.looseObject({
      * Time in milliseconds to wait between task status requests.
      */
     pollInterval: z.number().optional()
-});
-
-export const TaskMetadataSchema = z.object({
-    ttl: z.number().optional()
-});
-
-/**
- * Metadata for associating messages with a task.
- * Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
- */
-export const RelatedTaskMetadataSchema = z.object({
-    taskId: z.string()
 });
 
 const RequestMetaSchema = z.looseObject({
@@ -272,78 +285,7 @@ export const CancelledNotificationSchema = NotificationSchema.extend({
     params: CancelledNotificationParamsSchema
 });
 
-/* Base Metadata */
-/**
- * Icon schema for use in tools, prompts, resources, and implementations.
- */
-export const IconSchema = z.object({
-    /**
-     * URL or data URI for the icon.
-     */
-    src: z.string(),
-    /**
-     * Optional MIME type for the icon.
-     */
-    mimeType: z.string().optional(),
-    /**
-     * Optional array of strings that specify sizes at which the icon can be used.
-     * Each string should be in WxH format (e.g., `"48x48"`, `"96x96"`) or `"any"` for scalable formats like SVG.
-     *
-     * If not provided, the client should assume that the icon can be used at any size.
-     */
-    sizes: z.array(z.string()).optional()
-});
-
-/**
- * Base schema to add `icons` property.
- *
- */
-export const IconsSchema = z.object({
-    /**
-     * Optional set of sized icons that the client can display in a user interface.
-     *
-     * Clients that support rendering icons MUST support at least the following MIME types:
-     * - `image/png` - PNG images (safe, universal compatibility)
-     * - `image/jpeg` (and `image/jpg`) - JPEG images (safe, universal compatibility)
-     *
-     * Clients that support rendering icons SHOULD also support:
-     * - `image/svg+xml` - SVG images (scalable but requires security precautions)
-     * - `image/webp` - WebP images (modern, efficient format)
-     */
-    icons: z.array(IconSchema).optional()
-});
-
-/**
- * Base metadata interface for common properties across resources, tools, prompts, and implementations.
- */
-export const BaseMetadataSchema = z.object({
-    /** Intended for programmatic or logical use, but used as a display name in past specs or fallback */
-    name: z.string(),
-    /**
-     * Intended for UI and end-user contexts — optimized to be human-readable and easily understood,
-     * even by those unfamiliar with domain-specific terminology.
-     *
-     * If not provided, the name should be used for display (except for Tool,
-     * where `annotations.title` should be given precedence over using `name`,
-     * if present).
-     */
-    title: z.string().optional()
-});
-
 /* Initialization */
-/**
- * Describes the name and version of an MCP implementation.
- */
-export const ImplementationSchema = BaseMetadataSchema.extend({
-    ...BaseMetadataSchema.shape,
-    ...IconsSchema.shape,
-    version: z.string(),
-    /**
-     * An optional URL of the website for this implementation.
-     */
-    websiteUrl: z.string().optional()
-});
-
 const FormElicitationCapabilitySchema = z.intersection(
     z.object({
         applyDefaults: z.boolean().optional()
@@ -1578,51 +1520,6 @@ export const LoggingMessageNotificationSchema = NotificationSchema.extend({
 });
 
 /* Sampling */
-/**
- * Hints to use for model selection.
- */
-export const ModelHintSchema = z.object({
-    /**
-     * A hint for a model name.
-     */
-    name: z.string().optional()
-});
-
-/**
- * The server's preferences for model selection, requested of the client during sampling.
- */
-export const ModelPreferencesSchema = z.object({
-    /**
-     * Optional hints to use for model selection.
-     */
-    hints: z.array(ModelHintSchema).optional(),
-    /**
-     * How much to prioritize cost when selecting a model.
-     */
-    costPriority: z.number().min(0).max(1).optional(),
-    /**
-     * How much to prioritize sampling speed (latency) when selecting a model.
-     */
-    speedPriority: z.number().min(0).max(1).optional(),
-    /**
-     * How much to prioritize intelligence and capabilities when selecting a model.
-     */
-    intelligencePriority: z.number().min(0).max(1).optional()
-});
-
-/**
- * Controls tool usage behavior in sampling requests.
- */
-export const ToolChoiceSchema = z.object({
-    /**
-     * Controls when tools are used:
-     * - "auto": Model decides whether to use tools (default)
-     * - "required": Model MUST use at least one tool before completing
-     * - "none": Model MUST NOT use any tools
-     */
-    mode: z.enum(['auto', 'required', 'none']).optional()
-});
-
 /**
  * The result of a tool execution, provided by the user (server).
  * Represents the outcome of invoking a tool requested via ToolUseContent.
