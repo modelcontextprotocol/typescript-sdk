@@ -1,6 +1,32 @@
 import * as z from 'zod/v4';
 import { AuthInfo } from './server/auth/types.js';
 
+// =============================================================================
+// Re-exports from generated schemas
+// =============================================================================
+// These schemas are generated from spec.types.ts and are identical to the
+// manually-defined versions. Re-exporting reduces duplication and ensures
+// consistency with the MCP specification.
+
+// Primitive type schemas - import for local use and re-export
+import {
+    ProgressTokenSchema,
+    CursorSchema,
+    RequestIdSchema,
+    RoleSchema,
+    TaskStatusSchema,
+    LoggingLevelSchema,
+} from './generated/sdk.schemas.js';
+
+export {
+    ProgressTokenSchema,
+    CursorSchema,
+    RequestIdSchema,
+    RoleSchema,
+    TaskStatusSchema,
+    LoggingLevelSchema,
+};
+
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
 export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = '2025-03-26';
 export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'];
@@ -20,15 +46,6 @@ type ExpandRecursively<T> = T extends object ? (T extends infer O ? { [K in keyo
  * @internal
  */
 const AssertObjectSchema = z.custom<object>((v): v is object => v !== null && (typeof v === 'object' || typeof v === 'function'));
-/**
- * A progress token, used to associate progress notifications with the original request.
- */
-export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
-
-/**
- * An opaque token used to represent a cursor for pagination.
- */
-export const CursorSchema = z.string();
 
 /**
  * Task creation parameters, used to ask that the server create a task to represent a request.
@@ -128,11 +145,6 @@ export const ResultSchema = z.looseObject({
      */
     _meta: RequestMetaSchema.optional()
 });
-
-/**
- * A uniquely identifying ID for a request in JSON-RPC.
- */
-export const RequestIdSchema = z.union([z.string(), z.number().int()]);
 
 /**
  * A request that expects a response.
@@ -639,11 +651,6 @@ export const PaginatedResultSchema = ResultSchema.extend({
     nextCursor: CursorSchema.optional()
 });
 
-/**
- * The status of a task.
- * */
-export const TaskStatusSchema = z.enum(['working', 'input_required', 'completed', 'failed', 'cancelled']);
-
 /* Tasks */
 /**
  * A pollable state object associated with a request.
@@ -805,11 +812,6 @@ export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
      */
     blob: Base64Schema
 });
-
-/**
- * The sender or recipient of messages and data in a conversation.
- */
-export const RoleSchema = z.enum(['user', 'assistant']);
 
 /**
  * Optional annotations providing clients additional context about a resource.
@@ -1533,11 +1535,6 @@ export type ListChangedHandlers = {
 };
 
 /* Logging */
-/**
- * The severity of a log message.
- */
-export const LoggingLevelSchema = z.enum(['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency']);
-
 /**
  * Parameters for a `logging/setLevel` request.
  */
