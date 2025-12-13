@@ -70,6 +70,11 @@ import {
     PromptListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
     RootsListChangedNotificationSchema,
+    // JSON-RPC schemas (with .strict() for validation)
+    JSONRPCRequestSchema,
+    JSONRPCNotificationSchema,
+    JSONRPCResultResponseSchema,
+    JSONRPCErrorResponseSchema,
 } from './generated/sdk.schemas.js';
 
 // Alias RequestParamsSchema to BaseRequestParamsSchema for internal use
@@ -122,6 +127,10 @@ export {
     PromptListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
     RootsListChangedNotificationSchema,
+    JSONRPCRequestSchema,
+    JSONRPCNotificationSchema,
+    JSONRPCResultResponseSchema,
+    JSONRPCErrorResponseSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -182,47 +191,15 @@ const RequestMetaSchema = z.looseObject({
 export const isTaskAugmentedRequestParams = (value: unknown): value is TaskAugmentedRequestParams =>
     TaskAugmentedRequestParamsSchema.safeParse(value).success;
 
-// Note: RequestSchema, NotificationSchema, ResultSchema are re-exported from generated.
-// They include proper _meta typing with RELATED_TASK_META_KEY.
-
-/**
- * A request that expects a response.
- */
-export const JSONRPCRequestSchema = z
-    .object({
-        jsonrpc: z.literal(JSONRPC_VERSION),
-        id: RequestIdSchema,
-        ...RequestSchema.shape
-    })
-    .strict();
+// Note: RequestSchema, NotificationSchema, ResultSchema, and JSON-RPC schemas
+// are re-exported from generated. They include proper _meta typing and .strict().
 
 export const isJSONRPCRequest = (value: unknown): value is JSONRPCRequest => JSONRPCRequestSchema.safeParse(value).success;
-
-/**
- * A notification which does not expect a response.
- */
-export const JSONRPCNotificationSchema = z
-    .object({
-        jsonrpc: z.literal(JSONRPC_VERSION),
-        ...NotificationSchema.shape
-    })
-    .strict();
-
 export const isJSONRPCNotification = (value: unknown): value is JSONRPCNotification => JSONRPCNotificationSchema.safeParse(value).success;
-
-/**
- * A successful (non-error) response to a request.
- */
-export const JSONRPCResultResponseSchema = z
-    .object({
-        jsonrpc: z.literal(JSONRPC_VERSION),
-        id: RequestIdSchema,
-        result: ResultSchema
-    })
-    .strict();
-
 export const isJSONRPCResultResponse = (value: unknown): value is JSONRPCResultResponse =>
     JSONRPCResultResponseSchema.safeParse(value).success;
+export const isJSONRPCErrorResponse = (value: unknown): value is JSONRPCErrorResponse =>
+    JSONRPCErrorResponseSchema.safeParse(value).success;
 
 /**
  * Error codes defined by the JSON-RPC specification.
@@ -242,33 +219,6 @@ export enum ErrorCode {
     // MCP-specific error codes
     UrlElicitationRequired = -32042
 }
-
-/**
- * A response to a request that indicates an error occurred.
- */
-export const JSONRPCErrorResponseSchema = z
-    .object({
-        jsonrpc: z.literal(JSONRPC_VERSION),
-        id: RequestIdSchema.optional(),
-        error: z.object({
-            /**
-             * The error type that occurred.
-             */
-            code: z.number().int(),
-            /**
-             * A short description of the error. The message SHOULD be limited to a concise single sentence.
-             */
-            message: z.string(),
-            /**
-             * Additional information about the error. The value of this member is defined by the sender (e.g. detailed error information, nested errors etc.).
-             */
-            data: z.unknown().optional()
-        })
-    })
-    .strict();
-
-export const isJSONRPCErrorResponse = (value: unknown): value is JSONRPCErrorResponse =>
-    JSONRPCErrorResponseSchema.safeParse(value).success;
 
 export const JSONRPCMessageSchema = z.union([
     JSONRPCRequestSchema,

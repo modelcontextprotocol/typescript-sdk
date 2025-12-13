@@ -132,29 +132,33 @@ export const RequestSchema = z.object({
  */
 export const JSONRPCNotificationSchema = NotificationSchema.extend({
     jsonrpc: z.literal('2.0')
-});
+}).strict();
 
 /**
  * A successful (non-error) response to a request.
  *
  * @category JSON-RPC
  */
-export const JSONRPCResultResponseSchema = z.object({
-    jsonrpc: z.literal('2.0'),
-    id: RequestIdSchema,
-    result: ResultSchema
-});
+export const JSONRPCResultResponseSchema = z
+    .object({
+        jsonrpc: z.literal('2.0'),
+        id: RequestIdSchema,
+        result: ResultSchema
+    })
+    .strict();
 
 /**
  * A response to a request that indicates an error occurred.
  *
  * @category JSON-RPC
  */
-export const JSONRPCErrorResponseSchema = z.object({
-    jsonrpc: z.literal('2.0'),
-    id: RequestIdSchema.optional(),
-    error: ErrorSchema
-});
+export const JSONRPCErrorResponseSchema = z
+    .object({
+        jsonrpc: z.literal('2.0'),
+        id: RequestIdSchema.optional(),
+        error: ErrorSchema
+    })
+    .strict();
 
 /**
  * A response to a request, containing either the result or error.
@@ -1964,7 +1968,7 @@ export const ListToolsResultSchema = PaginatedResultSchema.extend({
 export const JSONRPCRequestSchema = RequestSchema.extend({
     jsonrpc: z.literal('2.0'),
     id: RequestIdSchema
-});
+}).strict();
 
 /**
  * An error response that indicates that the server requires the client to provide additional information via an elicitation request.

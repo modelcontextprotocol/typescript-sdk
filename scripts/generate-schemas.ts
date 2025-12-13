@@ -89,6 +89,16 @@ const FIELD_OVERRIDES: Record<string, Record<string, string>> = {
  */
 const INTEGER_SCHEMAS = ['ProgressTokenSchema', 'RequestIdSchema'];
 
+/**
+ * Schemas that need .strict() added for stricter validation.
+ */
+const STRICT_SCHEMAS = [
+    'JSONRPCRequestSchema',
+    'JSONRPCNotificationSchema',
+    'JSONRPCResultResponseSchema',
+    'JSONRPCErrorResponseSchema',
+];
+
 // =============================================================================
 // Pre-processing: Transform spec types to SDK-compatible hierarchy
 // =============================================================================
@@ -261,6 +271,7 @@ const AST_TRANSFORMS: Transform[] = [
     transformIntegerRefinements,
     transformUnionToEnum,
     applyFieldOverrides,
+    addStrictToSchemas,
 ];
 
 /**
@@ -469,6 +480,25 @@ function applyFieldOverrides(sourceFile: SourceFile): void {
                 node.setInitializer(fields[propName]);
             }
         });
+    }
+}
+
+/**
+ * Add .strict() to specified schemas for stricter validation.
+ * This matches the SDK's behavior of rejecting unknown properties.
+ */
+function addStrictToSchemas(sourceFile: SourceFile): void {
+    for (const schemaName of STRICT_SCHEMAS) {
+        const varDecl = sourceFile.getVariableDeclaration(schemaName);
+        if (!varDecl) continue;
+
+        const initializer = varDecl.getInitializer();
+        if (!initializer) continue;
+
+        // Append .strict() to the schema
+        const currentText = initializer.getText();
+        varDecl.setInitializer(`${currentText}.strict()`);
+        console.log(`    ✓ Added .strict() to ${schemaName}`);
     }
 }
 
