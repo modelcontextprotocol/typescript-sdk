@@ -171,7 +171,7 @@ export const JSONRPCResponseSchema = z.union([JSONRPCResultResponseSchema, JSONR
  *
  * @category Common Types
  */
-export const EmptyResultSchema = ResultSchema;
+export const EmptyResultSchema = ResultSchema.strict();
 
 /* Cancellation */
 /**

@@ -176,6 +176,15 @@ import {
     ToolResultContentSchema,
     // String schema
     StringSchemaSchema,
+    // Task schemas
+    TaskSchema,
+    TaskStatusNotificationParamsSchema,
+    // Request/Notification params schemas
+    PaginatedRequestParamsSchema,
+    GetPromptRequestParamsSchema,
+    LoggingMessageNotificationParamsSchema,
+    // EmptyResult (with .strict())
+    EmptyResultSchema,
 } from './generated/sdk.schemas.js';
 
 // Alias RequestParamsSchema to BaseRequestParamsSchema for internal use
@@ -308,6 +317,12 @@ export {
     ToolUseContentSchema,
     ToolResultContentSchema,
     StringSchemaSchema,
+    TaskSchema,
+    TaskStatusNotificationParamsSchema,
+    PaginatedRequestParamsSchema,
+    GetPromptRequestParamsSchema,
+    LoggingMessageNotificationParamsSchema,
+    EmptyResultSchema,
 };
 
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
@@ -405,13 +420,7 @@ export const JSONRPCMessageSchema = z.union([
 ]);
 export const JSONRPCResponseSchema = z.union([JSONRPCResultResponseSchema, JSONRPCErrorResponseSchema]);
 
-/* Empty result */
-/**
- * A response that indicates success but carries no data.
- */
-export const EmptyResultSchema = ResultSchema.strict();
-
-// Note: CancelledNotificationParamsSchema is re-exported from generated.
+// Note: EmptyResultSchema (with .strict()), CancelledNotificationParamsSchema are re-exported from generated.
 
 /* Cancellation */
 /**
@@ -655,51 +664,14 @@ export const ProgressNotificationParamsSchema = z.object({
 });
 // Note: ProgressNotificationSchema is re-exported from generated.
 
-export const PaginatedRequestParamsSchema = BaseRequestParamsSchema.extend({
-    /**
-     * An opaque token representing the current pagination position.
-     * If provided, the server should return results starting after this cursor.
-     */
-    cursor: CursorSchema.optional()
-});
-
 /* Pagination */
-// Note: PaginatedRequestSchema and PaginatedResultSchema are re-exported from generated.
+// Note: PaginatedRequestParamsSchema, PaginatedRequestSchema, PaginatedResultSchema
+// are re-exported from generated.
 
 /* Tasks */
-/**
- * A pollable state object associated with a request.
- */
-export const TaskSchema = z.object({
-    taskId: z.string(),
-    status: TaskStatusSchema,
-    /**
-     * Time in milliseconds to keep task results available after completion.
-     * If null, the task has unlimited lifetime until manually cleaned up.
-     */
-    ttl: z.union([z.number(), z.null()]),
-    /**
-     * ISO 8601 timestamp when the task was created.
-     */
-    createdAt: z.string(),
-    /**
-     * ISO 8601 timestamp when the task was last updated.
-     */
-    lastUpdatedAt: z.string(),
-    pollInterval: z.optional(z.number()),
-    /**
-     * Optional diagnostic message for failed tasks or other status information.
-     */
-    statusMessage: z.optional(z.string())
-});
-
-// Note: CreateTaskResultSchema, TaskStatusNotificationSchema, GetTaskResultSchema,
-// GetTaskPayloadResultSchema, ListTasksResultSchema, CancelTaskResultSchema are re-exported from generated.
-
-/**
- * Parameters for task status notification.
- */
-export const TaskStatusNotificationParamsSchema = NotificationsParamsSchema.merge(TaskSchema);
+// Note: TaskSchema, TaskStatusNotificationParamsSchema, CreateTaskResultSchema,
+// TaskStatusNotificationSchema, GetTaskResultSchema, GetTaskPayloadResultSchema,
+// ListTasksResultSchema, CancelTaskResultSchema are re-exported from generated.
 
 /* Resources */
 // Note: ResourceContentsSchema, TextResourceContentsSchema, BlobResourceContentsSchema
@@ -748,21 +720,7 @@ export const ResourceUpdatedNotificationParamsSchema = NotificationsParamsSchema
 // Note: PromptArgumentSchema, PromptSchema, ListPromptsRequestSchema, GetPromptRequestSchema
 // are re-exported from generated.
 
-// Note: ListPromptsResultSchema is re-exported from generated.
-
-/**
- * Parameters for a `prompts/get` request.
- */
-export const GetPromptRequestParamsSchema = BaseRequestParamsSchema.extend({
-    /**
-     * The name of the prompt or prompt template.
-     */
-    name: z.string(),
-    /**
-     * Arguments to use for templating the prompt.
-     */
-    arguments: z.record(z.string(), z.string()).optional()
-});
+// Note: ListPromptsResultSchema, GetPromptRequestParamsSchema are re-exported from generated.
 
 // Note: TextContentSchema, ImageContentSchema, AudioContentSchema are re-exported
 // from generated with Base64 validation for data fields.
@@ -874,25 +832,8 @@ export const SetLevelRequestParamsSchema = BaseRequestParamsSchema.extend({
      */
     level: LoggingLevelSchema
 });
-// Note: SetLevelRequestSchema, LoggingMessageNotificationSchema are re-exported from generated.
-
-/**
- * Parameters for a `notifications/message` notification.
- */
-export const LoggingMessageNotificationParamsSchema = NotificationsParamsSchema.extend({
-    /**
-     * The severity of this log message.
-     */
-    level: LoggingLevelSchema,
-    /**
-     * An optional name of the logger issuing this message.
-     */
-    logger: z.string().optional(),
-    /**
-     * The data to be logged, such as a string message or an object. Any JSON serializable type is allowed here.
-     */
-    data: z.unknown()
-});
+// Note: SetLevelRequestSchema, LoggingMessageNotificationSchema, LoggingMessageNotificationParamsSchema
+// are re-exported from generated.
 
 /* Sampling */
 // Note: ToolResultContentSchema is re-exported from generated.

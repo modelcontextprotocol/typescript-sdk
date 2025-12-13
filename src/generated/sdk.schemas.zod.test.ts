@@ -15,11 +15,11 @@ export type ProgressTokenSchemaInferredType = z.infer<typeof generated.ProgressT
 
 export type CursorSchemaInferredType = z.infer<typeof generated.CursorSchema>;
 
-export type RequestParamsSchemaInferredType = z.infer<typeof generated.RequestParamsSchema>;
-
 export type TaskMetadataSchemaInferredType = z.infer<typeof generated.TaskMetadataSchema>;
 
-export type RequestSchemaInferredType = z.infer<typeof generated.RequestSchema>;
+export type RelatedTaskMetadataSchemaInferredType = z.infer<typeof generated.RelatedTaskMetadataSchema>;
+
+export type RequestParamsSchemaInferredType = z.infer<typeof generated.RequestParamsSchema>;
 
 export type NotificationParamsSchemaInferredType = z.infer<typeof generated.NotificationParamsSchema>;
 
@@ -31,7 +31,7 @@ export type ErrorSchemaInferredType = z.infer<typeof generated.ErrorSchema>;
 
 export type RequestIdSchemaInferredType = z.infer<typeof generated.RequestIdSchema>;
 
-export type JSONRPCRequestSchemaInferredType = z.infer<typeof generated.JSONRPCRequestSchema>;
+export type RequestSchemaInferredType = z.infer<typeof generated.RequestSchema>;
 
 export type JSONRPCNotificationSchemaInferredType = z.infer<typeof generated.JSONRPCNotificationSchema>;
 
@@ -132,8 +132,6 @@ export type ToolExecutionSchemaInferredType = z.infer<typeof generated.ToolExecu
 export type ToolSchemaInferredType = z.infer<typeof generated.ToolSchema>;
 
 export type TaskStatusSchemaInferredType = z.infer<typeof generated.TaskStatusSchema>;
-
-export type RelatedTaskMetadataSchemaInferredType = z.infer<typeof generated.RelatedTaskMetadataSchema>;
 
 export type TaskSchemaInferredType = z.infer<typeof generated.TaskSchema>;
 
@@ -241,7 +239,7 @@ export type ReadResourceResultSchemaInferredType = z.infer<typeof generated.Read
 
 export type ListToolsResultSchemaInferredType = z.infer<typeof generated.ListToolsResultSchema>;
 
-export type JSONRPCMessageSchemaInferredType = z.infer<typeof generated.JSONRPCMessageSchema>;
+export type JSONRPCRequestSchemaInferredType = z.infer<typeof generated.JSONRPCRequestSchema>;
 
 export type URLElicitationRequiredErrorSchemaInferredType = z.infer<typeof generated.URLElicitationRequiredErrorSchema>;
 
@@ -281,6 +279,8 @@ export type ListResourcesResultSchemaInferredType = z.infer<typeof generated.Lis
 
 export type CallToolResultSchemaInferredType = z.infer<typeof generated.CallToolResultSchema>;
 
+export type JSONRPCMessageSchemaInferredType = z.infer<typeof generated.JSONRPCMessageSchema>;
+
 export type PromptMessageSchemaInferredType = z.infer<typeof generated.PromptMessageSchema>;
 
 export type SamplingMessageContentBlockSchemaInferredType = z.infer<typeof generated.SamplingMessageContentBlockSchema>;
@@ -305,12 +305,12 @@ expectType<spec.ProgressToken>({} as ProgressTokenSchemaInferredType);
 expectType<ProgressTokenSchemaInferredType>({} as spec.ProgressToken);
 expectType<spec.Cursor>({} as CursorSchemaInferredType);
 expectType<CursorSchemaInferredType>({} as spec.Cursor);
-expectType<spec.RequestParams>({} as RequestParamsSchemaInferredType);
-expectType<RequestParamsSchemaInferredType>({} as spec.RequestParams);
 expectType<spec.TaskMetadata>({} as TaskMetadataSchemaInferredType);
 expectType<TaskMetadataSchemaInferredType>({} as spec.TaskMetadata);
-expectType<spec.Request>({} as RequestSchemaInferredType);
-expectType<RequestSchemaInferredType>({} as spec.Request);
+expectType<spec.RelatedTaskMetadata>({} as RelatedTaskMetadataSchemaInferredType);
+expectType<RelatedTaskMetadataSchemaInferredType>({} as spec.RelatedTaskMetadata);
+expectType<spec.RequestParams>({} as RequestParamsSchemaInferredType);
+expectType<RequestParamsSchemaInferredType>({} as spec.RequestParams);
 expectType<spec.NotificationParams>({} as NotificationParamsSchemaInferredType);
 expectType<NotificationParamsSchemaInferredType>({} as spec.NotificationParams);
 expectType<spec.Notification>({} as NotificationSchemaInferredType);
@@ -321,8 +321,8 @@ expectType<spec.Error>({} as ErrorSchemaInferredType);
 expectType<ErrorSchemaInferredType>({} as spec.Error);
 expectType<spec.RequestId>({} as RequestIdSchemaInferredType);
 expectType<RequestIdSchemaInferredType>({} as spec.RequestId);
-expectType<spec.JSONRPCRequest>({} as JSONRPCRequestSchemaInferredType);
-expectType<JSONRPCRequestSchemaInferredType>({} as spec.JSONRPCRequest);
+expectType<spec.Request>({} as RequestSchemaInferredType);
+expectType<RequestSchemaInferredType>({} as spec.Request);
 expectType<spec.JSONRPCNotification>({} as JSONRPCNotificationSchemaInferredType);
 expectType<JSONRPCNotificationSchemaInferredType>({} as spec.JSONRPCNotification);
 expectType<spec.JSONRPCResultResponse>({} as JSONRPCResultResponseSchemaInferredType);
@@ -423,8 +423,6 @@ expectType<spec.Tool>({} as ToolSchemaInferredType);
 expectType<ToolSchemaInferredType>({} as spec.Tool);
 expectType<spec.TaskStatus>({} as TaskStatusSchemaInferredType);
 expectType<TaskStatusSchemaInferredType>({} as spec.TaskStatus);
-expectType<spec.RelatedTaskMetadata>({} as RelatedTaskMetadataSchemaInferredType);
-expectType<RelatedTaskMetadataSchemaInferredType>({} as spec.RelatedTaskMetadata);
 expectType<spec.Task>({} as TaskSchemaInferredType);
 expectType<TaskSchemaInferredType>({} as spec.Task);
 expectType<spec.CreateTaskResult>({} as CreateTaskResultSchemaInferredType);
@@ -531,8 +529,8 @@ expectType<spec.ReadResourceResult>({} as ReadResourceResultSchemaInferredType);
 expectType<ReadResourceResultSchemaInferredType>({} as spec.ReadResourceResult);
 expectType<spec.ListToolsResult>({} as ListToolsResultSchemaInferredType);
 expectType<ListToolsResultSchemaInferredType>({} as spec.ListToolsResult);
-expectType<spec.JSONRPCMessage>({} as JSONRPCMessageSchemaInferredType);
-expectType<JSONRPCMessageSchemaInferredType>({} as spec.JSONRPCMessage);
+expectType<spec.JSONRPCRequest>({} as JSONRPCRequestSchemaInferredType);
+expectType<JSONRPCRequestSchemaInferredType>({} as spec.JSONRPCRequest);
 expectType<spec.URLElicitationRequiredError>({} as URLElicitationRequiredErrorSchemaInferredType);
 expectType<URLElicitationRequiredErrorSchemaInferredType>({} as spec.URLElicitationRequiredError);
 expectType<spec.InitializeRequestParams>({} as InitializeRequestParamsSchemaInferredType);
@@ -571,6 +569,8 @@ expectType<spec.ListResourcesResult>({} as ListResourcesResultSchemaInferredType
 expectType<ListResourcesResultSchemaInferredType>({} as spec.ListResourcesResult);
 expectType<spec.CallToolResult>({} as CallToolResultSchemaInferredType);
 expectType<CallToolResultSchemaInferredType>({} as spec.CallToolResult);
+expectType<spec.JSONRPCMessage>({} as JSONRPCMessageSchemaInferredType);
+expectType<JSONRPCMessageSchemaInferredType>({} as spec.JSONRPCMessage);
 expectType<spec.PromptMessage>({} as PromptMessageSchemaInferredType);
 expectType<PromptMessageSchemaInferredType>({} as spec.PromptMessage);
 expectType<spec.SamplingMessageContentBlock>({} as SamplingMessageContentBlockSchemaInferredType);

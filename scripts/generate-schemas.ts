@@ -97,6 +97,7 @@ const STRICT_SCHEMAS = [
     'JSONRPCNotificationSchema',
     'JSONRPCResultResponseSchema',
     'JSONRPCErrorResponseSchema',
+    'EmptyResultSchema',
 ];
 
 // =============================================================================
