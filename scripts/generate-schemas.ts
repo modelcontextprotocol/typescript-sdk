@@ -1090,8 +1090,8 @@ function addTopLevelDescribe(sourceFile: SourceFile): void {
         // Skip if already has .describe() at the end
         if (/\.describe\([^)]+\)\s*$/.test(currentText)) continue;
 
-        // Escape quotes in description
-        const escapedDesc = descText.replace(/'/g, "\\'").replace(/\n/g, ' ');
+        // Escape backslashes first, then quotes and newlines
+        const escapedDesc = descText.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, ' ');
 
         // Add .describe() to the schema
         decl.setInitializer(`${currentText}.describe('${escapedDesc}')`);
