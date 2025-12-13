@@ -5,7 +5,9 @@ import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.j
 import { McpServer } from '../../src/server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
 import {
+    CallToolResult,
     CallToolResultSchema,
+    CancelTaskResultSchema,
     CreateTaskResultSchema,
     ElicitRequestSchema,
     ElicitResultSchema,
@@ -78,11 +80,11 @@ describe('Task Lifecycle Integration Tests', () => {
                                 await extra.taskStore.storeTaskResult(task.taskId, 'failed', {
                                     content: [{ type: 'text', text: 'Task failed as requested' }],
                                     isError: true
-                                });
+                                } as CallToolResult);
                             } else {
                                 await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
                                     content: [{ type: 'text', text: `Completed after ${duration}ms` }]
-                                });
+                                } as CallToolResult);
                             }
                         } catch {
                             // Task may have been cleaned up if test ended
@@ -155,7 +157,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             try {
                                 await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
                                     content: [{ type: 'text', text: `Hello, ${name}!` }]
-                                });
+                                } as CallToolResult);
                             } catch {
                                 // Task may have been cleaned up if test ended
                             }
@@ -164,7 +166,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             try {
                                 await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
                                     content: [{ type: 'text', text: `Hello, ${userName}!` }]
-                                });
+                                } as CallToolResult);
                             } catch {
                                 // Task may have been cleaned up if test ended
                             }
@@ -262,7 +264,7 @@ describe('Task Lifecycle Integration Tests', () => {
             // Verify result is stored
             const result = await taskStore.getTaskResult(taskId);
             expect(result).toBeDefined();
-            expect(result.content).toEqual([{ type: 'text', text: 'Completed after 500ms' }]);
+            expect((result as { content: unknown }).content).toEqual([{ type: 'text', text: 'Completed after 500ms' }]);
 
             await transport.close();
         });
@@ -304,8 +306,8 @@ describe('Task Lifecycle Integration Tests', () => {
 
             // Verify error result is stored
             const result = await taskStore.getTaskResult(taskId);
-            expect(result.content).toEqual([{ type: 'text', text: 'Task failed as requested' }]);
-            expect(result.isError).toBe(true);
+            expect((result as { content: unknown }).content).toEqual([{ type: 'text', text: 'Task failed as requested' }]);
+            expect((result as { isError?: boolean }).isError).toBe(true);
 
             await transport.close();
         });
@@ -462,7 +464,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             try {
                                 await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
                                     content: [{ type: 'text', text: `Received responses: ${responses.join(', ')}` }]
-                                });
+                                } as CallToolResult);
                             } catch {
                                 // Task may have been cleaned up if test ended
                             }
@@ -1040,7 +1042,7 @@ describe('Task Lifecycle Integration Tests', () => {
                     method: 'tasks/cancel',
                     params: { taskId }
                 },
-                z.object({ _meta: z.record(z.unknown()).optional() })
+                CancelTaskResultSchema
             );
 
             // Verify task is cancelled
@@ -1156,7 +1158,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                 try {
                                     await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
                                         content: [{ type: 'text', text: `Received all responses: ${responses.join(', ')}` }]
-                                    });
+                                    } as CallToolResult);
                                 } catch {
                                     // Task may have been cleaned up if test ended
                                 }
@@ -1166,7 +1168,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                     await extra.taskStore.storeTaskResult(task.taskId, 'failed', {
                                         content: [{ type: 'text', text: `Error: ${error}` }],
                                         isError: true
-                                    });
+                                    } as CallToolResult);
                                 } catch {
                                     // Task may have been cleaned up if test ended
                                 }
@@ -1365,7 +1367,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                 try {
                                     await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
                                         content: [{ type: 'text', text: 'Task completed quickly' }]
-                                    });
+                                    } as CallToolResult);
                                 } catch {
                                     // Task may have been cleaned up if test ended
                                 }
@@ -1375,7 +1377,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                     await extra.taskStore.storeTaskResult(task.taskId, 'failed', {
                                         content: [{ type: 'text', text: `Error: ${error}` }],
                                         isError: true
-                                    });
+                                    } as CallToolResult);
                                 } catch {
                                     // Task may have been cleaned up if test ended
                                 }

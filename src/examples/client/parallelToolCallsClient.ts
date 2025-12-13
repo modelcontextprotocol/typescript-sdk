@@ -118,7 +118,7 @@ async function startParallelNotificationTools(client: Client): Promise<Record<st
             {
                 caller: 'fast-notifier',
                 request: {
-                    method: 'tools/call',
+                    method: 'tools/call' as const,
                     params: {
                         name: 'start-notification-stream',
                         arguments: {
@@ -132,7 +132,7 @@ async function startParallelNotificationTools(client: Client): Promise<Record<st
             {
                 caller: 'slow-notifier',
                 request: {
-                    method: 'tools/call',
+                    method: 'tools/call' as const,
                     params: {
                         name: 'start-notification-stream',
                         arguments: {
@@ -146,7 +146,7 @@ async function startParallelNotificationTools(client: Client): Promise<Record<st
             {
                 caller: 'burst-notifier',
                 request: {
-                    method: 'tools/call',
+                    method: 'tools/call' as const,
                     params: {
                         name: 'start-notification-stream',
                         arguments: {

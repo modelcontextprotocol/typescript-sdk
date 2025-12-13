@@ -87,7 +87,9 @@ test('should read multiple messages', async () => {
     const finished = new Promise<void>(resolve => {
         server.onmessage = message => {
             readMessages.push(message);
-            if (JSON.stringify(message) === JSON.stringify(messages[1])) {
+            // Compare message content instead of JSON.stringify (Zod reorders keys)
+            const msg1 = messages[1];
+            if ('method' in message && 'method' in msg1 && message.method === msg1.method && message.jsonrpc === msg1.jsonrpc) {
                 resolve();
             }
         };
