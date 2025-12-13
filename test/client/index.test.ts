@@ -6,6 +6,7 @@ import {
     RequestSchema,
     NotificationSchema,
     ResultSchema,
+    Result,
     LATEST_PROTOCOL_VERSION,
     SUPPORTED_PROTOCOL_VERSIONS,
     InitializeRequestSchema,
@@ -17,20 +18,16 @@ import {
     CallToolResultSchema,
     CreateMessageRequestSchema,
     ElicitRequestSchema,
+    ElicitResult,
     ElicitResultSchema,
     ListRootsRequestSchema,
     ErrorCode,
     McpError,
+    CreateTaskResult,
     CreateTaskResultSchema,
     Tool,
     Prompt,
-    Resource,
-    type Request,
-    type Notification,
-    type Result,
-    type ClientCapabilities,
-    type ElicitResult,
-    type CreateTaskResult
+    Resource
 } from '../../src/types.js';
 import { Transport } from '../../src/shared/transport.js';
 import { Server } from '../../src/server/index.js';
@@ -80,7 +77,7 @@ describe('Zod v4', () => {
         type WeatherNotification = z4.infer<typeof WeatherNotificationSchema>;
         type WeatherResult = z4.infer<typeof WeatherResultSchema>;
 
-        // Create a typed Client for weather data - custom types extend the base types
+        // Create a typed Client for weather data
         const weatherClient = new Client<WeatherRequest, WeatherNotification, WeatherResult>(
             {
                 name: 'WeatherClient',
@@ -161,7 +158,7 @@ describe('Zod v3', () => {
         type WeatherNotification = z3.infer<typeof WeatherNotificationSchema>;
         type WeatherResult = z3.infer<typeof WeatherResultSchema>;
 
-        // Create a typed Client for weather data - custom types extend the base types
+        // Create a typed Client for weather data
         const weatherClient = new Client<WeatherRequest, WeatherNotification, WeatherResult>(
             {
                 name: 'WeatherClient',
@@ -1849,12 +1846,7 @@ describe('outputSchema validation', () => {
                 version: '1.0.0'
             },
             {
-                capabilities: {
-                    tasks: {
-                        list: {},
-                        cancel: {}
-                    }
-                }
+                capabilities: {}
             }
         );
 
@@ -1935,12 +1927,7 @@ describe('outputSchema validation', () => {
                 version: '1.0.0'
             },
             {
-                capabilities: {
-                    tasks: {
-                        list: {},
-                        cancel: {}
-                    }
-                }
+                capabilities: {}
             }
         );
 
@@ -2017,12 +2004,7 @@ describe('outputSchema validation', () => {
                 version: '1.0.0'
             },
             {
-                capabilities: {
-                    tasks: {
-                        list: {},
-                        cancel: {}
-                    }
-                }
+                capabilities: {}
             }
         );
 
@@ -2095,12 +2077,7 @@ describe('outputSchema validation', () => {
                 version: '1.0.0'
             },
             {
-                capabilities: {
-                    tasks: {
-                        list: {},
-                        cancel: {}
-                    }
-                }
+                capabilities: {}
             }
         );
 
@@ -2201,12 +2178,7 @@ describe('outputSchema validation', () => {
                 version: '1.0.0'
             },
             {
-                capabilities: {
-                    tasks: {
-                        list: {},
-                        cancel: {}
-                    }
-                }
+                capabilities: {}
             }
         );
 
@@ -2478,8 +2450,6 @@ describe('Task-based execution', () => {
                 {
                     capabilities: {
                         tasks: {
-                            list: {},
-                            cancel: {},
                             requests: {
                                 tools: {
                                     call: {}
@@ -2702,12 +2672,7 @@ describe('Task-based execution', () => {
                     version: '1.0.0'
                 },
                 {
-                    capabilities: {
-                        tasks: {
-                            list: {},
-                            cancel: {}
-                        }
-                    }
+                    capabilities: {}
                 }
             );
 
@@ -2792,12 +2757,7 @@ describe('Task-based execution', () => {
                     version: '1.0.0'
                 },
                 {
-                    capabilities: {
-                        tasks: {
-                            list: {},
-                            cancel: {}
-                        }
-                    }
+                    capabilities: {}
                 }
             );
 
@@ -2881,12 +2841,7 @@ describe('Task-based execution', () => {
                     version: '1.0.0'
                 },
                 {
-                    capabilities: {
-                        tasks: {
-                            list: {},
-                            cancel: {}
-                        }
-                    }
+                    capabilities: {}
                 }
             );
 
@@ -2969,12 +2924,7 @@ describe('Task-based execution', () => {
                     version: '1.0.0'
                 },
                 {
-                    capabilities: {
-                        tasks: {
-                            list: {},
-                            cancel: {}
-                        }
-                    }
+                    capabilities: {}
                 }
             );
 
@@ -3084,12 +3034,7 @@ describe('Task-based execution', () => {
                 version: '1.0.0'
             },
             {
-                capabilities: {
-                    tasks: {
-                        list: {},
-                        cancel: {}
-                    }
-                }
+                capabilities: {}
             }
         );
 
@@ -3168,12 +3113,7 @@ describe('Task-based execution', () => {
                     version: '1.0.0'
                 },
                 {
-                    capabilities: {
-                        tasks: {
-                            list: {},
-                            cancel: {}
-                        }
-                    }
+                    capabilities: {}
                 }
             );
 
@@ -3212,12 +3152,7 @@ describe('Task-based execution', () => {
                     version: '1.0.0'
                 },
                 {
-                    capabilities: {
-                        tasks: {
-                            list: {},
-                            cancel: {}
-                        }
-                    }
+                    capabilities: {}
                 }
             );
 
@@ -3261,12 +3196,7 @@ describe('Task-based execution', () => {
                     version: '1.0.0'
                 },
                 {
-                    capabilities: {
-                        tasks: {
-                            list: {},
-                            cancel: {}
-                        }
-                    }
+                    capabilities: {}
                 }
             );
 
