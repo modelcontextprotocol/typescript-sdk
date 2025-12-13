@@ -802,14 +802,6 @@ import type {
 // Re-export with original names
 export type { _Request as Request, _Notification as Notification, _Result as Result };
 
-// Backwards-compatible aliases
-/** @deprecated Use Request instead */
-export type RequestBase = _Request;
-/** @deprecated Use Notification instead */
-export type NotificationBase = _Notification;
-/** @deprecated Use Result instead */
-export type ResultBase = _Result;
-
 /* Types re-exported from generated sdk.types.ts */
 export type {
     // Union types for narrowing (Mcp prefix)

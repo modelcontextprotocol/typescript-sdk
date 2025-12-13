@@ -1,6 +1,6 @@
 import { StartSSEOptions, StreamableHTTPClientTransport, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
 import { OAuthClientProvider, UnauthorizedError } from '../../src/client/auth.js';
-import { JSONRPCMessage, JSONRPCRequest, type ResultBase } from '../../src/types.js';
+import { JSONRPCMessage, JSONRPCRequest, type Result } from '../../src/types.js';
 import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '../../src/server/auth/errors.js';
 import { type Mock, type Mocked } from 'vitest';
 
@@ -223,7 +223,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         const responseMessage: JSONRPCMessage = {
             jsonrpc: '2.0',
-            result: { success: true } as ResultBase,
+            result: { success: true } as Result,
             id: 'test-id'
         };
 

@@ -15,7 +15,6 @@ import {
     ListToolsResultSchema,
     LoggingMessageNotificationSchema,
     type Notification,
-    type NotificationBase,
     ReadResourceResultSchema,
     type TextContent,
     UrlElicitationRequiredError,
