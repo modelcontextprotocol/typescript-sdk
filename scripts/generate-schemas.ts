@@ -155,11 +155,12 @@ function preProcessTypes(content: string): string {
     // Transform 4: Update Request.params to use RequestParams
     updateRequestParamsType(sourceFile);
 
-    // Transform 5: Add derived capability types
-    injectDerivedCapabilityTypes(sourceFile);
-
-    // Transform 6: Convert JSDoc comments to @description tags for .describe() generation
+    // Transform 5: Convert JSDoc comments to @description tags for .describe() generation
+    // (Must run before injectDerivedCapabilityTypes so inline types get @description)
     convertJsDocToDescription(sourceFile);
+
+    // Transform 6: Add derived capability types (extracts from parent interfaces)
+    injectDerivedCapabilityTypes(sourceFile);
 
     return sourceFile.getFullText();
 }
@@ -347,15 +348,13 @@ function injectDerivedCapabilityTypes(sourceFile: SourceFile): void {
 function convertJsDocToDescription(sourceFile: SourceFile): void {
     let count = 0;
 
-    // Process all interfaces
+    // Process all interfaces and their nested type literals
     for (const iface of sourceFile.getInterfaces()) {
         // Convert interface-level JSDoc
         count += convertNodeJsDoc(iface);
 
-        // Convert property-level JSDoc
-        for (const prop of iface.getProperties()) {
-            count += convertNodeJsDoc(prop);
-        }
+        // Convert property-level JSDoc (including nested type literals)
+        count += processPropertiesRecursively(iface);
     }
 
     // Process all type aliases
@@ -364,6 +363,30 @@ function convertJsDocToDescription(sourceFile: SourceFile): void {
     }
 
     console.log(`    ✓ Converted ${count} JSDoc comments to @description`);
+}
+
+/**
+ * Recursively process properties, including those in inline type literals.
+ */
+function processPropertiesRecursively(node: { getProperties?: () => Array<unknown>; getTypeNode?: () => unknown }): number {
+    let count = 0;
+
+    // Process direct properties
+    if (node.getProperties) {
+        for (const prop of node.getProperties() as Array<{ getJsDocs: () => unknown[]; getTypeNode?: () => unknown }>) {
+            count += convertNodeJsDoc(prop as Parameters<typeof convertNodeJsDoc>[0]);
+
+            // Check if the property has an inline type literal
+            if (prop.getTypeNode) {
+                const typeNode = prop.getTypeNode();
+                if (typeNode && typeof typeNode === 'object' && 'getProperties' in typeNode) {
+                    count += processPropertiesRecursively(typeNode as { getProperties: () => Array<unknown> });
+                }
+            }
+        }
+    }
+
+    return count;
 }
 
 /**

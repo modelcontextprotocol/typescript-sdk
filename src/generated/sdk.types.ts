@@ -56,13 +56,9 @@ export interface TaskAugmentedRequestParams extends RequestParams {
 export interface RequestParams {
     /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta?: {
-        /**
-         * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
-         */
+        /** @description If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications. */
         progressToken?: ProgressToken;
-        /**
-         * If specified, this request is related to the provided task.
-         */
+        /** @description If specified, this request is related to the provided task. */
         'io.modelcontextprotocol/related-task'?: RelatedTaskMetadata;
         [key: string]: unknown;
     };
@@ -278,21 +274,15 @@ export interface ClientCapabilities {
     experimental?: { [key: string]: object };
     /** @description Present if the client supports listing roots. */
     roots?: {
-        /**
-         * Whether the client supports notifications for changes to the roots list.
-         */
+        /** @description Whether the client supports notifications for changes to the roots list. */
         listChanged?: boolean;
     };
     /** @description Present if the client supports sampling from an LLM. */
     sampling?: {
-        /**
-         * Whether the client supports context inclusion via includeContext parameter.
-         * If not declared, servers SHOULD only use `includeContext: "none"` (or omit it).
-         */
+        /** @description Whether the client supports context inclusion via includeContext parameter.
+      If not declared, servers SHOULD only use `includeContext: "none"` (or omit it). */
         context?: object;
-        /**
-         * Whether the client supports tool use via tools and toolChoice parameters.
-         */
+        /** @description Whether the client supports tool use via tools and toolChoice parameters. */
         tools?: object;
     };
     /** @description Present if the client supports elicitation from the server. */
@@ -300,34 +290,20 @@ export interface ClientCapabilities {
 
     /** @description Present if the client supports task-augmented requests. */
     tasks?: {
-        /**
-         * Whether this client supports tasks/list.
-         */
+        /** @description Whether this client supports tasks/list. */
         list?: object;
-        /**
-         * Whether this client supports tasks/cancel.
-         */
+        /** @description Whether this client supports tasks/cancel. */
         cancel?: object;
-        /**
-         * Specifies which request types can be augmented with tasks.
-         */
+        /** @description Specifies which request types can be augmented with tasks. */
         requests?: {
-            /**
-             * Task support for sampling-related requests.
-             */
+            /** @description Task support for sampling-related requests. */
             sampling?: {
-                /**
-                 * Whether the client supports task-augmented sampling/createMessage requests.
-                 */
+                /** @description Whether the client supports task-augmented sampling/createMessage requests. */
                 createMessage?: object;
             };
-            /**
-             * Task support for elicitation-related requests.
-             */
+            /** @description Task support for elicitation-related requests. */
             elicitation?: {
-                /**
-                 * Whether the client supports task-augmented elicitation/create requests.
-                 */
+                /** @description Whether the client supports task-augmented elicitation/create requests. */
                 create?: object;
             };
         };
@@ -347,50 +323,32 @@ export interface ServerCapabilities {
     completions?: object;
     /** @description Present if the server offers any prompt templates. */
     prompts?: {
-        /**
-         * Whether this server supports notifications for changes to the prompt list.
-         */
+        /** @description Whether this server supports notifications for changes to the prompt list. */
         listChanged?: boolean;
     };
     /** @description Present if the server offers any resources to read. */
     resources?: {
-        /**
-         * Whether this server supports subscribing to resource updates.
-         */
+        /** @description Whether this server supports subscribing to resource updates. */
         subscribe?: boolean;
-        /**
-         * Whether this server supports notifications for changes to the resource list.
-         */
+        /** @description Whether this server supports notifications for changes to the resource list. */
         listChanged?: boolean;
     };
     /** @description Present if the server offers any tools to call. */
     tools?: {
-        /**
-         * Whether this server supports notifications for changes to the tool list.
-         */
+        /** @description Whether this server supports notifications for changes to the tool list. */
         listChanged?: boolean;
     };
     /** @description Present if the server supports task-augmented requests. */
     tasks?: {
-        /**
-         * Whether this server supports tasks/list.
-         */
+        /** @description Whether this server supports tasks/list. */
         list?: object;
-        /**
-         * Whether this server supports tasks/cancel.
-         */
+        /** @description Whether this server supports tasks/cancel. */
         cancel?: object;
-        /**
-         * Specifies which request types can be augmented with tasks.
-         */
+        /** @description Specifies which request types can be augmented with tasks. */
         requests?: {
-            /**
-             * Task support for tool-related requests.
-             */
+            /** @description Task support for tool-related requests. */
             tools?: {
-                /**
-                 * Whether the server supports task-augmented tools/call requests.
-                 */
+                /** @description Whether the server supports task-augmented tools/call requests. */
                 call?: object;
             };
         };
@@ -1159,9 +1117,7 @@ export interface CreateTaskResult extends Result {
 export interface GetTaskRequest extends Request {
     method: 'tasks/get';
     params: {
-        /**
-         * The task identifier to query.
-         */
+        /** @description The task identifier to query. */
         taskId: string;
     };
 }
@@ -1179,9 +1135,7 @@ export type GetTaskResult = Result & Task;
 export interface GetTaskPayloadRequest extends Request {
     method: 'tasks/result';
     params: {
-        /**
-         * The task identifier to retrieve results for.
-         */
+        /** @description The task identifier to retrieve results for. */
         taskId: string;
     };
 }
@@ -1203,9 +1157,7 @@ export interface GetTaskPayloadResult extends Result {
 export interface CancelTaskRequest extends Request {
     method: 'tasks/cancel';
     params: {
-        /**
-         * The task identifier to cancel.
-         */
+        /** @description The task identifier to cancel. */
         taskId: string;
     };
 }
@@ -1642,21 +1594,15 @@ export interface CompleteRequestParams extends RequestParams {
     ref: PromptReference | ResourceTemplateReference;
     /** @description The argument's information */
     argument: {
-        /**
-         * The name of the argument
-         */
+        /** @description The name of the argument */
         name: string;
-        /**
-         * The value of the argument to use for completion matching.
-         */
+        /** @description The value of the argument to use for completion matching. */
         value: string;
     };
 
     /** @description Additional, optional context for completions */
     context?: {
-        /**
-         * Previously-resolved variables in a URI template or prompt.
-         */
+        /** @description Previously-resolved variables in a URI template or prompt. */
         arguments?: { [key: string]: string };
     };
 }
@@ -1676,17 +1622,11 @@ export interface CompleteRequest extends Request {
  */
 export interface CompleteResult extends Result {
     completion: {
-        /**
-         * An array of completion values. Must not exceed 100 items.
-         */
+        /** @description An array of completion values. Must not exceed 100 items. */
         values: string[];
-        /**
-         * The total number of completion options available. This can exceed the number of values actually sent in the response.
-         */
+        /** @description The total number of completion options available. This can exceed the number of values actually sent in the response. */
         total?: number;
-        /**
-         * Indicates whether there are additional completion options beyond those provided in the current response, even if the exact total is unknown.
-         */
+        /** @description Indicates whether there are additional completion options beyond those provided in the current response, even if the exact total is unknown. */
         hasMore?: boolean;
     };
 }
@@ -1936,9 +1876,7 @@ export interface UntitledMultiSelectEnumSchema {
     /** @description Schema for the array items. */
     items: {
         type: 'string';
-        /**
-         * Array of enum values to choose from.
-         */
+        /** @description Array of enum values to choose from. */
         enum: string[];
     };
     /** @description Optional default value. */
@@ -1961,9 +1899,7 @@ export interface TitledMultiSelectEnumSchema {
     maxItems?: number;
     /** @description Schema for array items with enum options and display labels. */
     items: {
-        /**
-         * Array of enum options with values and display labels.
-         */
+        /** @description Array of enum options with values and display labels. */
         anyOf: Array<{
             /**
              * The constant enum value.
@@ -2031,9 +1967,7 @@ export interface ElicitResult extends Result {
 export interface ElicitationCompleteNotification extends Notification {
     method: 'notifications/elicitation/complete';
     params: {
-        /**
-         * The ID of the elicitation that completed.
-         */
+        /** @description The ID of the elicitation that completed. */
         elicitationId: string;
     };
 }
@@ -2118,61 +2052,37 @@ export type ServerResult =
     | GetTaskPayloadResult
     | ListTasksResult
     | CancelTaskResult;
-/** @description Present if the client supports task-augmented requests. */
+/** Extracted from ClientCapabilities["tasks"]. */
 export type ClientTasksCapability = {
-    /**
-     * Whether this client supports tasks/list.
-     */
+    /** @description Whether this client supports tasks/list. */
     list?: object;
-    /**
-     * Whether this client supports tasks/cancel.
-     */
+    /** @description Whether this client supports tasks/cancel. */
     cancel?: object;
-    /**
-     * Specifies which request types can be augmented with tasks.
-     */
+    /** @description Specifies which request types can be augmented with tasks. */
     requests?: {
-        /**
-         * Task support for sampling-related requests.
-         */
+        /** @description Task support for sampling-related requests. */
         sampling?: {
-            /**
-             * Whether the client supports task-augmented sampling/createMessage requests.
-             */
+            /** @description Whether the client supports task-augmented sampling/createMessage requests. */
             createMessage?: object;
         };
-        /**
-         * Task support for elicitation-related requests.
-         */
+        /** @description Task support for elicitation-related requests. */
         elicitation?: {
-            /**
-             * Whether the client supports task-augmented elicitation/create requests.
-             */
+            /** @description Whether the client supports task-augmented elicitation/create requests. */
             create?: object;
         };
     };
 };
-/** @description Present if the server supports task-augmented requests. */
+/** Extracted from ServerCapabilities["tasks"]. */
 export type ServerTasksCapability = {
-    /**
-     * Whether this server supports tasks/list.
-     */
+    /** @description Whether this server supports tasks/list. */
     list?: object;
-    /**
-     * Whether this server supports tasks/cancel.
-     */
+    /** @description Whether this server supports tasks/cancel. */
     cancel?: object;
-    /**
-     * Specifies which request types can be augmented with tasks.
-     */
+    /** @description Specifies which request types can be augmented with tasks. */
     requests?: {
-        /**
-         * Task support for tool-related requests.
-         */
+        /** @description Task support for tool-related requests. */
         tools?: {
-            /**
-             * Whether the server supports task-augmented tools/call requests.
-             */
+            /** @description Whether the server supports task-augmented tools/call requests. */
             call?: object;
         };
     };

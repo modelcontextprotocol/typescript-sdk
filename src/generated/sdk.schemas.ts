@@ -45,14 +45,14 @@ export const RequestParamsSchema = z.object({
     /** @description See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage. */
     _meta: z
         .looseObject({
-            /**
-             * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
-             */
-            progressToken: ProgressTokenSchema.optional(),
-            /**
-             * If specified, this request is related to the provided task.
-             */
-            'io.modelcontextprotocol/related-task': RelatedTaskMetadataSchema.optional()
+            /** @description If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications. */
+            progressToken: ProgressTokenSchema.optional().describe(
+                'If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.'
+            ),
+            /** @description If specified, this request is related to the provided task. */
+            'io.modelcontextprotocol/related-task': RelatedTaskMetadataSchema.optional().describe(
+                'If specified, this request is related to the provided task.'
+            )
         })
         .optional()
         .describe('See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.')
@@ -212,25 +212,27 @@ export const ClientCapabilitiesSchema = z.object({
     /** @description Present if the client supports listing roots. */
     roots: z
         .object({
-            /**
-             * Whether the client supports notifications for changes to the roots list.
-             */
-            listChanged: z.boolean().optional()
+            /** @description Whether the client supports notifications for changes to the roots list. */
+            listChanged: z.boolean().optional().describe('Whether the client supports notifications for changes to the roots list.')
         })
         .optional()
         .describe('Present if the client supports listing roots.'),
     /** @description Present if the client supports sampling from an LLM. */
     sampling: z
         .object({
-            /**
-             * Whether the client supports context inclusion via includeContext parameter.
-             * If not declared, servers SHOULD only use `includeContext: "none"` (or omit it).
-             */
-            context: z.record(z.string(), z.any()).optional(),
-            /**
-             * Whether the client supports tool use via tools and toolChoice parameters.
-             */
-            tools: z.record(z.string(), z.any()).optional()
+            /** @description Whether the client supports context inclusion via includeContext parameter.
+          If not declared, servers SHOULD only use `includeContext: "none"` (or omit it). */
+            context: z
+                .record(z.string(), z.any())
+                .optional()
+                .describe(
+                    'Whether the client supports context inclusion via includeContext parameter.\nIf not declared, servers SHOULD only use `includeContext: "none"` (or omit it).'
+                ),
+            /** @description Whether the client supports tool use via tools and toolChoice parameters. */
+            tools: z
+                .record(z.string(), z.any())
+                .optional()
+                .describe('Whether the client supports tool use via tools and toolChoice parameters.')
         })
         .optional()
         .describe('Present if the client supports sampling from an LLM.'),
@@ -245,43 +247,38 @@ export const ClientCapabilitiesSchema = z.object({
     /** @description Present if the client supports task-augmented requests. */
     tasks: z
         .object({
-            /**
-             * Whether this client supports tasks/list.
-             */
-            list: z.record(z.string(), z.any()).optional(),
-            /**
-             * Whether this client supports tasks/cancel.
-             */
-            cancel: z.record(z.string(), z.any()).optional(),
-            /**
-             * Specifies which request types can be augmented with tasks.
-             */
+            /** @description Whether this client supports tasks/list. */
+            list: z.record(z.string(), z.any()).optional().describe('Whether this client supports tasks/list.'),
+            /** @description Whether this client supports tasks/cancel. */
+            cancel: z.record(z.string(), z.any()).optional().describe('Whether this client supports tasks/cancel.'),
+            /** @description Specifies which request types can be augmented with tasks. */
             requests: z
                 .object({
-                    /**
-                     * Task support for sampling-related requests.
-                     */
+                    /** @description Task support for sampling-related requests. */
                     sampling: z
                         .object({
-                            /**
-                             * Whether the client supports task-augmented sampling/createMessage requests.
-                             */
-                            createMessage: z.record(z.string(), z.any()).optional()
-                        })
-                        .optional(),
-                    /**
-                     * Task support for elicitation-related requests.
-                     */
-                    elicitation: z
-                        .object({
-                            /**
-                             * Whether the client supports task-augmented elicitation/create requests.
-                             */
-                            create: z.record(z.string(), z.any()).optional()
+                            /** @description Whether the client supports task-augmented sampling/createMessage requests. */
+                            createMessage: z
+                                .record(z.string(), z.any())
+                                .optional()
+                                .describe('Whether the client supports task-augmented sampling/createMessage requests.')
                         })
                         .optional()
+                        .describe('Task support for sampling-related requests.'),
+                    /** @description Task support for elicitation-related requests. */
+                    elicitation: z
+                        .object({
+                            /** @description Whether the client supports task-augmented elicitation/create requests. */
+                            create: z
+                                .record(z.string(), z.any())
+                                .optional()
+                                .describe('Whether the client supports task-augmented elicitation/create requests.')
+                        })
+                        .optional()
+                        .describe('Task support for elicitation-related requests.')
                 })
                 .optional()
+                .describe('Specifies which request types can be augmented with tasks.')
         })
         .optional()
         .describe('Present if the client supports task-augmented requests.')
@@ -304,66 +301,53 @@ export const ServerCapabilitiesSchema = z.object({
     /** @description Present if the server offers any prompt templates. */
     prompts: z
         .object({
-            /**
-             * Whether this server supports notifications for changes to the prompt list.
-             */
-            listChanged: z.boolean().optional()
+            /** @description Whether this server supports notifications for changes to the prompt list. */
+            listChanged: z.boolean().optional().describe('Whether this server supports notifications for changes to the prompt list.')
         })
         .optional()
         .describe('Present if the server offers any prompt templates.'),
     /** @description Present if the server offers any resources to read. */
     resources: z
         .object({
-            /**
-             * Whether this server supports subscribing to resource updates.
-             */
-            subscribe: z.boolean().optional(),
-            /**
-             * Whether this server supports notifications for changes to the resource list.
-             */
-            listChanged: z.boolean().optional()
+            /** @description Whether this server supports subscribing to resource updates. */
+            subscribe: z.boolean().optional().describe('Whether this server supports subscribing to resource updates.'),
+            /** @description Whether this server supports notifications for changes to the resource list. */
+            listChanged: z.boolean().optional().describe('Whether this server supports notifications for changes to the resource list.')
         })
         .optional()
         .describe('Present if the server offers any resources to read.'),
     /** @description Present if the server offers any tools to call. */
     tools: z
         .object({
-            /**
-             * Whether this server supports notifications for changes to the tool list.
-             */
-            listChanged: z.boolean().optional()
+            /** @description Whether this server supports notifications for changes to the tool list. */
+            listChanged: z.boolean().optional().describe('Whether this server supports notifications for changes to the tool list.')
         })
         .optional()
         .describe('Present if the server offers any tools to call.'),
     /** @description Present if the server supports task-augmented requests. */
     tasks: z
         .object({
-            /**
-             * Whether this server supports tasks/list.
-             */
-            list: z.record(z.string(), z.any()).optional(),
-            /**
-             * Whether this server supports tasks/cancel.
-             */
-            cancel: z.record(z.string(), z.any()).optional(),
-            /**
-             * Specifies which request types can be augmented with tasks.
-             */
+            /** @description Whether this server supports tasks/list. */
+            list: z.record(z.string(), z.any()).optional().describe('Whether this server supports tasks/list.'),
+            /** @description Whether this server supports tasks/cancel. */
+            cancel: z.record(z.string(), z.any()).optional().describe('Whether this server supports tasks/cancel.'),
+            /** @description Specifies which request types can be augmented with tasks. */
             requests: z
                 .object({
-                    /**
-                     * Task support for tool-related requests.
-                     */
+                    /** @description Task support for tool-related requests. */
                     tools: z
                         .object({
-                            /**
-                             * Whether the server supports task-augmented tools/call requests.
-                             */
-                            call: z.record(z.string(), z.any()).optional()
+                            /** @description Whether the server supports task-augmented tools/call requests. */
+                            call: z
+                                .record(z.string(), z.any())
+                                .optional()
+                                .describe('Whether the server supports task-augmented tools/call requests.')
                         })
                         .optional()
+                        .describe('Task support for tool-related requests.')
                 })
                 .optional()
+                .describe('Specifies which request types can be augmented with tasks.')
         })
         .optional()
         .describe('Present if the server supports task-augmented requests.')
@@ -1059,10 +1043,8 @@ export const CreateTaskResultSchema = ResultSchema.extend({
 export const GetTaskRequestSchema = RequestSchema.extend({
     method: z.literal('tasks/get'),
     params: z.object({
-        /**
-         * The task identifier to query.
-         */
-        taskId: z.string()
+        /** @description The task identifier to query. */
+        taskId: z.string().describe('The task identifier to query.')
     })
 });
 
@@ -1079,10 +1061,8 @@ export const GetTaskResultSchema = ResultSchema.and(TaskSchema).describe('The re
 export const GetTaskPayloadRequestSchema = RequestSchema.extend({
     method: z.literal('tasks/result'),
     params: z.object({
-        /**
-         * The task identifier to retrieve results for.
-         */
-        taskId: z.string()
+        /** @description The task identifier to retrieve results for. */
+        taskId: z.string().describe('The task identifier to retrieve results for.')
     })
 });
 
@@ -1101,10 +1081,8 @@ export const GetTaskPayloadResultSchema = ResultSchema.and(z.record(z.string(), 
 export const CancelTaskRequestSchema = RequestSchema.extend({
     method: z.literal('tasks/cancel'),
     params: z.object({
-        /**
-         * The task identifier to cancel.
-         */
-        taskId: z.string()
+        /** @description The task identifier to cancel. */
+        taskId: z.string().describe('The task identifier to cancel.')
     })
 });
 
@@ -1395,23 +1373,17 @@ export const CompleteRequestParamsSchema = RequestParamsSchema.extend({
     /** @description The argument's information */
     argument: z
         .object({
-            /**
-             * The name of the argument
-             */
-            name: z.string(),
-            /**
-             * The value of the argument to use for completion matching.
-             */
-            value: z.string()
+            /** @description The name of the argument */
+            name: z.string().describe('The name of the argument'),
+            /** @description The value of the argument to use for completion matching. */
+            value: z.string().describe('The value of the argument to use for completion matching.')
         })
         .describe("The argument's information"),
     /** @description Additional, optional context for completions */
     context: z
         .object({
-            /**
-             * Previously-resolved variables in a URI template or prompt.
-             */
-            arguments: z.record(z.string(), z.string()).optional()
+            /** @description Previously-resolved variables in a URI template or prompt. */
+            arguments: z.record(z.string(), z.string()).optional().describe('Previously-resolved variables in a URI template or prompt.')
         })
         .optional()
         .describe('Additional, optional context for completions')
@@ -1423,18 +1395,22 @@ export const CompleteRequestParamsSchema = RequestParamsSchema.extend({
  */
 export const CompleteResultSchema = ResultSchema.extend({
     completion: z.object({
-        /**
-         * An array of completion values. Must not exceed 100 items.
-         */
-        values: z.array(z.string()),
-        /**
-         * The total number of completion options available. This can exceed the number of values actually sent in the response.
-         */
-        total: z.number().optional(),
-        /**
-         * Indicates whether there are additional completion options beyond those provided in the current response, even if the exact total is unknown.
-         */
-        hasMore: z.boolean().optional()
+        /** @description An array of completion values. Must not exceed 100 items. */
+        values: z.array(z.string()).describe('An array of completion values. Must not exceed 100 items.'),
+        /** @description The total number of completion options available. This can exceed the number of values actually sent in the response. */
+        total: z
+            .number()
+            .optional()
+            .describe(
+                'The total number of completion options available. This can exceed the number of values actually sent in the response.'
+            ),
+        /** @description Indicates whether there are additional completion options beyond those provided in the current response, even if the exact total is unknown. */
+        hasMore: z
+            .boolean()
+            .optional()
+            .describe(
+                'Indicates whether there are additional completion options beyond those provided in the current response, even if the exact total is unknown.'
+            )
     })
 });
 
@@ -1620,10 +1596,8 @@ export const UntitledMultiSelectEnumSchemaSchema = z.object({
     items: z
         .object({
             type: z.literal('string'),
-            /**
-             * Array of enum values to choose from.
-             */
-            enum: z.array(z.string())
+            /** @description Array of enum values to choose from. */
+            enum: z.array(z.string()).describe('Array of enum values to choose from.')
         })
         .describe('Schema for the array items.'),
     /** @description Optional default value. */
@@ -1647,21 +1621,21 @@ export const TitledMultiSelectEnumSchemaSchema = z.object({
     /** @description Schema for array items with enum options and display labels. */
     items: z
         .object({
-            /**
-             * Array of enum options with values and display labels.
-             */
-            anyOf: z.array(
-                z.object({
-                    /**
-                     * The constant enum value.
-                     */
-                    const: z.string(),
-                    /**
-                     * Display title for this option.
-                     */
-                    title: z.string()
-                })
-            )
+            /** @description Array of enum options with values and display labels. */
+            anyOf: z
+                .array(
+                    z.object({
+                        /**
+                         * The constant enum value.
+                         */
+                        const: z.string(),
+                        /**
+                         * Display title for this option.
+                         */
+                        title: z.string()
+                    })
+                )
+                .describe('Array of enum options with values and display labels.')
         })
         .describe('Schema for array items with enum options and display labels.'),
     /** @description Optional default value. */
@@ -1731,10 +1705,8 @@ export const ElicitResultSchema = ResultSchema.extend({
 export const ElicitationCompleteNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/elicitation/complete'),
     params: z.object({
-        /**
-         * The ID of the elicitation that completed.
-         */
-        elicitationId: z.string()
+        /** @description The ID of the elicitation that completed. */
+        elicitationId: z.string().describe('The ID of the elicitation that completed.')
     })
 });
 
@@ -1837,80 +1809,66 @@ export const ListToolsResultSchema = PaginatedResultSchema.extend({
     tools: z.array(ToolSchema)
 });
 
-/** @description Present if the client supports task-augmented requests. */
-export const ClientTasksCapabilitySchema = z
-    .object({
-        /**
-         * Whether this client supports tasks/list.
-         */
-        list: z.record(z.string(), z.any()).optional(),
-        /**
-         * Whether this client supports tasks/cancel.
-         */
-        cancel: z.record(z.string(), z.any()).optional(),
-        /**
-         * Specifies which request types can be augmented with tasks.
-         */
-        requests: z
-            .object({
-                /**
-                 * Task support for sampling-related requests.
-                 */
-                sampling: z
-                    .object({
-                        /**
-                         * Whether the client supports task-augmented sampling/createMessage requests.
-                         */
-                        createMessage: z.record(z.string(), z.any()).optional()
-                    })
-                    .optional(),
-                /**
-                 * Task support for elicitation-related requests.
-                 */
-                elicitation: z
-                    .object({
-                        /**
-                         * Whether the client supports task-augmented elicitation/create requests.
-                         */
-                        create: z.record(z.string(), z.any()).optional()
-                    })
-                    .optional()
-            })
-            .optional()
-    })
-    .describe('Present if the client supports task-augmented requests.');
+/** Extracted from ClientCapabilities["tasks"]. */
+export const ClientTasksCapabilitySchema = z.object({
+    /** @description Whether this client supports tasks/list. */
+    list: z.record(z.string(), z.any()).optional().describe('Whether this client supports tasks/list.'),
+    /** @description Whether this client supports tasks/cancel. */
+    cancel: z.record(z.string(), z.any()).optional().describe('Whether this client supports tasks/cancel.'),
+    /** @description Specifies which request types can be augmented with tasks. */
+    requests: z
+        .object({
+            /** @description Task support for sampling-related requests. */
+            sampling: z
+                .object({
+                    /** @description Whether the client supports task-augmented sampling/createMessage requests. */
+                    createMessage: z
+                        .record(z.string(), z.any())
+                        .optional()
+                        .describe('Whether the client supports task-augmented sampling/createMessage requests.')
+                })
+                .optional()
+                .describe('Task support for sampling-related requests.'),
+            /** @description Task support for elicitation-related requests. */
+            elicitation: z
+                .object({
+                    /** @description Whether the client supports task-augmented elicitation/create requests. */
+                    create: z
+                        .record(z.string(), z.any())
+                        .optional()
+                        .describe('Whether the client supports task-augmented elicitation/create requests.')
+                })
+                .optional()
+                .describe('Task support for elicitation-related requests.')
+        })
+        .optional()
+        .describe('Specifies which request types can be augmented with tasks.')
+});
 
-/** @description Present if the server supports task-augmented requests. */
-export const ServerTasksCapabilitySchema = z
-    .object({
-        /**
-         * Whether this server supports tasks/list.
-         */
-        list: z.record(z.string(), z.any()).optional(),
-        /**
-         * Whether this server supports tasks/cancel.
-         */
-        cancel: z.record(z.string(), z.any()).optional(),
-        /**
-         * Specifies which request types can be augmented with tasks.
-         */
-        requests: z
-            .object({
-                /**
-                 * Task support for tool-related requests.
-                 */
-                tools: z
-                    .object({
-                        /**
-                         * Whether the server supports task-augmented tools/call requests.
-                         */
-                        call: z.record(z.string(), z.any()).optional()
-                    })
-                    .optional()
-            })
-            .optional()
-    })
-    .describe('Present if the server supports task-augmented requests.');
+/** Extracted from ServerCapabilities["tasks"]. */
+export const ServerTasksCapabilitySchema = z.object({
+    /** @description Whether this server supports tasks/list. */
+    list: z.record(z.string(), z.any()).optional().describe('Whether this server supports tasks/list.'),
+    /** @description Whether this server supports tasks/cancel. */
+    cancel: z.record(z.string(), z.any()).optional().describe('Whether this server supports tasks/cancel.'),
+    /** @description Specifies which request types can be augmented with tasks. */
+    requests: z
+        .object({
+            /** @description Task support for tool-related requests. */
+            tools: z
+                .object({
+                    /** @description Whether the server supports task-augmented tools/call requests. */
+                    call: z
+                        .record(z.string(), z.any())
+                        .optional()
+                        .describe('Whether the server supports task-augmented tools/call requests.')
+                })
+                .optional()
+                .describe('Task support for tool-related requests.')
+        })
+        .optional()
+        .describe('Specifies which request types can be augmented with tasks.')
+});
 
 /**
  * @description A request that expects a response.
