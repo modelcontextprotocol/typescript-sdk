@@ -329,7 +329,12 @@ export const ImplementationSchema = BaseMetadataSchema.extend({
     /**
      * An optional URL of the website for this implementation.
      */
-    websiteUrl: z.string().optional()
+    websiteUrl: z.string().optional(),
+
+    /**
+     * An optional human-readable description of what this implementation does.
+     */
+    description: z.string().optional(),
 });
 
 const FormElicitationCapabilitySchema = z.intersection(
