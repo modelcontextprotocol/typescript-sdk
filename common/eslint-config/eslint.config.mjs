@@ -3,17 +3,19 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import eslint from '@eslint/js';
+import { defineConfig } from 'eslint/config';
 import eslintConfigPrettier from 'eslint-config-prettier/flat';
 import importPlugin from 'eslint-plugin-import';
 import nodePlugin from 'eslint-plugin-n';
 import simpleImportSortPlugin from 'eslint-plugin-simple-import-sort';
-import tseslint from 'typescript-eslint';
+import { configs } from 'typescript-eslint';
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export default tseslint.config(
+export default defineConfig(
     eslint.configs.recommended,
-    ...tseslint.configs.recommended,
+    ...configs.recommended,
     importPlugin.flatConfigs.recommended,
     importPlugin.flatConfigs.typescript,
     {
