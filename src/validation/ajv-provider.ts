@@ -2,7 +2,7 @@
  * AJV-based JSON Schema validator provider
  */
 
-import { Ajv } from 'ajv';
+import Ajv from 'ajv';
 import _addFormats from 'ajv-formats';
 import type { JsonSchemaType, JsonSchemaValidator, JsonSchemaValidatorResult, jsonSchemaValidator } from './types.js';
 

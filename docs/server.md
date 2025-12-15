@@ -31,8 +31,7 @@ Key examples:
 - [`jsonResponseStreamableHttp.ts`](../src/examples/server/jsonResponseStreamableHttp.ts) – `enableJsonResponse: true`, no SSE
 - [`standaloneSseWithGetStreamableHttp.ts`](../src/examples/server/standaloneSseWithGetStreamableHttp.ts) – notifications with Streamable HTTP GET + SSE
 
-See the MCP spec for full transport details:  
-`https://modelcontextprotocol.io/specification/2025-03-26/basic/transports`
+See the MCP spec for full transport details: `https://modelcontextprotocol.io/specification/2025-11-25/basic/transports`
 
 ### Stateless vs stateful sessions
 
