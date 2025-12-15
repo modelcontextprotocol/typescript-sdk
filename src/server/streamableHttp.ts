@@ -873,7 +873,7 @@ export class StreamableHTTPServerTransport implements Transport {
         let requestId = options?.relatedRequestId;
         if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
             // If the message is a response, use the request ID from the message
-            requestId = message.id;
+            requestId = message.id ?? undefined;
         }
 
         // Check if this message should be sent on the standalone SSE stream (no request ID)
