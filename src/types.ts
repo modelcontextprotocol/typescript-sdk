@@ -279,7 +279,15 @@ export const IconSchema = z.object({
      *
      * If not provided, the client should assume that the icon can be used at any size.
      */
-    sizes: z.array(z.string()).optional()
+    sizes: z.array(z.string()).optional(),
+    /**
+     * Optional specifier for the theme this icon is designed for. `light` indicates
+     * the icon is designed to be used with a light background, and `dark` indicates
+     * the icon is designed to be used with a dark background.
+     *
+     * If not provided, the client should assume the icon can be used with any theme.
+     */
+    theme: z.enum(['light', 'dark']).optional()
 });
 
 /**
@@ -329,7 +337,16 @@ export const ImplementationSchema = BaseMetadataSchema.extend({
     /**
      * An optional URL of the website for this implementation.
      */
-    websiteUrl: z.string().optional()
+    websiteUrl: z.string().optional(),
+
+    /**
+     * An optional human-readable description of what this implementation does.
+     *
+     * This can be used by clients or servers to provide context about their purpose
+     * and capabilities. For example, a server might describe the types of resources
+     * or tools it provides, while a client might describe its intended use case.
+     */
+    description: z.string().optional()
 });
 
 const FormElicitationCapabilitySchema = z.intersection(

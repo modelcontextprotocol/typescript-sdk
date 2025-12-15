@@ -35,7 +35,6 @@ export interface ZodV4Internal {
             value?: unknown;
             values?: unknown[];
             shape?: Record<string, AnySchema> | (() => Record<string, AnySchema>);
-            description?: string;
         };
     };
     value?: unknown;
@@ -220,15 +219,12 @@ export function getParseErrorMessage(error: unknown): string {
 /**
  * Gets the description from a schema, if available.
  * Works with both Zod v3 and v4.
+ *
+ * Both versions expose a `.description` getter that returns the description
+ * from their respective internal storage (v3: _def, v4: globalRegistry).
  */
 export function getSchemaDescription(schema: AnySchema): string | undefined {
-    if (isZ4Schema(schema)) {
-        const v4Schema = schema as unknown as ZodV4Internal;
-        return v4Schema._zod?.def?.description;
-    }
-    const v3Schema = schema as unknown as ZodV3Internal;
-    // v3 may have description on the schema itself or in _def
-    return (schema as { description?: string }).description ?? v3Schema._def?.description;
+    return (schema as { description?: string }).description;
 }
 
 /**
