@@ -338,7 +338,7 @@ export const ImplementationSchema = BaseMetadataSchema.extend({
      * and capabilities. For example, a server might describe the types of resources
      * or tools it provides, while a client might describe its intended use case.
      */
-    description: z.string().optional(),
+    description: z.string().optional()
 });
 
 const FormElicitationCapabilitySchema = z.intersection(
