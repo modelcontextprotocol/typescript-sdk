@@ -44,6 +44,7 @@ catalogs:
         '@types/supertest': ^6.0.2
         '@types/ws': ^8.5.12
         '@typescript/native-preview': ^7.0.0-dev.20251103.1
+        tsdown: ^0.18.0
 
 enableGlobalVirtualStore: false
 

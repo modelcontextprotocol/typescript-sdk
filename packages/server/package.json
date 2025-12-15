@@ -32,10 +32,9 @@
     "scripts": {
         "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
         "typecheck": "tsc -p tsconfig.build.json --noEmit",
-        "build": "npm run build:esm",
-        "build:esm": "mkdir -p dist && echo '{\"type\": \"module\"}' > dist/package.json && tsc -p tsconfig.build.json",
-        "build:esm:w": "npm run build:esm -- -w",
-        "prepack": "npm run build:esm",
+        "build": "tsdown",
+        "build:watch": "tsdown --watch",
+        "prepack": "npm run build",
         "lint": "eslint src/ && prettier --check .",
         "lint:fix": "eslint src/ --fix && prettier --write .",
         "check": "npm run typecheck && npm run lint",
@@ -46,7 +45,6 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
-        "@modelcontextprotocol/sdk-core": "workspace:^",
         "content-type": "catalog:runtimeServerOnly",
         "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly",
@@ -69,6 +67,7 @@
         }
     },
     "devDependencies": {
+        "@modelcontextprotocol/sdk-core": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
@@ -87,6 +86,7 @@
         "eslint-plugin-n": "catalog:devTools",
         "prettier": "catalog:devTools",
         "supertest": "catalog:devTools",
+        "tsdown": "catalog:devTools",
         "tsx": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",

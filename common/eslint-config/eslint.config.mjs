@@ -55,6 +55,7 @@ export default tseslint.config(
                         '**/*.test.tsx',
                         '**/scripts/**',
                         '**/vitest.config.*',
+                        '**/tsdown.config.*',
                         '**/eslint.config.*',
                         '**/vitest.setup.*'
                     ],
