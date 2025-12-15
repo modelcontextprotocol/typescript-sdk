@@ -1,6 +1,6 @@
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
 
-import type { EventStore } from './streamableHttp.js';
+import type { EventStore } from './webStandardStreamableHttp.js';
 
 /**
  * Simple in-memory implementation of the EventStore interface for resumability

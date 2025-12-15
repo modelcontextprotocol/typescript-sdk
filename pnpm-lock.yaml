@@ -86,6 +86,9 @@ catalogs:
       specifier: ^6.1.1
       version: 6.1.3
   runtimeServerOnly:
+    '@hono/node-server':
+      specifier: ^1.19.7
+      version: 1.19.7
     content-type:
       specifier: ^1.0.5
       version: 1.0.5
@@ -98,6 +101,9 @@ catalogs:
     express-rate-limit:
       specifier: ^7.5.0
       version: 7.5.1
+    hono:
+      specifier: ^4.11.1
+      version: 4.11.1
     raw-body:
       specifier: ^3.0.0
       version: 3.0.1
@@ -442,6 +448,9 @@ importers:
 
   packages/examples/server:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.7(hono@4.11.1)
       '@modelcontextprotocol/sdk-examples-shared':
         specifier: workspace:^
         version: link:../shared
@@ -454,6 +463,9 @@ importers:
       express:
         specifier: catalog:runtimeServerOnly
         version: 5.1.0
+      hono:
+        specifier: catalog:runtimeServerOnly
+        version: 4.11.1
       zod:
         specifier: catalog:runtimeShared
         version: 3.25.76
@@ -528,6 +540,9 @@ importers:
 
   packages/server:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.7(hono@4.11.1)
       content-type:
         specifier: catalog:runtimeServerOnly
         version: 1.0.5
@@ -540,6 +555,9 @@ importers:
       express-rate-limit:
         specifier: catalog:runtimeServerOnly
         version: 7.5.1(express@5.1.0)
+      hono:
+        specifier: catalog:runtimeServerOnly
+        version: 4.11.1
       pkce-challenge:
         specifier: catalog:runtimeShared
         version: 5.0.0
@@ -854,6 +872,12 @@ packages:
   '@eslint/plugin-kit@0.4.1':
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@hono/node-server@1.19.7':
+    resolution: {integrity: sha512-vUcD0uauS7EU2caukW8z5lJKtoGMokxNbJtBiwHgpqxEXokaHCBkQUmCHhjFB1VUTWdqj25QoMkMKzgjq+uhrw==}
+    engines: {node: '>=18.14.1'}
+    peerDependencies:
+      hono: ^4
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -2014,6 +2038,10 @@ packages:
     resolution: {integrity: sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ==}
     engines: {node: '>= 0.4'}
 
+  hono@4.11.1:
+    resolution: {integrity: sha512-KsFcH0xxHes0J4zaQgWbYwmz3UPOOskdqZmItstUG93+Wk1ePBLkLGwbP9zlmh1BFUiL8Qp+Xfu9P7feJWpGNg==}
+    engines: {node: '>=16.9.0'}
+
   hookable@5.5.3:
     resolution: {integrity: sha512-Yc+BQe8SvoXH1643Qez1zqLRmbA5rCL+sSmk6TVos0LWVfNIB7PGncdlId77WzLGSIB5KaWgTaNTs2lNVEI6VQ==}
 
@@ -3069,6 +3097,10 @@ snapshots:
     dependencies:
       '@eslint/core': 0.17.0
       levn: 0.4.1
+
+  '@hono/node-server@1.19.7(hono@4.11.1)':
+    dependencies:
+      hono: 4.11.1
 
   '@humanfs/core@0.19.1': {}
 
@@ -4312,6 +4344,8 @@ snapshots:
   hasown@2.0.2:
     dependencies:
       function-bind: 1.1.2
+
+  hono@4.11.1: {}
 
   hookable@5.5.3: {}
 

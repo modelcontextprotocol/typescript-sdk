@@ -12,12 +12,14 @@ catalogs:
         zod-to-json-schema: ^3.25.0
         '@cfworker/json-schema': ^4.1.1
     runtimeServerOnly:
+        '@hono/node-server': ^1.19.7
+        hono: ^4.11.1
         content-type: ^1.0.5
         cors: ^2.8.5
         express: ^5.0.1
         express-rate-limit: ^7.5.0
         raw-body: ^3.0.0
-    runtimeClientOnly: 
+    runtimeClientOnly:
         jose: ^6.1.1
         cross-spawn: ^7.0.5
         eventsource: ^3.0.2

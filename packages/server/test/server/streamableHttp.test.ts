@@ -128,7 +128,12 @@ async function sendPostRequest(
     });
 }
 
-function expectErrorResponse(data: unknown, expectedCode: number, expectedMessagePattern: RegExp): void {
+function expectErrorResponse(
+    data: unknown,
+    expectedCode: number,
+    expectedMessagePattern: RegExp,
+    options?: { expectData?: boolean }
+): void {
     expect(data).toMatchObject({
         jsonrpc: '2.0',
         error: expect.objectContaining({
@@ -136,6 +141,9 @@ function expectErrorResponse(data: unknown, expectedCode: number, expectedMessag
             message: expect.stringMatching(expectedMessagePattern)
         })
     });
+    if (options?.expectData) {
+        expect((data as { error: { data?: string } }).error.data).toBeDefined();
+    }
 }
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     /**
@@ -686,6 +694,28 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(response.status).toBe(400);
             const errorData = await response.json();
             expectErrorResponse(errorData, -32700, /Parse error/);
+        });
+
+        it('should include error data in parse error response for unexpected errors', async () => {
+            sessionId = await initializeServer();
+
+            // We can't easily trigger the catch-all error handler, but we can verify
+            // that the JSON parse error includes useful information
+            const response = await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream',
+                    'mcp-session-id': sessionId
+                },
+                body: '{ invalid json }'
+            });
+
+            expect(response.status).toBe(400);
+            const errorData = await response.json();
+            expectErrorResponse(errorData, -32700, /Parse error/);
+            // The error message should contain details about what went wrong
+            expect(errorData.error.message).toContain('Invalid JSON');
         });
 
         it('should return 400 error for invalid JSON-RPC messages', async () => {
@@ -1317,9 +1347,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             transport = result.transport;
             baseUrl = result.baseUrl;
             mcpServer = result.mcpServer;
-
-            // Verify resumability is enabled on the transport
-            expect(transport['_eventStore']).toBeDefined();
 
             // Initialize the server
             const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);

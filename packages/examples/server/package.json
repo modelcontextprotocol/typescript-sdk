@@ -32,17 +32,19 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
-        "@modelcontextprotocol/sdk-server": "workspace:^",
+        "@hono/node-server": "catalog:runtimeServerOnly",
+        "hono": "catalog:runtimeServerOnly",
         "@modelcontextprotocol/sdk-examples-shared": "workspace:^",
-        "zod": "catalog:runtimeShared",
+        "@modelcontextprotocol/sdk-server": "workspace:^",
+        "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly",
-        "cors": "catalog:runtimeServerOnly"
+        "zod": "catalog:runtimeShared"
     },
     "devDependencies": {
-        "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
+        "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@types/express": "catalog:devTools",
-        "@types/cors": "catalog:devTools"
+        "@types/cors": "catalog:devTools",
+        "@types/express": "catalog:devTools"
     }
 }
