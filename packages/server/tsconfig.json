@@ -6,7 +6,7 @@
         "baseUrl": ".",
         "paths": {
             "*": ["./*"],
-            "@modelcontextprotocol/sdk-core": ["../core/src/index.ts"]
+            "@modelcontextprotocol/sdk-core": ["node_modules/@modelcontextprotocol/sdk-core/src/index.ts"]
         }
     }
 }

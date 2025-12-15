@@ -4,6 +4,6 @@
         "outDir": "./dist",
         "rootDir": "./src"
     },
-    "include": ["./"],
-    "exclude": ["dist", "node_modules", "test"]
+    "include": ["src/**/*"],
+    "exclude": ["**/*.test.ts", "src/__mocks__/**/*", "src/__fixtures__/**/*", "tsdown.config.ts"]
 }
