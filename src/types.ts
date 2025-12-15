@@ -333,6 +333,10 @@ export const ImplementationSchema = BaseMetadataSchema.extend({
 
     /**
      * An optional human-readable description of what this implementation does.
+     *
+     * This can be used by clients or servers to provide context about their purpose
+     * and capabilities. For example, a server might describe the types of resources
+     * or tools it provides, while a client might describe its intended use case.
      */
     description: z.string().optional(),
 });
