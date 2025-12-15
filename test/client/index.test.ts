@@ -6,6 +6,7 @@ import {
     RequestSchema,
     NotificationSchema,
     ResultSchema,
+    Result,
     LATEST_PROTOCOL_VERSION,
     SUPPORTED_PROTOCOL_VERSIONS,
     InitializeRequestSchema,
@@ -17,10 +18,12 @@ import {
     CallToolResultSchema,
     CreateMessageRequestSchema,
     ElicitRequestSchema,
+    ElicitResult,
     ElicitResultSchema,
     ListRootsRequestSchema,
     ErrorCode,
     McpError,
+    CreateTaskResult,
     CreateTaskResultSchema,
     Tool,
     Prompt,
@@ -211,7 +214,7 @@ test('should initialize with matching protocol version', async () => {
                             version: '1.0'
                         },
                         instructions: 'test instructions'
-                    }
+                    } as Result
                 });
             }
             return Promise.resolve();
@@ -269,7 +272,7 @@ test('should initialize with supported older protocol version', async () => {
                             name: 'test',
                             version: '1.0'
                         }
-                    }
+                    } as Result
                 });
             }
             return Promise.resolve();
@@ -319,7 +322,7 @@ test('should reject unsupported protocol version', async () => {
                             name: 'test',
                             version: '1.0'
                         }
-                    }
+                    } as Result
                 });
             }
             return Promise.resolve();
@@ -885,7 +888,7 @@ test('should reject form-mode elicitation when client only supports URL mode', a
                             name: 'test-server',
                             version: '1.0.0'
                         }
-                    }
+                    } as Result
                 });
             } else if (message.method === 'notifications/initialized') {
                 // ignore
@@ -1030,7 +1033,7 @@ test('should reject URL-mode elicitation when client only supports form mode', a
                             name: 'test-server',
                             version: '1.0.0'
                         }
-                    }
+                    } as Result
                 });
             } else if (message.method === 'notifications/initialized') {
                 // ignore
@@ -1830,6 +1833,7 @@ describe('outputSchema validation', () => {
         server.setRequestHandler(CallToolRequestSchema, async request => {
             if (request.params.name === 'test-tool') {
                 return {
+                    content: [],
                     structuredContent: { result: 'success', count: 42 }
                 };
             }
@@ -1842,20 +1846,7 @@ describe('outputSchema validation', () => {
                 version: '1.0.0'
             },
             {
-                capabilities: {
-                    tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            },
-                            tasks: {
-                                get: true,
-                                list: {},
-                                result: true
-                            }
-                        }
-                    }
-                }
+                capabilities: {}
             }
         );
 
@@ -1923,6 +1914,7 @@ describe('outputSchema validation', () => {
             if (request.params.name === 'test-tool') {
                 // Return invalid structured content (count is string instead of number)
                 return {
+                    content: [],
                     structuredContent: { result: 'success', count: 'not a number' }
                 };
             }
@@ -1935,20 +1927,7 @@ describe('outputSchema validation', () => {
                 version: '1.0.0'
             },
             {
-                capabilities: {
-                    tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            },
-                            tasks: {
-                                get: true,
-                                list: {},
-                                result: true
-                            }
-                        }
-                    }
-                }
+                capabilities: {}
             }
         );
 
@@ -2025,20 +2004,7 @@ describe('outputSchema validation', () => {
                 version: '1.0.0'
             },
             {
-                capabilities: {
-                    tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            },
-                            tasks: {
-                                get: true,
-                                list: {},
-                                result: true
-                            }
-                        }
-                    }
-                }
+                capabilities: {}
             }
         );
 
@@ -2111,20 +2077,7 @@ describe('outputSchema validation', () => {
                 version: '1.0.0'
             },
             {
-                capabilities: {
-                    tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            },
-                            tasks: {
-                                get: true,
-                                list: {},
-                                result: true
-                            }
-                        }
-                    }
-                }
+                capabilities: {}
             }
         );
 
@@ -2204,6 +2157,7 @@ describe('outputSchema validation', () => {
         server.setRequestHandler(CallToolRequestSchema, async request => {
             if (request.params.name === 'complex-tool') {
                 return {
+                    content: [],
                     structuredContent: {
                         name: 'John Doe',
                         age: 30,
@@ -2224,20 +2178,7 @@ describe('outputSchema validation', () => {
                 version: '1.0.0'
             },
             {
-                capabilities: {
-                    tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            },
-                            tasks: {
-                                get: true,
-                                list: {},
-                                result: true
-                            }
-                        }
-                    }
-                }
+                capabilities: {}
             }
         );
 
@@ -2307,6 +2248,7 @@ describe('outputSchema validation', () => {
             if (request.params.name === 'strict-tool') {
                 // Return structured content with extra property
                 return {
+                    content: [],
                     structuredContent: {
                         name: 'John',
                         extraField: 'not allowed'
@@ -2381,7 +2323,7 @@ describe('Task-based execution', () => {
 
                         const result = {
                             content: [{ type: 'text', text: 'Tool executed successfully!' }]
-                        };
+                        } as Result;
                         await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
 
                         return { task };
@@ -2457,7 +2399,7 @@ describe('Task-based execution', () => {
 
                         const result = {
                             content: [{ type: 'text', text: 'Success!' }]
-                        };
+                        } as Result;
                         await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
 
                         return { task };
@@ -2510,8 +2452,7 @@ describe('Task-based execution', () => {
                         tasks: {
                             requests: {
                                 tools: {
-                                    call: {},
-                                    list: {}
+                                    call: {}
                                 }
                             }
                         }
@@ -2534,7 +2475,7 @@ describe('Task-based execution', () => {
 
                         const result = {
                             content: [{ type: 'text', text: 'Result data!' }]
-                        };
+                        } as Result;
                         await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
 
                         return { task };
@@ -2615,7 +2556,7 @@ describe('Task-based execution', () => {
 
                         const result = {
                             content: [{ type: 'text', text: 'Success!' }]
-                        };
+                        } as Result;
                         await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
 
                         return { task };
@@ -2705,9 +2646,9 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
-                const result = {
-                    action: 'accept',
+            client.setRequestHandler(ElicitRequestSchema, async (request, extra): Promise<ElicitResult | CreateTaskResult> => {
+                const result: ElicitResult = {
+                    action: 'accept' as const,
                     content: { username: 'list-user' }
                 };
 
@@ -2731,15 +2672,7 @@ describe('Task-based execution', () => {
                     version: '1.0.0'
                 },
                 {
-                    capabilities: {
-                        tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: {}
-                                }
-                            }
-                        }
-                    }
+                    capabilities: {}
                 }
             );
 
@@ -2798,9 +2731,9 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
-                const result = {
-                    action: 'accept',
+            client.setRequestHandler(ElicitRequestSchema, async (request, extra): Promise<ElicitResult | CreateTaskResult> => {
+                const result: ElicitResult = {
+                    action: 'accept' as const,
                     content: { username: 'list-user' }
                 };
 
@@ -2824,15 +2757,7 @@ describe('Task-based execution', () => {
                     version: '1.0.0'
                 },
                 {
-                    capabilities: {
-                        tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: {}
-                                }
-                            }
-                        }
-                    }
+                    capabilities: {}
                 }
             );
 
@@ -2890,9 +2815,9 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
-                const result = {
-                    action: 'accept',
+            client.setRequestHandler(ElicitRequestSchema, async (request, extra): Promise<ElicitResult | CreateTaskResult> => {
+                const result: ElicitResult = {
+                    action: 'accept' as const,
                     content: { username: 'result-user' }
                 };
 
@@ -2916,15 +2841,7 @@ describe('Task-based execution', () => {
                     version: '1.0.0'
                 },
                 {
-                    capabilities: {
-                        tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: {}
-                                }
-                            }
-                        }
-                    }
+                    capabilities: {}
                 }
             );
 
@@ -2981,9 +2898,9 @@ describe('Task-based execution', () => {
                 }
             );
 
-            client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
-                const result = {
-                    action: 'accept',
+            client.setRequestHandler(ElicitRequestSchema, async (request, extra): Promise<ElicitResult | CreateTaskResult> => {
+                const result: ElicitResult = {
+                    action: 'accept' as const,
                     content: { username: 'list-user' }
                 };
 
@@ -3007,15 +2924,7 @@ describe('Task-based execution', () => {
                     version: '1.0.0'
                 },
                 {
-                    capabilities: {
-                        tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: {}
-                                }
-                            }
-                        }
-                    }
+                    capabilities: {}
                 }
             );
 
@@ -3100,7 +3009,7 @@ describe('Task-based execution', () => {
 
                     const result = {
                         content: [{ type: 'text', text: `Result for ${id || 'unknown'}` }]
-                    };
+                    } as Result;
                     await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
 
                     return { task };
@@ -3125,15 +3034,7 @@ describe('Task-based execution', () => {
                 version: '1.0.0'
             },
             {
-                capabilities: {
-                    tasks: {
-                        requests: {
-                            tools: {
-                                call: {}
-                            }
-                        }
-                    }
-                }
+                capabilities: {}
             }
         );
 
@@ -3212,15 +3113,7 @@ describe('Task-based execution', () => {
                     version: '1.0.0'
                 },
                 {
-                    capabilities: {
-                        tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
-                        }
-                    }
+                    capabilities: {}
                 }
             );
 
@@ -3259,15 +3152,7 @@ describe('Task-based execution', () => {
                     version: '1.0.0'
                 },
                 {
-                    capabilities: {
-                        tasks: {
-                            requests: {
-                                tools: {
-                                    call: {}
-                                }
-                            }
-                        }
-                    }
+                    capabilities: {}
                 }
             );
 
@@ -3311,15 +3196,7 @@ describe('Task-based execution', () => {
                     version: '1.0.0'
                 },
                 {
-                    capabilities: {
-                        tasks: {
-                            requests: {
-                                elicitation: {
-                                    create: {}
-                                }
-                            }
-                        }
-                    }
+                    capabilities: {}
                 }
             );
 
@@ -3368,7 +3245,7 @@ test('should respect server task capabilities', async () => {
 
                 const result = {
                     content: [{ type: 'text', text: 'Success!' }]
-                };
+                } as Result;
                 await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
 
                 return { task };
@@ -3675,6 +3552,7 @@ test('callToolStream() should yield error when structuredContent does not match 
     server.setRequestHandler(CallToolRequestSchema, async () => {
         // Return invalid structured content (count is string instead of number)
         return {
+            content: [],
             structuredContent: { result: 'success', count: 'not a number' }
         };
     });
@@ -3900,6 +3778,7 @@ test('callToolStream() should handle complex JSON schema validation', async () =
 
     server.setRequestHandler(CallToolRequestSchema, async () => {
         return {
+            content: [],
             structuredContent: {
                 name: 'John Doe',
                 age: 30,
@@ -3984,6 +3863,7 @@ test('callToolStream() should yield error with additional properties when not al
 
     server.setRequestHandler(CallToolRequestSchema, async () => {
         return {
+            content: [],
             structuredContent: {
                 name: 'John',
                 extraField: 'not allowed'

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../../../../src/experimental/tasks/stores/in-memory.js';
-import { TaskCreationParams, Request } from '../../../../src/types.js';
+import { TaskCreationParams, Request, Notification, Result, CallToolResult } from '../../../../src/types.js';
 import { QueuedMessage } from '../../../../src/experimental/tasks/interfaces.js';
 
 describe('InMemoryTaskStore', () => {
@@ -19,12 +19,12 @@ describe('InMemoryTaskStore', () => {
             const taskParams: TaskCreationParams = {
                 ttl: 60000
             };
-            const request: Request = {
-                method: 'tools/call',
-                params: { name: 'test-tool' }
+            const request = {
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
             };
 
-            const task = await store.createTask(taskParams, 123, request);
+            const task = await store.createTask(taskParams, 123, request as any);
 
             expect(task).toBeDefined();
             expect(task.taskId).toBeDefined();
@@ -39,12 +39,12 @@ describe('InMemoryTaskStore', () => {
 
         it('should create task without ttl', async () => {
             const taskParams: TaskCreationParams = {};
-            const request: Request = {
-                method: 'tools/call',
-                params: {}
+            const request = {
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
             };
 
-            const task = await store.createTask(taskParams, 456, request);
+            const task = await store.createTask(taskParams, 456, request as any);
 
             expect(task).toBeDefined();
             expect(task.ttl).toBeNull();
@@ -52,13 +52,13 @@ describe('InMemoryTaskStore', () => {
 
         it('should generate unique taskIds', async () => {
             const taskParams: TaskCreationParams = {};
-            const request: Request = {
-                method: 'tools/call',
-                params: {}
+            const request = {
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
             };
 
-            const task1 = await store.createTask(taskParams, 789, request);
-            const task2 = await store.createTask(taskParams, 790, request);
+            const task1 = await store.createTask(taskParams, 789, request as any);
+            const task2 = await store.createTask(taskParams, 790, request as any);
 
             expect(task1.taskId).not.toBe(task2.taskId);
         });
@@ -72,12 +72,12 @@ describe('InMemoryTaskStore', () => {
 
         it('should return task state', async () => {
             const taskParams: TaskCreationParams = {};
-            const request: Request = {
-                method: 'tools/call',
-                params: {}
+            const request = {
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
             };
 
-            const createdTask = await store.createTask(taskParams, 111, request);
+            const createdTask = await store.createTask(taskParams, 111, request as any);
             await store.updateTaskStatus(createdTask.taskId, 'working');
 
             const task = await store.getTask(createdTask.taskId);
@@ -92,9 +92,9 @@ describe('InMemoryTaskStore', () => {
         beforeEach(async () => {
             const taskParams: TaskCreationParams = {};
             const createdTask = await store.createTask(taskParams, 222, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
             taskId = createdTask.taskId;
         });
 
@@ -223,14 +223,14 @@ describe('InMemoryTaskStore', () => {
                 ttl: 60000
             };
             const createdTask = await store.createTask(taskParams, 333, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
             taskId = createdTask.taskId;
         });
 
         it('should store task result and set status to completed', async () => {
-            const result = {
+            const result: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'Success!' }]
             };
 
@@ -249,13 +249,13 @@ describe('InMemoryTaskStore', () => {
 
         it('should reject storing result for task already in completed status', async () => {
             // First complete the task
-            const firstResult = {
+            const firstResult: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'First result' }]
             };
             await store.storeTaskResult(taskId, 'completed', firstResult);
 
             // Try to store result again (should fail)
-            const secondResult = {
+            const secondResult: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'Second result' }]
             };
 
@@ -263,7 +263,7 @@ describe('InMemoryTaskStore', () => {
         });
 
         it('should store result with failed status', async () => {
-            const result = {
+            const result: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'Error details' }],
                 isError: true
             };
@@ -279,14 +279,14 @@ describe('InMemoryTaskStore', () => {
 
         it('should reject storing result for task already in failed status', async () => {
             // First fail the task
-            const firstResult = {
+            const firstResult: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'First error' }],
                 isError: true
             };
             await store.storeTaskResult(taskId, 'failed', firstResult);
 
             // Try to store result again (should fail)
-            const secondResult = {
+            const secondResult: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'Second error' }],
                 isError: true
             };
@@ -299,7 +299,7 @@ describe('InMemoryTaskStore', () => {
             await store.updateTaskStatus(taskId, 'cancelled');
 
             // Try to store result (should fail)
-            const result = {
+            const result: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'Cancellation result' }]
             };
 
@@ -309,7 +309,7 @@ describe('InMemoryTaskStore', () => {
         it('should allow storing result from input_required status', async () => {
             await store.updateTaskStatus(taskId, 'input_required');
 
-            const result = {
+            const result: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'Success!' }]
             };
 
@@ -328,9 +328,9 @@ describe('InMemoryTaskStore', () => {
         it('should throw if task has no result stored', async () => {
             const taskParams: TaskCreationParams = {};
             const createdTask = await store.createTask(taskParams, 444, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
 
             await expect(store.getTaskResult(createdTask.taskId)).rejects.toThrow(`Task ${createdTask.taskId} has no result stored`);
         });
@@ -338,11 +338,11 @@ describe('InMemoryTaskStore', () => {
         it('should return stored result', async () => {
             const taskParams: TaskCreationParams = {};
             const createdTask = await store.createTask(taskParams, 555, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
 
-            const result = {
+            const result: CallToolResult = {
                 content: [{ type: 'text' as const, text: 'Result data' }]
             };
             await store.storeTaskResult(createdTask.taskId, 'completed', result);
@@ -366,9 +366,9 @@ describe('InMemoryTaskStore', () => {
                 ttl: 1000
             };
             const createdTask = await store.createTask(taskParams, 666, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
 
             // Task should exist initially
             let task = await store.getTask(createdTask.taskId);
@@ -387,9 +387,9 @@ describe('InMemoryTaskStore', () => {
                 ttl: 1000
             };
             const createdTask = await store.createTask(taskParams, 777, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
 
             // Fast-forward 500ms
             vi.advanceTimersByTime(500);
@@ -397,7 +397,7 @@ describe('InMemoryTaskStore', () => {
             // Store result (should reset timer)
             await store.storeTaskResult(createdTask.taskId, 'completed', {
                 content: [{ type: 'text' as const, text: 'Done' }]
-            });
+            } as CallToolResult);
 
             // Fast-forward another 500ms (total 1000ms since creation, but timer was reset)
             vi.advanceTimersByTime(500);
@@ -417,9 +417,9 @@ describe('InMemoryTaskStore', () => {
         it('should not cleanup tasks without ttl', async () => {
             const taskParams: TaskCreationParams = {};
             const createdTask = await store.createTask(taskParams, 888, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
 
             // Fast-forward a long time
             vi.advanceTimersByTime(100000);
@@ -434,9 +434,9 @@ describe('InMemoryTaskStore', () => {
                 ttl: 1000
             };
             const createdTask = await store.createTask(taskParams, 999, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
 
             // Task in non-terminal state, fast-forward
             vi.advanceTimersByTime(1001);
@@ -450,9 +450,9 @@ describe('InMemoryTaskStore', () => {
                 ttl: 2000
             };
             const createdTask2 = await store.createTask(taskParams2, 1000, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
 
             // Update to terminal state
             await store.updateTaskStatus(createdTask2.taskId, 'completed');
@@ -474,9 +474,9 @@ describe('InMemoryTaskStore', () => {
                 ttl: requestedTtl
             };
             const createdTask = await store.createTask(taskParams, 1111, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
 
             // The returned task should include the actual TTL that will be used
             expect(createdTask.ttl).toBe(requestedTtl);
@@ -493,9 +493,9 @@ describe('InMemoryTaskStore', () => {
                 ttl: null
             };
             const createdTask = await store.createTask(taskParams, 2222, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
 
             // The returned task should have null TTL
             expect(createdTask.ttl).toBeNull();
@@ -515,25 +515,25 @@ describe('InMemoryTaskStore', () => {
 
             // Create tasks in different statuses
             const workingTask = await store.createTask(taskParams, 3333, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
 
             const completedTask = await store.createTask(taskParams, 4444, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
             await store.storeTaskResult(completedTask.taskId, 'completed', {
                 content: [{ type: 'text' as const, text: 'Done' }]
-            });
+            } as CallToolResult);
 
             const failedTask = await store.createTask(taskParams, 5555, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
             await store.storeTaskResult(failedTask.taskId, 'failed', {
                 content: [{ type: 'text' as const, text: 'Error' }]
-            });
+            } as CallToolResult);
 
             // Fast-forward past TTL
             vi.advanceTimersByTime(1001);
@@ -548,17 +548,17 @@ describe('InMemoryTaskStore', () => {
     describe('getAllTasks', () => {
         it('should return all tasks', async () => {
             await store.createTask({}, 1, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
             await store.createTask({}, 2, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
             await store.createTask({}, 3, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
 
             const tasks = store.getAllTasks();
             expect(tasks).toHaveLength(3);
@@ -582,17 +582,17 @@ describe('InMemoryTaskStore', () => {
 
         it('should return all tasks when less than page size', async () => {
             await store.createTask({}, 1, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
             await store.createTask({}, 2, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
             await store.createTask({}, 3, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
 
             const result = await store.listTasks();
             expect(result.tasks).toHaveLength(3);
@@ -603,9 +603,9 @@ describe('InMemoryTaskStore', () => {
             // Create 15 tasks (page size is 10)
             for (let i = 1; i <= 15; i++) {
                 await store.createTask({}, i, {
-                    method: 'tools/call',
-                    params: {}
-                });
+                    method: 'tools/call' as const,
+                    params: { name: 'test-tool', arguments: {} }
+                } as any);
             }
 
             // Get first page
@@ -621,9 +621,9 @@ describe('InMemoryTaskStore', () => {
 
         it('should throw error for invalid cursor', async () => {
             await store.createTask({}, 1, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
 
             await expect(store.listTasks('non-existent-cursor')).rejects.toThrow('Invalid cursor: non-existent-cursor');
         });
@@ -632,9 +632,9 @@ describe('InMemoryTaskStore', () => {
             // Create 5 tasks
             for (let i = 1; i <= 5; i++) {
                 await store.createTask({}, i, {
-                    method: 'tools/call',
-                    params: {}
-                });
+                    method: 'tools/call' as const,
+                    params: { name: 'test-tool', arguments: {} }
+                } as any);
             }
 
             // Get first 3 tasks
@@ -649,13 +649,13 @@ describe('InMemoryTaskStore', () => {
     describe('cleanup', () => {
         it('should clear all timers and tasks', async () => {
             await store.createTask({ ttl: 1000 }, 1, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
             await store.createTask({ ttl: 2000 }, 2, {
-                method: 'tools/call',
-                params: {}
-            });
+                method: 'tools/call' as const,
+                params: { name: 'test-tool', arguments: {} }
+            } as any);
 
             expect(store.getAllTasks()).toHaveLength(2);
 
@@ -680,7 +680,7 @@ describe('InMemoryTaskMessageQueue', () => {
                 message: {
                     jsonrpc: '2.0',
                     id: 1,
-                    method: 'tools/call',
+                    method: 'tools/call' as const,
                     params: { name: 'test-tool', arguments: {} }
                 },
                 timestamp: Date.now()
@@ -697,7 +697,7 @@ describe('InMemoryTaskMessageQueue', () => {
                 type: 'notification',
                 message: {
                     jsonrpc: '2.0',
-                    method: 'notifications/progress',
+                    method: 'notifications/progress' as const,
                     params: { progress: 50, total: 100 }
                 },
                 timestamp: Date.now()
@@ -715,7 +715,7 @@ describe('InMemoryTaskMessageQueue', () => {
                 message: {
                     jsonrpc: '2.0',
                     id: 42,
-                    result: { content: [{ type: 'text', text: 'Success' }] }
+                    result: { content: [{ type: 'text', text: 'Success' }] } as Result
                 },
                 timestamp: Date.now()
             };
@@ -737,9 +737,9 @@ describe('InMemoryTaskMessageQueue', () => {
                 message: {
                     jsonrpc: '2.0',
                     id: 1,
-                    method: 'tools/call',
-                    params: {}
-                },
+                    method: 'tools/call' as const,
+                    params: { name: 'test-tool', arguments: {} }
+                } as any,
                 timestamp: 1000
             };
 
@@ -747,7 +747,7 @@ describe('InMemoryTaskMessageQueue', () => {
                 type: 'notification',
                 message: {
                     jsonrpc: '2.0',
-                    method: 'notifications/progress',
+                    method: 'notifications/progress' as const,
                     params: {}
                 },
                 timestamp: 2000
@@ -781,9 +781,9 @@ describe('InMemoryTaskMessageQueue', () => {
                 message: {
                     jsonrpc: '2.0',
                     id: 1,
-                    method: 'tools/call',
-                    params: {}
-                },
+                    method: 'tools/call' as const,
+                    params: { name: 'test-tool', arguments: {} }
+                } as any,
                 timestamp: 1000
             };
 
@@ -801,7 +801,7 @@ describe('InMemoryTaskMessageQueue', () => {
                 type: 'notification',
                 message: {
                     jsonrpc: '2.0',
-                    method: 'notifications/progress',
+                    method: 'notifications/progress' as const,
                     params: {}
                 },
                 timestamp: 3000
@@ -830,7 +830,7 @@ describe('InMemoryTaskMessageQueue', () => {
                 message: {
                     jsonrpc: '2.0',
                     id: 1,
-                    method: 'test',
+                    method: 'test' as const,
                     params: {}
                 },
                 timestamp: Date.now()
@@ -851,7 +851,7 @@ describe('InMemoryTaskMessageQueue', () => {
                 message: {
                     jsonrpc: '2.0',
                     id: 1,
-                    method: 'test',
+                    method: 'test' as const,
                     params: {}
                 },
                 timestamp: Date.now()
@@ -885,7 +885,7 @@ describe('InMemoryTaskMessageQueue', () => {
                 message: {
                     jsonrpc: '2.0',
                     id: 1,
-                    method: 'test1',
+                    method: 'test1' as const,
                     params: {}
                 },
                 timestamp: 1000

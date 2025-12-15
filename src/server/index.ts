@@ -40,7 +40,10 @@ import {
     CreateTaskResultSchema,
     type Request,
     type Notification,
-    type Result
+    type Result,
+    type McpRequest,
+    type McpNotification,
+    type McpResult
 } from '../types.js';
 import { AjvJsonSchemaValidator } from '../validation/ajv-provider.js';
 import type { JsonSchemaType, jsonSchemaValidator } from '../validation/types.js';
@@ -127,9 +130,9 @@ export type ServerOptions = ProtocolOptions & {
  * @deprecated Use `McpServer` instead for the high-level API. Only use `Server` for advanced use cases.
  */
 export class Server<
-    RequestT extends Request = Request,
-    NotificationT extends Notification = Notification,
-    ResultT extends Result = Result
+    RequestT extends Request = McpRequest,
+    NotificationT extends Notification = McpNotification,
+    ResultT extends Result = McpResult
 > extends Protocol<ServerRequest | RequestT, ServerNotification | NotificationT, ServerResult | ResultT> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;

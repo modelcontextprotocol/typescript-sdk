@@ -28,11 +28,7 @@ export async function createInMemoryTaskEnvironment(options?: {
             capabilities: options?.clientCapabilities ?? {
                 tasks: {
                     list: {},
-                    requests: {
-                        tools: {
-                            call: {}
-                        }
-                    }
+                    cancel: {}
                 }
             }
         }
