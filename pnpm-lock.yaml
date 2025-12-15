@@ -221,7 +221,7 @@ importers:
         version: 4.4.4(eslint-plugin-import@2.32.0)(eslint@9.39.1)
       eslint-plugin-import:
         specifier: ^2.32.0
-        version: 2.32.0(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.1)
+        version: 2.32.0(@typescript-eslint/parser@8.49.0(eslint@9.39.1)(typescript@5.9.3))(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.1)
       eslint-plugin-n:
         specifier: catalog:devTools
         version: 17.23.1(eslint@9.39.1)(typescript@5.9.3)
@@ -256,9 +256,6 @@ importers:
 
   packages/client:
     dependencies:
-      '@modelcontextprotocol/sdk-core':
-        specifier: workspace:^
-        version: link:../core
       cross-spawn:
         specifier: catalog:runtimeClientOnly
         version: 7.0.6
@@ -287,6 +284,9 @@ importers:
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
+      '@modelcontextprotocol/sdk-core':
+        specifier: workspace:^
+        version: link:../core
       '@modelcontextprotocol/tsconfig':
         specifier: workspace:^
         version: link:../../common/tsconfig
@@ -335,8 +335,6 @@ importers:
       vitest:
         specifier: catalog:devTools
         version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
-
-  packages/client/dist: {}
 
   packages/core:
     dependencies:
@@ -530,9 +528,6 @@ importers:
 
   packages/server:
     dependencies:
-      '@modelcontextprotocol/sdk-core':
-        specifier: workspace:^
-        version: link:../core
       content-type:
         specifier: catalog:runtimeServerOnly
         version: 1.0.5
@@ -567,6 +562,9 @@ importers:
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
+      '@modelcontextprotocol/sdk-core':
+        specifier: workspace:^
+        version: link:../core
       '@modelcontextprotocol/tsconfig':
         specifier: workspace:^
         version: link:../../common/tsconfig
@@ -612,6 +610,9 @@ importers:
       supertest:
         specifier: catalog:devTools
         version: 7.1.4
+      tsdown:
+        specifier: catalog:devTools
+        version: 0.18.0(@typescript/native-preview@7.0.0-dev.20251108.1)(typescript@5.9.3)
       tsx:
         specifier: catalog:devTools
         version: 4.20.6
@@ -624,8 +625,6 @@ importers:
       vitest:
         specifier: catalog:devTools
         version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
-
-  packages/server/dist: {}
 
 packages:
 
@@ -3978,14 +3977,15 @@ snapshots:
       tinyglobby: 0.2.15
       unrs-resolver: 1.11.1
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.1)
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.49.0(eslint@9.39.1)(typescript@5.9.3))(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.1)
     transitivePeerDependencies:
       - supports-color
 
-  eslint-module-utils@2.12.1(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.1):
+  eslint-module-utils@2.12.1(@typescript-eslint/parser@8.49.0(eslint@9.39.1)(typescript@5.9.3))(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.1):
     dependencies:
       debug: 3.2.7
     optionalDependencies:
+      '@typescript-eslint/parser': 8.49.0(eslint@9.39.1)(typescript@5.9.3)
       eslint: 9.39.1
       eslint-import-resolver-node: 0.3.9
       eslint-import-resolver-typescript: 4.4.4(eslint-plugin-import@2.32.0)(eslint@9.39.1)
@@ -3999,7 +3999,7 @@ snapshots:
       eslint: 9.39.1
       eslint-compat-utils: 0.5.1(eslint@9.39.1)
 
-  eslint-plugin-import@2.32.0(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.1):
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.49.0(eslint@9.39.1)(typescript@5.9.3))(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.1):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.1.9
@@ -4010,7 +4010,7 @@ snapshots:
       doctrine: 2.1.0
       eslint: 9.39.1
       eslint-import-resolver-node: 0.3.9
-      eslint-module-utils: 2.12.1(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.1)
+      eslint-module-utils: 2.12.1(@typescript-eslint/parser@8.49.0(eslint@9.39.1)(typescript@5.9.3))(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.1)
       hasown: 2.0.2
       is-core-module: 2.16.1
       is-glob: 4.0.3
@@ -4021,6 +4021,8 @@ snapshots:
       semver: 6.3.1
       string.prototype.trimend: 1.0.9
       tsconfig-paths: 3.15.0
+    optionalDependencies:
+      '@typescript-eslint/parser': 8.49.0(eslint@9.39.1)(typescript@5.9.3)
     transitivePeerDependencies:
       - eslint-import-resolver-typescript
       - eslint-import-resolver-webpack
