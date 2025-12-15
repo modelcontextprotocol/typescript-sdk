@@ -23,17 +23,12 @@
     ],
     "exports": {
         ".": {
-            "import": "./dist/index.js"
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
         },
         "./types": {
-            "import": "./dist/exports/types/index.js"
-        }
-    },
-    "typesVersions": {
-        "*": {
-            "*": [
-                "./dist/*"
-            ]
+            "import": "./dist/exports/types/index.js",
+            "types": "./dist/exports/types/index.d.ts"
         }
     },
     "files": [

@@ -16,21 +16,14 @@
         "pnpm": ">=10.24.0"
     },
     "packageManager": "pnpm@10.24.0",
-    "packageManager": "pnpm@10.24.0",
     "keywords": [
         "modelcontextprotocol",
         "mcp"
     ],
     "exports": {
         ".": {
-            "import": "./dist/index.js"
-        }
-    },
-    "typesVersions": {
-        "*": {
-            "*": [
-                "./dist/*"
-            ]
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
         }
     },
     "files": [
