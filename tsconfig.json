@@ -1,14 +1,15 @@
 {
     "compilerOptions": {
-        "target": "es2018",
-        "module": "Node16",
-        "moduleResolution": "Node16",
+        "target": "es2020",
+        "module": "es2022",
+        "moduleResolution": "bundler",
         "declaration": true,
         "declarationMap": true,
         "sourceMap": true,
         "outDir": "./dist",
         "strict": true,
         "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true,
         "forceConsistentCasingInFileNames": true,
         "resolveJsonModule": true,
         "isolatedModules": true,
