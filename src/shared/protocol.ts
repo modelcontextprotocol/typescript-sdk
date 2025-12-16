@@ -1277,7 +1277,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      */
     async notification(notification: SendNotificationT, options?: NotificationOptions): Promise<void> {
         if (!this._transport) {
-            throw new Error('Not connected');
+            this._onerror(new Error('Not connected'));
+            return;
         }
 
         this.assertNotificationCapability(notification.method);
