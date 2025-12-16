@@ -555,9 +555,11 @@ export class StreamableHTTPClientTransport implements Transport {
             this._hasCompletedAuthFlow = false;
             this._lastUpscopingHeader = undefined;
 
-            // If the response is 202 Accepted, there's no body to process
-            if (response.status === 202) {
-                await response.body?.cancel();
+            // If the response is 202 Accepted or 204 No Content, there's no body to process
+            if (response.status === 202 || response.status === 204) {
+                if (response.status === 202) {
+                    await response.body?.cancel();
+                }
                 // if the accepted notification is initialized, we start the SSE stream
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
