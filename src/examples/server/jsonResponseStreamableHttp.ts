@@ -1,3 +1,11 @@
+/**
+ * Example: Streamable HTTP server with JSON response mode
+ *
+ * This example demonstrates `enableJsonResponse: true`, which returns JSON responses
+ * instead of SSE streams. This is useful for simple request/response scenarios but
+ * has an important limitation: notifications (logging, progress, etc.) are NOT delivered
+ * to the client. Compare with simpleStreamableHttp.ts which uses SSE and delivers notifications.
+ */
 import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { McpServer } from '../../server/mcp.js';
@@ -41,7 +49,9 @@ const getServer = () => {
         }
     );
 
-    // Register a tool that sends multiple greetings with notifications
+    // Register a tool that sends notifications during execution.
+    // NOTE: These notifications will NOT be delivered to the client in JSON response mode.
+    // This tool is included to demonstrate the difference vs SSE mode (see simpleStreamableHttp.ts).
     server.registerTool(
         'multi-greet',
         {
