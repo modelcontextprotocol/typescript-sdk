@@ -206,8 +206,21 @@ export const JSONRPCResultResponseSchema = z
     })
     .strict();
 
+/**
+ * Checks if a value is a valid JSONRPCResultResponse.
+ * @param value - The value to check.
+ *
+ * @returns True if the value is a valid JSONRPCResultResponse, false otherwise.
+ */
 export const isJSONRPCResultResponse = (value: unknown): value is JSONRPCResultResponse =>
     JSONRPCResultResponseSchema.safeParse(value).success;
+
+/**
+ * @deprecated Use {@link isJSONRPCResultResponse} instead.
+ *
+ * Please note that {@link JSONRPCResponse} is a union of {@link JSONRPCResultResponse} and {@link JSONRPCErrorResponse} as per the updated JSON-RPC specification. (was previously just {@link JSONRPCResultResponse})
+ */
+export const isJSONRPCResponse = isJSONRPCResultResponse;
 
 /**
  * Error codes defined by the JSON-RPC specification.
@@ -252,8 +265,24 @@ export const JSONRPCErrorResponseSchema = z
     })
     .strict();
 
+/**
+ * @deprecated Use {@link JSONRPCErrorResponseSchema} instead.
+ */
+export const JSONRPCErrorSchema = JSONRPCErrorResponseSchema;
+
+/**
+ * Checks if a value is a valid JSONRPCErrorResponse.
+ * @param value - The value to check.
+ *
+ * @returns True if the value is a valid JSONRPCErrorResponse, false otherwise.
+ */
 export const isJSONRPCErrorResponse = (value: unknown): value is JSONRPCErrorResponse =>
     JSONRPCErrorResponseSchema.safeParse(value).success;
+
+/**
+ * @deprecated Use {@link isJSONRPCErrorResponse} instead.
+ */
+export const isJSONRPCError = isJSONRPCErrorResponse;
 
 export const JSONRPCMessageSchema = z.union([
     JSONRPCRequestSchema,
@@ -261,6 +290,7 @@ export const JSONRPCMessageSchema = z.union([
     JSONRPCResultResponseSchema,
     JSONRPCErrorResponseSchema
 ]);
+
 export const JSONRPCResponseSchema = z.union([JSONRPCResultResponseSchema, JSONRPCErrorResponseSchema]);
 
 /* Empty result */
@@ -2409,6 +2439,12 @@ export type JSONRPCRequest = Infer<typeof JSONRPCRequestSchema>;
 export type JSONRPCNotification = Infer<typeof JSONRPCNotificationSchema>;
 export type JSONRPCResponse = Infer<typeof JSONRPCResponseSchema>;
 export type JSONRPCErrorResponse = Infer<typeof JSONRPCErrorResponseSchema>;
+/**
+ * @deprecated Use {@link JSONRPCErrorResponse} instead.
+ *
+ * Please note that spec types have renamed {@link JSONRPCError} to {@link JSONRPCErrorResponse} as per the updated JSON-RPC specification. (was previously just {@link JSONRPCError}) and future versions will remove {@link JSONRPCError}.
+ */
+export type JSONRPCError = JSONRPCErrorResponse;
 export type JSONRPCResultResponse = Infer<typeof JSONRPCResultResponseSchema>;
 
 export type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
