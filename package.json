@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/sdk",
-    "version": "1.24.3",
+    "version": "1.25.0",
     "description": "Model Context Protocol implementation for TypeScript",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -86,6 +86,7 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
+        "@hono/node-server": "^1.19.7",
         "ajv": "^8.17.1",
         "ajv-formats": "^3.0.1",
         "content-type": "^1.0.5",
