@@ -35,10 +35,9 @@ export const CursorSchema = z.string();
  */
 export const TaskCreationParamsSchema = z.looseObject({
     /**
-     * Time in milliseconds to keep task results available after completion.
-     * If null, the task has unlimited lifetime until manually cleaned up.
+     * Requested duration in milliseconds to retain task from creation.
      */
-    ttl: z.union([z.number(), z.null()]).optional(),
+    ttl: z.number().optional(),
 
     /**
      * Time in milliseconds to wait between task status requests.
