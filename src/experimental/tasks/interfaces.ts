@@ -19,7 +19,7 @@ import {
     Request
 } from '../../types.js';
 import { CreateTaskResult } from './types.js';
-import type { RequestHandlerExtra, RequestTaskStore } from '../../shared/protocol.js';
+import type { RequestHandlerExtra, TaskContext } from '../../shared/protocol.js';
 import type { ZodRawShapeCompat, AnySchema, ShapeOutput } from '../../server/zod-compat.js';
 
 // ============================================================================
@@ -27,11 +27,11 @@ import type { ZodRawShapeCompat, AnySchema, ShapeOutput } from '../../server/zod
 // ============================================================================
 
 /**
- * Extended handler extra with task store for task creation.
+ * Extended handler extra with task context for task creation.
  * @experimental
  */
 export interface CreateTaskRequestHandlerExtra extends RequestHandlerExtra<ServerRequest, ServerNotification> {
-    taskStore: RequestTaskStore;
+    task: TaskContext;
 }
 
 /**
@@ -39,8 +39,7 @@ export interface CreateTaskRequestHandlerExtra extends RequestHandlerExtra<Serve
  * @experimental
  */
 export interface TaskRequestHandlerExtra extends RequestHandlerExtra<ServerRequest, ServerNotification> {
-    taskId: string;
-    taskStore: RequestTaskStore;
+    task: TaskContext & { id: string };
 }
 
 /**
