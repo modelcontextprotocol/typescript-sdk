@@ -991,6 +991,125 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.tools[1]!.annotations).toEqual(result.tools[0]!.annotations);
         });
 
+        test('should accept z.object() schema and pass arguments correctly', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.tool(
+                'test-zobject',
+                'Test with ZodObject',
+                z.object({
+                    message: z.string()
+                }),
+                async ({ message }) => ({
+                    content: [{ type: 'text', text: `Echo: ${message}` }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const listResult = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+
+            expect(listResult.tools).toHaveLength(1);
+            expect(listResult.tools[0].name).toBe('test-zobject');
+            expect(listResult.tools[0].inputSchema).toMatchObject({
+                type: 'object',
+                properties: {
+                    message: { type: 'string' }
+                }
+            });
+
+            // Verify tool call receives arguments correctly (not the extra object)
+            const result = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'test-zobject',
+                        arguments: { message: 'Hello World' }
+                    }
+                },
+                CallToolResultSchema
+            );
+
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Echo: Hello World'
+                }
+            ]);
+        });
+
+        test('should accept z.object() schema with annotations', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.tool(
+                'test-zobject-annotations',
+                'Test with ZodObject and annotations',
+                z.object({
+                    name: z.string(),
+                    value: z.number()
+                }),
+                { title: 'ZodObject Tool', readOnlyHint: true },
+                async ({ name, value }) => ({
+                    content: [{ type: 'text', text: `${name}: ${value}` }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const listResult = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+
+            expect(listResult.tools).toHaveLength(1);
+            expect(listResult.tools[0].name).toBe('test-zobject-annotations');
+            expect(listResult.tools[0].inputSchema).toMatchObject({
+                type: 'object',
+                properties: {
+                    name: { type: 'string' },
+                    value: { type: 'number' }
+                }
+            });
+            expect(listResult.tools[0].annotations).toEqual({
+                title: 'ZodObject Tool',
+                readOnlyHint: true
+            });
+
+            // Verify tool call receives arguments correctly
+            const result = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'test-zobject-annotations',
+                        arguments: { name: 'test', value: 42 }
+                    }
+                },
+                CallToolResultSchema
+            );
+
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'test: 42'
+                }
+            ]);
+        });
+
         /***
          * Test: Tool Argument Validation
          */
