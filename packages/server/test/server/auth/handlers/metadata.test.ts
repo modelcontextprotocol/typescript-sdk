@@ -1,7 +1,8 @@
-import { metadataHandler } from '../../../../src/server/auth/handlers/metadata.js';
 import type { OAuthMetadata } from '@modelcontextprotocol/sdk-core';
 import express from 'express';
 import supertest from 'supertest';
+
+import { metadataHandler } from '../../../../src/server/auth/handlers/metadata.js';
 
 describe('Metadata Handler', () => {
     const exampleMetadata: OAuthMetadata = {

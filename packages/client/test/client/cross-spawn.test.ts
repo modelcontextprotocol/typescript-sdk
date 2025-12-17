@@ -1,8 +1,10 @@
-import { StdioClientTransport, getDefaultEnvironment } from '../../src/client/stdio.js';
-import spawn from 'cross-spawn';
-import type { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
 import type { ChildProcess } from 'node:child_process';
+
+import type { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
+import spawn from 'cross-spawn';
 import type { Mock, MockedFunction } from 'vitest';
+
+import { getDefaultEnvironment, StdioClientTransport } from '../../src/client/stdio.js';
 
 // mock cross-spawn
 vi.mock('cross-spawn');

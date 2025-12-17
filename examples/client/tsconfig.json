@@ -1,6 +1,6 @@
 {
     "extends": "@modelcontextprotocol/tsconfig",
-    "include": ["./", "../shared/test/demoInMemoryOAuthProvider.test.ts"],
+    "include": ["./"],
     "exclude": ["node_modules", "dist"],
     "compilerOptions": {
         "baseUrl": ".",

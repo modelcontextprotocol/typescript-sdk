@@ -1,21 +1,23 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
-import { createServer, type Server } from 'node:http';
+import { randomUUID } from 'node:crypto';
+import type { IncomingMessage, Server, ServerResponse } from 'node:http';
+import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createServer as netCreateServer } from 'node:net';
-import { randomUUID } from 'node:crypto';
-import type { EventStore, EventId, StreamId } from '../../src/server/streamableHttp.js';
-import { StreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
-import { McpServer } from '../../src/server/mcp.js';
+
 import type {
+    AuthInfo,
     CallToolResult,
     JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCResultResponse,
     RequestId
 } from '@modelcontextprotocol/sdk-core';
-import type { AuthInfo } from '@modelcontextprotocol/sdk-core';
-import { zodTestMatrix, type ZodMatrixEntry } from './__fixtures__/zodTestMatrix.js';
+
 import { listenOnRandomPort } from '../../../integration/test/helpers/http.js';
+import { McpServer } from '../../src/server/mcp.js';
+import { StreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
+import type { EventId, EventStore, StreamId } from '../../src/server/webStandardStreamableHttp.js';
+import { type ZodMatrixEntry, zodTestMatrix } from './__fixtures__/zodTestMatrix.js';
 
 async function getFreePort() {
     return new Promise(res => {
@@ -712,7 +714,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             expect(response.status).toBe(400);
-            const errorData = await response.json();
+            const errorData = (await response.json()) as JSONRPCErrorResponse;
             expectErrorResponse(errorData, -32700, /Parse error/);
             // The error message should contain details about what went wrong
             expect(errorData.error.message).toContain('Invalid JSON');

@@ -10,7 +10,6 @@ import nodePlugin from 'eslint-plugin-n';
 import simpleImportSortPlugin from 'eslint-plugin-simple-import-sort';
 import { configs } from 'typescript-eslint';
 
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(
@@ -72,7 +71,7 @@ export default defineConfig(
         ignores: ['**/spec.types.ts']
     },
     {
-        files: ['src/client/**/*.ts', 'src/server/**/*.ts'],
+        files: ['packages/client/**/*.ts', 'packages/server/**/*.ts'],
         ignores: ['**/*.test.ts'],
         rules: {
             'no-console': 'error'

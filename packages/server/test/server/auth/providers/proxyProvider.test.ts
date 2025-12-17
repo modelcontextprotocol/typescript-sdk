@@ -1,9 +1,10 @@
+import type { AuthInfo, OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk-core';
+import { InsufficientScopeError, InvalidTokenError, ServerError } from '@modelcontextprotocol/sdk-core';
 import type { Response } from 'express';
+import { type Mock } from 'vitest';
+
 import type { ProxyOptions } from '../../../../src/server/auth/providers/proxyProvider.js';
 import { ProxyOAuthServerProvider } from '../../../../src/server/auth/providers/proxyProvider.js';
-import type { AuthInfo, OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk-core';
-import { ServerError, InvalidTokenError, InsufficientScopeError } from '@modelcontextprotocol/sdk-core';
-import { type Mock } from 'vitest';
 
 describe('Proxy OAuth Server Provider', () => {
     // Mock client data

@@ -1,12 +1,13 @@
-import type { AuthorizationHandlerOptions } from '../../../../src/server/auth/handlers/authorize.js';
-import { authorizationHandler } from '../../../../src/server/auth/handlers/authorize.js';
-import type { OAuthServerProvider, AuthorizationParams } from '../../../../src/server/auth/provider.js';
-import type { OAuthRegisteredClientsStore } from '../../../../src/server/auth/clients.js';
-import type { OAuthClientInformationFull, OAuthTokens, AuthInfo } from '@modelcontextprotocol/sdk-core';
+import type { AuthInfo, OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk-core';
+import { InvalidTokenError } from '@modelcontextprotocol/sdk-core';
 import type { Response } from 'express';
 import express from 'express';
 import supertest from 'supertest';
-import { InvalidTokenError } from '@modelcontextprotocol/sdk-core';
+
+import type { OAuthRegisteredClientsStore } from '../../../../src/server/auth/clients.js';
+import type { AuthorizationHandlerOptions } from '../../../../src/server/auth/handlers/authorize.js';
+import { authorizationHandler } from '../../../../src/server/auth/handlers/authorize.js';
+import type { AuthorizationParams, OAuthServerProvider } from '../../../../src/server/auth/provider.js';
 
 describe('Authorization Handler', () => {
     // Mock client data

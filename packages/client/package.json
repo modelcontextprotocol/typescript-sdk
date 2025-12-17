@@ -30,12 +30,12 @@
         "dist"
     ],
     "scripts": {
-        "typecheck": "tsc -p tsconfig.build.json --noEmit",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
         "build": "tsdown",
         "build:watch": "tsdown --watch",
         "prepack": "npm run build",
-        "lint": "eslint src/ && prettier --check .",
-        "lint:fix": "eslint src/ --fix && prettier --write .",
+        "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
+        "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "npm run typecheck && npm run lint",
         "test": "vitest run",
         "test:watch": "vitest",
@@ -69,20 +69,19 @@
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@cfworker/json-schema": "catalog:runtimeShared",
-        "@eslint/js": "catalog:devTools",
         "@types/content-type": "catalog:devTools",
-        "@types/cors": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",
         "@types/eventsource": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
+        "@eslint/js": "catalog:devTools",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",
         "eslint-plugin-n": "catalog:devTools",
         "prettier": "catalog:devTools",
-        "tsdown": "catalog:devTools",
         "tsx": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
-        "vitest": "catalog:devTools"
+        "vitest": "catalog:devTools",
+        "tsdown": "catalog:devTools"
     }
 }

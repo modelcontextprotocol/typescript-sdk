@@ -260,6 +260,123 @@ importers:
         specifier: catalog:devTools
         version: 5.1.4(typescript@5.9.3)(vite@7.2.2(@types/node@24.10.3)(tsx@4.20.6))
 
+  examples/client:
+    dependencies:
+      '@modelcontextprotocol/sdk-client':
+        specifier: workspace:^
+        version: link:../../packages/client
+      ajv:
+        specifier: catalog:runtimeShared
+        version: 8.17.1
+      zod:
+        specifier: catalog:runtimeShared
+        version: 3.25.76
+    devDependencies:
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
+      '@modelcontextprotocol/sdk-examples-shared':
+        specifier: workspace:^
+        version: link:../shared
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
+      '@modelcontextprotocol/vitest-config':
+        specifier: workspace:^
+        version: link:../../common/vitest-config
+
+  examples/server:
+    dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.7(hono@4.11.1)
+      '@modelcontextprotocol/sdk-examples-shared':
+        specifier: workspace:^
+        version: link:../shared
+      '@modelcontextprotocol/sdk-server':
+        specifier: workspace:^
+        version: link:../../packages/server
+      cors:
+        specifier: catalog:runtimeServerOnly
+        version: 2.8.5
+      express:
+        specifier: catalog:runtimeServerOnly
+        version: 5.1.0
+      hono:
+        specifier: catalog:runtimeServerOnly
+        version: 4.11.1
+      zod:
+        specifier: catalog:runtimeShared
+        version: 3.25.76
+    devDependencies:
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
+      '@modelcontextprotocol/vitest-config':
+        specifier: workspace:^
+        version: link:../../common/vitest-config
+      '@types/cors':
+        specifier: catalog:devTools
+        version: 2.8.19
+      '@types/express':
+        specifier: catalog:devTools
+        version: 5.0.5
+
+  examples/shared:
+    dependencies:
+      '@modelcontextprotocol/sdk-server':
+        specifier: workspace:^
+        version: link:../../packages/server
+      express:
+        specifier: catalog:runtimeServerOnly
+        version: 5.1.0
+    devDependencies:
+      '@eslint/js':
+        specifier: catalog:devTools
+        version: 9.39.1
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
+      '@modelcontextprotocol/vitest-config':
+        specifier: workspace:^
+        version: link:../../common/vitest-config
+      '@types/express':
+        specifier: catalog:devTools
+        version: 5.0.5
+      '@typescript/native-preview':
+        specifier: catalog:devTools
+        version: 7.0.0-dev.20251108.1
+      eslint:
+        specifier: catalog:devTools
+        version: 9.39.1
+      eslint-config-prettier:
+        specifier: catalog:devTools
+        version: 10.1.8(eslint@9.39.1)
+      eslint-plugin-n:
+        specifier: catalog:devTools
+        version: 17.23.1(eslint@9.39.1)(typescript@5.9.3)
+      prettier:
+        specifier: catalog:devTools
+        version: 3.6.2
+      tsx:
+        specifier: catalog:devTools
+        version: 4.20.6
+      typescript:
+        specifier: catalog:devTools
+        version: 5.9.3
+      typescript-eslint:
+        specifier: catalog:devTools
+        version: 8.49.0(eslint@9.39.1)(typescript@5.9.3)
+      vitest:
+        specifier: catalog:devTools
+        version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
+
   packages/client:
     dependencies:
       cross-spawn:
@@ -302,9 +419,6 @@ importers:
       '@types/content-type':
         specifier: catalog:devTools
         version: 1.1.9
-      '@types/cors':
-        specifier: catalog:devTools
-        version: 2.8.19
       '@types/cross-spawn':
         specifier: catalog:devTools
         version: 6.0.6
@@ -420,93 +534,6 @@ importers:
       vitest:
         specifier: catalog:devTools
         version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
-
-  packages/examples/client:
-    dependencies:
-      '@modelcontextprotocol/sdk-client':
-        specifier: workspace:^
-        version: link:../../client
-      ajv:
-        specifier: catalog:runtimeShared
-        version: 8.17.1
-      zod:
-        specifier: catalog:runtimeShared
-        version: 3.25.76
-    devDependencies:
-      '@modelcontextprotocol/eslint-config':
-        specifier: workspace:^
-        version: link:../../../common/eslint-config
-      '@modelcontextprotocol/sdk-examples-shared':
-        specifier: workspace:^
-        version: link:../shared
-      '@modelcontextprotocol/tsconfig':
-        specifier: workspace:^
-        version: link:../../../common/tsconfig
-      '@modelcontextprotocol/vitest-config':
-        specifier: workspace:^
-        version: link:../../../common/vitest-config
-
-  packages/examples/server:
-    dependencies:
-      '@hono/node-server':
-        specifier: catalog:runtimeServerOnly
-        version: 1.19.7(hono@4.11.1)
-      '@modelcontextprotocol/sdk-examples-shared':
-        specifier: workspace:^
-        version: link:../shared
-      '@modelcontextprotocol/sdk-server':
-        specifier: workspace:^
-        version: link:../../server
-      cors:
-        specifier: catalog:runtimeServerOnly
-        version: 2.8.5
-      express:
-        specifier: catalog:runtimeServerOnly
-        version: 5.1.0
-      hono:
-        specifier: catalog:runtimeServerOnly
-        version: 4.11.1
-      zod:
-        specifier: catalog:runtimeShared
-        version: 3.25.76
-    devDependencies:
-      '@modelcontextprotocol/eslint-config':
-        specifier: workspace:^
-        version: link:../../../common/eslint-config
-      '@modelcontextprotocol/tsconfig':
-        specifier: workspace:^
-        version: link:../../../common/tsconfig
-      '@modelcontextprotocol/vitest-config':
-        specifier: workspace:^
-        version: link:../../../common/vitest-config
-      '@types/cors':
-        specifier: catalog:devTools
-        version: 2.8.19
-      '@types/express':
-        specifier: catalog:devTools
-        version: 5.0.5
-
-  packages/examples/shared:
-    dependencies:
-      '@modelcontextprotocol/sdk-server':
-        specifier: workspace:^
-        version: link:../../server
-      express:
-        specifier: catalog:runtimeServerOnly
-        version: 5.1.0
-    devDependencies:
-      '@modelcontextprotocol/eslint-config':
-        specifier: workspace:^
-        version: link:../../../common/eslint-config
-      '@modelcontextprotocol/tsconfig':
-        specifier: workspace:^
-        version: link:../../../common/tsconfig
-      '@modelcontextprotocol/vitest-config':
-        specifier: workspace:^
-        version: link:../../../common/vitest-config
-      '@types/express':
-        specifier: catalog:devTools
-        version: 5.0.5
 
   packages/integration:
     devDependencies:

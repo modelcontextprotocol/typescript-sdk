@@ -1,9 +1,10 @@
-import type { ClientAuthenticationMiddlewareOptions } from '../../../../src/server/auth/middleware/clientAuth.js';
-import { authenticateClient } from '../../../../src/server/auth/middleware/clientAuth.js';
-import type { OAuthRegisteredClientsStore } from '../../../../src/server/auth/clients.js';
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk-core';
 import express from 'express';
 import supertest from 'supertest';
+
+import type { OAuthRegisteredClientsStore } from '../../../../src/server/auth/clients.js';
+import type { ClientAuthenticationMiddlewareOptions } from '../../../../src/server/auth/middleware/clientAuth.js';
+import { authenticateClient } from '../../../../src/server/auth/middleware/clientAuth.js';
 
 describe('clientAuth middleware', () => {
     // Mock client store

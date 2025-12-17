@@ -1,6 +1,7 @@
 packages:
     - packages/**/*
     - common/**/*
+    - examples/**/*
 
 catalogs:
     runtimeShared:

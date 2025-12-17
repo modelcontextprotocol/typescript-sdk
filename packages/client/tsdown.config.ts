@@ -3,7 +3,7 @@ import { defineConfig } from 'tsdown';
 export default defineConfig({
     // 1. Entry Points
     //    Directly matches package.json include/exclude globs
-    entry: ['src/**/*.ts', '!src/**/*.test.ts', '!src/__mocks__/**', '!src/examples/**'],
+    entry: ['src/index.ts'],
 
     // 2. Output Configuration
     format: ['esm'],
@@ -18,8 +18,16 @@ export default defineConfig({
 
     // 4. Type Definitions
     //    Bundles d.ts files into a single output
-    dts: true,
-
+    dts: {
+        resolver: 'tsc',
+        // override just for DTS generation:
+        compilerOptions: {
+            baseUrl: '.',
+            paths: {
+                '@modelcontextprotocol/sdk-core': ['../core/src/index.ts']
+            }
+        }
+    },
     // 5. Vendoring Strategy - Bundle the code for this specific package into the output,
     //    but treat all other dependencies as external (require/import).
     noExternal: ['@modelcontextprotocol/sdk-core']

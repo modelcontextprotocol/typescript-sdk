@@ -1,15 +1,16 @@
-import type { TokenHandlerOptions } from '../../../../src/server/auth/handlers/token.js';
-import { tokenHandler } from '../../../../src/server/auth/handlers/token.js';
-import type { OAuthServerProvider, AuthorizationParams } from '../../../../src/server/auth/provider.js';
-import type { OAuthRegisteredClientsStore } from '../../../../src/server/auth/clients.js';
-import type { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens, AuthInfo } from '@modelcontextprotocol/sdk-core';
+import type { AuthInfo, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/sdk-core';
+import { InvalidGrantError, InvalidTokenError } from '@modelcontextprotocol/sdk-core';
 import type { Response } from 'express';
 import express from 'express';
-import supertest from 'supertest';
 import * as pkceChallenge from 'pkce-challenge';
-import { InvalidGrantError, InvalidTokenError } from '@modelcontextprotocol/sdk-core';
-import { ProxyOAuthServerProvider } from '../../../../src/server/auth/providers/proxyProvider.js';
+import supertest from 'supertest';
 import { type Mock } from 'vitest';
+
+import type { OAuthRegisteredClientsStore } from '../../../../src/server/auth/clients.js';
+import type { TokenHandlerOptions } from '../../../../src/server/auth/handlers/token.js';
+import { tokenHandler } from '../../../../src/server/auth/handlers/token.js';
+import type { AuthorizationParams, OAuthServerProvider } from '../../../../src/server/auth/provider.js';
+import { ProxyOAuthServerProvider } from '../../../../src/server/auth/providers/proxyProvider.js';
 
 // Mock pkce-challenge
 vi.mock('pkce-challenge', () => ({

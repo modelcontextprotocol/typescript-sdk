@@ -1,22 +1,23 @@
 import type { AuthorizationServerMetadata, OAuthTokens } from '@modelcontextprotocol/sdk-core';
-import { LATEST_PROTOCOL_VERSION, InvalidClientMetadataError, ServerError } from '@modelcontextprotocol/sdk-core';
+import { InvalidClientMetadataError, LATEST_PROTOCOL_VERSION, ServerError } from '@modelcontextprotocol/sdk-core';
+import { expect, type Mock, vi } from 'vitest';
+
 import {
-    discoverOAuthMetadata,
-    discoverAuthorizationServerMetadata,
+    auth,
     buildDiscoveryUrls,
-    startAuthorization,
+    discoverAuthorizationServerMetadata,
+    discoverOAuthMetadata,
+    discoverOAuthProtectedResourceMetadata,
     exchangeAuthorization,
+    extractWWWAuthenticateParams,
+    isHttpsUrl,
+    type OAuthClientProvider,
     refreshAuthorization,
     registerClient,
-    discoverOAuthProtectedResourceMetadata,
-    extractWWWAuthenticateParams,
-    auth,
-    type OAuthClientProvider,
     selectClientAuthMethod,
-    isHttpsUrl
+    startAuthorization
 } from '../../src/client/auth.js';
 import { createPrivateKeyJwtAuth } from '../../src/client/auth-extensions.js';
-import { expect, vi, type Mock } from 'vitest';
 
 // Mock pkce-challenge
 vi.mock('pkce-challenge', () => ({

@@ -1,10 +1,11 @@
-import type { StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
-import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
-import type { OAuthClientProvider } from '../../src/client/auth.js';
-import { UnauthorizedError } from '../../src/client/auth.js';
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/sdk-core';
 import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '@modelcontextprotocol/sdk-core';
 import { type Mock, type Mocked } from 'vitest';
+
+import type { OAuthClientProvider } from '../../src/client/auth.js';
+import { UnauthorizedError } from '../../src/client/auth.js';
+import type { StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
+import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
 
 describe('StreamableHTTPClientTransport', () => {
     let transport: StreamableHTTPClientTransport;

@@ -1,5 +1,6 @@
 import { completable, getCompleter } from '../../src/server/completable.js';
-import { zodTestMatrix, type ZodMatrixEntry } from './__fixtures__/zodTestMatrix.js';
+import type { ZodMatrixEntry } from './__fixtures__/zodTestMatrix.js';
+import { zodTestMatrix } from './__fixtures__/zodTestMatrix.js';
 
 describe.each(zodTestMatrix)('completable with $zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;

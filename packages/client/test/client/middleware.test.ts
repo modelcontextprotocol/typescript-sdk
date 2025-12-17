@@ -1,7 +1,8 @@
-import { withOAuth, withLogging, applyMiddlewares, createMiddleware } from '../../src/client/middleware.js';
-import type { OAuthClientProvider } from '../../src/client/auth.js';
 import type { FetchLike } from '@modelcontextprotocol/sdk-core';
-import type { MockInstance, Mocked, MockedFunction } from 'vitest';
+import type { Mocked, MockedFunction, MockInstance } from 'vitest';
+
+import type { OAuthClientProvider } from '../../src/client/auth.js';
+import { applyMiddlewares, createMiddleware, withLogging, withOAuth } from '../../src/client/middleware.js';
 
 vi.mock('../../src/client/auth.js', async () => {
     const actual = await vi.importActual<typeof import('../../src/client/auth.js')>('../../src/client/auth.js');

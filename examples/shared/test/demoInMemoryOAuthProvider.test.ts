@@ -2,8 +2,9 @@ import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk-core'
 import type { AuthorizationParams } from '@modelcontextprotocol/sdk-server';
 import { InvalidRequestError } from '@modelcontextprotocol/sdk-server';
 import type { Response } from 'express';
+import { beforeEach, describe, expect, it } from 'vitest';
 
-import { createExpressResponseMock } from '../../../integration/test/helpers/http.js';
+import { createExpressResponseMock } from '../../../packages/integration/test/helpers/http.js';
 import { DemoInMemoryAuthProvider, DemoInMemoryClientsStore } from '../src/demoInMemoryOAuthProvider.js';
 
 describe('DemoInMemoryAuthProvider', () => {

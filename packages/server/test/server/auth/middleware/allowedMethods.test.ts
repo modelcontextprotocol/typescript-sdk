@@ -1,7 +1,8 @@
-import { allowedMethods } from '../../../../src/server/auth/middleware/allowedMethods.js';
 import type { Request, Response } from 'express';
 import express from 'express';
 import request from 'supertest';
+
+import { allowedMethods } from '../../../../src/server/auth/middleware/allowedMethods.js';
 
 describe('allowedMethods', () => {
     let app: express.Express;

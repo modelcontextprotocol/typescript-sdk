@@ -1,5 +1,5 @@
 {
-    "name": "@modelcontextprotocol/sdk-examples-server",
+    "name": "@modelcontextprotocol/sdk-examples-shared",
     "private": true,
     "version": "2.0.0-alpha.0",
     "description": "Model Context Protocol implementation for TypeScript",
@@ -22,29 +22,35 @@
         "mcp"
     ],
     "scripts": {
-        "typecheck": "tsc -p tsconfig.build.json --noEmit",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
         "prepack": "npm run build:esm && npm run build:cjs",
-        "lint": "eslint src/ && prettier --check .",
-        "lint:fix": "eslint src/ --fix && prettier --write .",
+        "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
+        "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "npm run typecheck && npm run lint",
+        "test": "vitest run",
+        "test:watch": "vitest",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
-        "@hono/node-server": "catalog:runtimeServerOnly",
-        "hono": "catalog:runtimeServerOnly",
-        "@modelcontextprotocol/sdk-examples-shared": "workspace:^",
         "@modelcontextprotocol/sdk-server": "workspace:^",
-        "cors": "catalog:runtimeServerOnly",
-        "express": "catalog:runtimeServerOnly",
-        "zod": "catalog:runtimeShared"
+        "express": "catalog:runtimeServerOnly"
     },
     "devDependencies": {
-        "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
+        "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@types/cors": "catalog:devTools",
-        "@types/express": "catalog:devTools"
+        "@types/express": "catalog:devTools",
+        "@typescript/native-preview": "catalog:devTools",
+        "@eslint/js": "catalog:devTools",
+        "eslint": "catalog:devTools",
+        "eslint-config-prettier": "catalog:devTools",
+        "eslint-plugin-n": "catalog:devTools",
+        "prettier": "catalog:devTools",
+        "tsx": "catalog:devTools",
+        "typescript": "catalog:devTools",
+        "typescript-eslint": "catalog:devTools",
+        "vitest": "catalog:devTools"
     }
 }
