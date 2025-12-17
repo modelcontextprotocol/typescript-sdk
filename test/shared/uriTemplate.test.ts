@@ -191,10 +191,59 @@ describe('UriTemplate', () => {
             expect(template.variableNames).toEqual(['q', 'page']);
         });
 
+        it('should handle partial query parameter matches correctly', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            const match = template.match('/search?q=test');
+            expect(match).toEqual({ q: 'test', page: '' });
+            expect(template.variableNames).toEqual(['q', 'page']);
+        });
+
+        it('should match multiple query parameters if provided in a different order', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            const match = template.match('/search?page=1&q=test');
+            expect(match).toEqual({ q: 'test', page: '1' });
+            expect(template.variableNames).toEqual(['q', 'page']);
+        });
+
+        it('should still match if additional query parameters are provided', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            const match = template.match('/search?q=test&page=1&sort=desc');
+            expect(match).toEqual({ q: 'test', page: '1' });
+            expect(template.variableNames).toEqual(['q', 'page']);
+        });
+
+        it('should match omitted query parameters', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            const match = template.match('/search');
+            expect(match).toEqual({ q: '', page: '' });
+            expect(template.variableNames).toEqual(['q', 'page']);
+        });
+
+        it('should match nested path segments with query parameters', () => {
+            const template = new UriTemplate('/api/{version}/{resource}{?apiKey,q,p,sort}');
+            const match = template.match('/api/v1/users?apiKey=testkey&q=user');
+            expect(match).toEqual({
+                version: 'v1',
+                resource: 'users',
+                apiKey: 'testkey',
+                q: 'user',
+                p: '',
+                sort: ''
+            });
+            expect(template.variableNames).toEqual(['version', 'resource', 'apiKey', 'q', 'p', 'sort']);
+        });
+
         it('should handle partial matches correctly', () => {
             const template = new UriTemplate('/users/{id}');
             expect(template.match('/users/123/extra')).toBeNull();
             expect(template.match('/users')).toBeNull();
+        });
+
+        it('should handle encoded query parameters', () => {
+            const template = new UriTemplate('/search{?q}');
+            const match = template.match('/search?q=hello%20world');
+            expect(match).toEqual({ q: 'hello world' });
+            expect(template.variableNames).toEqual(['q']);
         });
     });
 
