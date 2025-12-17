@@ -14,9 +14,12 @@ export type ClientRegistrationHandlerOptions = {
     clientsStore: OAuthRegisteredClientsStore;
 
     /**
-     * The number of seconds after which to expire issued client secrets, or 0 to prevent expiration of client secrets (not recommended).
+     * The number of seconds after which to expire issued client secrets.
+     * - If set to a positive number, client secrets will expire after that many seconds.
+     * - If set to 0, client_secret_expires_at will be 0 (meaning no expiration per RFC 7591).
+     * - If not set (undefined), client_secret_expires_at will be omitted from the response (no expiration).
      *
-     * If not set, defaults to 30 days.
+     * Defaults to undefined (no expiration), consistent with Python SDK behavior.
      */
     clientSecretExpirySeconds?: number;
 
@@ -35,11 +38,9 @@ export type ClientRegistrationHandlerOptions = {
     clientIdGeneration?: boolean;
 };
 
-const DEFAULT_CLIENT_SECRET_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
-
 export function clientRegistrationHandler({
     clientsStore,
-    clientSecretExpirySeconds = DEFAULT_CLIENT_SECRET_EXPIRY_SECONDS,
+    clientSecretExpirySeconds,
     rateLimit: rateLimitConfig,
     clientIdGeneration = true
 }: ClientRegistrationHandlerOptions): RequestHandler {
@@ -87,9 +88,18 @@ export function clientRegistrationHandler({
             const clientIdIssuedAt = Math.floor(Date.now() / 1000);
 
             // Calculate client secret expiry time
-            const clientsDoExpire = clientSecretExpirySeconds > 0;
-            const secretExpiryTime = clientsDoExpire ? clientIdIssuedAt + clientSecretExpirySeconds : 0;
-            const clientSecretExpiresAt = isPublicClient ? undefined : secretExpiryTime;
+            // - undefined: omit client_secret_expires_at (no expiration)
+            // - 0: set to 0 (no expiration per RFC 7591)
+            // - positive number: set to now + seconds
+            let clientSecretExpiresAt: number | undefined;
+            if (!isPublicClient) {
+                if (clientSecretExpirySeconds !== undefined && clientSecretExpirySeconds > 0) {
+                    clientSecretExpiresAt = clientIdIssuedAt + clientSecretExpirySeconds;
+                } else if (clientSecretExpirySeconds === 0) {
+                    clientSecretExpiresAt = 0;
+                }
+                // else: undefined - omit from response (no expiration)
+            }
 
             let clientInfo: Omit<OAuthClientInformationFull, 'client_id'> & { client_id?: string } = {
                 ...clientMetadata,

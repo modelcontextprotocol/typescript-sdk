@@ -190,7 +190,7 @@ describe('Client Registration Handler', () => {
         });
 
         it('sets no expiry when clientSecretExpirySeconds=0', async () => {
-            // Create handler with no expiry
+            // Create handler with explicit 0 (no expiry per RFC 7591)
             const customApp = express();
             const options: ClientRegistrationHandlerOptions = {
                 clientsStore: mockClientStoreWithRegistration,
@@ -207,6 +207,27 @@ describe('Client Registration Handler', () => {
 
             expect(response.status).toBe(201);
             expect(response.body.client_secret_expires_at).toBe(0);
+        });
+
+        it('omits client_secret_expires_at when clientSecretExpirySeconds is undefined (default)', async () => {
+            // Create handler with default undefined (no expiry, omit from response)
+            const customApp = express();
+            const options: ClientRegistrationHandlerOptions = {
+                clientsStore: mockClientStoreWithRegistration
+                // clientSecretExpirySeconds not set - defaults to undefined
+            };
+
+            customApp.use('/register', clientRegistrationHandler(options));
+
+            const response = await supertest(customApp)
+                .post('/register')
+                .send({
+                    redirect_uris: ['https://example.com/callback']
+                });
+
+            expect(response.status).toBe(201);
+            expect(response.body.client_secret).toBeDefined(); // Still has secret
+            expect(response.body.client_secret_expires_at).toBeUndefined(); // But no expiry
         });
 
         it('sets no client_id when clientIdGeneration=false', async () => {
