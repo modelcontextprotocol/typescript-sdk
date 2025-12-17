@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { isTerminal } from '../../../src/experimental/tasks/interfaces.js';
 import type { Task } from '../../../src/types.js';
+import { TaskCreationParamsSchema } from '../../../src/types.js';
 
 describe('Task utility functions', () => {
     describe('isTerminal', () => {
@@ -113,5 +114,32 @@ describe('Task Schema Validation', () => {
             };
             expect(task.status).toBe(status);
         });
+    });
+});
+
+describe('TaskCreationParams Schema Validation', () => {
+    it('should accept ttl as a number', () => {
+        const result = TaskCreationParamsSchema.safeParse({ ttl: 60000 });
+        expect(result.success).toBe(true);
+    });
+
+    it('should accept missing ttl (optional)', () => {
+        const result = TaskCreationParamsSchema.safeParse({});
+        expect(result.success).toBe(true);
+    });
+
+    it('should reject null ttl (not allowed in request, only response)', () => {
+        const result = TaskCreationParamsSchema.safeParse({ ttl: null });
+        expect(result.success).toBe(false);
+    });
+
+    it('should accept pollInterval as a number', () => {
+        const result = TaskCreationParamsSchema.safeParse({ pollInterval: 1000 });
+        expect(result.success).toBe(true);
+    });
+
+    it('should accept both ttl and pollInterval', () => {
+        const result = TaskCreationParamsSchema.safeParse({ ttl: 60000, pollInterval: 1000 });
+        expect(result.success).toBe(true);
     });
 });
