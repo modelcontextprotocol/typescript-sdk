@@ -6386,6 +6386,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const taskStore = new InMemoryTaskStore();
             const { releaseLatch, waitForLatch } = createLatch();
 
+            // Spies to verify handler invocations
+            const createTaskSpy = vi.fn();
+            const getTaskSpy = vi.fn();
+            const getTaskResultSpy = vi.fn();
+
             const mcpServer = new McpServer(
                 {
                     name: 'test server',
@@ -6438,6 +6443,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 },
                 {
                     createTask: async ({ value }, extra) => {
+                        createTaskSpy({ value });
                         const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
 
                         // Capture taskStore for use in setTimeout
@@ -6454,6 +6460,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         return { task };
                     },
                     getTask: async (_args, extra) => {
+                        getTaskSpy(extra.taskId);
                         const task = await extra.taskStore.getTask(extra.taskId);
                         if (!task) {
                             throw new Error('Task not found');
@@ -6461,6 +6468,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         return task;
                     },
                     getTaskResult: async (_value, extra) => {
+                        getTaskResultSpy(extra.taskId);
                         const result = await extra.taskStore.getTaskResult(extra.taskId);
                         return result as CallToolResult;
                     }
@@ -6484,6 +6492,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result).toHaveProperty('content');
             expect(result.content).toEqual([{ type: 'text' as const, text: 'Result: 42' }]);
             expect(result).not.toHaveProperty('task');
+
+            // Verify all three handler methods were called
+            expect(createTaskSpy).toHaveBeenCalledOnce();
+            expect(createTaskSpy).toHaveBeenCalledWith({ value: 21 });
+            expect(getTaskSpy).toHaveBeenCalled(); // Called at least once during polling
+            expect(getTaskResultSpy).toHaveBeenCalledOnce();
 
             // Wait for async operations to complete
             await waitForLatch();
