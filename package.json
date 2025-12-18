@@ -32,6 +32,7 @@
     },
     "devDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
+        "@changesets/cli": "^2.29.8",
         "@eslint/js": "catalog:devTools",
         "@types/content-type": "catalog:devTools",
         "@types/cors": "catalog:devTools",
