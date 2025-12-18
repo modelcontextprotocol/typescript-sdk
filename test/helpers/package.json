@@ -22,8 +22,8 @@
         "mcp"
     ],
     "scripts": {
-        "lint": "eslint test/ && prettier --ignore-path ../../.prettierignore --check .",
-        "lint:fix": "eslint test/ --fix && prettier --ignore-path ../../.prettierignore --write .",
+        "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
+        "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "npm run typecheck && npm run lint",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",
