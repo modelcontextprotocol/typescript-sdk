@@ -20,7 +20,7 @@ Straightforward bug fixes (a few lines of code with tests demonstrating the fix)
 - New public APIs or classes
 - Architectural changes or refactoring
 - Changes that touch multiple modules
-- Features that might require spec changes (these need a [SEP](https://github.com/modelcontextprotocol/modelcontextprotocol) first)
+- Features that might require spec changes (these need a [SEP](https://modelcontextprotocol.io/community/sep-guidelines) first)
 
 ### Writing Good Issues
 
