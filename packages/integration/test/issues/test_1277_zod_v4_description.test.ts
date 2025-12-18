@@ -6,11 +6,11 @@
  * correctly extracted for prompt arguments.
  */
 
-import { Client } from '../../src/client/index.js';
-import { InMemoryTransport } from '../../src/inMemory.js';
-import { ListPromptsResultSchema } from '../../src/types.js';
-import { McpServer } from '../../src/server/mcp.js';
-import { zodTestMatrix, type ZodMatrixEntry } from '../../src/__fixtures__/zodTestMatrix.js';
+import { Client } from '@modelcontextprotocol/sdk-client';
+import { InMemoryTransport , ListPromptsResultSchema } from '@modelcontextprotocol/sdk-core';
+import { McpServer } from '@modelcontextprotocol/sdk-server';
+
+import { type ZodMatrixEntry,zodTestMatrix } from '../__fixtures__/zodTestMatrix.js';
 
 describe.each(zodTestMatrix)('Issue #1277: $zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;
@@ -56,8 +56,8 @@ describe.each(zodTestMatrix)('Issue #1277: $zodVersionLabel', (entry: ZodMatrixE
         );
 
         expect(result.prompts).toHaveLength(1);
-        expect(result.prompts[0].name).toBe('test');
-        expect(result.prompts[0].arguments).toEqual([
+        expect(result.prompts[0]!.name).toBe('test');
+        expect(result.prompts[0]!.arguments).toEqual([
             { name: 'name', required: true, description: 'The user name' },
             { name: 'value', required: true, description: 'The value to set' }
         ]);
