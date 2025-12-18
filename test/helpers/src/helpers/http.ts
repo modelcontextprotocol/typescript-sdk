@@ -1,4 +1,4 @@
-import type http from 'node:http';
+import type * as http from 'node:http';
 import { type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 

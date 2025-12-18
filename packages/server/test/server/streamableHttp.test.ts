@@ -12,8 +12,8 @@ import type {
     JSONRPCResultResponse,
     RequestId
 } from '@modelcontextprotocol/sdk-core';
+import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 
-import { listenOnRandomPort } from '../../../integration/test/helpers/http.js';
 import { McpServer } from '../../src/server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
 import type { EventId, EventStore, StreamId } from '../../src/server/webStandardStreamableHttp.js';

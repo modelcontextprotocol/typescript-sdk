@@ -1,4 +1,5 @@
 import type { FetchLike } from '@modelcontextprotocol/sdk-core';
+import { vi } from 'vitest';
 
 export interface MockOAuthFetchOptions {
     resourceServerUrl: string;

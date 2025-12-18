@@ -9,9 +9,8 @@ import {
     McpServer,
     StreamableHTTPServerTransport
 } from '@modelcontextprotocol/sdk-server';
-
-import { type ZodMatrixEntry, zodTestMatrix } from './__fixtures__/zodTestMatrix.js';
-import { listenOnRandomPort } from './helpers/http.js';
+import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
+import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;

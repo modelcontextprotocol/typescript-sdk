@@ -22,7 +22,6 @@
         "mcp"
     ],
     "scripts": {
-        "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
         "typecheck": "tsc -p tsconfig.json --noEmit",
         "examples:simple-server:w": "tsx --watch src/examples/server/simpleStreamableHttp.ts --oauth",
         "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",

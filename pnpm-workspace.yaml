@@ -2,6 +2,7 @@ packages:
     - packages/**/*
     - common/**/*
     - examples/**/*
+    - test/**/*
 
 catalogs:
     runtimeShared:

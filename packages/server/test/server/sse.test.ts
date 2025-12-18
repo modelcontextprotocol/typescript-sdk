@@ -2,12 +2,12 @@ import type http from 'node:http';
 import { createServer, type Server } from 'node:http';
 
 import type { CallToolResult, JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
+import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
+import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 import { type Mocked } from 'vitest';
 
-import { listenOnRandomPort } from '../../../integration/test/helpers/http.js';
 import { McpServer } from '../../src/server/mcp.js';
 import { SSEServerTransport } from '../../src/server/sse.js';
-import { type ZodMatrixEntry, zodTestMatrix } from './__fixtures__/zodTestMatrix.js';
 
 const createMockResponse = () => {
     const res = {

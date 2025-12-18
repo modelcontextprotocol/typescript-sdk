@@ -1,6 +1,6 @@
+import { createMockOAuthFetch } from '@modelcontextprotocol/test-helpers';
 import { describe, expect, it } from 'vitest';
 
-import { createMockOAuthFetch } from '../../../integration/test/helpers/oauth.js';
 import { auth } from '../../src/client/auth.js';
 import {
     ClientCredentialsProvider,

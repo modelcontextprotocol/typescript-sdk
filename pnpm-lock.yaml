@@ -340,6 +340,9 @@ importers:
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
+      '@modelcontextprotocol/test-helpers':
+        specifier: workspace:^
+        version: link:../../test/helpers
       '@modelcontextprotocol/tsconfig':
         specifier: workspace:^
         version: link:../../common/tsconfig
@@ -410,6 +413,9 @@ importers:
       '@modelcontextprotocol/sdk-core':
         specifier: workspace:^
         version: link:../core
+      '@modelcontextprotocol/test-helpers':
+        specifier: workspace:^
+        version: link:../../test/helpers
       '@modelcontextprotocol/tsconfig':
         specifier: workspace:^
         version: link:../../common/tsconfig
@@ -535,36 +541,6 @@ importers:
         specifier: catalog:devTools
         version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
 
-  packages/integration:
-    devDependencies:
-      '@modelcontextprotocol/eslint-config':
-        specifier: workspace:^
-        version: link:../../common/eslint-config
-      '@modelcontextprotocol/sdk-client':
-        specifier: workspace:^
-        version: link:../client
-      '@modelcontextprotocol/sdk-core':
-        specifier: workspace:^
-        version: link:../core
-      '@modelcontextprotocol/sdk-server':
-        specifier: workspace:^
-        version: link:../server
-      '@modelcontextprotocol/tsconfig':
-        specifier: workspace:^
-        version: link:../../common/tsconfig
-      '@modelcontextprotocol/vitest-config':
-        specifier: workspace:^
-        version: link:../../common/vitest-config
-      supertest:
-        specifier: catalog:devTools
-        version: 7.1.4
-      vitest:
-        specifier: catalog:devTools
-        version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
-      zod:
-        specifier: catalog:runtimeShared
-        version: 3.25.76
-
   packages/server:
     dependencies:
       '@hono/node-server':
@@ -610,6 +586,9 @@ importers:
       '@modelcontextprotocol/sdk-core':
         specifier: workspace:^
         version: link:../core
+      '@modelcontextprotocol/test-helpers':
+        specifier: workspace:^
+        version: link:../../test/helpers
       '@modelcontextprotocol/tsconfig':
         specifier: workspace:^
         version: link:../../common/tsconfig
@@ -670,6 +649,66 @@ importers:
       vitest:
         specifier: catalog:devTools
         version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
+
+  test/helpers:
+    devDependencies:
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
+      '@modelcontextprotocol/sdk-client':
+        specifier: workspace:^
+        version: link:../../packages/client
+      '@modelcontextprotocol/sdk-core':
+        specifier: workspace:^
+        version: link:../../packages/core
+      '@modelcontextprotocol/sdk-server':
+        specifier: workspace:^
+        version: link:../../packages/server
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
+      '@modelcontextprotocol/vitest-config':
+        specifier: workspace:^
+        version: link:../../common/vitest-config
+      vitest:
+        specifier: catalog:devTools
+        version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
+      zod:
+        specifier: catalog:runtimeShared
+        version: 3.25.76
+
+  test/integration:
+    devDependencies:
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
+      '@modelcontextprotocol/sdk-client':
+        specifier: workspace:^
+        version: link:../../packages/client
+      '@modelcontextprotocol/sdk-core':
+        specifier: workspace:^
+        version: link:../../packages/core
+      '@modelcontextprotocol/sdk-server':
+        specifier: workspace:^
+        version: link:../../packages/server
+      '@modelcontextprotocol/test-helpers':
+        specifier: workspace:^
+        version: link:../helpers
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
+      '@modelcontextprotocol/vitest-config':
+        specifier: workspace:^
+        version: link:../../common/vitest-config
+      supertest:
+        specifier: catalog:devTools
+        version: 7.1.4
+      vitest:
+        specifier: catalog:devTools
+        version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
+      zod:
+        specifier: catalog:runtimeShared
+        version: 3.25.76
 
 packages:
 

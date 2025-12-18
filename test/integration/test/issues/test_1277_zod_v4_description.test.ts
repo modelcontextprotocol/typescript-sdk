@@ -7,10 +7,9 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk-client';
-import { InMemoryTransport , ListPromptsResultSchema } from '@modelcontextprotocol/sdk-core';
+import { InMemoryTransport, ListPromptsResultSchema } from '@modelcontextprotocol/sdk-core';
 import { McpServer } from '@modelcontextprotocol/sdk-server';
-
-import { type ZodMatrixEntry,zodTestMatrix } from '../__fixtures__/zodTestMatrix.js';
+import { type ZodMatrixEntry, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 
 describe.each(zodTestMatrix)('Issue #1277: $zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;

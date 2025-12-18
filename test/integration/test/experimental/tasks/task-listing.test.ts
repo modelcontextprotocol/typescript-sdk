@@ -1,7 +1,6 @@
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk-core';
+import { createInMemoryTaskEnvironment } from '@modelcontextprotocol/test-helpers';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-
-import { createInMemoryTaskEnvironment } from '../../helpers/mcp.js';
 
 describe('Task Listing with Pagination', () => {
     let client: Awaited<ReturnType<typeof createInMemoryTaskEnvironment>>['client'];

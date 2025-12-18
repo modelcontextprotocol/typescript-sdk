@@ -68,6 +68,7 @@
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
+        "@modelcontextprotocol/test-helpers": "workspace:^",
         "@cfworker/json-schema": "catalog:runtimeShared",
         "@types/content-type": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",

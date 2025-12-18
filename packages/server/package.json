@@ -30,7 +30,6 @@
         "dist"
     ],
     "scripts": {
-        "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
         "typecheck": "tsc -p tsconfig.json --noEmit",
         "build": "tsdown",
         "build:watch": "tsdown --watch",
@@ -73,6 +72,7 @@
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
+        "@modelcontextprotocol/test-helpers": "workspace:^",
         "@cfworker/json-schema": "catalog:runtimeShared",
         "@eslint/js": "catalog:devTools",
         "@types/content-type": "catalog:devTools",

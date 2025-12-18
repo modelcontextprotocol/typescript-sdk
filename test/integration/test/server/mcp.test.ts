@@ -18,9 +18,9 @@ import {
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/sdk-core';
 
-import { completable } from '../../../server/src/server/completable.js';
-import { McpServer, ResourceTemplate } from '../../../server/src/server/mcp.js';
-import { type ZodMatrixEntry, zodTestMatrix } from '../../../server/test/server/__fixtures__/zodTestMatrix.js';
+import { completable } from '../../../../packages/server/src/server/completable.js';
+import { McpServer, ResourceTemplate } from '../../../../packages/server/src/server/mcp.js';
+import { type ZodMatrixEntry, zodTestMatrix } from '../../../../packages/server/test/server/__fixtures__/zodTestMatrix.js';
 
 function createLatch() {
     let latch = false;
