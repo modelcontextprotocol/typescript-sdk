@@ -1,5 +1,4 @@
-import type * as http from 'node:http';
-import { type Server } from 'node:http';
+import type { Server, ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import type { Response } from 'express';
@@ -85,13 +84,13 @@ export function createExpressResponseMock(options: { trackRedirectUrl?: boolean 
  * All core methods are jest/vitest fns returning `this` so that
  * tests can assert on writeHead/write/on/end calls.
  */
-export function createNodeServerResponseMock(): http.ServerResponse {
+export function createNodeServerResponseMock(): ServerResponse {
     const res = {
-        writeHead: vi.fn<http.ServerResponse['writeHead']>().mockReturnThis(),
-        write: vi.fn<http.ServerResponse['write']>().mockReturnThis(),
-        on: vi.fn<http.ServerResponse['on']>().mockReturnThis(),
-        end: vi.fn<http.ServerResponse['end']>().mockReturnThis()
+        writeHead: vi.fn<ServerResponse['writeHead']>().mockReturnThis(),
+        write: vi.fn<ServerResponse['write']>().mockReturnThis(),
+        on: vi.fn<ServerResponse['on']>().mockReturnThis(),
+        end: vi.fn<ServerResponse['end']>().mockReturnThis()
     };
 
-    return res as unknown as http.ServerResponse;
+    return res as unknown as ServerResponse;
 }

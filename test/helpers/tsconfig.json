@@ -1,6 +1,6 @@
 {
     "extends": "@modelcontextprotocol/tsconfig",
-    "include": ["./"],
+    "include": ["./", "../integration/test/helpers/mcp.ts"],
     "exclude": ["node_modules", "dist"],
     "compilerOptions": {
         "baseUrl": ".",
