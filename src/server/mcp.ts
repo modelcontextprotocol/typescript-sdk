@@ -374,19 +374,20 @@ export class McpServer {
         const handler = tool.handler as ToolTaskHandler<ZodRawShapeCompat | undefined>;
         const taskExtra = { ...extra, taskStore: extra.taskStore };
 
-        const createTaskResult: CreateTaskResult = args // undefined only if tool.inputSchema is undefined
-            ? await Promise.resolve((handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args, taskExtra))
-            : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              await Promise.resolve(((handler as ToolTaskHandler<undefined>).createTask as any)(taskExtra));
+        const wrappedHandler = toolTaskHandlerByArgs(handler, args);
+
+        const createTaskResult = await wrappedHandler.createTask(taskExtra);
 
         // Poll until completion
         const taskId = createTaskResult.task.taskId;
+        const taskExtraComplete = { ...extra, taskId, taskStore: extra.taskStore };
         let task = createTaskResult.task;
         const pollInterval = task.pollInterval ?? 5000;
 
         while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
             await new Promise(resolve => setTimeout(resolve, pollInterval));
-            const updatedTask = await extra.taskStore.getTask(taskId);
+            const getTaskResult = await wrappedHandler.getTask(taskExtraComplete);
+            const updatedTask = getTaskResult;
             if (!updatedTask) {
                 throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
             }
@@ -394,7 +395,7 @@ export class McpServer {
         }
 
         // Return the final result
-        return (await extra.taskStore.getTaskResult(taskId)) as CallToolResult;
+        return await wrappedHandler.getTaskResult(taskExtraComplete);
     }
 
     private _completionHandlerInitialized = false;
@@ -1540,3 +1541,29 @@ const EMPTY_COMPLETION_RESULT: CompleteResult = {
         hasMore: false
     }
 };
+
+/**
+ * Wraps a tool task handler such that it can be used without checking if it needs to be called in a one-arg manner.
+ * @param handler The task handler to wrap.
+ * @param args The tool arguments.
+ * @returns A wrapped task handler for a tool, which only exposes a no-args interface.
+ */
+function toolTaskHandlerByArgs<Args extends AnySchema | ZodRawShapeCompat | undefined>(
+    handler: ToolTaskHandler<Args>,
+    args: unknown
+): ToolTaskHandler<undefined> {
+    return {
+        createTask: extra =>
+            args // undefined only if tool.inputSchema is undefined
+                ? Promise.resolve((handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args, extra))
+                : Promise.resolve((handler as ToolTaskHandler<undefined>).createTask(extra)),
+        getTask: extra =>
+            args
+                ? (handler as ToolTaskHandler<ZodRawShapeCompat>).getTask(args, extra)
+                : (handler as ToolTaskHandler<undefined>).getTask(extra),
+        getTaskResult: extra =>
+            args
+                ? (handler as ToolTaskHandler<ZodRawShapeCompat>).getTaskResult(args, extra)
+                : (handler as ToolTaskHandler<undefined>).getTaskResult(extra)
+    };
+}
