@@ -13,7 +13,9 @@
             "@modelcontextprotocol/eslint-config": ["node_modules/@modelcontextprotocol/eslint-config/tsconfig.json"],
             "@modelcontextprotocol/vitest-config": ["node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"],
             "@modelcontextprotocol/test-helpers": ["node_modules/@modelcontextprotocol/test-helpers/src/index.ts"],
-            "@modelcontextprotocol/sdk-client": ["node_modules/@modelcontextprotocol/test-helpers/node_modules/@modelcontextprotocol/sdk-client/src/index.ts"],
+            "@modelcontextprotocol/sdk-client": [
+                "node_modules/@modelcontextprotocol/test-helpers/node_modules/@modelcontextprotocol/sdk-client/src/index.ts"
+            ]
         }
     }
 }
