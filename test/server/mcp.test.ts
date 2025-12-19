@@ -6,8 +6,10 @@ import {
     CallToolResultSchema,
     type CallToolResult,
     CompleteResultSchema,
+    CreateTaskResultSchema,
     ElicitRequestSchema,
     GetPromptResultSchema,
+    GetTaskResultSchema,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListResourceTemplatesResultSchema,
@@ -6856,6 +6858,114 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 );
             }).toThrow();
+
+            taskStore.cleanup();
+        });
+
+        test('should call custom getTask and getTaskResult handlers when client polls task directly', async () => {
+            const taskStore = new InMemoryTaskStore();
+
+            const getTaskSpy = vi.fn();
+            const getTaskResultSpy = vi.fn();
+            let taskCreatedAt: number;
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore
+                }
+            );
+
+            const client = new Client(
+                {
+                    name: 'test client',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    }
+                }
+            );
+
+            mcpServer.experimental.tasks.registerToolTask(
+                'task-tool',
+                {
+                    description: 'A task tool',
+                    inputSchema: { data: z.string() },
+                    execution: { taskSupport: 'required' }
+                },
+                {
+                    createTask: async (_args, extra) => {
+                        const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
+                        taskCreatedAt = Date.now();
+                        return { task };
+                    },
+                    getTask: async extra => {
+                        getTaskSpy(extra.taskId);
+                        // Complete the task after 50ms - only occurs if getTask is actually called
+                        if (Date.now() - taskCreatedAt >= 50) {
+                            await extra.taskStore.storeTaskResult(extra.taskId, 'completed', {
+                                content: [{ type: 'text' as const, text: 'Done' }]
+                            });
+                        }
+                        return await extra.taskStore.getTask(extra.taskId);
+                    },
+                    getTaskResult: async extra => {
+                        getTaskResultSpy(extra.taskId);
+                        return (await extra.taskStore.getTaskResult(extra.taskId)) as CallToolResult;
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            // Create task
+            const createResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'task-tool',
+                        arguments: { data: 'test' },
+                        task: { ttl: 60000 }
+                    }
+                },
+                CreateTaskResultSchema
+            );
+            const taskId = createResult.task.taskId;
+
+            // Wait for task to be ready to complete
+            await new Promise(resolve => setTimeout(resolve, 60));
+
+            // Client directly calls tasks/get - should invoke custom handler which completes the task
+            const getResult = await client.request({ method: 'tasks/get', params: { taskId } }, GetTaskResultSchema);
+            expect(getResult.status).toBe('completed');
+            expect(getTaskSpy).toHaveBeenCalledWith(taskId);
+
+            // Client directly calls tasks/result - should invoke custom handler
+            const payloadResult = await client.request({ method: 'tasks/result', params: { taskId } }, CallToolResultSchema);
+            expect(payloadResult.content).toBeDefined();
+            expect(getTaskResultSpy).toHaveBeenCalledWith(taskId);
 
             taskStore.cleanup();
         });
