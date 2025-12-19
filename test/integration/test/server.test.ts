@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Client } from '@modelcontextprotocol/sdk-client';
+import { Client } from '@modelcontextprotocol/client';
 import type {
     AnyObjectSchema,
     JsonSchemaType,
@@ -7,7 +7,7 @@ import type {
     jsonSchemaValidator,
     LoggingMessageNotification,
     Transport
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 import {
     CallToolRequestSchema,
     CallToolResultSchema,
@@ -29,8 +29,8 @@ import {
     ResultSchema,
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/sdk-core';
-import { createMcpExpressApp, InMemoryTaskMessageQueue, InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/sdk-server';
+} from '@modelcontextprotocol/core';
+import { createMcpExpressApp, InMemoryTaskMessageQueue, InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
 import supertest from 'supertest';
 import * as z3 from 'zod/v3';
 import * as z4 from 'zod/v4';

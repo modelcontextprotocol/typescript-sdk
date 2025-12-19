@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 
-import type { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
+import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import spawn from 'cross-spawn';
 import type { Mock, MockedFunction } from 'vitest';
 

@@ -1,4 +1,4 @@
-import type { FetchLike } from '@modelcontextprotocol/sdk-core';
+import type { FetchLike } from '@modelcontextprotocol/core';
 import type { Mocked, MockedFunction, MockInstance } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';

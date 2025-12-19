@@ -1,6 +1,6 @@
 # MCP TypeScript SDK Examples (Client)
 
-This directory contains runnable MCP **client** examples built with `@modelcontextprotocol/sdk-client`.
+This directory contains runnable MCP **client** examples built with `@modelcontextprotocol/client`.
 
 For server examples, see [`../server/README.md`](../server/README.md). For guided docs, see [`../../docs/client.md`](../../docs/client.md).
 
@@ -10,7 +10,7 @@ From the repo root:
 
 ```bash
 pnpm install
-pnpm --filter @modelcontextprotocol/sdk-examples-client exec tsx src/simpleStreamableHttp.ts
+pnpm --filter @modelcontextprotocol/examples-client exec tsx src/simpleStreamableHttp.ts
 ```
 
 Or, from within this package:
@@ -42,11 +42,11 @@ Most clients expect a server to be running. Start one from [`../server/README.md
 Run the server first:
 
 ```bash
-pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/elicitationUrlExample.ts
+pnpm --filter @modelcontextprotocol/examples-server exec tsx src/elicitationUrlExample.ts
 ```
 
 Then run the client:
 
 ```bash
-pnpm --filter @modelcontextprotocol/sdk-examples-client exec tsx src/elicitationUrlExample.ts
+pnpm --filter @modelcontextprotocol/examples-client exec tsx src/elicitationUrlExample.ts
 ```

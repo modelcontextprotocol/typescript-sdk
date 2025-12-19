@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
-import type { CallToolResult } from '@modelcontextprotocol/sdk-server';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import {
     createMcpExpressApp,
     isInitializeRequest,
     McpServer,
     SSEServerTransport,
     StreamableHTTPServerTransport
-} from '@modelcontextprotocol/sdk-server';
+} from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 

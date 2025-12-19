@@ -1,4 +1,4 @@
-import { MethodNotAllowedError } from '@modelcontextprotocol/sdk-core';
+import { MethodNotAllowedError } from '@modelcontextprotocol/core';
 import type { RequestHandler } from 'express';
 
 /**

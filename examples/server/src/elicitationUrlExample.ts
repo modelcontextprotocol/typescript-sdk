@@ -9,8 +9,8 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { setupAuthServer } from '@modelcontextprotocol/sdk-examples-shared';
-import type { CallToolResult, ElicitRequestURLParams, ElicitResult, OAuthMetadata } from '@modelcontextprotocol/sdk-server';
+import { setupAuthServer } from '@modelcontextprotocol/examples-shared';
+import type { CallToolResult, ElicitRequestURLParams, ElicitResult, OAuthMetadata } from '@modelcontextprotocol/server';
 import {
     checkResourceAllowed,
     createMcpExpressApp,
@@ -21,7 +21,7 @@ import {
     requireBearerAuth,
     StreamableHTTPServerTransport,
     UrlElicitationRequiredError
-} from '@modelcontextprotocol/sdk-server';
+} from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';

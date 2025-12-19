@@ -1,6 +1,6 @@
 # MCP TypeScript SDK Examples (Server)
 
-This directory contains runnable MCP **server** examples built with `@modelcontextprotocol/sdk-server`.
+This directory contains runnable MCP **server** examples built with `@modelcontextprotocol/server`.
 
 For client examples, see [`../client/README.md`](../client/README.md). For guided docs, see [`../../docs/server.md`](../../docs/server.md).
 
@@ -10,7 +10,7 @@ From anywhere in the SDK:
 
 ```bash
 pnpm install
-pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleStreamableHttp.ts
+pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts
 ```
 
 Or, from within this package:
@@ -40,8 +40,8 @@ pnpm tsx src/simpleStreamableHttp.ts
 ## OAuth demo flags (Streamable HTTP server)
 
 ```bash
-pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleStreamableHttp.ts --oauth
-pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleStreamableHttp.ts --oauth --oauth-strict
+pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts --oauth
+pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts --oauth --oauth-strict
 ```
 
 ## URL elicitation example (server + client)
@@ -49,13 +49,13 @@ pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleStrea
 Run the server:
 
 ```bash
-pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/elicitationUrlExample.ts
+pnpm --filter @modelcontextprotocol/examples-server exec tsx src/elicitationUrlExample.ts
 ```
 
 Run the client in another terminal:
 
 ```bash
-pnpm --filter @modelcontextprotocol/sdk-examples-client exec tsx src/elicitationUrlExample.ts
+pnpm --filter @modelcontextprotocol/examples-client exec tsx src/elicitationUrlExample.ts
 ```
 
 ## Multi-node deployment patterns
@@ -161,13 +161,13 @@ For scenarios where local in-memory state must be maintained on specific nodes, 
 Start one of the servers:
 
 ```bash
-pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleSseServer.ts
-pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleStreamableHttp.ts
-pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/sseAndStreamableHttpCompatibleServer.ts
+pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleSseServer.ts
+pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts
+pnpm --filter @modelcontextprotocol/examples-server exec tsx src/sseAndStreamableHttpCompatibleServer.ts
 ```
 
 Then run the backwards-compatible client:
 
 ```bash
-pnpm --filter @modelcontextprotocol/sdk-examples-client exec tsx src/streamableHttpWithSseFallbackClient.ts
+pnpm --filter @modelcontextprotocol/examples-client exec tsx src/streamableHttpWithSseFallbackClient.ts
 ```

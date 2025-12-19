@@ -1,11 +1,5 @@
-import type {
-    AuthInfo,
-    FetchLike,
-    OAuthClientInformationFull,
-    OAuthTokenRevocationRequest,
-    OAuthTokens
-} from '@modelcontextprotocol/sdk-core';
-import { OAuthClientInformationFullSchema, OAuthTokensSchema, ServerError } from '@modelcontextprotocol/sdk-core';
+import type { AuthInfo, FetchLike, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
+import { OAuthClientInformationFullSchema, OAuthTokensSchema, ServerError } from '@modelcontextprotocol/core';
 import type { Response } from 'express';
 
 import type { OAuthRegisteredClientsStore } from '../clients.js';

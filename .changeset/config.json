@@ -7,9 +7,5 @@
     "access": "public",
     "baseBranch": "main",
     "updateInternalDependencies": "patch",
-    "ignore": [
-        "@modelcontextprotocol/sdk-examples-client",
-        "@modelcontextprotocol/sdk-examples-server",
-        "@modelcontextprotocol/sdk-examples-shared"
-    ]
+    "ignore": ["@modelcontextprotocol/examples-client", "@modelcontextprotocol/examples-server", "@modelcontextprotocol/examples-shared"]
 }

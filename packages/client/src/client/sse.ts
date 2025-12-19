@@ -1,5 +1,5 @@
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/sdk-core';
-import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders } from '@modelcontextprotocol/sdk-core';
+import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders } from '@modelcontextprotocol/core';
 import { type ErrorEvent, EventSource, type EventSourceInit } from 'eventsource';
 
 import type { AuthResult, OAuthClientProvider } from './auth.js';

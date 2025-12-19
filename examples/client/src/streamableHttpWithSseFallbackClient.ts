@@ -1,4 +1,4 @@
-import type { CallToolRequest, ListToolsRequest } from '@modelcontextprotocol/sdk-client';
+import type { CallToolRequest, ListToolsRequest } from '@modelcontextprotocol/client';
 import {
     CallToolResultSchema,
     Client,
@@ -6,7 +6,7 @@ import {
     LoggingMessageNotificationSchema,
     SSEClientTransport,
     StreamableHTTPClientTransport
-} from '@modelcontextprotocol/sdk-client';
+} from '@modelcontextprotocol/client';
 
 /**
  * Simplified Backwards Compatible MCP Client

@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import {
     CallToolResultSchema,
     InMemoryEventStore,
     LoggingMessageNotificationSchema,
     McpServer,
     StreamableHTTPServerTransport
-} from '@modelcontextprotocol/sdk-server';
+} from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 

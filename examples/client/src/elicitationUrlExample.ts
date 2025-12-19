@@ -17,7 +17,7 @@ import type {
     ListToolsRequest,
     OAuthClientMetadata,
     ResourceLink
-} from '@modelcontextprotocol/sdk-client';
+} from '@modelcontextprotocol/client';
 import {
     CallToolResultSchema,
     Client,
@@ -30,7 +30,7 @@ import {
     StreamableHTTPClientTransport,
     UnauthorizedError,
     UrlElicitationRequiredError
-} from '@modelcontextprotocol/sdk-client';
+} from '@modelcontextprotocol/client';
 
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
 

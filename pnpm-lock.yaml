@@ -265,7 +265,7 @@ importers:
 
   examples/client:
     dependencies:
-      '@modelcontextprotocol/sdk-client':
+      '@modelcontextprotocol/client':
         specifier: workspace:^
         version: link:../../packages/client
       ajv:
@@ -278,7 +278,7 @@ importers:
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
-      '@modelcontextprotocol/sdk-examples-shared':
+      '@modelcontextprotocol/examples-shared':
         specifier: workspace:^
         version: link:../shared
       '@modelcontextprotocol/tsconfig':
@@ -296,10 +296,10 @@ importers:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
         version: 1.19.7(hono@4.11.1)
-      '@modelcontextprotocol/sdk-examples-shared':
+      '@modelcontextprotocol/examples-shared':
         specifier: workspace:^
         version: link:../shared
-      '@modelcontextprotocol/sdk-server':
+      '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../../packages/server
       cors:
@@ -336,7 +336,7 @@ importers:
 
   examples/shared:
     dependencies:
-      '@modelcontextprotocol/sdk-server':
+      '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../../packages/server
       express:
@@ -416,12 +416,12 @@ importers:
       '@eslint/js':
         specifier: catalog:devTools
         version: 9.39.1
+      '@modelcontextprotocol/core':
+        specifier: workspace:^
+        version: link:../core
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
-      '@modelcontextprotocol/sdk-core':
-        specifier: workspace:^
-        version: link:../core
       '@modelcontextprotocol/test-helpers':
         specifier: workspace:^
         version: link:../../test/helpers
@@ -589,12 +589,12 @@ importers:
       '@eslint/js':
         specifier: catalog:devTools
         version: 9.39.1
+      '@modelcontextprotocol/core':
+        specifier: workspace:^
+        version: link:../core
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
-      '@modelcontextprotocol/sdk-core':
-        specifier: workspace:^
-        version: link:../core
       '@modelcontextprotocol/test-helpers':
         specifier: workspace:^
         version: link:../../test/helpers
@@ -661,16 +661,16 @@ importers:
 
   test/helpers:
     devDependencies:
+      '@modelcontextprotocol/client':
+        specifier: workspace:^
+        version: link:../../packages/client
+      '@modelcontextprotocol/core':
+        specifier: workspace:^
+        version: link:../../packages/core
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
-      '@modelcontextprotocol/sdk-client':
-        specifier: workspace:^
-        version: link:../../packages/client
-      '@modelcontextprotocol/sdk-core':
-        specifier: workspace:^
-        version: link:../../packages/core
-      '@modelcontextprotocol/sdk-server':
+      '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../../packages/server
       '@modelcontextprotocol/tsconfig':
@@ -688,16 +688,16 @@ importers:
 
   test/integration:
     devDependencies:
+      '@modelcontextprotocol/client':
+        specifier: workspace:^
+        version: link:../../packages/client
+      '@modelcontextprotocol/core':
+        specifier: workspace:^
+        version: link:../../packages/core
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
-      '@modelcontextprotocol/sdk-client':
-        specifier: workspace:^
-        version: link:../../packages/client
-      '@modelcontextprotocol/sdk-core':
-        specifier: workspace:^
-        version: link:../../packages/core
-      '@modelcontextprotocol/sdk-server':
+      '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../../packages/server
       '@modelcontextprotocol/test-helpers':

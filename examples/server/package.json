@@ -1,5 +1,5 @@
 {
-    "name": "@modelcontextprotocol/sdk-examples-server",
+    "name": "@modelcontextprotocol/examples-server",
     "private": true,
     "version": "2.0.0-alpha.0",
     "description": "Model Context Protocol implementation for TypeScript",
@@ -36,8 +36,8 @@
     "dependencies": {
         "@hono/node-server": "catalog:runtimeServerOnly",
         "hono": "catalog:runtimeServerOnly",
-        "@modelcontextprotocol/sdk-examples-shared": "workspace:^",
-        "@modelcontextprotocol/sdk-server": "workspace:^",
+        "@modelcontextprotocol/examples-shared": "workspace:^",
+        "@modelcontextprotocol/server": "workspace:^",
         "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly",
         "zod": "catalog:runtimeShared"

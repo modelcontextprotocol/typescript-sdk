@@ -2,8 +2,8 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import type { JSONRPCMessage, OAuthTokens } from '@modelcontextprotocol/sdk-core';
-import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '@modelcontextprotocol/sdk-core';
+import type { JSONRPCMessage, OAuthTokens } from '@modelcontextprotocol/core';
+import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '@modelcontextprotocol/core';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 

@@ -17,7 +17,7 @@ import {
     Client,
     LoggingMessageNotificationSchema,
     StreamableHTTPClientTransport
-} from '@modelcontextprotocol/sdk-client';
+} from '@modelcontextprotocol/client';
 
 const SERVER_URL = 'http://localhost:3001/mcp';
 

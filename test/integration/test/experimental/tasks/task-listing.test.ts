@@ -1,4 +1,4 @@
-import { ErrorCode, McpError } from '@modelcontextprotocol/sdk-core';
+import { ErrorCode, McpError } from '@modelcontextprotocol/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createInMemoryTaskEnvironment } from '../../helpers/mcp.js';

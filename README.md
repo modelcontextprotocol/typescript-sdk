@@ -29,8 +29,8 @@ This repository contains the TypeScript SDK implementation of the MCP specificat
 
 This monorepo publishes split packages:
 
-- **`@modelcontextprotocol/sdk-server`**: build MCP servers
-- **`@modelcontextprotocol/sdk-client`**: build MCP clients
+- **`@modelcontextprotocol/server`**: build MCP servers
+- **`@modelcontextprotocol/client`**: build MCP clients
 
 Both packages have a **required peer dependency** on `zod` for schema validation. The SDK internally imports from `zod/v4`, but remains compatible with projects using Zod v3.25+.
 
@@ -39,13 +39,13 @@ Both packages have a **required peer dependency** on `zod` for schema validation
 ### Server
 
 ```bash
-npm install @modelcontextprotocol/sdk-server zod
+npm install @modelcontextprotocol/server zod
 ```
 
 ### Client
 
 ```bash
-npm install @modelcontextprotocol/sdk-client zod
+npm install @modelcontextprotocol/client zod
 ```
 
 ## Quick Start (runnable examples)
@@ -61,7 +61,7 @@ pnpm install
 2. **Run a Streamable HTTP example server**:
 
 ```bash
-pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleStreamableHttp.ts
+pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts
 ```
 
 Alternatively, from within the example package:
@@ -74,7 +74,7 @@ pnpm tsx src/simpleStreamableHttp.ts
 3. **Run the interactive client in another terminal**:
 
 ```bash
-pnpm --filter @modelcontextprotocol/sdk-examples-client exec tsx src/simpleStreamableHttp.ts
+pnpm --filter @modelcontextprotocol/examples-client exec tsx src/simpleStreamableHttp.ts
 ```
 
 Alternatively, from within the example package:

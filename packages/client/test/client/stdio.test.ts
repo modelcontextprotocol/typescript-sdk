@@ -1,4 +1,4 @@
-import type { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
+import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 
 import type { StdioServerParameters } from '../../src/client/stdio.js';
 import { StdioClientTransport } from '../../src/client/stdio.js';

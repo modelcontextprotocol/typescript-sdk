@@ -1,4 +1,4 @@
-import { InvalidClientError, InvalidRequestError, OAuthError, ServerError, TooManyRequestsError } from '@modelcontextprotocol/sdk-core';
+import { InvalidClientError, InvalidRequestError, OAuthError, ServerError, TooManyRequestsError } from '@modelcontextprotocol/core';
 import type { RequestHandler } from 'express';
 import express from 'express';
 import type { Options as RateLimitOptions } from 'express-rate-limit';

@@ -1,7 +1,7 @@
-import { Client } from '@modelcontextprotocol/sdk-client';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk-core';
-import type { ClientCapabilities, ServerCapabilities } from '@modelcontextprotocol/sdk-server';
-import { InMemoryTaskMessageQueue, InMemoryTaskStore, Server } from '@modelcontextprotocol/sdk-server';
+import { Client } from '@modelcontextprotocol/client';
+import { InMemoryTransport } from '@modelcontextprotocol/core';
+import type { ClientCapabilities, ServerCapabilities } from '@modelcontextprotocol/server';
+import { InMemoryTaskMessageQueue, InMemoryTaskStore, Server } from '@modelcontextprotocol/server';
 
 export interface InMemoryTaskEnvironment {
     client: Client;

@@ -1,11 +1,11 @@
-import type { CallToolResult, ListToolsRequest } from '@modelcontextprotocol/sdk-client';
+import type { CallToolResult, ListToolsRequest } from '@modelcontextprotocol/client';
 import {
     CallToolResultSchema,
     Client,
     ListToolsResultSchema,
     LoggingMessageNotificationSchema,
     StreamableHTTPClientTransport
-} from '@modelcontextprotocol/sdk-client';
+} from '@modelcontextprotocol/client';
 
 /**
  * Parallel Tool Calls MCP Client

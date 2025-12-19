@@ -1,7 +1,7 @@
 import type http from 'node:http';
 import { createServer, type Server } from 'node:http';
 
-import type { CallToolResult, JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
+import type { CallToolResult, JSONRPCMessage } from '@modelcontextprotocol/core';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 import { type Mocked } from 'vitest';

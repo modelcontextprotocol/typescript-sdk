@@ -11,7 +11,7 @@ import type {
     JSONRPCMessage,
     JSONRPCResultResponse,
     RequestId
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 
 import { McpServer } from '../../src/server/mcp.js';

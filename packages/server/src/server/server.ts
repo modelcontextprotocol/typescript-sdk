@@ -34,7 +34,7 @@ import type {
     ToolUseContent,
     ZodV3Internal,
     ZodV4Internal
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 import {
     AjvJsonSchemaValidator,
     assertClientRequestTaskCapability,
@@ -60,7 +60,7 @@ import {
     safeParse,
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 
 import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
 

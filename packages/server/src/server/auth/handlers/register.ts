@@ -1,13 +1,13 @@
 import crypto from 'node:crypto';
 
-import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk-core';
+import type { OAuthClientInformationFull } from '@modelcontextprotocol/core';
 import {
     InvalidClientMetadataError,
     OAuthClientMetadataSchema,
     OAuthError,
     ServerError,
     TooManyRequestsError
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 import cors from 'cors';
 import type { RequestHandler } from 'express';
 import express from 'express';

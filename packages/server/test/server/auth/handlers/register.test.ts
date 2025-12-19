@@ -1,4 +1,4 @@
-import type { OAuthClientInformationFull, OAuthClientMetadata } from '@modelcontextprotocol/sdk-core';
+import type { OAuthClientInformationFull, OAuthClientMetadata } from '@modelcontextprotocol/core';
 import express from 'express';
 import supertest from 'supertest';
 import type { MockInstance } from 'vitest';

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { setupAuthServer } from '@modelcontextprotocol/sdk-examples-shared';
+import { setupAuthServer } from '@modelcontextprotocol/examples-shared';
 import type {
     CallToolResult,
     GetPromptResult,
@@ -8,7 +8,7 @@ import type {
     PrimitiveSchemaDefinition,
     ReadResourceResult,
     ResourceLink
-} from '@modelcontextprotocol/sdk-server';
+} from '@modelcontextprotocol/server';
 import {
     checkResourceAllowed,
     createMcpExpressApp,
@@ -21,7 +21,7 @@ import {
     McpServer,
     requireBearerAuth,
     StreamableHTTPServerTransport
-} from '@modelcontextprotocol/sdk-server';
+} from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 

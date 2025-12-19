@@ -1,5 +1,5 @@
-import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk-core';
-import { InvalidClientError, InvalidRequestError, OAuthError, ServerError } from '@modelcontextprotocol/sdk-core';
+import type { OAuthClientInformationFull } from '@modelcontextprotocol/core';
+import { InvalidClientError, InvalidRequestError, OAuthError, ServerError } from '@modelcontextprotocol/core';
 import type { RequestHandler } from 'express';
 import * as z from 'zod/v4';
 

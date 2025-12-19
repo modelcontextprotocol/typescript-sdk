@@ -1,5 +1,5 @@
-import type { AuthInfo, OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk-core';
-import { InsufficientScopeError, InvalidTokenError, ServerError } from '@modelcontextprotocol/sdk-core';
+import type { AuthInfo, OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/core';
+import { InsufficientScopeError, InvalidTokenError, ServerError } from '@modelcontextprotocol/core';
 import type { Response } from 'express';
 import { type Mock } from 'vitest';
 

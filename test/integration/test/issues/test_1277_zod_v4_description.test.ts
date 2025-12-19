@@ -6,9 +6,9 @@
  * correctly extracted for prompt arguments.
  */
 
-import { Client } from '@modelcontextprotocol/sdk-client';
-import { InMemoryTransport, ListPromptsResultSchema } from '@modelcontextprotocol/sdk-core';
-import { McpServer } from '@modelcontextprotocol/sdk-server';
+import { Client } from '@modelcontextprotocol/client';
+import { InMemoryTransport, ListPromptsResultSchema } from '@modelcontextprotocol/core';
+import { McpServer } from '@modelcontextprotocol/server';
 import { type ZodMatrixEntry, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 
 describe.each(zodTestMatrix)('Issue #1277: $zodVersionLabel', (entry: ZodMatrixEntry) => {

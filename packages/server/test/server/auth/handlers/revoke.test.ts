@@ -1,5 +1,5 @@
-import type { AuthInfo, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/sdk-core';
-import { InvalidTokenError } from '@modelcontextprotocol/sdk-core';
+import type { AuthInfo, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
+import { InvalidTokenError } from '@modelcontextprotocol/core';
 import type { Response } from 'express';
 import express from 'express';
 import supertest from 'supertest';

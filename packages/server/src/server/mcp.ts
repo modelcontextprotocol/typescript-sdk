@@ -32,7 +32,7 @@ import type {
     Transport,
     Variables,
     ZodRawShapeCompat
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
@@ -57,7 +57,7 @@ import {
     toJsonSchemaCompat,
     UriTemplate,
     validateAndWarnToolName
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 import { ZodOptional } from 'zod';
 
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';

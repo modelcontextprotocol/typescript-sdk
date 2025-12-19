@@ -9,7 +9,7 @@
 
 import { TextEncoder } from 'node:util';
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, RequestInfo, Transport } from '@modelcontextprotocol/sdk-core';
+import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, RequestInfo, Transport } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
@@ -18,7 +18,7 @@ import {
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
     SUPPORTED_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 
 export type StreamId = string;
 export type EventId = string;

@@ -1,4 +1,4 @@
-import type { EventStore, JSONRPCMessage } from '@modelcontextprotocol/sdk-server';
+import type { EventStore, JSONRPCMessage } from '@modelcontextprotocol/server';
 
 /**
  * Simple in-memory implementation of the EventStore interface for resumability

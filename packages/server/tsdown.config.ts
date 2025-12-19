@@ -24,11 +24,11 @@ export default defineConfig({
         compilerOptions: {
             baseUrl: '.',
             paths: {
-                '@modelcontextprotocol/sdk-core': ['../core/src/index.ts']
+                '@modelcontextprotocol/core': ['../core/src/index.ts']
             }
         }
     },
     // 5. Vendoring Strategy - Bundle the code for this specific package into the output,
     //    but treat all other dependencies as external (require/import).
-    noExternal: ['@modelcontextprotocol/sdk-core']
+    noExternal: ['@modelcontextprotocol/core']
 });

@@ -1,4 +1,4 @@
-import type { FetchLike } from '@modelcontextprotocol/sdk-core';
+import type { FetchLike } from '@modelcontextprotocol/core';
 import { vi } from 'vitest';
 
 export interface MockOAuthFetchOptions {

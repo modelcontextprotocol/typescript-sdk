@@ -1,5 +1,5 @@
-import type { AuthInfo } from '@modelcontextprotocol/sdk-core';
-import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from '@modelcontextprotocol/sdk-core';
+import type { AuthInfo } from '@modelcontextprotocol/core';
+import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from '@modelcontextprotocol/core';
 import type { RequestHandler } from 'express';
 
 import type { OAuthTokenVerifier } from '../provider.js';

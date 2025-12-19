@@ -1,6 +1,6 @@
 ## Server overview
 
-This SDK lets you build MCP servers in TypeScript and connect them to different transports. For most use cases you will use `McpServer` from `@modelcontextprotocol/sdk-server` and choose one of:
+This SDK lets you build MCP servers in TypeScript and connect them to different transports. For most use cases you will use `McpServer` from `@modelcontextprotocol/server` and choose one of:
 
 - **Streamable HTTP** (recommended for remote servers)
 - **HTTP + SSE** (deprecated, for backwards compatibility only)
@@ -70,7 +70,7 @@ For more detailed patterns (stateless vs stateful, JSON response mode, CORS, DNS
 MCP servers running on localhost are vulnerable to DNS rebinding attacks. Use `createMcpExpressApp()` to create an Express app with DNS rebinding protection enabled by default:
 
 ```typescript
-import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
+import { createMcpExpressApp } from '@modelcontextprotocol/server';
 
 // Protection auto-enabled (default host is 127.0.0.1)
 const app = createMcpExpressApp();
@@ -85,7 +85,7 @@ const app = createMcpExpressApp({ host: '0.0.0.0' });
 When binding to `0.0.0.0` / `::`, provide an allow-list of hosts:
 
 ```typescript
-import { createMcpExpressApp } from '@modelcontextprotocol/sdk-server';
+import { createMcpExpressApp } from '@modelcontextprotocol/server';
 
 const app = createMcpExpressApp({
     host: '0.0.0.0',
@@ -201,7 +201,7 @@ See the MCP spec sections on prompts and resources for complete details, and [`s
 
 Tools, resources and prompts support a `title` field for human‑readable names. Older APIs can also attach `annotations.title`. To compute the correct display name on the client, use:
 
-- `getDisplayName` from `@modelcontextprotocol/sdk-client`
+- `getDisplayName` from `@modelcontextprotocol/client`
 
 ## Multi‑node deployment patterns
 

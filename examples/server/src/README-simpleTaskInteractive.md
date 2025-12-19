@@ -45,10 +45,10 @@ The `TaskResultHandler` dequeues messages when the client calls `tasks/result` a
 
 ```bash
 # From anywhere in the SDK
-pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleTaskInteractive.ts
+pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleTaskInteractive.ts
 
 # Or with a custom port
-PORT=9000 pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleTaskInteractive.ts
+PORT=9000 pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleTaskInteractive.ts
 ```
 
 Or, from within the `examples/server` package:
@@ -67,10 +67,10 @@ The server will start on http://localhost:8000/mcp (or your custom port).
 
 ```bash
 # From anywhere in the SDK
-pnpm --filter @modelcontextprotocol/sdk-examples-client exec tsx src/simpleTaskInteractiveClient.ts
+pnpm --filter @modelcontextprotocol/examples-client exec tsx src/simpleTaskInteractiveClient.ts
 
 # Or connect to a different server
-pnpm --filter @modelcontextprotocol/sdk-examples-client exec tsx src/simpleTaskInteractiveClient.ts --url http://localhost:9000/mcp
+pnpm --filter @modelcontextprotocol/examples-client exec tsx src/simpleTaskInteractiveClient.ts --url http://localhost:9000/mcp
 ```
 
 Or, from within the `examples/client` package:

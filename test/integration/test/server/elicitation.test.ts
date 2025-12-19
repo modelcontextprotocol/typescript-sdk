@@ -7,15 +7,10 @@
  * Per the MCP spec, elicitation only supports object schemas, not primitives.
  */
 
-import { Client } from '@modelcontextprotocol/sdk-client';
-import type { ElicitRequestFormParams } from '@modelcontextprotocol/sdk-core';
-import {
-    AjvJsonSchemaValidator,
-    CfWorkerJsonSchemaValidator,
-    ElicitRequestSchema,
-    InMemoryTransport
-} from '@modelcontextprotocol/sdk-core';
-import { Server } from '@modelcontextprotocol/sdk-server';
+import { Client } from '@modelcontextprotocol/client';
+import type { ElicitRequestFormParams } from '@modelcontextprotocol/core';
+import { AjvJsonSchemaValidator, CfWorkerJsonSchemaValidator, ElicitRequestSchema, InMemoryTransport } from '@modelcontextprotocol/core';
+import { Server } from '@modelcontextprotocol/server';
 
 const ajvProvider = new AjvJsonSchemaValidator();
 const cfWorkerProvider = new CfWorkerJsonSchemaValidator();

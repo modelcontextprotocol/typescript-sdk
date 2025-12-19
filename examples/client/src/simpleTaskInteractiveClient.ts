@@ -9,7 +9,7 @@
 
 import { createInterface } from 'node:readline';
 
-import type { CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/sdk-client';
+import type { CreateMessageRequest, CreateMessageResult, TextContent } from '@modelcontextprotocol/client';
 import {
     CallToolResultSchema,
     Client,
@@ -18,7 +18,7 @@ import {
     ErrorCode,
     McpError,
     StreamableHTTPClientTransport
-} from '@modelcontextprotocol/sdk-client';
+} from '@modelcontextprotocol/client';
 
 // Create readline interface for user input
 const readline = createInterface({

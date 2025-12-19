@@ -1,5 +1,5 @@
-import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/sdk-core';
-import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk-core';
+import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+import { JSONRPCMessageSchema } from '@modelcontextprotocol/core';
 
 const SUBPROTOCOL = 'mcp';
 

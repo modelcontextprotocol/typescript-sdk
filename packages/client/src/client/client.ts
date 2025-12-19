@@ -34,7 +34,7 @@ import type {
     UnsubscribeRequest,
     ZodV3Internal,
     ZodV4Internal
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 import {
     AjvJsonSchemaValidator,
     assertClientRequestTaskCapability,
@@ -67,7 +67,7 @@ import {
     safeParse,
     SUPPORTED_PROTOCOL_VERSIONS,
     ToolListChangedNotificationSchema
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
 

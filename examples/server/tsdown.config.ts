@@ -21,5 +21,5 @@ export default defineConfig({
     dts: false,
     // 5. Vendoring Strategy - Bundle the code for this specific package into the output,
     //    but treat all other dependencies as external (require/import).
-    noExternal: ['@modelcontextprotocol/sdk-examples-shared']
+    noExternal: ['@modelcontextprotocol/examples-shared']
 });

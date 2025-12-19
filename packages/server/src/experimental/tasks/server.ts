@@ -17,7 +17,7 @@ import type {
     Result,
     SchemaOutput,
     ServerRequest
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 
 import type { Server } from '../../server/server.js';
 

@@ -1,4 +1,4 @@
-import type { JSONRPCMessage } from '@modelcontextprotocol/sdk-core';
+import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 
 import type { EventStore } from './webStandardStreamableHttp.js';
 

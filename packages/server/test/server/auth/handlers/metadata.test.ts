@@ -1,4 +1,4 @@
-import type { OAuthMetadata } from '@modelcontextprotocol/sdk-core';
+import type { OAuthMetadata } from '@modelcontextprotocol/core';
 import express from 'express';
 import supertest from 'supertest';
 

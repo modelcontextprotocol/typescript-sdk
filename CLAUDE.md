@@ -16,10 +16,10 @@ pnpm check:all       # typecheck + lint across all packages
 
 # Run a single package script (examples)
 # Run a single package script from the repo root with pnpm filter
-pnpm --filter @modelcontextprotocol/sdk-core test                # vitest run (core)
-pnpm --filter @modelcontextprotocol/sdk-core test:watch          # vitest (watch)
-pnpm --filter @modelcontextprotocol/sdk-core test -- path/to/file.test.ts
-pnpm --filter @modelcontextprotocol/sdk-core test -- -t "test name"
+pnpm --filter @modelcontextprotocol/core test                # vitest run (core)
+pnpm --filter @modelcontextprotocol/core test:watch          # vitest (watch)
+pnpm --filter @modelcontextprotocol/core test -- path/to/file.test.ts
+pnpm --filter @modelcontextprotocol/core test -- -t "test name"
 ```
 
 ## Code Style Guidelines

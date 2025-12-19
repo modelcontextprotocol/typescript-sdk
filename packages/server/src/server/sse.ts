@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestInfo, Transport } from '@modelcontextprotocol/sdk-core';
-import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk-core';
+import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestInfo, Transport } from '@modelcontextprotocol/core';
+import { JSONRPCMessageSchema } from '@modelcontextprotocol/core';
 import contentType from 'content-type';
 import getRawBody from 'raw-body';
 

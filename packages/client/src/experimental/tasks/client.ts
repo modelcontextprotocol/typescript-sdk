@@ -19,8 +19,8 @@ import type {
     ResponseMessage,
     Result,
     SchemaOutput
-} from '@modelcontextprotocol/sdk-core';
-import { CallToolResultSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
+import { CallToolResultSchema, ErrorCode, McpError } from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
 

@@ -1,5 +1,5 @@
-import { isTerminal } from '@modelcontextprotocol/sdk-core';
-import type { Task } from '@modelcontextprotocol/sdk-server';
+import { isTerminal } from '@modelcontextprotocol/core';
+import type { Task } from '@modelcontextprotocol/server';
 import { describe, expect, it } from 'vitest';
 
 describe('Task utility functions', () => {

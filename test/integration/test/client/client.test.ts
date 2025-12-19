@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable no-constant-binary-expression */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
-import { Client, getSupportedElicitationModes } from '@modelcontextprotocol/sdk-client';
-import type { Prompt, Resource, Tool, Transport } from '@modelcontextprotocol/sdk-core';
+import { Client, getSupportedElicitationModes } from '@modelcontextprotocol/client';
+import type { Prompt, Resource, Tool, Transport } from '@modelcontextprotocol/core';
 import {
     CallToolRequestSchema,
     CallToolResultSchema,
@@ -24,8 +24,8 @@ import {
     RequestSchema,
     ResultSchema,
     SUPPORTED_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/sdk-core';
-import { InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/sdk-server';
+} from '@modelcontextprotocol/core';
+import { InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
 import * as z3 from 'zod/v3';
 import * as z4 from 'zod/v4';
 

@@ -12,7 +12,7 @@ import type {
     Result,
     TaskRequestHandlerExtra,
     ZodRawShapeCompat
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 
 import type { BaseToolCallback } from '../../server/mcp.js';
 

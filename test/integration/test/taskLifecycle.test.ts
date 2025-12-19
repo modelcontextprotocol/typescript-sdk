@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk-client';
-import type { TaskRequestOptions } from '@modelcontextprotocol/sdk-server';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import type { TaskRequestOptions } from '@modelcontextprotocol/server';
 import {
     CallToolResultSchema,
     CreateTaskResultSchema,
@@ -16,7 +16,7 @@ import {
     RELATED_TASK_META_KEY,
     StreamableHTTPServerTransport,
     TaskSchema
-} from '@modelcontextprotocol/sdk-server';
+} from '@modelcontextprotocol/server';
 import { listenOnRandomPort, waitForTaskStatus } from '@modelcontextprotocol/test-helpers';
 import { z } from 'zod';
 

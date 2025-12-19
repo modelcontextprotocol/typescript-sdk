@@ -14,8 +14,8 @@
 
 ### Why do I see `TS2589: Type instantiation is excessively deep and possibly infinite` after upgrading the SDK?
 
-This TypeScript error can appear when upgrading to newer SDK versions that support Zod v4 (for example, from older `@modelcontextprotocol/sdk` releases to newer `@modelcontextprotocol/sdk-client` / `@modelcontextprotocol/sdk-server` releases) **and** your project ends up with
-multiple `zod` versions in the dependency tree.
+This TypeScript error can appear when upgrading to newer SDK versions that support Zod v4 (for example, from older `@modelcontextprotocol/sdk` releases to newer `@modelcontextprotocol/client` / `@modelcontextprotocol/server` releases) **and** your project ends up with multiple
+`zod` versions in the dependency tree.
 
 When there are multiple copies or versions of `zod`, TypeScript may try to instantiate very complex, cross-version types and hit its recursion limits, resulting in `TS2589`. This scenario is discussed in GitHub issue
 [#1180](https://github.com/modelcontextprotocol/typescript-sdk/issues/1180#event-21236550401).

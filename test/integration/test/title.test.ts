@@ -1,6 +1,6 @@
-import { Client } from '@modelcontextprotocol/sdk-client';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk-core';
-import { McpServer, ResourceTemplate, Server } from '@modelcontextprotocol/sdk-server';
+import { Client } from '@modelcontextprotocol/client';
+import { InMemoryTransport } from '@modelcontextprotocol/core';
+import { McpServer, ResourceTemplate, Server } from '@modelcontextprotocol/server';
 import { type ZodMatrixEntry, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {

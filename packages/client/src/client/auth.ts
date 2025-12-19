@@ -8,7 +8,7 @@ import type {
     OAuthMetadata,
     OAuthProtectedResourceMetadata,
     OAuthTokens
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 import {
     checkResourceAllowed,
     InvalidClientError,
@@ -26,7 +26,7 @@ import {
     resourceUrlFromServerUrl,
     ServerError,
     UnauthorizedClientError
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 import pkceChallenge from 'pkce-challenge';
 
 /**

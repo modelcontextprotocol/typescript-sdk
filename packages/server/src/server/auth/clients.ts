@@ -1,4 +1,4 @@
-import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk-core';
+import type { OAuthClientInformationFull } from '@modelcontextprotocol/core';
 
 /**
  * Stores information about registered OAuth clients for this server.

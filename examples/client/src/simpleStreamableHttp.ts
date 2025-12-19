@@ -8,7 +8,7 @@ import type {
     ListToolsRequest,
     ReadResourceRequest,
     ResourceLink
-} from '@modelcontextprotocol/sdk-client';
+} from '@modelcontextprotocol/client';
 import {
     CallToolResultSchema,
     Client,
@@ -25,7 +25,7 @@ import {
     RELATED_TASK_META_KEY,
     ResourceListChangedNotificationSchema,
     StreamableHTTPClientTransport
-} from '@modelcontextprotocol/sdk-client';
+} from '@modelcontextprotocol/client';
 import { Ajv } from 'ajv';
 
 // Create readline interface for user input

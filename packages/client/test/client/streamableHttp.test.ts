@@ -1,5 +1,5 @@
-import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/sdk-core';
-import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '@modelcontextprotocol/sdk-core';
+import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
+import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '@modelcontextprotocol/core';
 import { type Mock, type Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';

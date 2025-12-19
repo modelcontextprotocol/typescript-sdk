@@ -1,5 +1,5 @@
-import type { AuthInfo, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/sdk-core';
-import { InvalidGrantError, InvalidTokenError } from '@modelcontextprotocol/sdk-core';
+import type { AuthInfo, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
+import { InvalidGrantError, InvalidTokenError } from '@modelcontextprotocol/core';
 import type { Response } from 'express';
 import express from 'express';
 import * as pkceChallenge from 'pkce-challenge';

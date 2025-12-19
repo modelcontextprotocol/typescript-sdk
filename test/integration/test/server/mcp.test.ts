@@ -1,5 +1,5 @@
-import { Client } from '@modelcontextprotocol/sdk-client';
-import { getDisplayName, InMemoryTaskStore, InMemoryTransport, UriTemplate } from '@modelcontextprotocol/sdk-core';
+import { Client } from '@modelcontextprotocol/client';
+import { getDisplayName, InMemoryTaskStore, InMemoryTransport, UriTemplate } from '@modelcontextprotocol/core';
 import {
     type CallToolResult,
     CallToolResultSchema,
@@ -16,7 +16,7 @@ import {
     ReadResourceResultSchema,
     type TextContent,
     UrlElicitationRequiredError
-} from '@modelcontextprotocol/sdk-core';
+} from '@modelcontextprotocol/core';
 
 import { completable } from '../../../../packages/server/src/server/completable.js';
 import { McpServer, ResourceTemplate } from '../../../../packages/server/src/server/mcp.js';

@@ -1,5 +1,5 @@
-import type { AuthInfo } from '@modelcontextprotocol/sdk-core';
-import { CustomOAuthError, InsufficientScopeError, InvalidTokenError, ServerError } from '@modelcontextprotocol/sdk-core';
+import type { AuthInfo } from '@modelcontextprotocol/core';
+import { CustomOAuthError, InsufficientScopeError, InvalidTokenError, ServerError } from '@modelcontextprotocol/core';
 import { createExpressResponseMock } from '@modelcontextprotocol/test-helpers';
 import type { Request, Response } from 'express';
 import type { Mock } from 'vitest';

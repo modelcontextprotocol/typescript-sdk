@@ -8,8 +8,8 @@ import type {
     OAuthRegisteredClientsStore,
     OAuthServerProvider,
     OAuthTokens
-} from '@modelcontextprotocol/sdk-server';
-import { createOAuthMetadata, InvalidRequestError, mcpAuthRouter, resourceUrlFromServerUrl } from '@modelcontextprotocol/sdk-server';
+} from '@modelcontextprotocol/server';
+import { createOAuthMetadata, InvalidRequestError, mcpAuthRouter, resourceUrlFromServerUrl } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import express from 'express';
 

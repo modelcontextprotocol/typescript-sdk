@@ -1,10 +1,10 @@
-import type { CallToolRequest, CallToolResult } from '@modelcontextprotocol/sdk-client';
+import type { CallToolRequest, CallToolResult } from '@modelcontextprotocol/client';
 import {
     CallToolResultSchema,
     Client,
     LoggingMessageNotificationSchema,
     StreamableHTTPClientTransport
-} from '@modelcontextprotocol/sdk-client';
+} from '@modelcontextprotocol/client';
 
 /**
  * Multiple Clients MCP Example
