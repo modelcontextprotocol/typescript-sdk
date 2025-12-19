@@ -82,9 +82,37 @@ export class McpServer {
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
+    private _taskToolMap: Map<string, string> = new Map();
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
-        this.server = new Server(serverInfo, options);
+        const taskHandlerHooks = {
+            getTask: async (taskId: string, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => {
+                // taskStore is guaranteed to exist here because Protocol only calls hooks when taskStore is configured
+                const taskStore = extra.taskStore!;
+                const handler = this._getTaskHandler(taskId);
+                if (handler) {
+                    return await handler.getTask({ ...extra, taskId, taskStore });
+                }
+                return await taskStore.getTask(taskId);
+            },
+            getTaskResult: async (taskId: string, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => {
+                const taskStore = extra.taskStore!;
+                const handler = this._getTaskHandler(taskId);
+                if (handler) {
+                    return await handler.getTaskResult({ ...extra, taskId, taskStore });
+                }
+                return await taskStore.getTaskResult(taskId);
+            }
+        };
+        this.server = new Server(serverInfo, { ...options, taskHandlerHooks });
+    }
+
+    private _getTaskHandler(taskId: string): ToolTaskHandler<ZodRawShapeCompat | undefined> | null {
+        const toolName = this._taskToolMap.get(taskId);
+        if (!toolName) return null;
+        const tool = this._registeredTools[toolName];
+        if (!tool || !('createTask' in (tool.handler as AnyToolHandler<ZodRawShapeCompat>))) return null;
+        return tool.handler as ToolTaskHandler<ZodRawShapeCompat | undefined>;
     }
 
     /**
@@ -215,6 +243,10 @@ export class McpServer {
 
                 // Return CreateTaskResult immediately for task requests
                 if (isTaskRequest) {
+                    const taskResult = result as CreateTaskResult;
+                    if (taskResult.task?.taskId) {
+                        this._taskToolMap.set(taskResult.task.taskId, request.params.name);
+                    }
                     return result;
                 }
 
