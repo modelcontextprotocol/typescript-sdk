@@ -8,8 +8,43 @@ import {
     McpServer,
     StreamableHTTPServerTransport
 } from '@modelcontextprotocol/server';
+import type { EventStore, JSONRPCMessage } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { InMemoryEventStore, listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+
+/**
+ * Simple in-memory EventStore for testing resumability.
+ */
+class InMemoryEventStore implements EventStore {
+    private events = new Map<string, { streamId: string; message: JSONRPCMessage }>();
+
+    async storeEvent(streamId: string, message: JSONRPCMessage): Promise<string> {
+        const eventId = `${streamId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        this.events.set(eventId, { streamId, message });
+        return eventId;
+    }
+
+    async replayEventsAfter(
+        lastEventId: string,
+        { send }: { send: (eventId: string, message: JSONRPCMessage) => Promise<void> }
+    ): Promise<string> {
+        if (!lastEventId || !this.events.has(lastEventId)) return '';
+        const streamId = lastEventId.split('_')[0] ?? '';
+        if (!streamId) return '';
+
+        let found = false;
+        const sorted = [...this.events.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        for (const [eventId, { streamId: sid, message }] of sorted) {
+            if (sid !== streamId) continue;
+            if (eventId === lastEventId) {
+                found = true;
+                continue;
+            }
+            if (found) await send(eventId, message);
+        }
+        return streamId;
+    }
+}
 
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;
