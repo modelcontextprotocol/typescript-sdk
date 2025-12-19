@@ -43,16 +43,8 @@ Both packages have a **required peer dependency** on `zod` for schema validation
 
 ## Installation
 
-### Server
-
 ```bash
-npm install @modelcontextprotocol/server zod
-```
-
-### Client
-
-```bash
-npm install @modelcontextprotocol/client zod
+npm install @modelcontextprotocol/sdk zod
 ```
 
 ## Quick Start (runnable examples)
