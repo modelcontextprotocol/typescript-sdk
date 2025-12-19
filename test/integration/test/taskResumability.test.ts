@@ -4,13 +4,12 @@ import { createServer, type Server } from 'node:http';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import {
     CallToolResultSchema,
-    InMemoryEventStore,
     LoggingMessageNotificationSchema,
     McpServer,
     StreamableHTTPServerTransport
 } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { InMemoryEventStore, listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;
