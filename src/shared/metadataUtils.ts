@@ -1,4 +1,4 @@
-import { BaseMetadata } from "../types.js";
+import { BaseMetadata } from '../types.js';
 
 /**
  * Utilities for working with BaseMetadata objects.
@@ -10,20 +10,17 @@ import { BaseMetadata } from "../types.js";
  * For other objects: title → name
  * This implements the spec requirement: "if no title is provided, name should be used for display purposes"
  */
-export function getDisplayName(metadata: BaseMetadata): string {
-  // First check for title (not undefined and not empty string)
-  if (metadata.title !== undefined && metadata.title !== '') {
-    return metadata.title;
-  }
-
-  // Then check for annotations.title (only present in Tool objects)
-  if ('annotations' in metadata) {
-    const metadataWithAnnotations = metadata as BaseMetadata & { annotations?: { title?: string } };
-    if (metadataWithAnnotations.annotations?.title) {
-      return metadataWithAnnotations.annotations.title;
+export function getDisplayName(metadata: BaseMetadata | (BaseMetadata & { annotations?: { title?: string } })): string {
+    // First check for title (not undefined and not empty string)
+    if (metadata.title !== undefined && metadata.title !== '') {
+        return metadata.title;
     }
-  }
 
-  // Finally fall back to name
-  return metadata.name;
+    // Then check for annotations.title (only present in Tool objects)
+    if ('annotations' in metadata && metadata.annotations?.title) {
+        return metadata.annotations.title;
+    }
+
+    // Finally fall back to name
+    return metadata.name;
 }

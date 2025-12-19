@@ -1,32 +1,32 @@
-import { RequestHandler } from "express";
-import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from "../errors.js";
-import { OAuthTokenVerifier } from "../provider.js";
-import { AuthInfo } from "../types.js";
+import { RequestHandler } from 'express';
+import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from '../errors.js';
+import { OAuthTokenVerifier } from '../provider.js';
+import { AuthInfo } from '../types.js';
 
 export type BearerAuthMiddlewareOptions = {
-  /**
-   * A provider used to verify tokens.
-   */
-  verifier: OAuthTokenVerifier;
+    /**
+     * A provider used to verify tokens.
+     */
+    verifier: OAuthTokenVerifier;
 
-  /**
-   * Optional scopes that the token must have.
-   */
-  requiredScopes?: string[];
+    /**
+     * Optional scopes that the token must have.
+     */
+    requiredScopes?: string[];
 
-  /**
-   * Optional resource metadata URL to include in WWW-Authenticate header.
-   */
-  resourceMetadataUrl?: string;
+    /**
+     * Optional resource metadata URL to include in WWW-Authenticate header.
+     */
+    resourceMetadataUrl?: string;
 };
 
-declare module "express-serve-static-core" {
-  interface Request {
-    /**
-     * Information about the validated access token, if the `requireBearerAuth` middleware was used.
-     */
-    auth?: AuthInfo;
-  }
+declare module 'express-serve-static-core' {
+    interface Request {
+        /**
+         * Information about the validated access token, if the `requireBearerAuth` middleware was used.
+         */
+        auth?: AuthInfo;
+    }
 }
 
 /**
@@ -38,61 +38,65 @@ declare module "express-serve-static-core" {
  * for 401 responses as per the OAuth 2.0 Protected Resource Metadata spec.
  */
 export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetadataUrl }: BearerAuthMiddlewareOptions): RequestHandler {
-  return async (req, res, next) => {
-    try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) {
-        throw new InvalidTokenError("Missing Authorization header");
-      }
+    return async (req, res, next) => {
+        try {
+            const authHeader = req.headers.authorization;
+            if (!authHeader) {
+                throw new InvalidTokenError('Missing Authorization header');
+            }
 
-      const [type, token] = authHeader.split(' ');
-      if (type.toLowerCase() !== 'bearer' || !token) {
-        throw new InvalidTokenError("Invalid Authorization header format, expected 'Bearer TOKEN'");
-      }
+            const [type, token] = authHeader.split(' ');
+            if (type.toLowerCase() !== 'bearer' || !token) {
+                throw new InvalidTokenError("Invalid Authorization header format, expected 'Bearer TOKEN'");
+            }
 
-      const authInfo = await verifier.verifyAccessToken(token);
+            const authInfo = await verifier.verifyAccessToken(token);
 
-      // Check if token has the required scopes (if any)
-      if (requiredScopes.length > 0) {
-        const hasAllScopes = requiredScopes.every(scope =>
-          authInfo.scopes.includes(scope)
-        );
+            // Check if token has the required scopes (if any)
+            if (requiredScopes.length > 0) {
+                const hasAllScopes = requiredScopes.every(scope => authInfo.scopes.includes(scope));
 
-        if (!hasAllScopes) {
-          throw new InsufficientScopeError("Insufficient scope");
+                if (!hasAllScopes) {
+                    throw new InsufficientScopeError('Insufficient scope');
+                }
+            }
+
+            // Check if the token is set to expire or if it is expired
+            if (typeof authInfo.expiresAt !== 'number' || isNaN(authInfo.expiresAt)) {
+                throw new InvalidTokenError('Token has no expiration time');
+            } else if (authInfo.expiresAt < Date.now() / 1000) {
+                throw new InvalidTokenError('Token has expired');
+            }
+
+            req.auth = authInfo;
+            next();
+        } catch (error) {
+            // Build WWW-Authenticate header parts
+            const buildWwwAuthHeader = (errorCode: string, message: string): string => {
+                let header = `Bearer error="${errorCode}", error_description="${message}"`;
+                if (requiredScopes.length > 0) {
+                    header += `, scope="${requiredScopes.join(' ')}"`;
+                }
+                if (resourceMetadataUrl) {
+                    header += `, resource_metadata="${resourceMetadataUrl}"`;
+                }
+                return header;
+            };
+
+            if (error instanceof InvalidTokenError) {
+                res.set('WWW-Authenticate', buildWwwAuthHeader(error.errorCode, error.message));
+                res.status(401).json(error.toResponseObject());
+            } else if (error instanceof InsufficientScopeError) {
+                res.set('WWW-Authenticate', buildWwwAuthHeader(error.errorCode, error.message));
+                res.status(403).json(error.toResponseObject());
+            } else if (error instanceof ServerError) {
+                res.status(500).json(error.toResponseObject());
+            } else if (error instanceof OAuthError) {
+                res.status(400).json(error.toResponseObject());
+            } else {
+                const serverError = new ServerError('Internal Server Error');
+                res.status(500).json(serverError.toResponseObject());
+            }
         }
-      }
-
-      // Check if the token is set to expire or if it is expired
-      if (typeof authInfo.expiresAt !== 'number' || isNaN(authInfo.expiresAt)) {
-        throw new InvalidTokenError("Token has no expiration time");
-      } else if (authInfo.expiresAt < Date.now() / 1000) {
-        throw new InvalidTokenError("Token has expired");
-      }
-
-      req.auth = authInfo;
-      next();
-    } catch (error) {
-      if (error instanceof InvalidTokenError) {
-        const wwwAuthValue = resourceMetadataUrl
-          ? `Bearer error="${error.errorCode}", error_description="${error.message}", resource_metadata="${resourceMetadataUrl}"`
-          : `Bearer error="${error.errorCode}", error_description="${error.message}"`;
-        res.set("WWW-Authenticate", wwwAuthValue);
-        res.status(401).json(error.toResponseObject());
-      } else if (error instanceof InsufficientScopeError) {
-        const wwwAuthValue = resourceMetadataUrl
-          ? `Bearer error="${error.errorCode}", error_description="${error.message}", resource_metadata="${resourceMetadataUrl}"`
-          : `Bearer error="${error.errorCode}", error_description="${error.message}"`;
-        res.set("WWW-Authenticate", wwwAuthValue);
-        res.status(403).json(error.toResponseObject());
-      } else if (error instanceof ServerError) {
-        res.status(500).json(error.toResponseObject());
-      } else if (error instanceof OAuthError) {
-        res.status(400).json(error.toResponseObject());
-      } else {
-        const serverError = new ServerError("Internal Server Error");
-        res.status(500).json(serverError.toResponseObject());
-      }
-    }
-  };
+    };
 }
