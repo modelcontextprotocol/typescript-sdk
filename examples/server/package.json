@@ -22,7 +22,7 @@
         "mcp"
     ],
     "scripts": {
-        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "typecheck": "tsgo -p tsconfig.json --noEmit",
         "build": "tsdown",
         "build:watch": "tsdown --watch",
         "prepack": "npm run build:esm && npm run build:cjs",

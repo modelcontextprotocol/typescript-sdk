@@ -3,11 +3,10 @@
     "include": ["./"],
     "exclude": ["node_modules", "dist"],
     "compilerOptions": {
-        "baseUrl": ".",
         "paths": {
             "*": ["./*"],
-            "@modelcontextprotocol/eslint-config": ["node_modules/@modelcontextprotocol/eslint-config/tsconfig.json"],
-            "@modelcontextprotocol/vitest-config": ["node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"]
+            "@modelcontextprotocol/eslint-config": ["./node_modules/@modelcontextprotocol/eslint-config/tsconfig.json"],
+            "@modelcontextprotocol/vitest-config": ["./node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"]
         }
     }
 }

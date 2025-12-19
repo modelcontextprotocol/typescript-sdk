@@ -22,7 +22,7 @@
         "mcp"
     ],
     "scripts": {
-        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "typecheck": "tsgo -p tsconfig.json --noEmit",
         "prepack": "npm run build:esm && npm run build:cjs",
         "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",

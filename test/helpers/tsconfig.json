@@ -3,7 +3,6 @@
     "include": ["./", "../integration/test/helpers/mcp.ts"],
     "exclude": ["node_modules", "dist"],
     "compilerOptions": {
-        "baseUrl": ".",
         "paths": {
             "*": ["./*"],
             "@modelcontextprotocol/sdk-core": ["./node_modules/@modelcontextprotocol/sdk-core/src/index.ts"],

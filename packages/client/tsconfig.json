@@ -3,11 +3,10 @@
     "include": ["./"],
     "exclude": ["node_modules", "dist"],
     "compilerOptions": {
-        "baseUrl": ".",
         "paths": {
             "*": ["./*"],
-            "@modelcontextprotocol/sdk-core": ["node_modules/@modelcontextprotocol/sdk-core/src/index.ts"],
-            "@modelcontextprotocol/test-helpers": ["node_modules/@modelcontextprotocol/test-helpers/src/index.ts"]
+            "@modelcontextprotocol/sdk-core": ["./node_modules/@modelcontextprotocol/sdk-core/src/index.ts"],
+            "@modelcontextprotocol/test-helpers": ["./node_modules/@modelcontextprotocol/test-helpers/src/index.ts"]
         }
     }
 }
