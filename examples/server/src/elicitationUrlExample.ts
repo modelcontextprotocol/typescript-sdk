@@ -1,4 +1,4 @@
-// Run with: npx tsx src/examples/server/elicitationUrlExample.ts
+// Run with: pnpm tsx src/elicitationUrlExample.ts
 //
 // This example demonstrates how to use URL elicitation to securely collect
 // *sensitive* user input in a remote (HTTP) server.

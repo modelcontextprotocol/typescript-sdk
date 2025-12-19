@@ -22,6 +22,7 @@
     ],
     "scripts": {
         "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
+        "examples:simple-server:w": "pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx --watch src/simpleStreamableHttp.ts --oauth",
         "typecheck:all": "pnpm -r typecheck",
         "build:all": "pnpm -r build",
         "prepack:all": "pnpm -r prepack",

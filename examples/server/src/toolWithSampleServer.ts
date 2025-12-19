@@ -1,4 +1,4 @@
-// Run with: npx tsx src/examples/server/toolWithSampleServer.ts
+// Run with: pnpm tsx src/toolWithSampleServer.ts
 
 import { McpServer, StdioServerTransport } from '@modelcontextprotocol/sdk-server';
 import * as z from 'zod/v4';

@@ -23,7 +23,6 @@
     ],
     "scripts": {
         "typecheck": "tsgo -p tsconfig.json --noEmit",
-        "examples:simple-server:w": "tsx --watch src/examples/server/simpleStreamableHttp.ts --oauth",
         "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "npm run typecheck && npm run lint",

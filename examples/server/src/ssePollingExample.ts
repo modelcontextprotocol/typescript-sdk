@@ -9,7 +9,7 @@
  * - Uses `eventStore` to persist events for replay after reconnection
  * - Uses `extra.closeSSEStream()` callback to gracefully disconnect clients mid-operation
  *
- * Run with: npx tsx src/examples/server/ssePollingExample.ts
+ * Run with: pnpm tsx src/ssePollingExample.ts
  * Test with: curl or the MCP Inspector
  */
 import { randomUUID } from 'node:crypto';

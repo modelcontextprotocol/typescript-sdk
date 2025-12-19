@@ -9,7 +9,7 @@
  * - Event replay via Last-Event-ID header
  * - Resumption token tracking via onresumptiontoken callback
  *
- * Run with: npx tsx src/examples/client/ssePollingClient.ts
+ * Run with: pnpm tsx src/ssePollingClient.ts
  * Requires: ssePollingExample.ts server running on port 3001
  */
 import {

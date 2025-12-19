@@ -44,11 +44,21 @@ The `TaskResultHandler` dequeues messages when the client calls `tasks/result` a
 ### Start the Server
 
 ```bash
-# From the SDK root directory
-npx tsx src/examples/server/simpleTaskInteractive.ts
+# From anywhere in the SDK
+pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleTaskInteractive.ts
 
 # Or with a custom port
-PORT=9000 npx tsx src/examples/server/simpleTaskInteractive.ts
+PORT=9000 pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleTaskInteractive.ts
+```
+
+Or, from within the `examples/server` package:
+
+```bash
+cd examples/server
+pnpm tsx src/simpleTaskInteractive.ts
+
+# Or with a custom port
+PORT=9000 pnpm tsx src/simpleTaskInteractive.ts
 ```
 
 The server will start on http://localhost:8000/mcp (or your custom port).
@@ -56,11 +66,21 @@ The server will start on http://localhost:8000/mcp (or your custom port).
 ### Run the Client
 
 ```bash
-# From the SDK root directory
-npx tsx src/examples/client/simpleTaskInteractiveClient.ts
+# From anywhere in the SDK
+pnpm --filter @modelcontextprotocol/sdk-examples-client exec tsx src/simpleTaskInteractiveClient.ts
 
 # Or connect to a different server
-npx tsx src/examples/client/simpleTaskInteractiveClient.ts --url http://localhost:9000/mcp
+pnpm --filter @modelcontextprotocol/sdk-examples-client exec tsx src/simpleTaskInteractiveClient.ts --url http://localhost:9000/mcp
+```
+
+Or, from within the `examples/client` package:
+
+```bash
+cd examples/client
+pnpm tsx src/simpleTaskInteractiveClient.ts
+
+# Or connect to a different server
+pnpm tsx src/simpleTaskInteractiveClient.ts --url http://localhost:9000/mcp
 ```
 
 ## Expected Output
@@ -156,6 +176,6 @@ This tells the server that the client can handle both form-based elicitation and
 
 ## Related Files
 
-- `src/shared/task.ts` - Core task interfaces (TaskStore, TaskMessageQueue)
-- `src/examples/shared/inMemoryTaskStore.ts` - In-memory implementations
-- `src/types.ts` - Task-related types (Task, CreateTaskResult, GetTaskRequestSchema, etc.)
+- `packages/core/src/experimental/tasks/interfaces.ts` - Core task interfaces (TaskStore, TaskMessageQueue)
+- `packages/core/src/experimental/tasks/stores/in-memory.ts` - In-memory task store implementation
+- `packages/core/src/types/types.ts` - Task-related types (Task, CreateTaskResult, GetTaskRequestSchema, etc.)

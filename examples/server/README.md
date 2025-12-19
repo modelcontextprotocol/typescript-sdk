@@ -1,210 +1,78 @@
-# MCP TypeScript SDK Examples
+# MCP TypeScript SDK Examples (Server)
 
-This directory contains example implementations of MCP clients and servers using the TypeScript SDK. For a high-level index of scenarios and where they live, see the **Examples** table in the root `README.md`.
+This directory contains runnable MCP **server** examples built with `@modelcontextprotocol/sdk-server`.
 
-## Table of Contents
+For client examples, see [`../client/README.md`](../client/README.md). For guided docs, see [`../../docs/server.md`](../../docs/server.md).
 
-- [Client Implementations](#client-implementations)
-    - [Streamable HTTP Client](#streamable-http-client)
-    - [Backwards Compatible Client](#backwards-compatible-client)
-    - [URL Elicitation Example Client](#url-elicitation-example-client)
-- [Server Implementations](#server-implementations)
-    - [Single Node Deployment](#single-node-deployment)
-        - [Streamable HTTP Transport](#streamable-http-transport)
-        - [Deprecated SSE Transport](#deprecated-sse-transport)
-        - [Backwards Compatible Server](#streamable-http-backwards-compatible-server-with-sse)
-        - [Form Elicitation Example](#form-elicitation-example)
-        - [URL Elicitation Example](#url-elicitation-example)
-    - [Multi-Node Deployment](#multi-node-deployment)
-- [Backwards Compatibility](#testing-streamable-http-backwards-compatibility-with-sse)
+## Running examples
 
-## Client Implementations
-
-### Streamable HTTP Client
-
-A full-featured interactive client that connects to a Streamable HTTP server, demonstrating how to:
-
-- Establish and manage a connection to an MCP server
-- List and call tools with arguments
-- Handle notifications through the SSE stream
-- List and get prompts with arguments
-- List available resources
-- Handle session termination and reconnection
-- Support for resumability with Last-Event-ID tracking
+From anywhere in the SDK:
 
 ```bash
-npx tsx src/examples/client/simpleStreamableHttp.ts
+pnpm install
+pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleStreamableHttp.ts
 ```
 
-Example client with OAuth:
+Or, from within this package:
 
 ```bash
-npx tsx src/examples/client/simpleOAuthClient.ts <optional-server-url> <optional-client-metadata-url>
+cd examples/server
+pnpm tsx src/simpleStreamableHttp.ts
 ```
 
-Client credentials (machine-to-machine) example:
+## Example index
+
+| Scenario                                            | Description                                                                                     | File                                                                                         |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Streamable HTTP server (stateful)                   | Feature-rich server with tools/resources/prompts, logging, tasks, sampling, and optional OAuth. | [`src/simpleStreamableHttp.ts`](src/simpleStreamableHttp.ts)                                 |
+| Streamable HTTP server (stateless)                  | No session tracking; good for simple API-style servers.                                         | [`src/simpleStatelessStreamableHttp.ts`](src/simpleStatelessStreamableHttp.ts)               |
+| JSON response mode (no SSE)                         | Streamable HTTP with JSON-only responses and limited notifications.                             | [`src/jsonResponseStreamableHttp.ts`](src/jsonResponseStreamableHttp.ts)                     |
+| Server notifications over Streamable HTTP           | Demonstrates server-initiated notifications via GET+SSE.                                        | [`src/standaloneSseWithGetStreamableHttp.ts`](src/standaloneSseWithGetStreamableHttp.ts)     |
+| Deprecated HTTP+SSE server (legacy)                 | Legacy HTTP+SSE transport for backwards-compatibility testing.                                  | [`src/simpleSseServer.ts`](src/simpleSseServer.ts)                                           |
+| Backwards-compatible server (Streamable HTTP + SSE) | One server that supports both Streamable HTTP and legacy SSE clients.                           | [`src/sseAndStreamableHttpCompatibleServer.ts`](src/sseAndStreamableHttpCompatibleServer.ts) |
+| Form elicitation server                             | Collects **non-sensitive** user input via schema-driven forms.                                  | [`src/elicitationFormExample.ts`](src/elicitationFormExample.ts)                             |
+| URL elicitation server                              | Secure browser-based flows for **sensitive** input (API keys, OAuth, payments).                 | [`src/elicitationUrlExample.ts`](src/elicitationUrlExample.ts)                               |
+| Sampling + tasks server                             | Demonstrates sampling and experimental task-based execution.                                    | [`src/toolWithSampleServer.ts`](src/toolWithSampleServer.ts)                                 |
+| Task interactive server                             | Task-based execution with interactive server→client requests.                                   | [`src/simpleTaskInteractive.ts`](src/simpleTaskInteractive.ts)                               |
+| Hono Streamable HTTP server                         | Streamable HTTP server built with Hono instead of Express.                                      | [`src/honoWebStandardStreamableHttp.ts`](src/honoWebStandardStreamableHttp.ts)               |
+| SSE polling demo server                             | Legacy SSE server intended for polling demos.                                                   | [`src/ssePollingExample.ts`](src/ssePollingExample.ts)                                       |
+
+## OAuth demo flags (Streamable HTTP server)
 
 ```bash
-npx tsx src/examples/client/simpleClientCredentials.ts
+pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleStreamableHttp.ts --oauth
+pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleStreamableHttp.ts --oauth --oauth-strict
 ```
 
-### Backwards Compatible Client
+## URL elicitation example (server + client)
 
-A client that implements backwards compatibility according to the [MCP specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#backwards-compatibility), allowing it to work with both new and legacy servers. This client demonstrates:
-
-- The client first POSTs an initialize request to the server URL:
-    - If successful, it uses the Streamable HTTP transport
-    - If it fails with a 4xx status, it attempts a GET request to establish an SSE stream
+Run the server:
 
 ```bash
-npx tsx src/examples/client/streamableHttpWithSseFallbackClient.ts
+pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/elicitationUrlExample.ts
 ```
 
-### URL Elicitation Example Client
-
-A client that demonstrates how to use URL elicitation to securely collect _sensitive_ user input or perform secure third-party flows.
+Run the client in another terminal:
 
 ```bash
-# First, run the server:
-npx tsx src/examples/server/elicitationUrlExample.ts
-
-# Then, run the client:
-npx tsx src/examples/client/elicitationUrlExample.ts
-
+pnpm --filter @modelcontextprotocol/sdk-examples-client exec tsx src/elicitationUrlExample.ts
 ```
 
-## Server Implementations
-
-### Single Node Deployment
-
-These examples demonstrate how to set up an MCP server on a single node with different transport options.
-
-#### Streamable HTTP Transport
-
-##### Simple Streamable HTTP Server
-
-A server that implements the Streamable HTTP transport (protocol version 2025-11-25).
-
-- Basic server setup with Express and the Streamable HTTP transport
-- Session management with an in-memory event store for resumability
-- Tool implementation with the `greet` and `multi-greet` tools
-- Prompt implementation with the `greeting-template` prompt
-- Static resource exposure
-- Support for notifications via SSE stream established by GET requests
-- Session termination via DELETE requests
-
-```bash
-npx tsx src/examples/server/simpleStreamableHttp.ts
-
-# To add a demo of authentication to this example, use:
-npx tsx src/examples/server/simpleStreamableHttp.ts --oauth
-
-# To mitigate impersonation risks, enable strict Resource Identifier verification:
-npx tsx src/examples/server/simpleStreamableHttp.ts --oauth --oauth-strict
-```
-
-##### JSON Response Mode Server
-
-A server that uses Streamable HTTP transport with JSON response mode enabled (no SSE).
-
-- Streamable HTTP with JSON response mode, which returns responses directly in the response body
-- Limited support for notifications (since SSE is disabled)
-- Proper response handling according to the MCP specification for servers that don't support SSE
-- Returning appropriate HTTP status codes for unsupported methods
-
-```bash
-npx tsx src/examples/server/jsonResponseStreamableHttp.ts
-```
-
-##### Streamable HTTP with server notifications
-
-A server that demonstrates server notifications using Streamable HTTP.
-
-- Resource list change notifications with dynamically added resources
-- Automatic resource creation on a timed interval
-
-```bash
-npx tsx src/examples/server/standaloneSseWithGetStreamableHttp.ts
-```
-
-##### Form Elicitation Example
-
-A server that demonstrates using form elicitation to collect _non-sensitive_ user input.
-
-```bash
-npx tsx src/examples/server/elicitationFormExample.ts
-```
-
-##### URL Elicitation Example
-
-A comprehensive example demonstrating URL mode elicitation in a server protected by MCP authorization. This example shows:
-
-- SSE-driven URL elicitation of an API Key on session initialization: obtain sensitive user input at session init
-- Tools that require direct user interaction via URL elicitation (for payment confirmation and for third-party OAuth tokens)
-- Completion notifications for URL elicitation
-
-To run this example:
-
-```bash
-# Start the server
-npx tsx src/examples/server/elicitationUrlExample.ts
-
-# In a separate terminal, start the client
-npx tsx src/examples/client/elicitationUrlExample.ts
-```
-
-#### Deprecated SSE Transport
-
-A server that implements the deprecated HTTP+SSE transport (protocol version 2024-11-05). This example is only used for testing backwards compatibility for clients.
-
-- Two separate endpoints: `/mcp` for the SSE stream (GET) and `/messages` for client messages (POST)
-- Tool implementation with a `start-notification-stream` tool that demonstrates sending periodic notifications
-
-```bash
-npx tsx src/examples/server/simpleSseServer.ts
-```
-
-#### Streamable Http Backwards Compatible Server with SSE
-
-A server that supports both Streamable HTTP and SSE transports, adhering to the [MCP specification for backwards compatibility](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#backwards-compatibility).
-
-- Single MCP server instance with multiple transport options
-- Support for Streamable HTTP requests at `/mcp` endpoint (GET/POST/DELETE)
-- Support for deprecated SSE transport with `/sse` (GET) and `/messages` (POST)
-- Session type tracking to avoid mixing transport types
-- Notifications and tool execution across both transport types
-
-```bash
-npx tsx src/examples/server/sseAndStreamableHttpCompatibleServer.ts
-```
-
-### Multi-Node Deployment
+## Multi-node deployment patterns
 
 When deploying MCP servers in a horizontally scaled environment (multiple server instances), there are a few different options that can be useful for different use cases:
 
-- **Stateless mode** - No need to maintain state between calls to MCP servers. Useful for simple API wrapper servers.
-- **Persistent storage mode** - No local state needed, but session data is stored in a database. Example: an MCP server for online ordering where the shopping cart is stored in a database.
-- **Local state with message routing** - Local state is needed, and all requests for a session must be routed to the correct node. This can be done with a message queue and pub/sub system.
+- **Stateless mode** - no need to maintain state between calls.
+- **Persistent storage mode** - state stored in a database; any node can handle a session.
+- **Local state with message routing** - stateful nodes + pub/sub routing for a session.
 
-#### Stateless Mode
-
-The Streamable HTTP transport can be configured to operate without tracking sessions. This is perfect for simple API proxies or when each request is completely independent.
-
-##### Implementation
+### Stateless mode
 
 To enable stateless mode, configure the `StreamableHTTPServerTransport` with:
 
 ```typescript
 sessionIdGenerator: undefined;
 ```
-
-This disables session management entirely, and the server won't generate or expect session IDs.
-
-- No session ID headers are sent or expected
-- Any server node can process any request
-- No state is preserved between requests
-- Perfect for RESTful or stateless API scenarios
-- Simplest deployment model with minimal infrastructure requirements
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -223,28 +91,14 @@ This disables session management entirely, and the server won't generate or expe
 └─────────────────┘     └─────────────────────┘
 ```
 
-#### Persistent Storage Mode
+### Persistent storage mode
 
-For cases where you need session continuity but don't need to maintain in-memory state on specific nodes, you can use a database to persist session data while still allowing any node to handle requests.
-
-##### Implementation
-
-Configure the transport with session management, but retrieve and store all state in an external persistent storage:
+Configure the transport with session management, but use an external event store:
 
 ```typescript
 sessionIdGenerator: () => randomUUID(),
 eventStore: databaseEventStore
 ```
-
-All session state is stored in the database, and any node can serve any client by retrieving the state when needed.
-
-- Maintains sessions with unique IDs
-- Stores all session data in an external database
-- Provides resumability through the database-backed EventStore
-- Any node can handle any request for the same session
-- No node-specific memory state means no need for message routing
-- Good for applications where state can be fully externalized
-- Somewhat higher latency due to database access for each request
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -272,28 +126,9 @@ All session state is stored in the database, and any node can serve any client b
 └─────────────────────────────────────────────┘
 ```
 
-#### Streamable HTTP with Distributed Message Routing
+### Streamable HTTP with distributed message routing
 
-For scenarios where local in-memory state must be maintained on specific nodes (such as Computer Use or complex session state), the Streamable HTTP transport can be combined with a pub/sub system to route messages to the correct node handling each session.
-
-1. **Bidirectional Message Queue Integration**:
-    - All nodes both publish to and subscribe from the message queue
-    - Each node registers the sessions it's actively handling
-    - Messages are routed based on session ownership
-
-2. **Request Handling Flow**:
-    - When a client connects to Node A with an existing `mcp-session-id`
-    - If Node A doesn't own this session, it:
-        - Establishes and maintains the SSE connection with the client
-        - Publishes the request to the message queue with the session ID
-        - Node B (which owns the session) receives the request from the queue
-        - Node B processes the request with its local session state
-        - Node B publishes responses/notifications back to the queue
-        - Node A subscribes to the response channel and forwards to the client
-
-3. **Channel Identification**:
-    - Each message channel combines both `mcp-session-id` and `stream-id`
-    - This ensures responses are correctly routed back to the originating connection
+For scenarios where local in-memory state must be maintained on specific nodes, combine Streamable HTTP with pub/sub routing so one node can terminate the client connection while another node owns the session state.
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -321,32 +156,18 @@ For scenarios where local in-memory state must be maintained on specific nodes (
 └─────────────────────────────────────────────┘
 ```
 
-- Maintains session affinity for stateful operations without client redirection
-- Enables horizontal scaling while preserving complex in-memory state
-- Provides fault tolerance through the message queue as intermediary
+## Backwards compatibility (Streamable HTTP ↔ legacy SSE)
 
-## Backwards Compatibility
+Start one of the servers:
 
-### Testing Streamable HTTP Backwards Compatibility with SSE
+```bash
+pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleSseServer.ts
+pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/simpleStreamableHttp.ts
+pnpm --filter @modelcontextprotocol/sdk-examples-server exec tsx src/sseAndStreamableHttpCompatibleServer.ts
+```
 
-To test the backwards compatibility features:
+Then run the backwards-compatible client:
 
-1. Start one of the server implementations:
-
-    ```bash
-    # Legacy SSE server (protocol version 2024-11-05)
-    npx tsx src/examples/server/simpleSseServer.ts
-
-    # Streamable HTTP server (protocol version 2025-11-25)
-    npx tsx src/examples/server/simpleStreamableHttp.ts
-
-    # Backwards compatible server (supports both protocols)
-    npx tsx src/examples/server/sseAndStreamableHttpCompatibleServer.ts
-    ```
-
-2. Then run the backwards compatible client:
-    ```bash
-    npx tsx src/examples/client/streamableHttpWithSseFallbackClient.ts
-    ```
-
-This demonstrates how the MCP ecosystem ensures interoperability between clients and servers regardless of which protocol version they were built for.
+```bash
+pnpm --filter @modelcontextprotocol/sdk-examples-client exec tsx src/streamableHttpWithSseFallbackClient.ts
+```

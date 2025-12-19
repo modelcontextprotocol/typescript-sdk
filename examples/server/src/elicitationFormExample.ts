@@ -1,4 +1,4 @@
-// Run with: npx tsx src/examples/server/elicitationFormExample.ts
+// Run with: pnpm tsx src/elicitationFormExample.ts
 //
 // This example demonstrates how to use form elicitation to collect structured user input
 // with JSON Schema validation via a local HTTP server with SSE streaming.

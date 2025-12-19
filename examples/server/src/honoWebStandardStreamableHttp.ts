@@ -4,7 +4,7 @@
  * This example demonstrates using the Web Standard transport directly with Hono,
  * which works on any runtime: Node.js, Cloudflare Workers, Deno, Bun, etc.
  *
- * Run with: npx tsx src/examples/server/honoWebStandardStreamableHttp.ts
+ * Run with: pnpm tsx src/honoWebStandardStreamableHttp.ts
  */
 
 import { serve } from '@hono/node-server';
