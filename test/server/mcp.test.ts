@@ -26,22 +26,6 @@ import { McpServer, ResourceTemplate } from '../../src/server/mcp.js';
 import { InMemoryTaskStore } from '../../src/experimental/tasks/stores/in-memory.js';
 import { zodTestMatrix, type ZodMatrixEntry } from '../../src/__fixtures__/zodTestMatrix.js';
 
-function createLatch() {
-    let latch = false;
-    const waitForLatch = async () => {
-        while (!latch) {
-            await new Promise(resolve => setTimeout(resolve, 0));
-        }
-    };
-
-    return {
-        releaseLatch: () => {
-            latch = true;
-        },
-        waitForLatch
-    };
-}
-
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;
 
@@ -6303,31 +6287,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 {
-                    createTask: async ({ input }, extra) => {
+                    createTask: async (_args, extra) => {
                         const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
-
-                        // Capture taskStore for use in setTimeout
-                        const store = extra.taskStore;
-
-                        // Simulate async work
-                        setTimeout(async () => {
-                            await store.storeTaskResult(task.taskId, 'completed', {
-                                content: [{ type: 'text' as const, text: `Processed: ${input}` }]
-                            });
-                        }, 200);
-
                         return { task };
                     },
                     getTask: async extra => {
-                        const task = await extra.taskStore.getTask(extra.taskId);
-                        if (!task) {
-                            throw new Error('Task not found');
-                        }
-                        return task;
+                        return await extra.taskStore.getTask(extra.taskId);
                     },
                     getTaskResult: async extra => {
-                        const result = await extra.taskStore.getTaskResult(extra.taskId);
-                        return result as CallToolResult;
+                        return (await extra.taskStore.getTaskResult(extra.taskId)) as CallToolResult;
                     }
                 }
             );
@@ -6355,7 +6323,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
         test('should automatically poll and return CallToolResult for tool with taskSupport "optional" called without task augmentation', async () => {
             const taskStore = new InMemoryTaskStore();
-            const { releaseLatch, waitForLatch } = createLatch();
 
             // Spies to verify handler invocations
             const createTaskSpy = vi.fn();
@@ -6416,25 +6383,20 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     createTask: async ({ value }, extra) => {
                         createTaskSpy({ value });
                         const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
-
-                        // Capture taskStore for use in setTimeout
-                        const store = extra.taskStore;
-
-                        // Simulate async work
-                        setTimeout(async () => {
-                            await store.storeTaskResult(task.taskId, 'completed', {
-                                content: [{ type: 'text' as const, text: `Result: ${value * 2}` }]
-                            });
-                            releaseLatch();
-                        }, 150);
-
-                        return { task };
+                        return { task, _value: value };
                     },
                     getTask: async extra => {
                         getTaskSpy(extra.taskId);
                         const task = await extra.taskStore.getTask(extra.taskId);
                         if (!task) {
                             throw new Error('Task not found');
+                        }
+                        // Complete the task when polled - proves getTask is actually called
+                        if (task.status === 'working') {
+                            await extra.taskStore.storeTaskResult(extra.taskId, 'completed', {
+                                content: [{ type: 'text' as const, text: 'Result: 42' }]
+                            });
+                            return await extra.taskStore.getTask(extra.taskId);
                         }
                         return task;
                     },
@@ -6470,14 +6432,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(getTaskSpy).toHaveBeenCalled(); // Called at least once during polling
             expect(getTaskResultSpy).toHaveBeenCalledOnce();
 
-            // Wait for async operations to complete
-            await waitForLatch();
             taskStore.cleanup();
         });
 
         test('should return CreateTaskResult when tool with taskSupport "required" is called WITH task augmentation', async () => {
             const taskStore = new InMemoryTaskStore();
-            const { releaseLatch, waitForLatch } = createLatch();
 
             const mcpServer = new McpServer(
                 {
@@ -6530,32 +6489,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     }
                 },
                 {
-                    createTask: async ({ data }, extra) => {
+                    createTask: async (_args, extra) => {
                         const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
-
-                        // Capture taskStore for use in setTimeout
-                        const store = extra.taskStore;
-
-                        // Simulate async work
-                        setTimeout(async () => {
-                            await store.storeTaskResult(task.taskId, 'completed', {
-                                content: [{ type: 'text' as const, text: `Completed: ${data}` }]
-                            });
-                            releaseLatch();
-                        }, 200);
-
                         return { task };
                     },
                     getTask: async extra => {
-                        const task = await extra.taskStore.getTask(extra.taskId);
-                        if (!task) {
-                            throw new Error('Task not found');
-                        }
-                        return task;
+                        return await extra.taskStore.getTask(extra.taskId);
                     },
                     getTaskResult: async extra => {
-                        const result = await extra.taskStore.getTaskResult(extra.taskId);
-                        return result as CallToolResult;
+                        return (await extra.taskStore.getTaskResult(extra.taskId)) as CallToolResult;
                     }
                 }
             );
@@ -6590,14 +6532,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.task).toHaveProperty('taskId');
             expect(result.task.status).toBe('working');
 
-            // Wait for async operations to complete
-            await waitForLatch();
             taskStore.cleanup();
         });
 
         test('should handle task failures during automatic polling', async () => {
             const taskStore = new InMemoryTaskStore();
-            const { releaseLatch, waitForLatch } = createLatch();
 
             const mcpServer = new McpServer(
                 {
@@ -6649,25 +6588,20 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     createTask: async extra => {
                         const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
-
-                        // Capture taskStore for use in setTimeout
-                        const store = extra.taskStore;
-
-                        // Simulate async failure
-                        setTimeout(async () => {
-                            await store.storeTaskResult(task.taskId, 'failed', {
-                                content: [{ type: 'text' as const, text: 'Error occurred' }],
-                                isError: true
-                            });
-                            releaseLatch();
-                        }, 150);
-
                         return { task };
                     },
                     getTask: async extra => {
                         const task = await extra.taskStore.getTask(extra.taskId);
                         if (!task) {
                             throw new Error('Task not found');
+                        }
+                        // Fail the task when polled - proves getTask is actually called
+                        if (task.status === 'working') {
+                            await extra.taskStore.storeTaskResult(extra.taskId, 'failed', {
+                                content: [{ type: 'text' as const, text: 'Error occurred' }],
+                                isError: true
+                            });
+                            return await extra.taskStore.getTask(extra.taskId);
                         }
                         return task;
                     },
@@ -6696,14 +6630,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.content).toEqual([{ type: 'text' as const, text: 'Error occurred' }]);
             expect(result.isError).toBe(true);
 
-            // Wait for async operations to complete
-            await waitForLatch();
             taskStore.cleanup();
         });
 
         test('should handle task cancellation during automatic polling', async () => {
             const taskStore = new InMemoryTaskStore();
-            const { releaseLatch, waitForLatch } = createLatch();
 
             const mcpServer = new McpServer(
                 {
@@ -6755,22 +6686,17 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 {
                     createTask: async extra => {
                         const task = await extra.taskStore.createTask({ ttl: 60000, pollInterval: 100 });
-
-                        // Capture taskStore for use in setTimeout
-                        const store = extra.taskStore;
-
-                        // Simulate async cancellation
-                        setTimeout(async () => {
-                            await store.updateTaskStatus(task.taskId, 'cancelled', 'Task was cancelled');
-                            releaseLatch();
-                        }, 150);
-
                         return { task };
                     },
                     getTask: async extra => {
                         const task = await extra.taskStore.getTask(extra.taskId);
                         if (!task) {
                             throw new Error('Task not found');
+                        }
+                        // Cancel the task when polled - proves getTask is actually called
+                        if (task.status === 'working') {
+                            await extra.taskStore.updateTaskStatus(extra.taskId, 'cancelled', 'Task was cancelled');
+                            return await extra.taskStore.getTask(extra.taskId);
                         }
                         return task;
                     },
@@ -6798,8 +6724,6 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result).toHaveProperty('content');
             expect(result.content).toEqual([{ type: 'text' as const, text: expect.stringContaining('has no result stored') }]);
 
-            // Wait for async operations to complete
-            await waitForLatch();
             taskStore.cleanup();
         });
 
