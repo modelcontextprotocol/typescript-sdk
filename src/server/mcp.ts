@@ -1543,10 +1543,11 @@ const EMPTY_COMPLETION_RESULT: CompleteResult = {
 };
 
 /**
- * Wraps a tool task handler such that it can be used without checking if it needs to be called in a one-arg manner.
+ * Wraps a tool task handler's createTask to handle args uniformly.
+ * getTask and getTaskResult don't take args, so they're passed through directly.
  * @param handler The task handler to wrap.
  * @param args The tool arguments.
- * @returns A wrapped task handler for a tool, which only exposes a no-args interface.
+ * @returns A wrapped task handler for a tool, which only exposes a no-args interface for createTask.
  */
 function toolTaskHandlerByArgs<Args extends AnySchema | ZodRawShapeCompat | undefined>(
     handler: ToolTaskHandler<Args>,
@@ -1557,13 +1558,7 @@ function toolTaskHandlerByArgs<Args extends AnySchema | ZodRawShapeCompat | unde
             args // undefined only if tool.inputSchema is undefined
                 ? Promise.resolve((handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args, extra))
                 : Promise.resolve((handler as ToolTaskHandler<undefined>).createTask(extra)),
-        getTask: extra =>
-            args
-                ? (handler as ToolTaskHandler<ZodRawShapeCompat>).getTask(args, extra)
-                : (handler as ToolTaskHandler<undefined>).getTask(extra),
-        getTaskResult: extra =>
-            args
-                ? (handler as ToolTaskHandler<ZodRawShapeCompat>).getTaskResult(args, extra)
-                : (handler as ToolTaskHandler<undefined>).getTaskResult(extra)
+        getTask: handler.getTask,
+        getTaskResult: handler.getTaskResult
     };
 }
