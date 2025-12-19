@@ -1,9 +1,9 @@
-import { beforeEach,describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
 import { Protocol } from '../../src/shared/protocol.js';
 import type { Transport } from '../../src/shared/transport.js';
-import type { JSONRPCMessage,Notification, Request, Result } from '../../src/types/types.js';
+import type { JSONRPCMessage, Notification, Request, Result } from '../../src/types/types.js';
 
 // Mock Transport class
 class MockTransport implements Transport {

@@ -8,9 +8,10 @@ import type {
     QueuedNotification,
     QueuedRequest,
     TaskMessageQueue,
-    TaskStore} from '../../src/experimental/tasks/interfaces.js';
+    TaskStore
+} from '../../src/experimental/tasks/interfaces.js';
 import { InMemoryTaskMessageQueue } from '../../src/experimental/tasks/stores/in-memory.js';
-import { mergeCapabilities,Protocol } from '../../src/shared/protocol.js';
+import { mergeCapabilities, Protocol } from '../../src/shared/protocol.js';
 import type { ErrorMessage, ResponseMessage } from '../../src/shared/responseMessage.js';
 import { toArrayAsync } from '../../src/shared/responseMessage.js';
 import type { Transport, TransportSendOptions } from '../../src/shared/transport.js';
@@ -26,7 +27,8 @@ import type {
     Result,
     ServerCapabilities,
     Task,
-    TaskCreationParams} from '../../src/types/types.js';
+    TaskCreationParams
+} from '../../src/types/types.js';
 import { CallToolRequestSchema, ErrorCode, McpError, RELATED_TASK_META_KEY } from '../../src/types/types.js';
 
 // Type helper for accessing private/protected Protocol properties in tests

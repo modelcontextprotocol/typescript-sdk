@@ -3,7 +3,8 @@ import {
     OAuthMetadataSchema,
     OpenIdProviderMetadataSchema,
     OptionalSafeUrlSchema,
-    SafeUrlSchema} from '../../src/shared/auth.js';
+    SafeUrlSchema
+} from '../../src/shared/auth.js';
 
 describe('SafeUrlSchema', () => {
     it('accepts valid HTTPS URLs', () => {

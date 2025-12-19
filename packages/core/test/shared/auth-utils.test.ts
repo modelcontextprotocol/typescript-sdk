@@ -1,4 +1,4 @@
-import { checkResourceAllowed,resourceUrlFromServerUrl } from '../../src/shared/auth-utils.js';
+import { checkResourceAllowed, resourceUrlFromServerUrl } from '../../src/shared/auth-utils.js';
 
 describe('auth-utils', () => {
     describe('resourceUrlFromServerUrl', () => {
