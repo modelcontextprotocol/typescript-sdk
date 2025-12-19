@@ -287,6 +287,9 @@ importers:
       '@modelcontextprotocol/vitest-config':
         specifier: workspace:^
         version: link:../../common/vitest-config
+      tsdown:
+        specifier: catalog:devTools
+        version: 0.18.0(@typescript/native-preview@7.0.0-dev.20251108.1)(typescript@5.9.3)
 
   examples/server:
     dependencies:
