@@ -1,21 +1,20 @@
 import {
-    LATEST_PROTOCOL_VERSION,
-    SUPPORTED_PROTOCOL_VERSIONS,
-    ResourceLinkSchema,
-    ContentBlockSchema,
-    PromptMessageSchema,
     CallToolResultSchema,
+    ClientCapabilitiesSchema,
     CompleteRequestSchema,
-    ToolSchema,
-    ToolUseContentSchema,
-    ToolResultContentSchema,
-    ToolChoiceSchema,
-    SamplingMessageSchema,
+    ContentBlockSchema,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
-    ClientCapabilitiesSchema
-} from '../src/types/types.js';
+    LATEST_PROTOCOL_VERSION,
+    PromptMessageSchema,
+    ResourceLinkSchema,
+    SamplingMessageSchema,
+    SUPPORTED_PROTOCOL_VERSIONS,
+    ToolChoiceSchema,
+    ToolResultContentSchema,
+    ToolSchema,
+    ToolUseContentSchema} from '../src/types/types.js';
 
 describe('Types', () => {
     test('should have correct latest protocol version', () => {
