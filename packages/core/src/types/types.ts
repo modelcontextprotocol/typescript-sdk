@@ -238,7 +238,8 @@ export enum ErrorCode {
     InternalError = -32603,
 
     // MCP-specific error codes
-    UrlElicitationRequired = -32042
+    UrlElicitationRequired = -32042,
+    UnsupportedCapability = -32043 
 }
 
 /**
@@ -2366,6 +2367,12 @@ export class UrlElicitationRequiredError extends McpError {
 
     get elicitations(): ElicitRequestURLParams[] {
         return (this.data as { elicitations: ElicitRequestURLParams[] })?.elicitations ?? [];
+    }
+}
+
+export class UnsupportedCapabilityError extends McpError {
+    constructor(message: string) {
+        super(ErrorCode.UnsupportedCapability, message);
     }
 }
 
