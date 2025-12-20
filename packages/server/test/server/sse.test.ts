@@ -303,7 +303,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                             {
                                 type: 'text',
                                 text: JSON.stringify({
-                                    headers: {
+                                    headers: new Headers({
                                         host: `127.0.0.1:${serverPort}`,
                                         connection: 'keep-alive',
                                         'content-type': 'application/json',
@@ -313,7 +313,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                                         'user-agent': 'node',
                                         'accept-encoding': 'gzip, deflate',
                                         'content-length': '124'
-                                    }
+                                    })
                                 })
                             }
                         ]
@@ -416,9 +416,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                             token: 'test-token'
                         },
                         requestInfo: {
-                            headers: {
+                            headers: new Headers({
                                 'content-type': 'application/json'
-                            }
+                            })
                         }
                     }
                 );

@@ -7,6 +7,8 @@ import { JSONRPCMessageSchema } from '@modelcontextprotocol/core';
 import contentType from 'content-type';
 import getRawBody from 'raw-body';
 
+import { nodeHeadersToWebHeaders } from './helper/headers.js';
+
 const MAXIMUM_MESSAGE_SIZE = '4mb';
 
 /**
@@ -149,7 +151,7 @@ export class SSEServerTransport implements Transport {
         }
 
         const authInfo: AuthInfo | undefined = req.auth;
-        const requestInfo: RequestInfo = { headers: req.headers };
+        const requestInfo: RequestInfo = { headers: nodeHeadersToWebHeaders(req.headers) };
 
         let body: string | unknown;
         try {

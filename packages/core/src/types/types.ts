@@ -2385,18 +2385,13 @@ type Flatten<T> = T extends Primitive
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 
 /**
- * Headers that are compatible with both Node.js and the browser.
- */
-export type IsomorphicHeaders = Record<string, string | string[] | undefined>;
-
-/**
  * Information about the incoming request.
  */
 export interface RequestInfo {
     /**
      * The headers of the request.
      */
-    headers: IsomorphicHeaders;
+    headers: Headers;
 }
 
 /**
