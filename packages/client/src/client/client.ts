@@ -66,7 +66,8 @@ import {
     ResourceListChangedNotificationSchema,
     safeParse,
     SUPPORTED_PROTOCOL_VERSIONS,
-    ToolListChangedNotificationSchema
+    ToolListChangedNotificationSchema,
+    UnsupportedCapabilityError
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
@@ -479,7 +480,7 @@ export class Client<
 
     protected assertCapability(capability: keyof ServerCapabilities, method: string): void {
         if (!this._serverCapabilities?.[capability]) {
-            throw new Error(`Server does not support ${capability} (required for ${method})`);
+            throw new UnsupportedCapabilityError(`Server does not support ${capability} (required for ${method})`);
         }
     }
 
@@ -562,14 +563,14 @@ export class Client<
         switch (method as ClientRequest['method']) {
             case 'logging/setLevel':
                 if (!this._serverCapabilities?.logging) {
-                    throw new Error(`Server does not support logging (required for ${method})`);
+                    throw new UnsupportedCapabilityError(`Server does not support logging (required for ${method})`);
                 }
                 break;
 
             case 'prompts/get':
             case 'prompts/list':
                 if (!this._serverCapabilities?.prompts) {
-                    throw new Error(`Server does not support prompts (required for ${method})`);
+                    throw new UnsupportedCapabilityError(`Server does not support prompts (required for ${method})`);
                 }
                 break;
 
@@ -579,11 +580,11 @@ export class Client<
             case 'resources/subscribe':
             case 'resources/unsubscribe':
                 if (!this._serverCapabilities?.resources) {
-                    throw new Error(`Server does not support resources (required for ${method})`);
+                    throw new UnsupportedCapabilityError(`Server does not support resources (required for ${method})`);
                 }
 
                 if (method === 'resources/subscribe' && !this._serverCapabilities.resources.subscribe) {
-                    throw new Error(`Server does not support resource subscriptions (required for ${method})`);
+                    throw new UnsupportedCapabilityError(`Server does not support resource subscriptions (required for ${method})`);
                 }
 
                 break;
@@ -591,13 +592,13 @@ export class Client<
             case 'tools/call':
             case 'tools/list':
                 if (!this._serverCapabilities?.tools) {
-                    throw new Error(`Server does not support tools (required for ${method})`);
+                    throw new UnsupportedCapabilityError(`Server does not support tools (required for ${method})`);
                 }
                 break;
 
             case 'completion/complete':
                 if (!this._serverCapabilities?.completions) {
-                    throw new Error(`Server does not support completions (required for ${method})`);
+                    throw new UnsupportedCapabilityError(`Server does not support completions (required for ${method})`);
                 }
                 break;
 
@@ -615,7 +616,7 @@ export class Client<
         switch (method as ClientNotification['method']) {
             case 'notifications/roots/list_changed':
                 if (!this._capabilities.roots?.listChanged) {
-                    throw new Error(`Client does not support roots list changed notifications (required for ${method})`);
+                    throw new UnsupportedCapabilityError(`Client does not support roots list changed notifications (required for ${method})`);
                 }
                 break;
 
@@ -643,19 +644,19 @@ export class Client<
         switch (method) {
             case 'sampling/createMessage':
                 if (!this._capabilities.sampling) {
-                    throw new Error(`Client does not support sampling capability (required for ${method})`);
+                    throw new UnsupportedCapabilityError(`Client does not support sampling capability (required for ${method})`);
                 }
                 break;
 
             case 'elicitation/create':
                 if (!this._capabilities.elicitation) {
-                    throw new Error(`Client does not support elicitation capability (required for ${method})`);
+                    throw new UnsupportedCapabilityError(`Client does not support elicitation capability (required for ${method})`);
                 }
                 break;
 
             case 'roots/list':
                 if (!this._capabilities.roots) {
-                    throw new Error(`Client does not support roots capability (required for ${method})`);
+                    throw new UnsupportedCapabilityError(`Client does not support roots capability (required for ${method})`);
                 }
                 break;
 
@@ -664,7 +665,7 @@ export class Client<
             case 'tasks/result':
             case 'tasks/cancel':
                 if (!this._capabilities.tasks) {
-                    throw new Error(`Client does not support tasks capability (required for ${method})`);
+                    throw new UnsupportedCapabilityError(`Client does not support tasks capability (required for ${method})`);
                 }
                 break;
 
