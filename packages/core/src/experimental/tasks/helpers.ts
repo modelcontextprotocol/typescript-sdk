@@ -5,7 +5,7 @@
  * @experimental
  */
 
-import { UnsupportedCapabilityError } from "../../types/types.js";
+import { UnsupportedCapabilityError } from '../../types/types.js';
 
 /**
  * Type representing the task requests capability structure.
@@ -40,7 +40,9 @@ export function assertToolsCallTaskCapability(
     switch (method) {
         case 'tools/call':
             if (!requests.tools?.call) {
-                throw new UnsupportedCapabilityError(`${entityName} does not support task creation for tools/call (required for ${method})`);
+                throw new UnsupportedCapabilityError(
+                    `${entityName} does not support task creation for tools/call (required for ${method})`
+                );
             }
             break;
 
@@ -73,13 +75,17 @@ export function assertClientRequestTaskCapability(
     switch (method) {
         case 'sampling/createMessage':
             if (!requests.sampling?.createMessage) {
-                throw new UnsupportedCapabilityError(`${entityName} does not support task creation for sampling/createMessage (required for ${method})`);
+                throw new UnsupportedCapabilityError(
+                    `${entityName} does not support task creation for sampling/createMessage (required for ${method})`
+                );
             }
             break;
 
         case 'elicitation/create':
             if (!requests.elicitation?.create) {
-                throw new UnsupportedCapabilityError(`${entityName} does not support task creation for elicitation/create (required for ${method})`);
+                throw new UnsupportedCapabilityError(
+                    `${entityName} does not support task creation for elicitation/create (required for ${method})`
+                );
             }
             break;
 

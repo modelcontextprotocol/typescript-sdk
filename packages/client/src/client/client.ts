@@ -616,7 +616,9 @@ export class Client<
         switch (method as ClientNotification['method']) {
             case 'notifications/roots/list_changed':
                 if (!this._capabilities.roots?.listChanged) {
-                    throw new UnsupportedCapabilityError(`Client does not support roots list changed notifications (required for ${method})`);
+                    throw new UnsupportedCapabilityError(
+                        `Client does not support roots list changed notifications (required for ${method})`
+                    );
                 }
                 break;
 

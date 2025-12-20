@@ -239,7 +239,7 @@ export enum ErrorCode {
 
     // MCP-specific error codes
     UrlElicitationRequired = -32042,
-    UnsupportedCapability = -32043 
+    UnsupportedCapability = -32043
 }
 
 /**
