@@ -1,4 +1,5 @@
 import type { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { getParsedBody } from '@modelcontextprotocol/server';
 import type { Context, Handler } from 'hono';
 
 /**
@@ -10,5 +11,13 @@ import type { Context, Handler } from 'hono';
  * ```
  */
 export function mcpStreamableHttpHandler(transport: WebStandardStreamableHTTPServerTransport): Handler {
-    return (c: Context) => transport.handleRequest(c.req.raw);
+    return async (c: Context) => {
+        let parsedBody = c.get('parsedBody');
+        if (parsedBody === undefined && c.req.method === 'POST') {
+            // Parse from a clone so we don't consume the original request stream.
+            parsedBody = await getParsedBody(c.req.raw.clone());
+        }
+        const authInfo = c.get('auth');
+        return transport.handleRequest(c.req.raw, { authInfo, parsedBody });
+    };
 }
