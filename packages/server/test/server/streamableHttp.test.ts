@@ -17,7 +17,8 @@ import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import { McpServer } from '../../src/server/mcp.js';
 import { NodeStreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
 import type { EventId, EventStore, StreamId } from '../../src/server/webStandardStreamableHttp.js';
-import { type ZodMatrixEntry, zodTestMatrix } from './__fixtures__/zodTestMatrix.js';
+import type { ZodMatrixEntry } from './__fixtures__/zodTestMatrix.js';
+import { zodTestMatrix } from './__fixtures__/zodTestMatrix.js';
 
 async function getFreePort() {
     return new Promise(res => {

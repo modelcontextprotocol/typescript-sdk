@@ -45,7 +45,8 @@
     "dependencies": {
         "@modelcontextprotocol/server": "workspace:^",
         "express": "catalog:runtimeServerOnly",
-        "express-rate-limit": "catalog:runtimeServerOnly"
+        "express-rate-limit": "catalog:runtimeServerOnly",
+        "@remix-run/node-fetch-server": "catalog:runtimeServerOnly"
     },
     "devDependencies": {
         "@modelcontextprotocol/tsconfig": "workspace:^",

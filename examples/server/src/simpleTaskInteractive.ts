@@ -40,9 +40,9 @@ import {
     InMemoryTaskStore,
     isTerminal,
     ListToolsRequestSchema,
+    NodeStreamableHTTPServerTransport,
     RELATED_TASK_META_KEY,
-    Server,
-    NodeStreamableHTTPServerTransport
+    Server
 } from '@modelcontextprotocol/server';
 import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
 import type { Request, Response } from 'express';

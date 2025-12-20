@@ -44,9 +44,10 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
+        "@hono/node-server": "catalog:runtimeServerOnly",
         "content-type": "catalog:runtimeServerOnly",
-        "raw-body": "catalog:runtimeServerOnly",
         "pkce-challenge": "catalog:runtimeShared",
+        "raw-body": "catalog:runtimeServerOnly",
         "zod": "catalog:runtimeShared",
         "zod-to-json-schema": "catalog:runtimeShared"
     },
@@ -63,13 +64,13 @@
         }
     },
     "devDependencies": {
-        "@modelcontextprotocol/core": "workspace:^",
-        "@modelcontextprotocol/tsconfig": "workspace:^",
-        "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@modelcontextprotocol/eslint-config": "workspace:^",
-        "@modelcontextprotocol/test-helpers": "workspace:^",
         "@cfworker/json-schema": "catalog:runtimeShared",
         "@eslint/js": "catalog:devTools",
+        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/eslint-config": "workspace:^",
+        "@modelcontextprotocol/test-helpers": "workspace:^",
+        "@modelcontextprotocol/tsconfig": "workspace:^",
+        "@modelcontextprotocol/vitest-config": "workspace:^",
         "@types/content-type": "catalog:devTools",
         "@types/cors": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",

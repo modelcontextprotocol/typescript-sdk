@@ -21,6 +21,7 @@ catalogs:
         express: ^5.0.1
         express-rate-limit: ^8.2.1
         raw-body: ^3.0.0
+        '@remix-run/node-fetch-server': ^0.13.0
     runtimeClientOnly:
         jose: ^6.1.1
         cross-spawn: ^7.0.5
