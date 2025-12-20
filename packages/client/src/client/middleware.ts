@@ -2,7 +2,8 @@ import type { FetchLike } from '@modelcontextprotocol/core';
 
 import type { OAuthClientProvider } from './auth.js';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
-import { getAccessToken, XAAOptions } from './xaa-util.js';
+import type { XAAOptions } from './xaa-util.js';
+import { getAccessToken } from './xaa-util.js';
 
 /**
  * Middleware function that wraps and enhances fetch functionality.
