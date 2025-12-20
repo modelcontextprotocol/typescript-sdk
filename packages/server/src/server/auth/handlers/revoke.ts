@@ -1,46 +1,18 @@
-import {
-    InvalidRequestError,
-    OAuthError,
-    OAuthTokenRevocationRequestSchema,
-    ServerError,
-    TooManyRequestsError
-} from '@modelcontextprotocol/core';
+import { InvalidRequestError, OAuthError, OAuthTokenRevocationRequestSchema, ServerError } from '@modelcontextprotocol/core';
 
 import { authenticateClient } from '../middleware/clientAuth.js';
 import type { OAuthServerProvider } from '../provider.js';
 import type { WebHandler } from '../web.js';
-import {
-    corsHeaders,
-    corsPreflightResponse,
-    getClientAddress,
-    getParsedBody,
-    InMemoryRateLimiter,
-    jsonResponse,
-    methodNotAllowedResponse,
-    noStoreHeaders
-} from '../web.js';
+import { corsHeaders, corsPreflightResponse, getParsedBody, jsonResponse, methodNotAllowedResponse, noStoreHeaders } from '../web.js';
 
 export type RevocationHandlerOptions = {
     provider: OAuthServerProvider;
-    /**
-     * Rate limiting configuration for the token revocation endpoint.
-     * Set to false to disable rate limiting for this endpoint.
-     */
-    rateLimit?: Partial<{ windowMs: number; max: number }> | false;
 };
 
-export function revocationHandler({ provider, rateLimit: rateLimitConfig }: RevocationHandlerOptions): WebHandler {
+export function revocationHandler({ provider }: RevocationHandlerOptions): WebHandler {
     if (!provider.revokeToken) {
         throw new Error('Auth provider does not support revoking tokens');
     }
-
-    const limiter =
-        rateLimitConfig === false
-            ? undefined
-            : new InMemoryRateLimiter({
-                  windowMs: rateLimitConfig?.windowMs ?? 15 * 60 * 1000,
-                  max: rateLimitConfig?.max ?? 50
-              });
 
     const cors = {
         allowOrigin: '*',
@@ -62,23 +34,6 @@ export function revocationHandler({ provider, rateLimit: rateLimitConfig }: Revo
                 status: resp.status,
                 headers: { ...Object.fromEntries(resp.headers.entries()), ...baseHeaders }
             });
-        }
-
-        if (limiter) {
-            const key = `${getClientAddress(req, ctx) ?? 'global'}:revoke`;
-            const rl = limiter.consume(key);
-            if (!rl.allowed) {
-                return jsonResponse(
-                    new TooManyRequestsError('You have exceeded the rate limit for token revocation requests').toResponseObject(),
-                    {
-                        status: 429,
-                        headers: {
-                            ...baseHeaders,
-                            ...(rl.retryAfterSeconds ? { 'Retry-After': String(rl.retryAfterSeconds) } : {})
-                        }
-                    }
-                );
-            }
         }
 
         try {

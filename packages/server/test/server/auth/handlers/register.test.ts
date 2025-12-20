@@ -20,7 +20,7 @@ describe('clientRegistrationHandler (web)', () => {
             }
         };
 
-        const handler = clientRegistrationHandler({ clientsStore, rateLimit: false });
+        const handler = clientRegistrationHandler({ clientsStore });
 
         const res = await handler(
             new Request('http://localhost/register', {

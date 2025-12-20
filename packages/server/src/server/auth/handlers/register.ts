@@ -1,26 +1,11 @@
 import crypto from 'node:crypto';
 
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/core';
-import {
-    InvalidClientMetadataError,
-    OAuthClientMetadataSchema,
-    OAuthError,
-    ServerError,
-    TooManyRequestsError
-} from '@modelcontextprotocol/core';
+import { InvalidClientMetadataError, OAuthClientMetadataSchema, OAuthError, ServerError } from '@modelcontextprotocol/core';
 
 import type { OAuthRegisteredClientsStore } from '../clients.js';
 import type { WebHandler } from '../web.js';
-import {
-    corsHeaders,
-    corsPreflightResponse,
-    getClientAddress,
-    getParsedBody,
-    InMemoryRateLimiter,
-    jsonResponse,
-    methodNotAllowedResponse,
-    noStoreHeaders
-} from '../web.js';
+import { corsHeaders, corsPreflightResponse, getParsedBody, jsonResponse, methodNotAllowedResponse, noStoreHeaders } from '../web.js';
 
 export type ClientRegistrationHandlerOptions = {
     /**
@@ -36,13 +21,6 @@ export type ClientRegistrationHandlerOptions = {
     clientSecretExpirySeconds?: number;
 
     /**
-     * Rate limiting configuration for the client registration endpoint.
-     * Set to false to disable rate limiting for this endpoint.
-     * Registration endpoints are particularly sensitive to abuse and should be rate limited.
-     */
-    rateLimit?: Partial<{ windowMs: number; max: number }> | false;
-
-    /**
      * Whether to generate a client ID before calling the client registration endpoint.
      *
      * If not set, defaults to true.
@@ -55,20 +33,11 @@ const DEFAULT_CLIENT_SECRET_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
 export function clientRegistrationHandler({
     clientsStore,
     clientSecretExpirySeconds = DEFAULT_CLIENT_SECRET_EXPIRY_SECONDS,
-    rateLimit: rateLimitConfig,
     clientIdGeneration = true
 }: ClientRegistrationHandlerOptions): WebHandler {
     if (!clientsStore.registerClient) {
         throw new Error('Client registration store does not support registering clients');
     }
-
-    const limiter =
-        rateLimitConfig === false
-            ? undefined
-            : new InMemoryRateLimiter({
-                  windowMs: rateLimitConfig?.windowMs ?? 60 * 60 * 1000,
-                  max: rateLimitConfig?.max ?? 20
-              });
 
     const cors = {
         allowOrigin: '*',
@@ -90,23 +59,6 @@ export function clientRegistrationHandler({
                 status: resp.status,
                 headers: { ...Object.fromEntries(resp.headers.entries()), ...baseHeaders }
             });
-        }
-
-        if (limiter) {
-            const key = `${getClientAddress(req, ctx) ?? 'global'}:register`;
-            const rl = limiter.consume(key);
-            if (!rl.allowed) {
-                return jsonResponse(
-                    new TooManyRequestsError('You have exceeded the rate limit for client registration requests').toResponseObject(),
-                    {
-                        status: 429,
-                        headers: {
-                            ...baseHeaders,
-                            ...(rl.retryAfterSeconds ? { 'Retry-After': String(rl.retryAfterSeconds) } : {})
-                        }
-                    }
-                );
-            }
         }
 
         try {

@@ -325,6 +325,36 @@ describe('MCP Auth Router', () => {
             expect(response.status).not.toBe(404);
         });
 
+        it('applies rate limiting to token endpoint (express-rate-limit)', async () => {
+            // Fresh app with a very low rate limit so we can trigger it deterministically
+            const limitedApp = express();
+            const options = {
+                provider: mockProvider,
+                issuerUrl: new URL('https://auth.example.com'),
+                rateLimit: { windowMs: 60_000, max: 1 }
+            } as const;
+            limitedApp.use(mcpAuthRouter(options));
+
+            const first = await supertest(limitedApp).post('/token').type('form').send({
+                client_id: 'valid-client',
+                client_secret: 'valid-secret',
+                grant_type: 'authorization_code',
+                code: 'valid_code',
+                code_verifier: 'valid_verifier'
+            });
+            expect(first.status).not.toBe(404);
+
+            const second = await supertest(limitedApp).post('/token').type('form').send({
+                client_id: 'valid-client',
+                client_secret: 'valid-secret',
+                grant_type: 'authorization_code',
+                code: 'valid_code',
+                code_verifier: 'valid_verifier'
+            });
+            expect(second.status).toBe(429);
+            expect(second.body).toEqual(expect.objectContaining({ error: 'too_many_requests' }));
+        });
+
         it('routes to registration endpoint', async () => {
             const response = await supertest(app)
                 .post('/register')

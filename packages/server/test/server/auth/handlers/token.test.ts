@@ -64,7 +64,7 @@ describe('tokenHandler (web)', () => {
 
     it('returns tokens for authorization_code grant when PKCE passes', async () => {
         (pkceChallenge.verifyChallenge as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(true);
-        const handler = tokenHandler({ provider, rateLimit: false });
+        const handler = tokenHandler({ provider });
 
         const body = new URLSearchParams({
             client_id: 'valid-client',
@@ -92,7 +92,7 @@ describe('tokenHandler (web)', () => {
 
     it('returns 400 when PKCE fails', async () => {
         (pkceChallenge.verifyChallenge as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-        const handler = tokenHandler({ provider, rateLimit: false });
+        const handler = tokenHandler({ provider });
 
         const body = new URLSearchParams({
             client_id: 'valid-client',

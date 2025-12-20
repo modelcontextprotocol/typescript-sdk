@@ -60,7 +60,9 @@ app.use(express.json());
 app.use(
   mcpAuthRouter({
     provider,
-    issuerUrl: new URL('https://auth.example.com')
+    issuerUrl: new URL('https://auth.example.com'),
+    // Optional rate limiting (implemented via express-rate-limit)
+    rateLimit: { windowMs: 60_000, max: 60 }
   })
 );
 ```

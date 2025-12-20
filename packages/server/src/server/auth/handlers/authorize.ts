@@ -1,17 +1,12 @@
-import { InvalidClientError, InvalidRequestError, OAuthError, ServerError, TooManyRequestsError } from '@modelcontextprotocol/core';
+import { InvalidClientError, InvalidRequestError, OAuthError, ServerError } from '@modelcontextprotocol/core';
 import * as z from 'zod/v4';
 
 import type { OAuthServerProvider } from '../provider.js';
 import type { WebHandler } from '../web.js';
-import { getClientAddress, getParsedBody, InMemoryRateLimiter, jsonResponse, methodNotAllowedResponse, noStoreHeaders } from '../web.js';
+import { getParsedBody, jsonResponse, methodNotAllowedResponse, noStoreHeaders } from '../web.js';
 
 export type AuthorizationHandlerOptions = {
     provider: OAuthServerProvider;
-    /**
-     * Rate limiting configuration for the authorization endpoint.
-     * Set to false to disable rate limiting for this endpoint.
-     */
-    rateLimit?: Partial<{ windowMs: number; max: number }> | false;
 };
 
 // Parameters that must be validated in order to issue redirects.
@@ -33,35 +28,9 @@ const RequestAuthorizationParamsSchema = z.object({
     resource: z.string().url().optional()
 });
 
-export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: AuthorizationHandlerOptions): WebHandler {
-    const limiter =
-        rateLimitConfig === false
-            ? undefined
-            : new InMemoryRateLimiter({
-                  windowMs: rateLimitConfig?.windowMs ?? 15 * 60 * 1000,
-                  max: rateLimitConfig?.max ?? 100
-              });
-
+export function authorizationHandler({ provider }: AuthorizationHandlerOptions): WebHandler {
     return async (req, ctx) => {
         const noStore = noStoreHeaders();
-
-        // Rate limit by client address where possible (best-effort).
-        if (limiter) {
-            const key = `${getClientAddress(req, ctx) ?? 'global'}:authorize`;
-            const rl = limiter.consume(key);
-            if (!rl.allowed) {
-                return jsonResponse(
-                    new TooManyRequestsError('You have exceeded the rate limit for authorization requests').toResponseObject(),
-                    {
-                        status: 429,
-                        headers: {
-                            ...noStore,
-                            ...(rl.retryAfterSeconds ? { 'Retry-After': String(rl.retryAfterSeconds) } : {})
-                        }
-                    }
-                );
-            }
-        }
 
         if (req.method !== 'GET' && req.method !== 'POST') {
             const resp = methodNotAllowedResponse(req, ['GET', 'POST']);

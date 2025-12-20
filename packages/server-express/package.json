@@ -43,7 +43,8 @@
     },
     "dependencies": {
         "@modelcontextprotocol/server": "workspace:^",
-        "express": "catalog:runtimeServerOnly"
+        "express": "catalog:runtimeServerOnly",
+        "express-rate-limit": "catalog:runtimeServerOnly"
     },
     "devDependencies": {
         "@modelcontextprotocol/tsconfig": "workspace:^",

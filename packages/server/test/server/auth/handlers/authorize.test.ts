@@ -76,7 +76,7 @@ describe('authorizationHandler (web)', () => {
     });
 
     it('redirects with a code on valid request (single redirect_uri inferred)', async () => {
-        const handler = authorizationHandler({ provider, rateLimit: false });
+        const handler = authorizationHandler({ provider });
         const res = await handler(
             new Request(
                 'http://localhost/authorize?client_id=valid-client&response_type=code&code_challenge=challenge123&code_challenge_method=S256',
@@ -91,7 +91,7 @@ describe('authorizationHandler (web)', () => {
     });
 
     it('requires redirect_uri if client has multiple redirect URIs', async () => {
-        const handler = authorizationHandler({ provider, rateLimit: false });
+        const handler = authorizationHandler({ provider });
         const res = await handler(
             new Request(
                 'http://localhost/authorize?client_id=multi-redirect-client&response_type=code&code_challenge=challenge123&code_challenge_method=S256',

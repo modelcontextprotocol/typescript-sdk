@@ -141,8 +141,6 @@ export const createOAuthMetadata = (options: {
  * Installs standard MCP authorization server endpoints, including dynamic client registration and token revocation (if supported).
  * Also advertises standard authorization server metadata, for easier discovery of supported configurations by clients.
  * Note: if your MCP server is only a resource server and not an authorization server, use mcpAuthMetadataRouter instead.
- *
- * By default, rate limiting is applied to all endpoints to prevent abuse.
  */
 export function mcpAuthRouter(options: AuthRouterOptions): WebAuthRouter {
     const oauthMetadata = createOAuthMetadata(options);

@@ -8,11 +8,6 @@ export type WebHandlerContext = {
      * If provided, handlers will use this instead of reading from the Request stream.
      */
     parsedBody?: unknown;
-
-    /**
-     * Optional client address for rate limiting (e.g., IP).
-     */
-    clientAddress?: string;
 };
 
 export type WebHandler = (req: Request, ctx?: WebHandlerContext) => Promise<Response>;
@@ -30,13 +25,6 @@ export function jsonResponse(body: unknown, init?: { status?: number; headers?: 
 
 export function noStoreHeaders(): HeaderMap {
     return { 'Cache-Control': 'no-store' };
-}
-
-export function getClientAddress(req: Request, ctx?: WebHandlerContext): string | undefined {
-    if (ctx?.clientAddress) return ctx.clientAddress;
-    const xff = req.headers.get('x-forwarded-for');
-    if (xff) return xff.split(',')[0]?.trim();
-    return undefined;
 }
 
 export async function getParsedBody(req: Request, ctx?: WebHandlerContext): Promise<unknown> {
@@ -101,40 +89,4 @@ export function corsPreflightResponse(options: CorsOptions): Response {
         status: 204,
         headers: corsHeaders(options)
     });
-}
-
-export type InMemoryRateLimitConfig = {
-    windowMs: number;
-    max: number;
-};
-
-type RateState = { windowStart: number; count: number };
-
-/**
- * Minimal in-memory rate limiter for single-process deployments.
- * Not suitable for distributed setups without an external store.
- */
-export class InMemoryRateLimiter {
-    private _state = new Map<string, RateState>();
-
-    constructor(private _config: InMemoryRateLimitConfig) {}
-
-    consume(key: string): { allowed: boolean; retryAfterSeconds?: number } {
-        const now = Date.now();
-        const windowStart = now - (now % this._config.windowMs);
-        const existing = this._state.get(key);
-
-        if (!existing || existing.windowStart !== windowStart) {
-            this._state.set(key, { windowStart, count: 1 });
-            return { allowed: true };
-        }
-
-        if (existing.count >= this._config.max) {
-            const retryAfterMs = windowStart + this._config.windowMs - now;
-            return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000)) };
-        }
-
-        existing.count += 1;
-        return { allowed: true };
-    }
 }

@@ -1,35 +1,14 @@
-import {
-    InvalidGrantError,
-    InvalidRequestError,
-    OAuthError,
-    ServerError,
-    TooManyRequestsError,
-    UnsupportedGrantTypeError
-} from '@modelcontextprotocol/core';
+import { InvalidGrantError, InvalidRequestError, OAuthError, ServerError, UnsupportedGrantTypeError } from '@modelcontextprotocol/core';
 import { verifyChallenge } from 'pkce-challenge';
 import * as z from 'zod/v4';
 
 import { authenticateClient } from '../middleware/clientAuth.js';
 import type { OAuthServerProvider } from '../provider.js';
 import type { WebHandler } from '../web.js';
-import {
-    corsHeaders,
-    corsPreflightResponse,
-    getClientAddress,
-    getParsedBody,
-    InMemoryRateLimiter,
-    jsonResponse,
-    methodNotAllowedResponse,
-    noStoreHeaders
-} from '../web.js';
+import { corsHeaders, corsPreflightResponse, getParsedBody, jsonResponse, methodNotAllowedResponse, noStoreHeaders } from '../web.js';
 
 export type TokenHandlerOptions = {
     provider: OAuthServerProvider;
-    /**
-     * Rate limiting configuration for the token endpoint.
-     * Set to false to disable rate limiting for this endpoint.
-     */
-    rateLimit?: Partial<{ windowMs: number; max: number }> | false;
 };
 
 const TokenRequestSchema = z.object({
@@ -49,15 +28,7 @@ const RefreshTokenGrantSchema = z.object({
     resource: z.string().url().optional()
 });
 
-export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHandlerOptions): WebHandler {
-    const limiter =
-        rateLimitConfig === false
-            ? undefined
-            : new InMemoryRateLimiter({
-                  windowMs: rateLimitConfig?.windowMs ?? 15 * 60 * 1000,
-                  max: rateLimitConfig?.max ?? 50
-              });
-
+export function tokenHandler({ provider }: TokenHandlerOptions): WebHandler {
     const cors = {
         allowOrigin: '*',
         allowMethods: ['POST', 'OPTIONS'],
@@ -78,20 +49,6 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
                 status: resp.status,
                 headers: { ...Object.fromEntries(resp.headers.entries()), ...baseHeaders }
             });
-        }
-
-        if (limiter) {
-            const key = `${getClientAddress(req, ctx) ?? 'global'}:token`;
-            const rl = limiter.consume(key);
-            if (!rl.allowed) {
-                return jsonResponse(new TooManyRequestsError('You have exceeded the rate limit for token requests').toResponseObject(), {
-                    status: 429,
-                    headers: {
-                        ...baseHeaders,
-                        ...(rl.retryAfterSeconds ? { 'Retry-After': String(rl.retryAfterSeconds) } : {})
-                    }
-                });
-            }
         }
 
         try {

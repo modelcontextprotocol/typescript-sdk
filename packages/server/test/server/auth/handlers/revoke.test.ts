@@ -50,7 +50,7 @@ describe('revocationHandler (web)', () => {
             }
         };
 
-        const handler = revocationHandler({ provider, rateLimit: false });
+        const handler = revocationHandler({ provider });
 
         const body = new URLSearchParams({
             client_id: 'valid-client',

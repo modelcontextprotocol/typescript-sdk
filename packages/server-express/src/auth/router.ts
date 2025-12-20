@@ -3,9 +3,14 @@ import { Readable } from 'node:stream';
 import { URL } from 'node:url';
 
 import type { AuthMetadataOptions, AuthRouterOptions, WebHandlerContext } from '@modelcontextprotocol/server';
-import { mcpAuthMetadataRouter as createWebAuthMetadataRouter, mcpAuthRouter as createWebAuthRouter } from '@modelcontextprotocol/server';
+import {
+    mcpAuthMetadataRouter as createWebAuthMetadataRouter,
+    mcpAuthRouter as createWebAuthRouter,
+    TooManyRequestsError
+} from '@modelcontextprotocol/server';
 import type { RequestHandler, Response as ExpressResponse } from 'express';
 import express from 'express';
+import { rateLimit } from 'express-rate-limit';
 
 type ExpressRequestLike = IncomingMessage & {
     method: string;
@@ -112,10 +117,22 @@ async function writeWebResponse(res: ExpressResponse, webResponse: Response): Pr
 
 function toHandlerContext(req: ExpressRequestLike): WebHandlerContext {
     return {
-        parsedBody: req.body,
-        clientAddress: req.ip
+        parsedBody: req.body
     };
 }
+
+export type ExpressAuthRateLimitOptions =
+    | false
+    | {
+          /**
+           * Window size in ms (default: 60s)
+           */
+          windowMs?: number;
+          /**
+           * Max requests per window per client (default: 60)
+           */
+          max?: number;
+      };
 
 /**
  * Express router adapter for the Web-standard `mcpAuthRouter` from `@modelcontextprotocol/server`.
@@ -126,12 +143,34 @@ function toHandlerContext(req: ExpressRequestLike): WebHandlerContext {
  * app.use(mcpAuthRouter(...))
  * ```
  */
-export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
+export function mcpAuthRouter(options: AuthRouterOptions & { rateLimit?: ExpressAuthRateLimitOptions }): RequestHandler {
     const web = createWebAuthRouter(options);
     const router = express.Router();
 
+    const rateLimitOptions = options.rateLimit;
+    const limiter =
+        rateLimitOptions === false
+            ? undefined
+            : rateLimit({
+                  windowMs: rateLimitOptions?.windowMs ?? 60_000,
+                  max: rateLimitOptions?.max ?? 60,
+                  standardHeaders: true,
+                  legacyHeaders: false,
+                  handler: (_req, res) => {
+                      const err = new TooManyRequestsError('Too many requests');
+                      res.status(429).json(err.toResponseObject());
+                  }
+              });
+
+    const isRateLimitedPath = (path: string): boolean =>
+        path === '/authorize' || path === '/token' || path === '/register' || path === '/revoke';
+
     for (const route of web.routes) {
-        router.all(route.path, async (req, res, next) => {
+        const handlers: RequestHandler[] = [];
+        if (limiter && isRateLimitedPath(route.path)) {
+            handlers.push(limiter);
+        }
+        handlers.push(async (req, res, next) => {
             try {
                 const parsedBodyProvided = (req as ExpressRequestLike).body !== undefined;
                 const webReq = await expressToWebRequest(req as ExpressRequestLike, parsedBodyProvided);
@@ -141,6 +180,7 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
                 next(err);
             }
         });
+        router.all(route.path, ...handlers);
     }
 
     return router;

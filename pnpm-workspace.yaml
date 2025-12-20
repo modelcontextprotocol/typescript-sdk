@@ -19,7 +19,7 @@ catalogs:
         content-type: ^1.0.5
         cors: ^2.8.5
         express: ^5.0.1
-        express-rate-limit: ^7.5.0
+        express-rate-limit: ^8.2.1
         raw-body: ^3.0.0
     runtimeClientOnly:
         jose: ^6.1.1
