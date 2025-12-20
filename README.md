@@ -1,6 +1,13 @@
 # MCP TypeScript SDK
 
-![NPM Version](https://img.shields.io/npm/v/%40modelcontextprotocol%server) ![NPM Version](https://img.shields.io/npm/v/%40modelcontextprotocol%client) ![MIT licensed](https://img.shields.io/npm/l/%40modelcontextprotocol%server)
+> [!IMPORTANT]
+> **This is the `main` branch which contains v2 of the SDK (currently in development, pre-alpha).**
+>
+> We anticipate a stable v2 release in Q1 2026. Until then, **v1.x remains the recommended version** for production use. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
+>
+> For v1 documentation and code, see the [`v1.x` branch](https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.x).
+
+![NPM Version](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fserver) ![NPM Version](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fclient) ![MIT licensed](https://img.shields.io/npm/l/%40modelcontextprotocol%2Fserver)
 
 <details>
 <summary>Table of Contents</summary>
