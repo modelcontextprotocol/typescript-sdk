@@ -118,11 +118,11 @@ describe('XAA Util', () => {
                 expect(mockFetch).toHaveBeenCalledTimes(4);
 
                 // Verify first call is IDP metadata discovery
-                const firstCall = mockFetch.mock.calls[0];
+                const firstCall = mockFetch.mock.calls[0]!;
                 expect(firstCall[0].toString()).toContain('idp.example.com');
 
                 // Verify second call is authorization grant request
-                const secondCall = mockFetch.mock.calls[1];
+                const secondCall = mockFetch.mock.calls[1]!;
                 expect(secondCall[0]).toBe('https://idp.example.com/token');
                 expect(secondCall[1]?.method).toBe('POST');
                 expect(secondCall[1]?.headers).toEqual({
@@ -130,11 +130,11 @@ describe('XAA Util', () => {
                 });
 
                 // Verify third call is MCP metadata discovery
-                const thirdCall = mockFetch.mock.calls[2];
+                const thirdCall = mockFetch.mock.calls[2]!;
                 expect(thirdCall[0].toString()).toContain('auth.example.com');
 
                 // Verify fourth call is access token request
-                const fourthCall = mockFetch.mock.calls[3];
+                const fourthCall = mockFetch.mock.calls[3]!;
                 expect(fourthCall[0]).toBe('https://auth.example.com/token');
                 expect(fourthCall[1]?.method).toBe('POST');
                 expect(fourthCall[1]?.headers).toEqual({
@@ -709,8 +709,8 @@ describe('XAA Util', () => {
 
                 expect(result).toBe('final-access-token');
                 // Check the token endpoint URL from metadata discovery
-                expect(mockFetch.mock.calls[1][0]).toContain('https://idp.example.com');
-                expect(mockFetch.mock.calls[3][0]).toContain('https://auth.example.com');
+                expect(mockFetch.mock.calls[1]![0]).toContain('https://idp.example.com');
+                expect(mockFetch.mock.calls[3]![0]).toContain('https://auth.example.com');
             });
 
             it('should maintain proper request headers for both calls', async () => {
@@ -744,10 +744,10 @@ describe('XAA Util', () => {
                 await getAccessToken(xaaOptions, mockFetch);
 
                 // Check token request headers (calls 1 and 3, since 0 and 2 are metadata)
-                expect(mockFetch.mock.calls[1][1]?.headers).toEqual({
+                expect(mockFetch.mock.calls[1]![1]?.headers).toEqual({
                     'Content-Type': 'application/x-www-form-urlencoded'
                 });
-                expect(mockFetch.mock.calls[3][1]?.headers).toEqual({
+                expect(mockFetch.mock.calls[3]![1]?.headers).toEqual({
                     'Content-Type': 'application/x-www-form-urlencoded'
                 });
             });
@@ -783,7 +783,7 @@ describe('XAA Util', () => {
                 await getAccessToken(xaaOptions, mockFetch);
 
                 // Verify first token request includes IDP credentials (call index 1, since 0 is metadata)
-                const firstBody = mockFetch.mock.calls[1][1]?.body as string;
+                const firstBody = mockFetch.mock.calls[1]![1]?.body as string;
                 expect(firstBody).toContain(`grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange`);
                 expect(firstBody).toContain(`requested_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aid-jag`);
                 expect(firstBody).toContain(`audience=${encodeURIComponent(xaaOptions.mcpAuthorisationServerUrl)}`);
@@ -794,7 +794,7 @@ describe('XAA Util', () => {
                 expect(firstBody).toContain(`client_secret=${encodeURIComponent(xaaOptions.idpClientSecret)}`);
 
                 // Verify second token request includes MCP credentials (call index 3, since 2 is metadata)
-                const secondBody = mockFetch.mock.calls[3][1]?.body as string;
+                const secondBody = mockFetch.mock.calls[3]![1]?.body as string;
                 expect(secondBody).toContain(`grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer`);
                 expect(secondBody).toContain(`assertion=auth-grant-token`);
                 expect(secondBody).toContain(`scope=${encodeURIComponent(xaaOptions.scope!.join(' '))}`);
@@ -935,7 +935,7 @@ describe('XAA Util', () => {
                 expect(result).toBe('final-access-token');
 
                 // Check that special characters are properly encoded in the first token request body (call index 1)
-                const firstBody = mockFetch.mock.calls[1][1]?.body as string;
+                const firstBody = mockFetch.mock.calls[1]![1]?.body as string;
                 expect(firstBody).toContain(`grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange`);
                 expect(firstBody).toContain(`requested_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aid-jag`);
                 expect(firstBody).toContain(`audience=${encodeURIComponent(xaaOptions.mcpAuthorisationServerUrl)}`);
@@ -946,7 +946,7 @@ describe('XAA Util', () => {
                 expect(firstBody).toContain(`client_secret=secret%40123%21%23%24%25%5E%26%2A%28%29`);
 
                 // Check that special characters are properly encoded in the second token request body (call index 3)
-                const secondBody = mockFetch.mock.calls[3][1]?.body as string;
+                const secondBody = mockFetch.mock.calls[3]![1]?.body as string;
                 expect(secondBody).toContain(`grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer`);
                 expect(secondBody).toContain(`assertion=auth-grant-token`);
                 expect(secondBody).toContain(`scope=${encodeURIComponent(xaaOptions.scope!.join(' '))}`);

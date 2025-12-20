@@ -662,7 +662,7 @@ describe('withCrossAppAccess', () => {
             })
         );
 
-        const callArgs = mockFetch.mock.calls[0];
+        const callArgs = mockFetch.mock.calls[0]!;
         const headers = callArgs[1]?.headers as Headers;
         expect(headers.get('Authorization')).toBe('Bearer test-token');
     });
