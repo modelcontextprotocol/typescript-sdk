@@ -17,7 +17,7 @@ import {
     InMemoryTaskStore,
     isInitializeRequest,
     McpServer,
-    StreamableHTTPServerTransport
+    NodeStreamableHTTPServerTransport
 } from '@modelcontextprotocol/server';
 import { createMcpExpressApp, mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/server-express';
 import type { Request, Response } from 'express';
@@ -588,7 +588,7 @@ if (useOAuth) {
 }
 
 // Map to store transports by session ID
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
 
 // MCP POST endpoint with optional auth
 const mcpPostHandler = async (req: Request, res: Response) => {
@@ -603,14 +603,14 @@ const mcpPostHandler = async (req: Request, res: Response) => {
         console.log('Authenticated user:', req.auth);
     }
     try {
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
         if (sessionId && transports[sessionId]) {
             // Reuse existing transport
             transport = transports[sessionId];
         } else if (!sessionId && isInitializeRequest(req.body)) {
             // New initialization request
             const eventStore = new InMemoryEventStore();
-            transport = new StreamableHTTPServerTransport({
+            transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore, // Enable resumability
                 onsessioninitialized: sessionId => {

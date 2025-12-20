@@ -10,7 +10,7 @@ import {
     ListResourcesResultSchema,
     ListToolsResultSchema,
     McpServer,
-    StreamableHTTPServerTransport
+    NodeStreamableHTTPServerTransport
 } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
@@ -69,7 +69,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             // Create transport with or without session management
-            const serverTransport = new StreamableHTTPServerTransport({
+            const serverTransport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: withSessionManagement
                     ? () => randomUUID() // With session management, generate UUID
                     : undefined // Without session management, return undefined
@@ -90,7 +90,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         describe('Stateless Mode', () => {
             let server: Server;
             let mcpServer: McpServer;
-            let serverTransport: StreamableHTTPServerTransport;
+            let serverTransport: NodeStreamableHTTPServerTransport;
             let baseUrl: URL;
 
             beforeEach(async () => {
@@ -254,7 +254,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         describe('Stateful Mode', () => {
             let server: Server;
             let mcpServer: McpServer;
-            let serverTransport: StreamableHTTPServerTransport;
+            let serverTransport: NodeStreamableHTTPServerTransport;
             let baseUrl: URL;
 
             beforeEach(async () => {

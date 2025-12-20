@@ -71,7 +71,7 @@ When deploying MCP servers in a horizontally scaled environment (multiple server
 
 ### Stateless mode
 
-To enable stateless mode, configure the `StreamableHTTPServerTransport` with:
+To enable stateless mode, configure the `NodeStreamableHTTPServerTransport` with:
 
 ```typescript
 sessionIdGenerator: undefined;

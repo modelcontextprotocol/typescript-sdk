@@ -4,7 +4,7 @@
  * This is the core transport implementation using Web Standard APIs (Request, Response, ReadableStream).
  * It can run on any runtime that supports Web Standards: Node.js 18+, Cloudflare Workers, Deno, Bun, etc.
  *
- * For Node.js Express/HTTP compatibility, use `StreamableHTTPServerTransport` which wraps this transport.
+ * For Node.js Express/HTTP compatibility, use `NodeStreamableHTTPServerTransport` which wraps this transport.
  */
 
 import { TextEncoder } from 'node:util';

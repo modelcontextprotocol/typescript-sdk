@@ -32,13 +32,13 @@ const app = createMcpExpressApp(); // default host is 127.0.0.1; protection enab
 ### Streamable HTTP endpoint (Express)
 
 ```ts
-import { McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { McpServer, NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
 
 const app = createMcpExpressApp();
 
 app.post('/mcp', async (req, res) => {
-    const transport = new StreamableHTTPServerTransport();
+    const transport = new NodeStreamableHTTPServerTransport();
     await transport.handleRequest(req, res, req.body);
 });
 ```

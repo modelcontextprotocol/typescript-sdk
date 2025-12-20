@@ -15,7 +15,7 @@ import {
     McpError,
     McpServer,
     RELATED_TASK_META_KEY,
-    StreamableHTTPServerTransport,
+    NodeStreamableHTTPServerTransport,
     TaskSchema
 } from '@modelcontextprotocol/server';
 import { listenOnRandomPort, waitForTaskStatus } from '@modelcontextprotocol/test-helpers';
@@ -24,7 +24,7 @@ import { z } from 'zod';
 describe('Task Lifecycle Integration Tests', () => {
     let server: Server;
     let mcpServer: McpServer;
-    let serverTransport: StreamableHTTPServerTransport;
+    let serverTransport: NodeStreamableHTTPServerTransport;
     let baseUrl: URL;
     let taskStore: InMemoryTaskStore;
 
@@ -189,7 +189,7 @@ describe('Task Lifecycle Integration Tests', () => {
         );
 
         // Create transport
-        serverTransport = new StreamableHTTPServerTransport({
+        serverTransport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID()
         });
 

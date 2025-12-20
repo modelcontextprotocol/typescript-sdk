@@ -8,7 +8,7 @@ import {
     InMemoryEventStore,
     LoggingMessageNotificationSchema,
     McpServer,
-    StreamableHTTPServerTransport
+    NodeStreamableHTTPServerTransport
 } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
@@ -18,7 +18,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     describe('Transport resumability', () => {
         let server: Server;
         let mcpServer: McpServer;
-        let serverTransport: StreamableHTTPServerTransport;
+        let serverTransport: NodeStreamableHTTPServerTransport;
         let baseUrl: URL;
         let eventStore: InMemoryEventStore;
 
@@ -84,7 +84,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             // Create a transport with the event store
-            serverTransport = new StreamableHTTPServerTransport({
+            serverTransport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore
             });

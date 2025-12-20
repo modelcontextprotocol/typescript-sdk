@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { isInitializeRequest, McpServer, SSEServerTransport, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer, SSEServerTransport, NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
@@ -76,7 +76,7 @@ const getServer = () => {
 const app = createMcpExpressApp();
 
 // Store transports by session ID
-const transports: Record<string, StreamableHTTPServerTransport | SSEServerTransport> = {};
+const transports: Record<string, NodeStreamableHTTPServerTransport | SSEServerTransport> = {};
 
 //=============================================================================
 // STREAMABLE HTTP TRANSPORT (PROTOCOL VERSION 2025-11-25)
@@ -89,16 +89,16 @@ app.all('/mcp', async (req: Request, res: Response) => {
     try {
         // Check for existing session ID
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
 
         if (sessionId && transports[sessionId]) {
             // Check if the transport is of the correct type
             const existingTransport = transports[sessionId];
-            if (existingTransport instanceof StreamableHTTPServerTransport) {
+            if (existingTransport instanceof NodeStreamableHTTPServerTransport) {
                 // Reuse existing transport
                 transport = existingTransport;
             } else {
-                // Transport exists but is not a StreamableHTTPServerTransport (could be SSEServerTransport)
+                // Transport exists but is not a NodeStreamableHTTPServerTransport (could be SSEServerTransport)
                 res.status(400).json({
                     jsonrpc: '2.0',
                     error: {
@@ -111,7 +111,7 @@ app.all('/mcp', async (req: Request, res: Response) => {
             }
         } else if (!sessionId && req.method === 'POST' && isInitializeRequest(req.body)) {
             const eventStore = new InMemoryEventStore();
-            transport = new StreamableHTTPServerTransport({
+            transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore, // Enable resumability
                 onsessioninitialized: sessionId => {
@@ -186,7 +186,7 @@ app.post('/messages', async (req: Request, res: Response) => {
         // Reuse existing transport
         transport = existingTransport;
     } else {
-        // Transport exists but is not a SSEServerTransport (could be StreamableHTTPServerTransport)
+        // Transport exists but is not a SSEServerTransport (could be NodeStreamableHTTPServerTransport)
         res.status(400).json({
             jsonrpc: '2.0',
             error: {

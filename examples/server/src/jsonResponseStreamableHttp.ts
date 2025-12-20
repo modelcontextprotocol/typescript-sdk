@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { isInitializeRequest, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer, NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
@@ -97,21 +97,21 @@ const getServer = () => {
 const app = createMcpExpressApp();
 
 // Map to store transports by session ID
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
 
 app.post('/mcp', async (req: Request, res: Response) => {
     console.log('Received MCP request:', req.body);
     try {
         // Check for existing session ID
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
 
         if (sessionId && transports[sessionId]) {
             // Reuse existing transport
             transport = transports[sessionId];
         } else if (!sessionId && isInitializeRequest(req.body)) {
             // New initialization request - use JSON response mode
-            transport = new StreamableHTTPServerTransport({
+            transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 enableJsonResponse: true, // Enable JSON response mode
                 onsessioninitialized: sessionId => {

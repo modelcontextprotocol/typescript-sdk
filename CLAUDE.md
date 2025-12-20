@@ -224,7 +224,7 @@ mcpServer.tool('tool-name', { param: z.string() }, async ({ param }, extra) => {
 
 ```typescript
 // Server
-const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
+const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
 await server.connect(transport);
 
 // Client

@@ -1,5 +1,6 @@
 {
     "name": "@modelcontextprotocol/server-express",
+    "private": false,
     "version": "2.0.0-alpha.0",
     "description": "Express adapters for the Model Context Protocol TypeScript server SDK",
     "license": "MIT",

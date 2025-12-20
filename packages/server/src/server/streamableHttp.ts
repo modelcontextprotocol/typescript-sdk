@@ -17,11 +17,11 @@ import type { WebStandardStreamableHTTPServerTransportOptions } from './webStand
 import { WebStandardStreamableHTTPServerTransport } from './webStandardStreamableHttp.js';
 
 /**
- * Configuration options for StreamableHTTPServerTransport
+ * Configuration options for NodeStreamableHTTPServerTransport
  *
  * This is an alias for WebStandardStreamableHTTPServerTransportOptions for backward compatibility.
  */
-export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServerTransportOptions;
+export type NodeStreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServerTransportOptions;
 
 type NodeToWebRequestOptions = {
     parsedBody?: unknown;
@@ -139,12 +139,12 @@ function writeWebResponse(res: ServerResponse, webResponse: Response): Promise<v
  *
  * ```typescript
  * // Stateful mode - server sets the session ID
- * const statefulTransport = new StreamableHTTPServerTransport({
+ * const statefulTransport = new NodeStreamableHTTPServerTransport({
  *   sessionIdGenerator: () => randomUUID(),
  * });
  *
  * // Stateless mode - explicitly set session ID to undefined
- * const statelessTransport = new StreamableHTTPServerTransport({
+ * const statelessTransport = new NodeStreamableHTTPServerTransport({
  *   sessionIdGenerator: undefined,
  * });
  *
@@ -165,10 +165,10 @@ function writeWebResponse(res: ServerResponse, webResponse: Response): Promise<v
  * - No Session ID is included in any responses
  * - No session validation is performed
  */
-export class StreamableHTTPServerTransport implements Transport {
+export class NodeStreamableHTTPServerTransport implements Transport {
     private _webStandardTransport: WebStandardStreamableHTTPServerTransport;
 
-    constructor(options: StreamableHTTPServerTransportOptions = {}) {
+    constructor(options: NodeStreamableHTTPServerTransportOptions = {}) {
         this._webStandardTransport = new WebStandardStreamableHTTPServerTransport(options);
     }
 

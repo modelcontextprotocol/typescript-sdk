@@ -16,7 +16,7 @@ import {
     getOAuthProtectedResourceMetadataUrl,
     isInitializeRequest,
     McpServer,
-    StreamableHTTPServerTransport,
+    NodeStreamableHTTPServerTransport,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/server';
 import { createMcpExpressApp, mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/server-express';
@@ -592,7 +592,7 @@ app.post('/confirm-payment', express.urlencoded(), (req: Request, res: Response)
 });
 
 // Map to store transports by session ID
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
 
 // Interface for a function that can send an elicitation request
 type ElicitationSender = (params: ElicitRequestURLParams) => Promise<ElicitResult>;
@@ -611,7 +611,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
     console.debug(`Received MCP POST for session: ${sessionId || 'unknown'}`);
 
     try {
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
         if (sessionId && transports[sessionId]) {
             // Reuse existing transport
             transport = transports[sessionId];
@@ -619,7 +619,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             const server = getServer();
             // New initialization request
             const eventStore = new InMemoryEventStore();
-            transport = new StreamableHTTPServerTransport({
+            transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore, // Enable resumability
                 onsessioninitialized: sessionId => {
