@@ -1,14 +1,18 @@
-import type { OAuthClientInformationFull, OAuthMetadata, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
-import type { AuthInfo } from '@modelcontextprotocol/core';
-import { InvalidTokenError } from '@modelcontextprotocol/core';
-import type { Response } from 'express';
+import type {
+    AuthInfo,
+    OAuthClientInformationFull,
+    OAuthMetadata,
+    OAuthTokenRevocationRequest,
+    OAuthTokens
+} from '@modelcontextprotocol/server';
+import { InvalidTokenError } from '@modelcontextprotocol/server';
 import express from 'express';
 import supertest from 'supertest';
 
-import type { OAuthRegisteredClientsStore } from '../../../src/server/auth/clients.js';
-import type { AuthorizationParams, OAuthServerProvider } from '../../../src/server/auth/provider.js';
-import type { AuthMetadataOptions, AuthRouterOptions } from '../../../src/server/auth/router.js';
-import { mcpAuthMetadataRouter, mcpAuthRouter } from '../../../src/server/auth/router.js';
+import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/server';
+import type { AuthorizationParams, OAuthServerProvider } from '@modelcontextprotocol/server';
+import type { AuthMetadataOptions, AuthRouterOptions } from '@modelcontextprotocol/server';
+import { mcpAuthMetadataRouter, mcpAuthRouter } from '../../../src/auth/router.js';
 
 describe('MCP Auth Router', () => {
     // Setup mock provider with full capabilities
@@ -32,13 +36,13 @@ describe('MCP Auth Router', () => {
     const mockProvider: OAuthServerProvider = {
         clientsStore: mockClientStore,
 
-        async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
+        async authorize(_client: OAuthClientInformationFull, params: AuthorizationParams): Promise<Response> {
             const redirectUrl = new URL(params.redirectUri);
             redirectUrl.searchParams.set('code', 'mock_auth_code');
             if (params.state) {
                 redirectUrl.searchParams.set('state', params.state);
             }
-            res.redirect(302, redirectUrl.toString());
+            return Response.redirect(redirectUrl.toString(), 302);
         },
 
         async challengeForAuthorizationCode(): Promise<string> {
@@ -95,13 +99,13 @@ describe('MCP Auth Router', () => {
             }
         },
 
-        async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
+        async authorize(_client: OAuthClientInformationFull, params: AuthorizationParams): Promise<Response> {
             const redirectUrl = new URL(params.redirectUri);
             redirectUrl.searchParams.set('code', 'mock_auth_code');
             if (params.state) {
                 redirectUrl.searchParams.set('state', params.state);
             }
-            res.redirect(302, redirectUrl.toString());
+            return Response.redirect(redirectUrl.toString(), 302);
         },
 
         async challengeForAuthorizationCode(): Promise<string> {

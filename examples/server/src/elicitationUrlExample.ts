@@ -13,15 +13,13 @@ import { setupAuthServer } from '@modelcontextprotocol/examples-shared';
 import type { CallToolResult, ElicitRequestURLParams, ElicitResult, OAuthMetadata } from '@modelcontextprotocol/server';
 import {
     checkResourceAllowed,
-    createMcpExpressApp,
     getOAuthProtectedResourceMetadataUrl,
     isInitializeRequest,
-    mcpAuthMetadataRouter,
     McpServer,
-    requireBearerAuth,
     StreamableHTTPServerTransport,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/server';
+import { createMcpExpressApp, mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/server-express';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';

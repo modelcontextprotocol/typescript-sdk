@@ -45,11 +45,6 @@
     },
     "dependencies": {
         "content-type": "catalog:runtimeServerOnly",
-        "cors": "catalog:runtimeServerOnly",
-        "@hono/node-server": "catalog:runtimeServerOnly",
-        "hono": "catalog:runtimeServerOnly",
-        "express": "catalog:runtimeServerOnly",
-        "express-rate-limit": "catalog:runtimeServerOnly",
         "raw-body": "catalog:runtimeServerOnly",
         "pkce-challenge": "catalog:runtimeShared",
         "zod": "catalog:runtimeShared",

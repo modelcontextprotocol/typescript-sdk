@@ -6,17 +6,22 @@ import {
     TooManyRequestsError,
     UnsupportedGrantTypeError
 } from '@modelcontextprotocol/core';
-import cors from 'cors';
-import type { RequestHandler } from 'express';
-import express from 'express';
-import type { Options as RateLimitOptions } from 'express-rate-limit';
-import { rateLimit } from 'express-rate-limit';
 import { verifyChallenge } from 'pkce-challenge';
 import * as z from 'zod/v4';
 
-import { allowedMethods } from '../middleware/allowedMethods.js';
 import { authenticateClient } from '../middleware/clientAuth.js';
 import type { OAuthServerProvider } from '../provider.js';
+import type { WebHandler } from '../web.js';
+import {
+    corsHeaders,
+    corsPreflightResponse,
+    getClientAddress,
+    getParsedBody,
+    InMemoryRateLimiter,
+    jsonResponse,
+    methodNotAllowedResponse,
+    noStoreHeaders
+} from '../web.js';
 
 export type TokenHandlerOptions = {
     provider: OAuthServerProvider;
@@ -24,7 +29,7 @@ export type TokenHandlerOptions = {
      * Rate limiting configuration for the token endpoint.
      * Set to false to disable rate limiting for this endpoint.
      */
-    rateLimit?: Partial<RateLimitOptions> | false;
+    rateLimit?: Partial<{ windowMs: number; max: number }> | false;
 };
 
 const TokenRequestSchema = z.object({
@@ -44,53 +49,65 @@ const RefreshTokenGrantSchema = z.object({
     resource: z.string().url().optional()
 });
 
-export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHandlerOptions): RequestHandler {
-    // Nested router so we can configure middleware and restrict HTTP method
-    const router = express.Router();
+export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHandlerOptions): WebHandler {
+    const limiter =
+        rateLimitConfig === false
+            ? undefined
+            : new InMemoryRateLimiter({
+                  windowMs: rateLimitConfig?.windowMs ?? 15 * 60 * 1000,
+                  max: rateLimitConfig?.max ?? 50
+              });
 
-    // Configure CORS to allow any origin, to make accessible to web-based MCP clients
-    router.use(cors());
+    const cors = {
+        allowOrigin: '*',
+        allowMethods: ['POST', 'OPTIONS'],
+        allowHeaders: ['Content-Type', 'Authorization'],
+        maxAgeSeconds: 60 * 60 * 24
+    } as const;
 
-    router.use(allowedMethods(['POST']));
-    router.use(express.urlencoded({ extended: false }));
+    return async (req, ctx) => {
+        const baseHeaders = { ...corsHeaders(cors), ...noStoreHeaders() };
 
-    // Apply rate limiting unless explicitly disabled
-    if (rateLimitConfig !== false) {
-        router.use(
-            rateLimit({
-                windowMs: 15 * 60 * 1000, // 15 minutes
-                max: 50, // 50 requests per windowMs
-                standardHeaders: true,
-                legacyHeaders: false,
-                message: new TooManyRequestsError('You have exceeded the rate limit for token requests').toResponseObject(),
-                ...rateLimitConfig
-            })
-        );
-    }
+        if (req.method === 'OPTIONS') {
+            return corsPreflightResponse(cors);
+        }
+        if (req.method !== 'POST') {
+            const resp = methodNotAllowedResponse(req, ['POST', 'OPTIONS']);
+            const body = await resp.text();
+            return new Response(body, {
+                status: resp.status,
+                headers: { ...Object.fromEntries(resp.headers.entries()), ...baseHeaders }
+            });
+        }
 
-    // Authenticate and extract client details
-    router.use(authenticateClient({ clientsStore: provider.clientsStore }));
-
-    router.post('/', async (req, res) => {
-        res.setHeader('Cache-Control', 'no-store');
+        if (limiter) {
+            const key = `${getClientAddress(req, ctx) ?? 'global'}:token`;
+            const rl = limiter.consume(key);
+            if (!rl.allowed) {
+                return jsonResponse(new TooManyRequestsError('You have exceeded the rate limit for token requests').toResponseObject(), {
+                    status: 429,
+                    headers: {
+                        ...baseHeaders,
+                        ...(rl.retryAfterSeconds ? { 'Retry-After': String(rl.retryAfterSeconds) } : {})
+                    }
+                });
+            }
+        }
 
         try {
-            const parseResult = TokenRequestSchema.safeParse(req.body);
+            const rawBody = await getParsedBody(req, ctx);
+            const parseResult = TokenRequestSchema.safeParse(rawBody);
             if (!parseResult.success) {
                 throw new InvalidRequestError(parseResult.error.message);
             }
 
             const { grant_type } = parseResult.data;
 
-            const client = req.client;
-            if (!client) {
-                // This should never happen
-                throw new ServerError('Internal Server Error');
-            }
+            const client = await authenticateClient(rawBody, { clientsStore: provider.clientsStore });
 
             switch (grant_type) {
                 case 'authorization_code': {
-                    const parseResult = AuthorizationCodeGrantSchema.safeParse(req.body);
+                    const parseResult = AuthorizationCodeGrantSchema.safeParse(rawBody);
                     if (!parseResult.success) {
                         throw new InvalidRequestError(parseResult.error.message);
                     }
@@ -116,12 +133,11 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
                         redirect_uri,
                         resource ? new URL(resource) : undefined
                     );
-                    res.status(200).json(tokens);
-                    break;
+                    return jsonResponse(tokens, { status: 200, headers: baseHeaders });
                 }
 
                 case 'refresh_token': {
-                    const parseResult = RefreshTokenGrantSchema.safeParse(req.body);
+                    const parseResult = RefreshTokenGrantSchema.safeParse(rawBody);
                     if (!parseResult.success) {
                         throw new InvalidRequestError(parseResult.error.message);
                     }
@@ -135,8 +151,7 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
                         scopes,
                         resource ? new URL(resource) : undefined
                     );
-                    res.status(200).json(tokens);
-                    break;
+                    return jsonResponse(tokens, { status: 200, headers: baseHeaders });
                 }
                 // Additional auth methods will not be added on the server side of the SDK.
                 case 'client_credentials':
@@ -146,13 +161,10 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
         } catch (error) {
             if (error instanceof OAuthError) {
                 const status = error instanceof ServerError ? 500 : 400;
-                res.status(status).json(error.toResponseObject());
-            } else {
-                const serverError = new ServerError('Internal Server Error');
-                res.status(500).json(serverError.toResponseObject());
+                return jsonResponse(error.toResponseObject(), { status, headers: baseHeaders });
             }
+            const serverError = new ServerError('Internal Server Error');
+            return jsonResponse(serverError.toResponseObject(), { status: 500, headers: baseHeaders });
         }
-    });
-
-    return router;
+    };
 }

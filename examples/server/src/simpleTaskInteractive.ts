@@ -35,7 +35,6 @@ import type {
 } from '@modelcontextprotocol/server';
 import {
     CallToolRequestSchema,
-    createMcpExpressApp,
     GetTaskPayloadRequestSchema,
     GetTaskRequestSchema,
     InMemoryTaskStore,
@@ -45,6 +44,7 @@ import {
     Server,
     StreamableHTTPServerTransport
 } from '@modelcontextprotocol/server';
+import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
 import type { Request, Response } from 'express';
 
 // ============================================================================

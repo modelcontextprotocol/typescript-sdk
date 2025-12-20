@@ -8,14 +8,19 @@ import {
     ServerError,
     TooManyRequestsError
 } from '@modelcontextprotocol/core';
-import cors from 'cors';
-import type { RequestHandler } from 'express';
-import express from 'express';
-import type { Options as RateLimitOptions } from 'express-rate-limit';
-import { rateLimit } from 'express-rate-limit';
 
 import type { OAuthRegisteredClientsStore } from '../clients.js';
-import { allowedMethods } from '../middleware/allowedMethods.js';
+import type { WebHandler } from '../web.js';
+import {
+    corsHeaders,
+    corsPreflightResponse,
+    getClientAddress,
+    getParsedBody,
+    InMemoryRateLimiter,
+    jsonResponse,
+    methodNotAllowedResponse,
+    noStoreHeaders
+} from '../web.js';
 
 export type ClientRegistrationHandlerOptions = {
     /**
@@ -35,7 +40,7 @@ export type ClientRegistrationHandlerOptions = {
      * Set to false to disable rate limiting for this endpoint.
      * Registration endpoints are particularly sensitive to abuse and should be rate limited.
      */
-    rateLimit?: Partial<RateLimitOptions> | false;
+    rateLimit?: Partial<{ windowMs: number; max: number }> | false;
 
     /**
      * Whether to generate a client ID before calling the client registration endpoint.
@@ -52,39 +57,61 @@ export function clientRegistrationHandler({
     clientSecretExpirySeconds = DEFAULT_CLIENT_SECRET_EXPIRY_SECONDS,
     rateLimit: rateLimitConfig,
     clientIdGeneration = true
-}: ClientRegistrationHandlerOptions): RequestHandler {
+}: ClientRegistrationHandlerOptions): WebHandler {
     if (!clientsStore.registerClient) {
         throw new Error('Client registration store does not support registering clients');
     }
 
-    // Nested router so we can configure middleware and restrict HTTP method
-    const router = express.Router();
+    const limiter =
+        rateLimitConfig === false
+            ? undefined
+            : new InMemoryRateLimiter({
+                  windowMs: rateLimitConfig?.windowMs ?? 60 * 60 * 1000,
+                  max: rateLimitConfig?.max ?? 20
+              });
 
-    // Configure CORS to allow any origin, to make accessible to web-based MCP clients
-    router.use(cors());
+    const cors = {
+        allowOrigin: '*',
+        allowMethods: ['POST', 'OPTIONS'],
+        allowHeaders: ['Content-Type', 'Authorization'],
+        maxAgeSeconds: 60 * 60 * 24
+    } as const;
 
-    router.use(allowedMethods(['POST']));
-    router.use(express.json());
+    return async (req, ctx) => {
+        const baseHeaders = { ...corsHeaders(cors), ...noStoreHeaders() };
 
-    // Apply rate limiting unless explicitly disabled - stricter limits for registration
-    if (rateLimitConfig !== false) {
-        router.use(
-            rateLimit({
-                windowMs: 60 * 60 * 1000, // 1 hour
-                max: 20, // 20 requests per hour - stricter as registration is sensitive
-                standardHeaders: true,
-                legacyHeaders: false,
-                message: new TooManyRequestsError('You have exceeded the rate limit for client registration requests').toResponseObject(),
-                ...rateLimitConfig
-            })
-        );
-    }
+        if (req.method === 'OPTIONS') {
+            return corsPreflightResponse(cors);
+        }
+        if (req.method !== 'POST') {
+            const resp = methodNotAllowedResponse(req, ['POST', 'OPTIONS']);
+            const body = await resp.text();
+            return new Response(body, {
+                status: resp.status,
+                headers: { ...Object.fromEntries(resp.headers.entries()), ...baseHeaders }
+            });
+        }
 
-    router.post('/', async (req, res) => {
-        res.setHeader('Cache-Control', 'no-store');
+        if (limiter) {
+            const key = `${getClientAddress(req, ctx) ?? 'global'}:register`;
+            const rl = limiter.consume(key);
+            if (!rl.allowed) {
+                return jsonResponse(
+                    new TooManyRequestsError('You have exceeded the rate limit for client registration requests').toResponseObject(),
+                    {
+                        status: 429,
+                        headers: {
+                            ...baseHeaders,
+                            ...(rl.retryAfterSeconds ? { 'Retry-After': String(rl.retryAfterSeconds) } : {})
+                        }
+                    }
+                );
+            }
+        }
 
         try {
-            const parseResult = OAuthClientMetadataSchema.safeParse(req.body);
+            const rawBody = await getParsedBody(req, ctx);
+            const parseResult = OAuthClientMetadataSchema.safeParse(rawBody);
             if (!parseResult.success) {
                 throw new InvalidClientMetadataError(parseResult.error.message);
             }
@@ -113,17 +140,14 @@ export function clientRegistrationHandler({
             }
 
             clientInfo = await clientsStore.registerClient!(clientInfo);
-            res.status(201).json(clientInfo);
+            return jsonResponse(clientInfo, { status: 201, headers: baseHeaders });
         } catch (error) {
             if (error instanceof OAuthError) {
                 const status = error instanceof ServerError ? 500 : 400;
-                res.status(status).json(error.toResponseObject());
-            } else {
-                const serverError = new ServerError('Internal Server Error');
-                res.status(500).json(serverError.toResponseObject());
+                return jsonResponse(error.toResponseObject(), { status, headers: baseHeaders });
             }
+            const serverError = new ServerError('Internal Server Error');
+            return jsonResponse(serverError.toResponseObject(), { status: 500, headers: baseHeaders });
         }
-    });
-
-    return router;
+    };
 }

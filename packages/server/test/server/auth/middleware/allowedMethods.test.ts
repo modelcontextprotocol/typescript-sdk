@@ -1,77 +1,29 @@
-import type { Request, Response } from 'express';
-import express from 'express';
-import request from 'supertest';
-
 import { allowedMethods } from '../../../../src/server/auth/middleware/allowedMethods.js';
 
 describe('allowedMethods', () => {
-    let app: express.Express;
+    test('returns undefined for allowed HTTP method', () => {
+        const req = new Request('http://localhost/test', { method: 'GET' });
+        const res = allowedMethods(['GET'], req);
+        expect(res).toBeUndefined();
+    });
 
-    beforeEach(() => {
-        app = express();
-
-        // Set up a test router with a GET handler and 405 middleware
-        const router = express.Router();
-
-        router.get('/test', (req, res) => {
-            res.status(200).send('GET success');
+    test('returns 405 response for disallowed HTTP method', async () => {
+        const req = new Request('http://localhost/test', { method: 'POST' });
+        const res = allowedMethods(['GET'], req);
+        expect(res).toBeDefined();
+        expect(res!.status).toBe(405);
+        expect(res!.headers.get('allow')).toBe('GET');
+        expect(await res!.json()).toEqual({
+            error: 'method_not_allowed',
+            error_description: 'The method POST is not allowed for this endpoint'
         });
-
-        // Add method not allowed middleware for all other methods
-        router.all('/test', allowedMethods(['GET']));
-
-        app.use(router);
     });
 
-    test('allows specified HTTP method', async () => {
-        const response = await request(app).get('/test');
-        expect(response.status).toBe(200);
-        expect(response.text).toBe('GET success');
-    });
-
-    test('returns 405 for unspecified HTTP methods', async () => {
-        const methods = ['post', 'put', 'delete', 'patch'];
-
-        for (const method of methods) {
-            // @ts-expect-error - dynamic method call
-            const response = await request(app)[method]('/test');
-            expect(response.status).toBe(405);
-            expect(response.body).toEqual({
-                error: 'method_not_allowed',
-                error_description: `The method ${method.toUpperCase()} is not allowed for this endpoint`
-            });
-        }
-    });
-
-    test('includes Allow header with specified methods', async () => {
-        const response = await request(app).post('/test');
-        expect(response.headers.allow).toBe('GET');
-    });
-
-    test('works with multiple allowed methods', async () => {
-        const multiMethodApp = express();
-        const router = express.Router();
-
-        router.get('/multi', (req: Request, res: Response) => {
-            res.status(200).send('GET');
-        });
-        router.post('/multi', (req: Request, res: Response) => {
-            res.status(200).send('POST');
-        });
-        router.all('/multi', allowedMethods(['GET', 'POST']));
-
-        multiMethodApp.use(router);
-
-        // Allowed methods should work
-        const getResponse = await request(multiMethodApp).get('/multi');
-        expect(getResponse.status).toBe(200);
-
-        const postResponse = await request(multiMethodApp).post('/multi');
-        expect(postResponse.status).toBe(200);
-
-        // Unallowed methods should return 405
-        const putResponse = await request(multiMethodApp).put('/multi');
-        expect(putResponse.status).toBe(405);
-        expect(putResponse.headers.allow).toBe('GET, POST');
+    test('supports multiple allowed methods', async () => {
+        const req = new Request('http://localhost/test', { method: 'PUT' });
+        const res = allowedMethods(['GET', 'POST'], req);
+        expect(res).toBeDefined();
+        expect(res!.status).toBe(405);
+        expect(res!.headers.get('allow')).toBe('GET, POST');
     });
 });

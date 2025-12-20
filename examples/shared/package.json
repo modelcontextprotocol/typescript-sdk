@@ -35,6 +35,7 @@
     },
     "dependencies": {
         "@modelcontextprotocol/server": "workspace:^",
+        "@modelcontextprotocol/server-express": "workspace:^",
         "express": "catalog:runtimeServerOnly"
     },
     "devDependencies": {

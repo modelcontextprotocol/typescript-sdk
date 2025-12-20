@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import type { ReadResourceResult } from '@modelcontextprotocol/server';
-import { createMcpExpressApp, isInitializeRequest, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
 import type { Request, Response } from 'express';
 
 // Create an MCP server with implementation details

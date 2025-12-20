@@ -1,12 +1,9 @@
 import { InvalidClientError, InvalidRequestError, OAuthError, ServerError, TooManyRequestsError } from '@modelcontextprotocol/core';
-import type { RequestHandler } from 'express';
-import express from 'express';
-import type { Options as RateLimitOptions } from 'express-rate-limit';
-import { rateLimit } from 'express-rate-limit';
 import * as z from 'zod/v4';
 
-import { allowedMethods } from '../middleware/allowedMethods.js';
 import type { OAuthServerProvider } from '../provider.js';
+import type { WebHandler } from '../web.js';
+import { getClientAddress, getParsedBody, InMemoryRateLimiter, jsonResponse, methodNotAllowedResponse, noStoreHeaders } from '../web.js';
 
 export type AuthorizationHandlerOptions = {
     provider: OAuthServerProvider;
@@ -14,7 +11,7 @@ export type AuthorizationHandlerOptions = {
      * Rate limiting configuration for the authorization endpoint.
      * Set to false to disable rate limiting for this endpoint.
      */
-    rateLimit?: Partial<RateLimitOptions> | false;
+    rateLimit?: Partial<{ windowMs: number; max: number }> | false;
 };
 
 // Parameters that must be validated in order to issue redirects.
@@ -36,28 +33,44 @@ const RequestAuthorizationParamsSchema = z.object({
     resource: z.string().url().optional()
 });
 
-export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: AuthorizationHandlerOptions): RequestHandler {
-    // Create a router to apply middleware
-    const router = express.Router();
-    router.use(allowedMethods(['GET', 'POST']));
-    router.use(express.urlencoded({ extended: false }));
+export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: AuthorizationHandlerOptions): WebHandler {
+    const limiter =
+        rateLimitConfig === false
+            ? undefined
+            : new InMemoryRateLimiter({
+                  windowMs: rateLimitConfig?.windowMs ?? 15 * 60 * 1000,
+                  max: rateLimitConfig?.max ?? 100
+              });
 
-    // Apply rate limiting unless explicitly disabled
-    if (rateLimitConfig !== false) {
-        router.use(
-            rateLimit({
-                windowMs: 15 * 60 * 1000, // 15 minutes
-                max: 100, // 100 requests per windowMs
-                standardHeaders: true,
-                legacyHeaders: false,
-                message: new TooManyRequestsError('You have exceeded the rate limit for authorization requests').toResponseObject(),
-                ...rateLimitConfig
-            })
-        );
-    }
+    return async (req, ctx) => {
+        const noStore = noStoreHeaders();
 
-    router.all('/', async (req, res) => {
-        res.setHeader('Cache-Control', 'no-store');
+        // Rate limit by client address where possible (best-effort).
+        if (limiter) {
+            const key = `${getClientAddress(req, ctx) ?? 'global'}:authorize`;
+            const rl = limiter.consume(key);
+            if (!rl.allowed) {
+                return jsonResponse(
+                    new TooManyRequestsError('You have exceeded the rate limit for authorization requests').toResponseObject(),
+                    {
+                        status: 429,
+                        headers: {
+                            ...noStore,
+                            ...(rl.retryAfterSeconds ? { 'Retry-After': String(rl.retryAfterSeconds) } : {})
+                        }
+                    }
+                );
+            }
+        }
+
+        if (req.method !== 'GET' && req.method !== 'POST') {
+            const resp = methodNotAllowedResponse(req, ['GET', 'POST']);
+            const body = await resp.text();
+            return new Response(body, {
+                status: resp.status,
+                headers: { ...Object.fromEntries(resp.headers.entries()), ...noStore }
+            });
+        }
 
         // In the authorization flow, errors are split into two categories:
         // 1. Pre-redirect errors (direct response with 400)
@@ -66,7 +79,9 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
         // Phase 1: Validate client_id and redirect_uri. Any errors here must be direct responses.
         let client_id, redirect_uri, client;
         try {
-            const result = ClientAuthorizationParamsSchema.safeParse(req.method === 'POST' ? req.body : req.query);
+            const source =
+                req.method === 'POST' ? await getParsedBody(req, ctx) : Object.fromEntries(new URL(req.url).searchParams.entries());
+            const result = ClientAuthorizationParamsSchema.safeParse(source);
             if (!result.success) {
                 throw new InvalidRequestError(result.error.message);
             }
@@ -97,20 +112,20 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
             // user anyway.
             if (error instanceof OAuthError) {
                 const status = error instanceof ServerError ? 500 : 400;
-                res.status(status).json(error.toResponseObject());
+                return jsonResponse(error.toResponseObject(), { status, headers: noStore });
             } else {
                 const serverError = new ServerError('Internal Server Error');
-                res.status(500).json(serverError.toResponseObject());
+                return jsonResponse(serverError.toResponseObject(), { status: 500, headers: noStore });
             }
-
-            return;
         }
 
         // Phase 2: Validate other parameters. Any errors here should go into redirect responses.
         let state;
         try {
             // Parse and validate authorization parameters
-            const parseResult = RequestAuthorizationParamsSchema.safeParse(req.method === 'POST' ? req.body : req.query);
+            const source =
+                req.method === 'POST' ? await getParsedBody(req, ctx) : Object.fromEntries(new URL(req.url).searchParams.entries());
+            const parseResult = RequestAuthorizationParamsSchema.safeParse(source);
             if (!parseResult.success) {
                 throw new InvalidRequestError(parseResult.error.message);
             }
@@ -125,29 +140,28 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
             }
 
             // All validation passed, proceed with authorization
-            await provider.authorize(
-                client,
-                {
-                    state,
-                    scopes: requestedScopes,
-                    redirectUri: redirect_uri!, // TODO: Someone to look at. Strict tsconfig showed this could be undefined, while the return type is string.
-                    codeChallenge: code_challenge,
-                    resource: resource ? new URL(resource) : undefined
-                },
-                res
-            );
+            const providerResponse = await provider.authorize(client, {
+                state,
+                scopes: requestedScopes,
+                redirectUri: redirect_uri!, // TODO: Someone to look at. Strict tsconfig showed this could be undefined, while the return type is string.
+                codeChallenge: code_challenge,
+                resource: resource ? new URL(resource) : undefined
+            });
+            const headers = new Headers(providerResponse.headers);
+            headers.set('Cache-Control', 'no-store');
+            return new Response(providerResponse.body, { status: providerResponse.status, headers });
         } catch (error) {
             // Post-redirect errors - redirect with error parameters
             if (error instanceof OAuthError) {
-                res.redirect(302, createErrorRedirect(redirect_uri!, error, state));
+                const location = createErrorRedirect(redirect_uri!, error, state);
+                return new Response(null, { status: 302, headers: { Location: location, ...noStore } });
             } else {
                 const serverError = new ServerError('Internal Server Error');
-                res.redirect(302, createErrorRedirect(redirect_uri!, serverError, state));
+                const location = createErrorRedirect(redirect_uri!, serverError, state);
+                return new Response(null, { status: 302, headers: { Location: location, ...noStore } });
             }
         }
-    });
-
-    return router;
+    };
 }
 
 /**

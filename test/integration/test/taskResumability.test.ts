@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import type { Server } from 'node:http';
+import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import {

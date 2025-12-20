@@ -11,17 +11,15 @@ import type {
 } from '@modelcontextprotocol/server';
 import {
     checkResourceAllowed,
-    createMcpExpressApp,
     ElicitResultSchema,
     getOAuthProtectedResourceMetadataUrl,
     InMemoryTaskMessageQueue,
     InMemoryTaskStore,
     isInitializeRequest,
-    mcpAuthMetadataRouter,
     McpServer,
-    requireBearerAuth,
     StreamableHTTPServerTransport
 } from '@modelcontextprotocol/server';
+import { createMcpExpressApp, mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/server-express';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 

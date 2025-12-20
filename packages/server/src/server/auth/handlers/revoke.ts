@@ -5,15 +5,20 @@ import {
     ServerError,
     TooManyRequestsError
 } from '@modelcontextprotocol/core';
-import cors from 'cors';
-import type { RequestHandler } from 'express';
-import express from 'express';
-import type { Options as RateLimitOptions } from 'express-rate-limit';
-import { rateLimit } from 'express-rate-limit';
 
-import { allowedMethods } from '../middleware/allowedMethods.js';
 import { authenticateClient } from '../middleware/clientAuth.js';
 import type { OAuthServerProvider } from '../provider.js';
+import type { WebHandler } from '../web.js';
+import {
+    corsHeaders,
+    corsPreflightResponse,
+    getClientAddress,
+    getParsedBody,
+    InMemoryRateLimiter,
+    jsonResponse,
+    methodNotAllowedResponse,
+    noStoreHeaders
+} from '../web.js';
 
 export type RevocationHandlerOptions = {
     provider: OAuthServerProvider;
@@ -21,67 +26,79 @@ export type RevocationHandlerOptions = {
      * Rate limiting configuration for the token revocation endpoint.
      * Set to false to disable rate limiting for this endpoint.
      */
-    rateLimit?: Partial<RateLimitOptions> | false;
+    rateLimit?: Partial<{ windowMs: number; max: number }> | false;
 };
 
-export function revocationHandler({ provider, rateLimit: rateLimitConfig }: RevocationHandlerOptions): RequestHandler {
+export function revocationHandler({ provider, rateLimit: rateLimitConfig }: RevocationHandlerOptions): WebHandler {
     if (!provider.revokeToken) {
         throw new Error('Auth provider does not support revoking tokens');
     }
 
-    // Nested router so we can configure middleware and restrict HTTP method
-    const router = express.Router();
+    const limiter =
+        rateLimitConfig === false
+            ? undefined
+            : new InMemoryRateLimiter({
+                  windowMs: rateLimitConfig?.windowMs ?? 15 * 60 * 1000,
+                  max: rateLimitConfig?.max ?? 50
+              });
 
-    // Configure CORS to allow any origin, to make accessible to web-based MCP clients
-    router.use(cors());
+    const cors = {
+        allowOrigin: '*',
+        allowMethods: ['POST', 'OPTIONS'],
+        allowHeaders: ['Content-Type', 'Authorization'],
+        maxAgeSeconds: 60 * 60 * 24
+    } as const;
 
-    router.use(allowedMethods(['POST']));
-    router.use(express.urlencoded({ extended: false }));
+    return async (req, ctx) => {
+        const baseHeaders = { ...corsHeaders(cors), ...noStoreHeaders() };
 
-    // Apply rate limiting unless explicitly disabled
-    if (rateLimitConfig !== false) {
-        router.use(
-            rateLimit({
-                windowMs: 15 * 60 * 1000, // 15 minutes
-                max: 50, // 50 requests per windowMs
-                standardHeaders: true,
-                legacyHeaders: false,
-                message: new TooManyRequestsError('You have exceeded the rate limit for token revocation requests').toResponseObject(),
-                ...rateLimitConfig
-            })
-        );
-    }
+        if (req.method === 'OPTIONS') {
+            return corsPreflightResponse(cors);
+        }
+        if (req.method !== 'POST') {
+            const resp = methodNotAllowedResponse(req, ['POST', 'OPTIONS']);
+            const body = await resp.text();
+            return new Response(body, {
+                status: resp.status,
+                headers: { ...Object.fromEntries(resp.headers.entries()), ...baseHeaders }
+            });
+        }
 
-    // Authenticate and extract client details
-    router.use(authenticateClient({ clientsStore: provider.clientsStore }));
-
-    router.post('/', async (req, res) => {
-        res.setHeader('Cache-Control', 'no-store');
+        if (limiter) {
+            const key = `${getClientAddress(req, ctx) ?? 'global'}:revoke`;
+            const rl = limiter.consume(key);
+            if (!rl.allowed) {
+                return jsonResponse(
+                    new TooManyRequestsError('You have exceeded the rate limit for token revocation requests').toResponseObject(),
+                    {
+                        status: 429,
+                        headers: {
+                            ...baseHeaders,
+                            ...(rl.retryAfterSeconds ? { 'Retry-After': String(rl.retryAfterSeconds) } : {})
+                        }
+                    }
+                );
+            }
+        }
 
         try {
-            const parseResult = OAuthTokenRevocationRequestSchema.safeParse(req.body);
+            const rawBody = await getParsedBody(req, ctx);
+            const parseResult = OAuthTokenRevocationRequestSchema.safeParse(rawBody);
             if (!parseResult.success) {
                 throw new InvalidRequestError(parseResult.error.message);
             }
 
-            const client = req.client;
-            if (!client) {
-                // This should never happen
-                throw new ServerError('Internal Server Error');
-            }
+            const client = await authenticateClient(rawBody, { clientsStore: provider.clientsStore });
 
             await provider.revokeToken!(client, parseResult.data);
-            res.status(200).json({});
+            return jsonResponse({}, { status: 200, headers: baseHeaders });
         } catch (error) {
             if (error instanceof OAuthError) {
                 const status = error instanceof ServerError ? 500 : 400;
-                res.status(status).json(error.toResponseObject());
-            } else {
-                const serverError = new ServerError('Internal Server Error');
-                res.status(500).json(serverError.toResponseObject());
+                return jsonResponse(error.toResponseObject(), { status, headers: baseHeaders });
             }
+            const serverError = new ServerError('Internal Server Error');
+            return jsonResponse(serverError.toResponseObject(), { status: 500, headers: baseHeaders });
         }
-    });
-
-    return router;
+    };
 }

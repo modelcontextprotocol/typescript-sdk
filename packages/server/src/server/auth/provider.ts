@@ -1,5 +1,4 @@
 import type { AuthInfo, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
-import type { Response } from 'express';
 
 import type { OAuthRegisteredClientsStore } from './clients.js';
 
@@ -27,7 +26,7 @@ export interface OAuthServerProvider {
      * - In the successful case, the redirect MUST include the `code` and `state` (if present) query parameters.
      * - In the error case, the redirect MUST include the `error` query parameter, and MAY include an optional `error_description` query parameter.
      */
-    authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void>;
+    authorize(client: OAuthClientInformationFull, params: AuthorizationParams): Promise<Response>;
 
     /**
      * Returns the `codeChallenge` that was used when the indicated authorization began.

@@ -9,8 +9,9 @@ import type {
     OAuthServerProvider,
     OAuthTokens
 } from '@modelcontextprotocol/server';
-import { createOAuthMetadata, InvalidRequestError, mcpAuthRouter, resourceUrlFromServerUrl } from '@modelcontextprotocol/server';
-import type { Request, Response } from 'express';
+import { createOAuthMetadata, InvalidRequestError, resourceUrlFromServerUrl } from '@modelcontextprotocol/server';
+import { mcpAuthRouter } from '@modelcontextprotocol/server-express';
+import type { Request, Response as ExpressResponse } from 'express';
 import express from 'express';
 
 export class DemoInMemoryClientsStore implements OAuthRegisteredClientsStore {
@@ -47,7 +48,7 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
 
     constructor(private validateResource?: (resource?: URL) => boolean) {}
 
-    async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
+    async authorize(client: OAuthClientInformationFull, params: AuthorizationParams): Promise<Response> {
         const code = randomUUID();
 
         const searchParams = new URLSearchParams({
@@ -64,27 +65,24 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
 
         // Simulate a user login
         // Set a secure HTTP-only session cookie with authorization info
-        if (res.cookie) {
-            const authCookieData = {
-                userId: 'demo_user',
-                name: 'Demo User',
-                timestamp: Date.now()
-            };
-            res.cookie('demo_session', JSON.stringify(authCookieData), {
-                httpOnly: true,
-                secure: false, // In production, this should be true
-                sameSite: 'lax',
-                maxAge: 24 * 60 * 60 * 1000, // 24 hours - for demo purposes
-                path: '/' // Available to all routes
-            });
-        }
+        const authCookieData = {
+            userId: 'demo_user',
+            name: 'Demo User',
+            timestamp: Date.now()
+        };
+        const cookieValue = encodeURIComponent(JSON.stringify(authCookieData));
+        const maxAgeSeconds = 24 * 60 * 60; // 24 hours - demo only
+        const setCookie = `demo_session=${cookieValue}; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}; Path=/`;
 
         if (!client.redirect_uris.includes(params.redirectUri)) {
             throw new InvalidRequestError('Unregistered redirect_uri');
         }
         const targetUrl = new URL(params.redirectUri);
         targetUrl.search = searchParams.toString();
-        res.redirect(targetUrl.toString());
+        const redirectResponse = Response.redirect(targetUrl.toString(), 302);
+        const headers = new Headers(redirectResponse.headers);
+        headers.append('Set-Cookie', setCookie);
+        return new Response(null, { status: redirectResponse.status, headers });
     }
 
     async challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
@@ -204,7 +202,7 @@ export const setupAuthServer = ({
         })
     );
 
-    authApp.post('/introspect', async (req: Request, res: Response) => {
+    authApp.post('/introspect', async (req: Request, res: ExpressResponse) => {
         try {
             const { token } = req.body;
             if (!token) {

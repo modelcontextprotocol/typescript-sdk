@@ -38,6 +38,8 @@
         "hono": "catalog:runtimeServerOnly",
         "@modelcontextprotocol/examples-shared": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
+        "@modelcontextprotocol/server-express": "workspace:^",
+        "@modelcontextprotocol/server-hono": "workspace:^",
         "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly",
         "zod": "catalog:runtimeShared"

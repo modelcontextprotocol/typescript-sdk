@@ -1,6 +1,9 @@
 # MCP TypeScript SDK Examples (Server)
 
-This directory contains runnable MCP **server** examples built with `@modelcontextprotocol/server`.
+This directory contains runnable MCP **server** examples built with `@modelcontextprotocol/server` plus framework adapters:
+
+- `@modelcontextprotocol/server-express`
+- `@modelcontextprotocol/server-hono`
 
 For client examples, see [`../client/README.md`](../client/README.md). For guided docs, see [`../../docs/server.md`](../../docs/server.md).
 

@@ -1,21 +1,33 @@
 import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/core';
-import cors from 'cors';
-import type { RequestHandler } from 'express';
-import express from 'express';
 
-import { allowedMethods } from '../middleware/allowedMethods.js';
+import type { WebHandler } from '../web.js';
+import { corsHeaders, corsPreflightResponse, jsonResponse, methodNotAllowedResponse } from '../web.js';
 
-export function metadataHandler(metadata: OAuthMetadata | OAuthProtectedResourceMetadata): RequestHandler {
-    // Nested router so we can configure middleware and restrict HTTP method
-    const router = express.Router();
+export function metadataHandler(metadata: OAuthMetadata | OAuthProtectedResourceMetadata): WebHandler {
+    const cors = {
+        allowOrigin: '*',
+        allowMethods: ['GET', 'OPTIONS'],
+        allowHeaders: ['Content-Type', 'Authorization'],
+        maxAgeSeconds: 60 * 60 * 24
+    } as const;
 
-    // Configure CORS to allow any origin, to make accessible to web-based MCP clients
-    router.use(cors());
+    return async req => {
+        if (req.method === 'OPTIONS') {
+            return corsPreflightResponse(cors);
+        }
+        if (req.method !== 'GET') {
+            const resp = methodNotAllowedResponse(req, ['GET', 'OPTIONS']);
+            // Add CORS headers for consistency with successful responses.
+            const body = await resp.text();
+            return new Response(body, {
+                status: resp.status,
+                headers: { ...Object.fromEntries(resp.headers.entries()), ...corsHeaders(cors) }
+            });
+        }
 
-    router.use(allowedMethods(['GET', 'OPTIONS']));
-    router.get('/', (req, res) => {
-        res.status(200).json(metadata);
-    });
-
-    return router;
+        return jsonResponse(metadata, {
+            status: 200,
+            headers: corsHeaders(cors)
+        });
+    };
 }

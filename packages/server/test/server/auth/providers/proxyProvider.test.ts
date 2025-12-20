@@ -1,6 +1,5 @@
 import type { AuthInfo, OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/core';
 import { InsufficientScopeError, InvalidTokenError, ServerError } from '@modelcontextprotocol/core';
-import type { Response } from 'express';
 import { type Mock } from 'vitest';
 
 import type { ProxyOptions } from '../../../../src/server/auth/providers/proxyProvider.js';
@@ -13,11 +12,6 @@ describe('Proxy OAuth Server Provider', () => {
         client_secret: 'test-secret',
         redirect_uris: ['https://example.com/callback']
     };
-
-    // Mock response object
-    const mockResponse = {
-        redirect: vi.fn()
-    } as unknown as Response;
 
     // Mock provider functions
     const mockVerifyToken = vi.fn();
@@ -81,17 +75,13 @@ describe('Proxy OAuth Server Provider', () => {
 
     describe('authorization', () => {
         it('redirects to authorization endpoint with correct parameters', async () => {
-            await provider.authorize(
-                validClient,
-                {
-                    redirectUri: 'https://example.com/callback',
-                    codeChallenge: 'test-challenge',
-                    state: 'test-state',
-                    scopes: ['read', 'write'],
-                    resource: new URL('https://api.example.com/resource')
-                },
-                mockResponse
-            );
+            const response = await provider.authorize(validClient, {
+                redirectUri: 'https://example.com/callback',
+                codeChallenge: 'test-challenge',
+                state: 'test-state',
+                scopes: ['read', 'write'],
+                resource: new URL('https://api.example.com/resource')
+            });
 
             const expectedUrl = new URL('https://auth.example.com/authorize');
             expectedUrl.searchParams.set('client_id', 'test-client');
@@ -103,7 +93,8 @@ describe('Proxy OAuth Server Provider', () => {
             expectedUrl.searchParams.set('scope', 'read write');
             expectedUrl.searchParams.set('resource', 'https://api.example.com/resource');
 
-            expect(mockResponse.redirect).toHaveBeenCalledWith(expectedUrl.toString());
+            expect(response.status).toBe(302);
+            expect(response.headers.get('location')).toBe(expectedUrl.toString());
         });
     });
 

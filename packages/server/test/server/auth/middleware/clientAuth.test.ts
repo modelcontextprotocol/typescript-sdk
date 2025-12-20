@@ -1,12 +1,11 @@
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/core';
-import express from 'express';
-import supertest from 'supertest';
+import { InvalidClientError, InvalidRequestError } from '@modelcontextprotocol/core';
 
 import type { OAuthRegisteredClientsStore } from '../../../../src/server/auth/clients.js';
 import type { ClientAuthenticationMiddlewareOptions } from '../../../../src/server/auth/middleware/clientAuth.js';
 import { authenticateClient } from '../../../../src/server/auth/middleware/clientAuth.js';
 
-describe('clientAuth middleware', () => {
+describe('authenticateClient', () => {
     // Mock client store
     const mockClientStore: OAuthRegisteredClientsStore = {
         async getClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {
@@ -35,100 +34,92 @@ describe('clientAuth middleware', () => {
         }
     };
 
-    // Setup Express app with middleware
-    let app: express.Express;
     let options: ClientAuthenticationMiddlewareOptions;
 
     beforeEach(() => {
-        app = express();
-        app.use(express.json());
-
         options = {
             clientsStore: mockClientStore
         };
-
-        // Setup route with client auth
-        app.post('/protected', authenticateClient(options), (req, res) => {
-            res.status(200).json({ success: true, client: req.client });
-        });
     });
 
     it('authenticates valid client credentials', async () => {
-        const response = await supertest(app).post('/protected').send({
-            client_id: 'valid-client',
-            client_secret: 'valid-secret'
-        });
+        const client = await authenticateClient(
+            {
+                client_id: 'valid-client',
+                client_secret: 'valid-secret'
+            },
+            options
+        );
 
-        expect(response.status).toBe(200);
-        expect(response.body.success).toBe(true);
-        expect(response.body.client.client_id).toBe('valid-client');
+        expect(client.client_id).toBe('valid-client');
     });
 
     it('rejects invalid client_id', async () => {
-        const response = await supertest(app).post('/protected').send({
-            client_id: 'non-existent-client',
-            client_secret: 'some-secret'
-        });
-
-        expect(response.status).toBe(400);
-        expect(response.body.error).toBe('invalid_client');
-        expect(response.body.error_description).toBe('Invalid client_id');
+        await expect(
+            authenticateClient(
+                {
+                    client_id: 'non-existent-client',
+                    client_secret: 'some-secret'
+                },
+                options
+            )
+        ).rejects.toBeInstanceOf(InvalidClientError);
     });
 
     it('rejects invalid client_secret', async () => {
-        const response = await supertest(app).post('/protected').send({
-            client_id: 'valid-client',
-            client_secret: 'wrong-secret'
-        });
-
-        expect(response.status).toBe(400);
-        expect(response.body.error).toBe('invalid_client');
-        expect(response.body.error_description).toBe('Invalid client_secret');
+        await expect(
+            authenticateClient(
+                {
+                    client_id: 'valid-client',
+                    client_secret: 'wrong-secret'
+                },
+                options
+            )
+        ).rejects.toBeInstanceOf(InvalidClientError);
     });
 
     it('rejects missing client_id', async () => {
-        const response = await supertest(app).post('/protected').send({
-            client_secret: 'valid-secret'
-        });
-
-        expect(response.status).toBe(400);
-        expect(response.body.error).toBe('invalid_request');
+        await expect(
+            authenticateClient(
+                {
+                    client_secret: 'valid-secret'
+                },
+                options
+            )
+        ).rejects.toBeInstanceOf(InvalidRequestError);
     });
 
     it('allows missing client_secret if client has none', async () => {
-        const response = await supertest(app).post('/protected').send({
-            client_id: 'expired-client'
-        });
-
-        // Since the client has no secret, this should pass without providing one
-        expect(response.status).toBe(200);
+        const client = await authenticateClient(
+            {
+                client_id: 'expired-client'
+            },
+            options
+        );
+        expect(client.client_id).toBe('expired-client');
     });
 
     it('rejects request when client secret has expired', async () => {
-        const response = await supertest(app).post('/protected').send({
-            client_id: 'client-with-expired-secret',
-            client_secret: 'expired-secret'
-        });
-
-        expect(response.status).toBe(400);
-        expect(response.body.error).toBe('invalid_client');
-        expect(response.body.error_description).toBe('Client secret has expired');
+        await expect(
+            authenticateClient(
+                {
+                    client_id: 'client-with-expired-secret',
+                    client_secret: 'expired-secret'
+                },
+                options
+            )
+        ).rejects.toBeInstanceOf(InvalidClientError);
     });
 
-    it('handles malformed request body', async () => {
-        const response = await supertest(app).post('/protected').send('not-json-format');
-
-        expect(response.status).toBe(400);
-    });
-
-    // Testing request with extra fields to ensure they're ignored
     it('ignores extra fields in request', async () => {
-        const response = await supertest(app).post('/protected').send({
-            client_id: 'valid-client',
-            client_secret: 'valid-secret',
-            extra_field: 'should be ignored'
-        });
-
-        expect(response.status).toBe(200);
+        const client = await authenticateClient(
+            {
+                client_id: 'valid-client',
+                client_secret: 'valid-secret',
+                extra_field: 'ignored'
+            },
+            options
+        );
+        expect(client.client_id).toBe('valid-client');
     });
 });

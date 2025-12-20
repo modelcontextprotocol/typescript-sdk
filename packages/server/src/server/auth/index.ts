@@ -10,3 +10,4 @@ export * from './middleware/clientAuth.js';
 export * from './provider.js';
 export * from './providers/proxyProvider.js';
 export * from './router.js';
+export * from './web.js';

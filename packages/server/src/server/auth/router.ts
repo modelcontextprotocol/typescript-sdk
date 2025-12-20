@@ -1,6 +1,4 @@
 import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/core';
-import type { RequestHandler } from 'express';
-import express from 'express';
 
 import type { AuthorizationHandlerOptions } from './handlers/authorize.js';
 import { authorizationHandler } from './handlers/authorize.js';
@@ -12,6 +10,7 @@ import { revocationHandler } from './handlers/revoke.js';
 import type { TokenHandlerOptions } from './handlers/token.js';
 import { tokenHandler } from './handlers/token.js';
 import type { OAuthServerProvider } from './provider.js';
+import type { WebHandler } from './web.js';
 
 // Check for dev mode flag that allows HTTP issuer URLs (for development/testing only)
 const allowInsecureIssuerUrl =
@@ -65,6 +64,24 @@ export type AuthRouterOptions = {
     clientRegistrationOptions?: Omit<ClientRegistrationHandlerOptions, 'clientsStore'>;
     revocationOptions?: Omit<RevocationHandlerOptions, 'provider'>;
     tokenOptions?: Omit<TokenHandlerOptions, 'provider'>;
+};
+
+export type AuthRoute = {
+    path: string;
+    methods: string[];
+    handler: WebHandler;
+};
+
+export type WebAuthRouter = {
+    /**
+     * List of concrete routes (absolute paths) that should be mounted at the application root.
+     */
+    routes: AuthRoute[];
+
+    /**
+     * Convenience dispatcher that matches on `new URL(req.url).pathname` and calls the correct handler.
+     */
+    handle: WebHandler;
 };
 
 const checkIssuerUrl = (issuer: URL): void => {
@@ -126,53 +143,62 @@ export const createOAuthMetadata = (options: {
  * Note: if your MCP server is only a resource server and not an authorization server, use mcpAuthMetadataRouter instead.
  *
  * By default, rate limiting is applied to all endpoints to prevent abuse.
- *
- * This router MUST be installed at the application root, like so:
- *
- *  const app = express();
- *  app.use(mcpAuthRouter(...));
  */
-export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
+export function mcpAuthRouter(options: AuthRouterOptions): WebAuthRouter {
     const oauthMetadata = createOAuthMetadata(options);
+    const routes: AuthRoute[] = [];
 
-    const router = express.Router();
+    routes.push({
+        path: new URL(oauthMetadata.authorization_endpoint).pathname,
+        methods: ['GET', 'POST'],
+        handler: authorizationHandler({ provider: options.provider, ...options.authorizationOptions })
+    });
 
-    router.use(
-        new URL(oauthMetadata.authorization_endpoint).pathname,
-        authorizationHandler({ provider: options.provider, ...options.authorizationOptions })
-    );
+    routes.push({
+        path: new URL(oauthMetadata.token_endpoint).pathname,
+        methods: ['POST', 'OPTIONS'],
+        handler: tokenHandler({ provider: options.provider, ...options.tokenOptions })
+    });
 
-    router.use(new URL(oauthMetadata.token_endpoint).pathname, tokenHandler({ provider: options.provider, ...options.tokenOptions }));
-
-    router.use(
-        mcpAuthMetadataRouter({
-            oauthMetadata,
-            // Prefer explicit RS; otherwise fall back to AS baseUrl, then to issuer (back-compat)
-            resourceServerUrl: options.resourceServerUrl ?? options.baseUrl ?? new URL(oauthMetadata.issuer),
-            serviceDocumentationUrl: options.serviceDocumentationUrl,
-            scopesSupported: options.scopesSupported,
-            resourceName: options.resourceName
-        })
-    );
+    const metadataRouter = mcpAuthMetadataRouter({
+        oauthMetadata,
+        // Prefer explicit RS; otherwise fall back to AS baseUrl, then to issuer (back-compat)
+        resourceServerUrl: options.resourceServerUrl ?? options.baseUrl ?? new URL(oauthMetadata.issuer),
+        serviceDocumentationUrl: options.serviceDocumentationUrl,
+        scopesSupported: options.scopesSupported,
+        resourceName: options.resourceName
+    });
+    routes.push(...metadataRouter.routes);
 
     if (oauthMetadata.registration_endpoint) {
-        router.use(
-            new URL(oauthMetadata.registration_endpoint).pathname,
-            clientRegistrationHandler({
+        routes.push({
+            path: new URL(oauthMetadata.registration_endpoint).pathname,
+            methods: ['POST', 'OPTIONS'],
+            handler: clientRegistrationHandler({
                 clientsStore: options.provider.clientsStore,
                 ...options.clientRegistrationOptions
             })
-        );
+        });
     }
 
     if (oauthMetadata.revocation_endpoint) {
-        router.use(
-            new URL(oauthMetadata.revocation_endpoint).pathname,
-            revocationHandler({ provider: options.provider, ...options.revocationOptions })
-        );
+        routes.push({
+            path: new URL(oauthMetadata.revocation_endpoint).pathname,
+            methods: ['POST', 'OPTIONS'],
+            handler: revocationHandler({ provider: options.provider, ...options.revocationOptions })
+        });
     }
 
-    return router;
+    const handle: WebHandler = async (req, ctx) => {
+        const pathname = new URL(req.url).pathname;
+        const route = routes.find(r => r.path === pathname);
+        if (!route) {
+            return new Response('Not Found', { status: 404 });
+        }
+        return route.handler(req, ctx);
+    };
+
+    return { routes, handle };
 }
 
 export type AuthMetadataOptions = {
@@ -203,10 +229,8 @@ export type AuthMetadataOptions = {
     resourceName?: string;
 };
 
-export function mcpAuthMetadataRouter(options: AuthMetadataOptions): express.Router {
+export function mcpAuthMetadataRouter(options: AuthMetadataOptions): WebAuthRouter {
     checkIssuerUrl(new URL(options.oauthMetadata.issuer));
-
-    const router = express.Router();
 
     const protectedResourceMetadata: OAuthProtectedResourceMetadata = {
         resource: options.resourceServerUrl.href,
@@ -220,12 +244,24 @@ export function mcpAuthMetadataRouter(options: AuthMetadataOptions): express.Rou
 
     // Serve PRM at the path-specific URL per RFC 9728
     const rsPath = new URL(options.resourceServerUrl.href).pathname;
-    router.use(`/.well-known/oauth-protected-resource${rsPath === '/' ? '' : rsPath}`, metadataHandler(protectedResourceMetadata));
+    const prmPath = `/.well-known/oauth-protected-resource${rsPath === '/' ? '' : rsPath}`;
 
-    // Always add this for OAuth Authorization Server metadata per RFC 8414
-    router.use('/.well-known/oauth-authorization-server', metadataHandler(options.oauthMetadata));
+    const routes: AuthRoute[] = [
+        { path: prmPath, methods: ['GET', 'OPTIONS'], handler: metadataHandler(protectedResourceMetadata) },
+        // Always add this for OAuth Authorization Server metadata per RFC 8414
+        { path: '/.well-known/oauth-authorization-server', methods: ['GET', 'OPTIONS'], handler: metadataHandler(options.oauthMetadata) }
+    ];
 
-    return router;
+    const handle: WebHandler = async (req, ctx) => {
+        const pathname = new URL(req.url).pathname;
+        const route = routes.find(r => r.path === pathname);
+        if (!route) {
+            return new Response('Not Found', { status: 404 });
+        }
+        return route.handler(req, ctx);
+    };
+
+    return { routes, handle };
 }
 
 /**

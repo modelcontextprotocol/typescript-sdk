@@ -98,9 +98,6 @@ catalogs:
     express:
       specifier: ^5.0.1
       version: 5.1.0
-    express-rate-limit:
-      specifier: ^7.5.0
-      version: 7.5.1
     hono:
       specifier: ^4.11.1
       version: 4.11.1
@@ -302,6 +299,12 @@ importers:
       '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../../packages/server
+      '@modelcontextprotocol/server-express':
+        specifier: workspace:^
+        version: link:../../packages/server-express
+      '@modelcontextprotocol/server-hono':
+        specifier: workspace:^
+        version: link:../../packages/server-hono
       cors:
         specifier: catalog:runtimeServerOnly
         version: 2.8.5
@@ -339,6 +342,9 @@ importers:
       '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../../packages/server
+      '@modelcontextprotocol/server-express':
+        specifier: workspace:^
+        version: link:../../packages/server-express
       express:
         specifier: catalog:runtimeServerOnly
         version: 5.1.0
@@ -552,24 +558,9 @@ importers:
 
   packages/server:
     dependencies:
-      '@hono/node-server':
-        specifier: catalog:runtimeServerOnly
-        version: 1.19.7(hono@4.11.1)
       content-type:
         specifier: catalog:runtimeServerOnly
         version: 1.0.5
-      cors:
-        specifier: catalog:runtimeServerOnly
-        version: 2.8.5
-      express:
-        specifier: catalog:runtimeServerOnly
-        version: 5.1.0
-      express-rate-limit:
-        specifier: catalog:runtimeServerOnly
-        version: 7.5.1(express@5.1.0)
-      hono:
-        specifier: catalog:runtimeServerOnly
-        version: 4.11.1
       pkce-challenge:
         specifier: catalog:runtimeShared
         version: 5.0.0
@@ -659,6 +650,119 @@ importers:
         specifier: catalog:devTools
         version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
 
+  packages/server-express:
+    dependencies:
+      '@modelcontextprotocol/core':
+        specifier: workspace:^
+        version: link:../core
+      '@modelcontextprotocol/server':
+        specifier: workspace:^
+        version: link:../server
+      express:
+        specifier: catalog:runtimeServerOnly
+        version: 5.1.0
+    devDependencies:
+      '@eslint/js':
+        specifier: catalog:devTools
+        version: 9.39.1
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
+      '@modelcontextprotocol/vitest-config':
+        specifier: workspace:^
+        version: link:../../common/vitest-config
+      '@types/express':
+        specifier: catalog:devTools
+        version: 5.0.5
+      '@types/express-serve-static-core':
+        specifier: catalog:devTools
+        version: 5.1.0
+      '@types/supertest':
+        specifier: catalog:devTools
+        version: 6.0.3
+      '@typescript/native-preview':
+        specifier: catalog:devTools
+        version: 7.0.0-dev.20251218.3
+      eslint:
+        specifier: catalog:devTools
+        version: 9.39.1
+      eslint-config-prettier:
+        specifier: catalog:devTools
+        version: 10.1.8(eslint@9.39.1)
+      eslint-plugin-n:
+        specifier: catalog:devTools
+        version: 17.23.1(eslint@9.39.1)(typescript@5.9.3)
+      prettier:
+        specifier: catalog:devTools
+        version: 3.6.2
+      supertest:
+        specifier: catalog:devTools
+        version: 7.1.4
+      tsdown:
+        specifier: catalog:devTools
+        version: 0.18.0(@typescript/native-preview@7.0.0-dev.20251218.3)(typescript@5.9.3)
+      typescript:
+        specifier: catalog:devTools
+        version: 5.9.3
+      typescript-eslint:
+        specifier: catalog:devTools
+        version: 8.49.0(eslint@9.39.1)(typescript@5.9.3)
+      vitest:
+        specifier: catalog:devTools
+        version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
+
+  packages/server-hono:
+    dependencies:
+      '@modelcontextprotocol/server':
+        specifier: workspace:^
+        version: link:../server
+      hono:
+        specifier: catalog:runtimeServerOnly
+        version: 4.11.1
+    devDependencies:
+      '@eslint/js':
+        specifier: catalog:devTools
+        version: 9.39.1
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
+      '@modelcontextprotocol/vitest-config':
+        specifier: workspace:^
+        version: link:../../common/vitest-config
+      '@typescript/native-preview':
+        specifier: catalog:devTools
+        version: 7.0.0-dev.20251218.3
+      eslint:
+        specifier: catalog:devTools
+        version: 9.39.1
+      eslint-config-prettier:
+        specifier: catalog:devTools
+        version: 10.1.8(eslint@9.39.1)
+      eslint-plugin-n:
+        specifier: catalog:devTools
+        version: 17.23.1(eslint@9.39.1)(typescript@5.9.3)
+      prettier:
+        specifier: catalog:devTools
+        version: 3.6.2
+      tsdown:
+        specifier: catalog:devTools
+        version: 0.18.0(@typescript/native-preview@7.0.0-dev.20251218.3)(typescript@5.9.3)
+      typescript:
+        specifier: catalog:devTools
+        version: 5.9.3
+      typescript-eslint:
+        specifier: catalog:devTools
+        version: 8.49.0(eslint@9.39.1)(typescript@5.9.3)
+      vitest:
+        specifier: catalog:devTools
+        version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
+
   test/helpers:
     devDependencies:
       '@modelcontextprotocol/client':
@@ -700,6 +804,9 @@ importers:
       '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../../packages/server
+      '@modelcontextprotocol/server-express':
+        specifier: workspace:^
+        version: link:../../packages/server-express
       '@modelcontextprotocol/test-helpers':
         specifier: workspace:^
         version: link:../helpers
@@ -2089,12 +2196,6 @@ packages:
     resolution: {integrity: sha512-JhFGDVJ7tmDJItKhYgJCGLOWjuK9vPxiXoUFLwLDc99NlmklilbiQJwoctZtt13+xMw91MCk/REan6MWHqDjyA==}
     engines: {node: '>=12.0.0'}
 
-  express-rate-limit@7.5.1:
-    resolution: {integrity: sha512-7iN8iPMDzOMHPUYllBEsQdWVB6fPDMPqwjBaFrgr4Jgr/+okjvzAy+UHlYYL/Vs0OsOrMkwS6PJDkFlJwoxUnw==}
-    engines: {node: '>= 16'}
-    peerDependencies:
-      express: '>= 4.11'
-
   express@5.1.0:
     resolution: {integrity: sha512-DT9ck5YIRU+8GYzzU5kT3eHGA5iL+1Zd0EutOmTE9Dtk+Tvuzd23VBU+ec7HPNSTxXYO55gPV/hq4pSBJDjFpA==}
     engines: {node: '>= 18'}
@@ -2462,10 +2563,6 @@ packages:
 
   js-yaml@3.14.2:
     resolution: {integrity: sha512-PMSmkqxr106Xa156c2M265Z+FTrPl+oxd/rgOQy2tijQeK5TxQ43psO1ZCwhVOSdnn+RzkzlRz/eY4BgJBYVpg==}
-    hasBin: true
-
-  js-yaml@4.1.0:
-    resolution: {integrity: sha512-wpxZs9NoxZaJESJGIZTyDEaYpl0FKSA+FB9aJiyemKhMwkxQg63h4T1KJgUGHpTqPDNRcmmYLugrRjJlBtWvRA==}
     hasBin: true
 
   js-yaml@4.1.1:
@@ -3614,7 +3711,7 @@ snapshots:
       globals: 14.0.0
       ignore: 5.3.2
       import-fresh: 3.3.1
-      js-yaml: 4.1.0
+      js-yaml: 4.1.1
       minimatch: 3.1.2
       strip-json-comments: 3.1.1
     transitivePeerDependencies:
@@ -4762,10 +4859,6 @@ snapshots:
 
   expect-type@1.2.2: {}
 
-  express-rate-limit@7.5.1(express@5.1.0):
-    dependencies:
-      express: 5.1.0
-
   express@5.1.0:
     dependencies:
       accepts: 2.0.0
@@ -5171,10 +5264,6 @@ snapshots:
     dependencies:
       argparse: 1.0.10
       esprima: 4.0.1
-
-  js-yaml@4.1.0:
-    dependencies:
-      argparse: 2.0.1
 
   js-yaml@4.1.1:
     dependencies:

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import type { Server } from 'node:http';
+import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import {
@@ -11,8 +12,8 @@ import {
     McpServer,
     StreamableHTTPServerTransport
 } from '@modelcontextprotocol/server';
-import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
-import { type ZodMatrixEntry, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
+import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;

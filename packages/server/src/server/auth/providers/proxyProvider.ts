@@ -1,6 +1,5 @@
 import type { AuthInfo, FetchLike, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
 import { OAuthClientInformationFullSchema, OAuthTokensSchema, ServerError } from '@modelcontextprotocol/core';
-import type { Response } from 'express';
 
 import type { OAuthRegisteredClientsStore } from '../clients.js';
 import type { AuthorizationParams, OAuthServerProvider } from '../provider.js';
@@ -112,7 +111,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
         };
     }
 
-    async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
+    async authorize(client: OAuthClientInformationFull, params: AuthorizationParams): Promise<Response> {
         // Start with required OAuth parameters
         const targetUrl = new URL(this._endpoints.authorizationUrl);
         const searchParams = new URLSearchParams({
@@ -129,7 +128,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
         if (params.resource) searchParams.set('resource', params.resource.href);
 
         targetUrl.search = searchParams.toString();
-        res.redirect(targetUrl.toString());
+        return Response.redirect(targetUrl.toString(), 302);
     }
 
     async challengeForAuthorizationCode(_client: OAuthClientInformationFull, _authorizationCode: string): Promise<string> {

@@ -8,8 +8,9 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { Readable } from 'node:stream';
+import { URL } from 'node:url';
 
-import { getRequestListener } from '@hono/node-server';
 import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
 
 import type { WebStandardStreamableHTTPServerTransportOptions } from './webStandardStreamableHttp.js';
@@ -22,12 +23,117 @@ import { WebStandardStreamableHTTPServerTransport } from './webStandardStreamabl
  */
 export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServerTransportOptions;
 
+type NodeToWebRequestOptions = {
+    parsedBody?: unknown;
+};
+
+function getRequestUrl(req: IncomingMessage): URL {
+    const host = req.headers.host ?? 'localhost';
+    const isTls = Boolean((req.socket as { encrypted?: boolean } | undefined)?.encrypted);
+    const protocol = isTls ? 'https' : 'http';
+    const path = req.url ?? '/';
+    return new URL(path, `${protocol}://${host}`);
+}
+
+function toHeaders(req: IncomingMessage): Headers {
+    const headers = new Headers();
+    for (const [key, value] of Object.entries(req.headers)) {
+        if (value === undefined) continue;
+        if (Array.isArray(value)) {
+            // Preserve multi-value headers as a comma-joined value.
+            // (Set-Cookie does not appear on requests; this is fine here.)
+            headers.set(key, value.join(', '));
+        } else {
+            headers.set(key, value);
+        }
+    }
+    return headers;
+}
+
+async function readBody(req: IncomingMessage): Promise<Uint8Array> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
+}
+
+async function nodeToWebRequest(req: IncomingMessage, options?: NodeToWebRequestOptions): Promise<Request> {
+    const url = getRequestUrl(req);
+    const method = req.method ?? 'GET';
+    const headers = toHeaders(req);
+
+    // If an upstream framework already parsed the body, the IncomingMessage stream
+    // may be consumed; rely on parsedBody instead of trying to read again.
+    if (options?.parsedBody !== undefined) {
+        return new Request(url, { method, headers });
+    }
+
+    // Only attach bodies for methods that can carry one.
+    if (method === 'GET' || method === 'HEAD') {
+        return new Request(url, { method, headers });
+    }
+
+    const body = await readBody(req);
+    return new Request(url, { method, headers, body });
+}
+
+function writeWebResponse(res: ServerResponse, webResponse: Response): Promise<void> {
+    res.statusCode = webResponse.status;
+
+    // Prefer undici's multi Set-Cookie support when available.
+    // Note: must call with the correct `this` (undici brand-checks Headers).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const getSetCookie = (webResponse.headers as any).getSetCookie as (() => string[]) | undefined;
+    const setCookies = typeof getSetCookie === 'function' ? getSetCookie.call(webResponse.headers) : undefined;
+
+    for (const [key, value] of webResponse.headers.entries()) {
+        // We'll handle Set-Cookie separately if we have structured values.
+        if (key.toLowerCase() === 'set-cookie' && setCookies?.length) continue;
+        res.setHeader(key, value);
+    }
+
+    if (setCookies?.length) {
+        res.setHeader('set-cookie', setCookies);
+    }
+
+    // Node requires writing headers before streaming body.
+    res.flushHeaders?.();
+
+    if (!webResponse.body) {
+        res.end();
+        return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve, reject) => {
+        const readable = Readable.fromWeb(webResponse.body as unknown as ReadableStream);
+        readable.on('error', err => {
+            try {
+                res.destroy(err as Error);
+            } catch {
+                // ignore
+            }
+            reject(err);
+        });
+        res.on('error', reject);
+        res.on('close', () => {
+            try {
+                readable.destroy();
+            } catch {
+                // ignore
+            }
+        });
+        readable.pipe(res);
+        res.on('finish', () => resolve());
+    });
+}
+
 /**
  * Server transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
  * It supports both SSE streaming and direct HTTP responses.
  *
  * This is a wrapper around `WebStandardStreamableHTTPServerTransport` that provides Node.js HTTP compatibility.
- * It uses the `@hono/node-server` library to convert between Node.js HTTP and Web Standard APIs.
+ * It converts between Node.js HTTP (IncomingMessage/ServerResponse) and Web Standard Request/Response.
  *
  * Usage example:
  *
@@ -61,23 +167,9 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  */
 export class StreamableHTTPServerTransport implements Transport {
     private _webStandardTransport: WebStandardStreamableHTTPServerTransport;
-    private _requestListener: ReturnType<typeof getRequestListener>;
-    // Store auth and parsedBody per request for passing through to handleRequest
-    private _requestContext: WeakMap<Request, { authInfo?: AuthInfo; parsedBody?: unknown }> = new WeakMap();
 
     constructor(options: StreamableHTTPServerTransportOptions = {}) {
         this._webStandardTransport = new WebStandardStreamableHTTPServerTransport(options);
-
-        // Create a request listener that wraps the web standard transport
-        // getRequestListener converts Node.js HTTP to Web Standard and properly handles SSE streaming
-        this._requestListener = getRequestListener(async (webRequest: Request) => {
-            // Get context if available (set during handleRequest)
-            const context = this._requestContext.get(webRequest);
-            return this._webStandardTransport.handleRequest(webRequest, {
-                authInfo: context?.authInfo,
-                parsedBody: context?.parsedBody
-            });
-        });
     }
 
     /**
@@ -153,21 +245,13 @@ export class StreamableHTTPServerTransport implements Transport {
      * @param parsedBody - Optional pre-parsed body from body-parser middleware
      */
     async handleRequest(req: IncomingMessage & { auth?: AuthInfo }, res: ServerResponse, parsedBody?: unknown): Promise<void> {
-        // Store context for this request to pass through auth and parsedBody
-        // We need to intercept the request creation to attach this context
         const authInfo = req.auth;
-
-        // Create a custom handler that includes our context
-        const handler = getRequestListener(async (webRequest: Request) => {
-            return this._webStandardTransport.handleRequest(webRequest, {
-                authInfo,
-                parsedBody
-            });
+        const webRequest = await nodeToWebRequest(req, { parsedBody });
+        const webResponse = await this._webStandardTransport.handleRequest(webRequest, {
+            authInfo,
+            parsedBody
         });
-
-        // Delegate to the request listener which handles all the Node.js <-> Web Standard conversion
-        // including proper SSE streaming support
-        await handler(req, res);
+        await writeWebResponse(res, webResponse);
     }
 
     /**

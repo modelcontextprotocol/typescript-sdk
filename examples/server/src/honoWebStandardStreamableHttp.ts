@@ -10,6 +10,7 @@
 import { serve } from '@hono/node-server';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { mcpStreamableHttpHandler } from '@modelcontextprotocol/server-hono';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import * as z from 'zod/v4';
@@ -56,7 +57,7 @@ app.use(
 app.get('/health', c => c.json({ status: 'ok' }));
 
 // MCP endpoint
-app.all('/mcp', c => transport.handleRequest(c.req.raw));
+app.all('/mcp', mcpStreamableHttpHandler(transport));
 
 // Start the server
 const PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 3000;

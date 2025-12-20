@@ -1,5 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { createMcpExpressApp, McpServer, SSEServerTransport } from '@modelcontextprotocol/server';
+import { McpServer, SSEServerTransport } from '@modelcontextprotocol/server';
+import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 

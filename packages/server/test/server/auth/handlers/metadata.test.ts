@@ -1,6 +1,4 @@
 import type { OAuthMetadata } from '@modelcontextprotocol/core';
-import express from 'express';
-import supertest from 'supertest';
 
 import { metadataHandler } from '../../../../src/server/auth/handlers/metadata.js';
 
@@ -18,62 +16,65 @@ describe('Metadata Handler', () => {
         code_challenge_methods_supported: ['S256']
     };
 
-    let app: express.Express;
-
-    beforeEach(() => {
-        // Setup express app with metadata handler
-        app = express();
-        app.use('/.well-known/oauth-authorization-server', metadataHandler(exampleMetadata));
-    });
-
     it('requires GET method', async () => {
-        const response = await supertest(app).post('/.well-known/oauth-authorization-server').send({});
+        const handler = metadataHandler(exampleMetadata);
+        const res = await handler(new Request('http://localhost/.well-known/oauth-authorization-server', { method: 'POST' }));
 
-        expect(response.status).toBe(405);
-        expect(response.headers.allow).toBe('GET, OPTIONS');
-        expect(response.body).toEqual({
+        expect(res.status).toBe(405);
+        expect(res.headers.get('allow')).toBe('GET, OPTIONS');
+        expect(await res.json()).toEqual({
             error: 'method_not_allowed',
             error_description: 'The method POST is not allowed for this endpoint'
         });
     });
 
     it('returns the metadata object', async () => {
-        const response = await supertest(app).get('/.well-known/oauth-authorization-server');
+        const handler = metadataHandler(exampleMetadata);
+        const res = await handler(new Request('http://localhost/.well-known/oauth-authorization-server', { method: 'GET' }));
 
-        expect(response.status).toBe(200);
-        expect(response.body).toEqual(exampleMetadata);
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual(exampleMetadata);
     });
 
     it('includes CORS headers in response', async () => {
-        const response = await supertest(app).get('/.well-known/oauth-authorization-server').set('Origin', 'https://example.com');
+        const handler = metadataHandler(exampleMetadata);
+        const res = await handler(
+            new Request('http://localhost/.well-known/oauth-authorization-server', {
+                method: 'GET',
+                headers: { Origin: 'https://example.com' }
+            })
+        );
 
-        expect(response.header['access-control-allow-origin']).toBe('*');
+        expect(res.headers.get('access-control-allow-origin')).toBe('*');
     });
 
     it('supports OPTIONS preflight requests', async () => {
-        const response = await supertest(app)
-            .options('/.well-known/oauth-authorization-server')
-            .set('Origin', 'https://example.com')
-            .set('Access-Control-Request-Method', 'GET');
+        const handler = metadataHandler(exampleMetadata);
+        const res = await handler(
+            new Request('http://localhost/.well-known/oauth-authorization-server', {
+                method: 'OPTIONS',
+                headers: {
+                    Origin: 'https://example.com',
+                    'Access-Control-Request-Method': 'GET'
+                }
+            })
+        );
 
-        expect(response.status).toBe(204);
-        expect(response.header['access-control-allow-origin']).toBe('*');
+        expect(res.status).toBe(204);
+        expect(res.headers.get('access-control-allow-origin')).toBe('*');
     });
 
     it('works with minimal metadata', async () => {
-        // Setup a new express app with minimal metadata
-        const minimalApp = express();
         const minimalMetadata: OAuthMetadata = {
             issuer: 'https://auth.example.com',
             authorization_endpoint: 'https://auth.example.com/authorize',
             token_endpoint: 'https://auth.example.com/token',
             response_types_supported: ['code']
         };
-        minimalApp.use('/.well-known/oauth-authorization-server', metadataHandler(minimalMetadata));
+        const handler = metadataHandler(minimalMetadata);
+        const res = await handler(new Request('http://localhost/.well-known/oauth-authorization-server', { method: 'GET' }));
 
-        const response = await supertest(minimalApp).get('/.well-known/oauth-authorization-server');
-
-        expect(response.status).toBe(200);
-        expect(response.body).toEqual(minimalMetadata);
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual(minimalMetadata);
     });
 });

@@ -1,8 +1,8 @@
 import type { AuthInfo } from '@modelcontextprotocol/core';
 import { InsufficientScopeError, InvalidTokenError, OAuthError, ServerError } from '@modelcontextprotocol/core';
-import type { RequestHandler } from 'express';
 
 import type { OAuthTokenVerifier } from '../provider.js';
+import { jsonResponse } from '../web.js';
 
 export type BearerAuthMiddlewareOptions = {
     /**
@@ -21,83 +21,81 @@ export type BearerAuthMiddlewareOptions = {
     resourceMetadataUrl?: string;
 };
 
-declare module 'express-serve-static-core' {
-    interface Request {
-        /**
-         * Information about the validated access token, if the `requireBearerAuth` middleware was used.
-         */
-        auth?: AuthInfo;
-    }
-}
-
 /**
- * Middleware that requires a valid Bearer token in the Authorization header.
+ * Validates a Bearer token in the Authorization header.
  *
- * This will validate the token with the auth provider and add the resulting auth info to the request object.
- *
- * If resourceMetadataUrl is provided, it will be included in the WWW-Authenticate header
- * for 401 responses as per the OAuth 2.0 Protected Resource Metadata spec.
+ * Returns either `{ authInfo }` on success or `{ response }` on failure.
  */
-export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetadataUrl }: BearerAuthMiddlewareOptions): RequestHandler {
-    return async (req, res, next) => {
-        try {
-            const authHeader = req.headers.authorization;
-            if (!authHeader) {
-                throw new InvalidTokenError('Missing Authorization header');
-            }
+export async function requireBearerAuth(
+    req: Request,
+    { verifier, requiredScopes = [], resourceMetadataUrl }: BearerAuthMiddlewareOptions
+): Promise<{ authInfo: AuthInfo } | { response: Response }> {
+    try {
+        const authHeader = req.headers.get('authorization');
+        if (!authHeader) {
+            throw new InvalidTokenError('Missing Authorization header');
+        }
 
-            const [type, token] = authHeader.split(' ');
-            if (type!.toLowerCase() !== 'bearer' || !token) {
-                throw new InvalidTokenError("Invalid Authorization header format, expected 'Bearer TOKEN'");
-            }
+        const [type, token] = authHeader.split(' ');
+        if (type!.toLowerCase() !== 'bearer' || !token) {
+            throw new InvalidTokenError("Invalid Authorization header format, expected 'Bearer TOKEN'");
+        }
 
-            const authInfo = await verifier.verifyAccessToken(token);
+        const authInfo = await verifier.verifyAccessToken(token);
 
-            // Check if token has the required scopes (if any)
-            if (requiredScopes.length > 0) {
-                const hasAllScopes = requiredScopes.every(scope => authInfo.scopes.includes(scope));
+        // Check if token has the required scopes (if any)
+        if (requiredScopes.length > 0) {
+            const hasAllScopes = requiredScopes.every(scope => authInfo.scopes.includes(scope));
 
-                if (!hasAllScopes) {
-                    throw new InsufficientScopeError('Insufficient scope');
-                }
-            }
-
-            // Check if the token is set to expire or if it is expired
-            if (typeof authInfo.expiresAt !== 'number' || isNaN(authInfo.expiresAt)) {
-                throw new InvalidTokenError('Token has no expiration time');
-            } else if (authInfo.expiresAt < Date.now() / 1000) {
-                throw new InvalidTokenError('Token has expired');
-            }
-
-            req.auth = authInfo;
-            next();
-        } catch (error) {
-            // Build WWW-Authenticate header parts
-            const buildWwwAuthHeader = (errorCode: string, message: string): string => {
-                let header = `Bearer error="${errorCode}", error_description="${message}"`;
-                if (requiredScopes.length > 0) {
-                    header += `, scope="${requiredScopes.join(' ')}"`;
-                }
-                if (resourceMetadataUrl) {
-                    header += `, resource_metadata="${resourceMetadataUrl}"`;
-                }
-                return header;
-            };
-
-            if (error instanceof InvalidTokenError) {
-                res.set('WWW-Authenticate', buildWwwAuthHeader(error.errorCode, error.message));
-                res.status(401).json(error.toResponseObject());
-            } else if (error instanceof InsufficientScopeError) {
-                res.set('WWW-Authenticate', buildWwwAuthHeader(error.errorCode, error.message));
-                res.status(403).json(error.toResponseObject());
-            } else if (error instanceof ServerError) {
-                res.status(500).json(error.toResponseObject());
-            } else if (error instanceof OAuthError) {
-                res.status(400).json(error.toResponseObject());
-            } else {
-                const serverError = new ServerError('Internal Server Error');
-                res.status(500).json(serverError.toResponseObject());
+            if (!hasAllScopes) {
+                throw new InsufficientScopeError('Insufficient scope');
             }
         }
-    };
+
+        // Check if the token is set to expire or if it is expired
+        if (typeof authInfo.expiresAt !== 'number' || isNaN(authInfo.expiresAt)) {
+            throw new InvalidTokenError('Token has no expiration time');
+        } else if (authInfo.expiresAt < Date.now() / 1000) {
+            throw new InvalidTokenError('Token has expired');
+        }
+
+        return { authInfo };
+    } catch (error) {
+        // Build WWW-Authenticate header parts
+        const buildWwwAuthHeader = (errorCode: string, message: string): string => {
+            let header = `Bearer error="${errorCode}", error_description="${message}"`;
+            if (requiredScopes.length > 0) {
+                header += `, scope="${requiredScopes.join(' ')}"`;
+            }
+            if (resourceMetadataUrl) {
+                header += `, resource_metadata="${resourceMetadataUrl}"`;
+            }
+            return header;
+        };
+
+        if (error instanceof InvalidTokenError) {
+            return {
+                response: jsonResponse(error.toResponseObject(), {
+                    status: 401,
+                    headers: { 'WWW-Authenticate': buildWwwAuthHeader(error.errorCode, error.message) }
+                })
+            };
+        }
+        if (error instanceof InsufficientScopeError) {
+            return {
+                response: jsonResponse(error.toResponseObject(), {
+                    status: 403,
+                    headers: { 'WWW-Authenticate': buildWwwAuthHeader(error.errorCode, error.message) }
+                })
+            };
+        }
+        if (error instanceof ServerError) {
+            return { response: jsonResponse(error.toResponseObject(), { status: 500 }) };
+        }
+        if (error instanceof OAuthError) {
+            return { response: jsonResponse(error.toResponseObject(), { status: 400 }) };
+        }
+        const serverError = new ServerError('Internal Server Error');
+        return { response: jsonResponse(serverError.toResponseObject(), { status: 500 }) };
+    }
 }
