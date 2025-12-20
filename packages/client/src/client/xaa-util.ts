@@ -1,5 +1,6 @@
-import qs from 'qs';
 import type { FetchLike } from '@modelcontextprotocol/core';
+import qs from 'qs';
+
 import { discoverAuthorizationServerMetadata } from './auth.js';
 // ============================================================================
 // CONSTANTS
