@@ -202,8 +202,11 @@ export function createDemoAuth(options: CreateDemoAuthOptions) {
             accessTokenExpiresIn: 3600, // 1 hour
             refreshTokenExpiresIn: 604800, // 7 days
             defaultScope: 'openid',
-            scopes: ['openid', 'profile', 'email', 'offline_access', 'mcp:tools'],
-            allowDynamicClientRegistration: true
+            scopes: ['openid', 'profile', 'email', 'offline_access'],
+            allowDynamicClientRegistration: true,
+            metadata: {
+                scopes_supported: ['openid', 'profile', 'email', 'offline_access']
+            }
         }
     });
 
