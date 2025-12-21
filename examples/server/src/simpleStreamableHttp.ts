@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import { setupAuthServer } from '@modelcontextprotocol/examples-shared';
+import {
+    getOAuthProtectedResourceMetadataUrl,
+    mcpAuthMetadataRouter,
+    requireBearerAuth,
+    setupAuthServer
+} from '@modelcontextprotocol/examples-shared';
 import type {
     CallToolResult,
     GetPromptResult,
@@ -10,16 +15,14 @@ import type {
     ResourceLink
 } from '@modelcontextprotocol/server';
 import {
-    checkResourceAllowed,
     ElicitResultSchema,
-    getOAuthProtectedResourceMetadataUrl,
     InMemoryTaskMessageQueue,
     InMemoryTaskStore,
     isInitializeRequest,
     McpServer,
     NodeStreamableHTTPServerTransport
 } from '@modelcontextprotocol/server';
-import { createMcpExpressApp, mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/server-express';
+import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
@@ -527,49 +530,6 @@ if (useOAuth) {
 
     const oauthMetadata: OAuthMetadata = setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: strictOAuth });
 
-    const tokenVerifier = {
-        verifyAccessToken: async (token: string) => {
-            const endpoint = oauthMetadata.introspection_endpoint;
-
-            if (!endpoint) {
-                throw new Error('No token verification endpoint available in metadata');
-            }
-
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: new URLSearchParams({
-                    token: token
-                }).toString()
-            });
-
-            if (!response.ok) {
-                const text = await response.text().catch(() => null);
-                throw new Error(`Invalid or expired token: ${text}`);
-            }
-
-            const data = (await response.json()) as { aud: string; client_id: string; scope: string; exp: number };
-
-            if (strictOAuth) {
-                if (!data.aud) {
-                    throw new Error(`Resource Indicator (RFC8707) missing`);
-                }
-                if (!checkResourceAllowed({ requestedResource: data.aud, configuredResource: mcpServerUrl })) {
-                    throw new Error(`Expected resource indicator ${mcpServerUrl}, got: ${data.aud}`);
-                }
-            }
-
-            // Convert the response to AuthInfo format
-            return {
-                token,
-                clientId: data.client_id,
-                scopes: data.scope ? data.scope.split(' ') : [],
-                expiresAt: data.exp
-            };
-        }
-    };
     // Add metadata routes to the main MCP server
     app.use(
         mcpAuthMetadataRouter({
@@ -581,9 +541,10 @@ if (useOAuth) {
     );
 
     authMiddleware = requireBearerAuth({
-        verifier: tokenVerifier,
         requiredScopes: [],
-        resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
+        resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
+        strictResource: strictOAuth,
+        expectedResource: mcpServerUrl
     });
 }
 
@@ -599,8 +560,8 @@ const mcpPostHandler = async (req: Request, res: Response) => {
         console.log('Request body:', req.body);
     }
 
-    if (useOAuth && req.auth) {
-        console.log('Authenticated user:', req.auth);
+    if (useOAuth && req.app.locals.auth) {
+        console.log('Authenticated user:', req.app.locals.auth);
     }
     try {
         let transport: NodeStreamableHTTPServerTransport;
@@ -683,8 +644,8 @@ const mcpGetHandler = async (req: Request, res: Response) => {
         return;
     }
 
-    if (useOAuth && req.auth) {
-        console.log('Authenticated SSE connection from user:', req.auth);
+    if (useOAuth && req.app.locals.auth) {
+        console.log('Authenticated SSE connection from user:', req.app.locals.auth);
     }
 
     // Check for Last-Event-ID header for resumability

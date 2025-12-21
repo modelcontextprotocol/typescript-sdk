@@ -9,17 +9,20 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { setupAuthServer } from '@modelcontextprotocol/examples-shared';
+import {
+    getOAuthProtectedResourceMetadataUrl,
+    mcpAuthMetadataRouter,
+    requireBearerAuth,
+    setupAuthServer
+} from '@modelcontextprotocol/examples-shared';
 import type { CallToolResult, ElicitRequestURLParams, ElicitResult, OAuthMetadata } from '@modelcontextprotocol/server';
 import {
-    checkResourceAllowed,
-    getOAuthProtectedResourceMetadataUrl,
     isInitializeRequest,
     McpServer,
     NodeStreamableHTTPServerTransport,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/server';
-import { createMcpExpressApp, mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/server-express';
+import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';
@@ -238,47 +241,6 @@ const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
 const oauthMetadata: OAuthMetadata = setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: true });
 
-const tokenVerifier = {
-    verifyAccessToken: async (token: string) => {
-        const endpoint = oauthMetadata.introspection_endpoint;
-
-        if (!endpoint) {
-            throw new Error('No token verification endpoint available in metadata');
-        }
-
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: new URLSearchParams({
-                token: token
-            }).toString()
-        });
-
-        if (!response.ok) {
-            const text = await response.text().catch(() => null);
-            throw new Error(`Invalid or expired token: ${text}`);
-        }
-
-        const data = (await response.json()) as { aud: string; client_id: string; scope: string; exp: number };
-
-        if (!data.aud) {
-            throw new Error(`Resource Indicator (RFC8707) missing`);
-        }
-        if (!checkResourceAllowed({ requestedResource: data.aud, configuredResource: mcpServerUrl })) {
-            throw new Error(`Expected resource indicator ${mcpServerUrl}, got: ${data.aud}`);
-        }
-
-        // Convert the response to AuthInfo format
-        return {
-            token,
-            clientId: data.client_id,
-            scopes: data.scope ? data.scope.split(' ') : [],
-            expiresAt: data.exp
-        };
-    }
-};
 // Add metadata routes to the main MCP server
 app.use(
     mcpAuthMetadataRouter({
@@ -290,9 +252,10 @@ app.use(
 );
 
 authMiddleware = requireBearerAuth({
-    verifier: tokenVerifier,
     requiredScopes: [],
-    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
+    strictResource: true,
+    expectedResource: mcpServerUrl
 });
 
 /**

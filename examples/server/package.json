@@ -35,13 +35,14 @@
     },
     "dependencies": {
         "@hono/node-server": "catalog:runtimeServerOnly",
-        "hono": "catalog:runtimeServerOnly",
         "@modelcontextprotocol/examples-shared": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/server-express": "workspace:^",
         "@modelcontextprotocol/server-hono": "workspace:^",
+        "better-auth": "^1.4.7",
         "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly",
+        "hono": "catalog:runtimeServerOnly",
         "zod": "catalog:runtimeShared"
     },
     "devDependencies": {

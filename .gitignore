@@ -133,3 +133,4 @@ dist/
 
 # IDE
 .idea/
+.cursor/
