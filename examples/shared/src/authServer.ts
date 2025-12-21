@@ -110,10 +110,10 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
         if (req.method === 'POST') {
             console.log(`${timestamp} [Auth Request] Content-Type: ${req.headers['content-type']}`);
         }
-        
+
         // Log response when it finishes
         const originalSend = res.send.bind(res);
-        res.send = function(body) {
+        res.send = function (body) {
             console.log(`${timestamp} [Auth Response] ${res.statusCode} ${req.url}`);
             if (res.statusCode >= 400 && body) {
                 try {
@@ -183,7 +183,7 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
             // Forward all Set-Cookie headers from better-auth's response
             const setCookieHeaders = signInResponse.headers.getSetCookie();
             console.log('[Auth] Set-Cookie headers:', setCookieHeaders);
-            
+
             for (const cookie of setCookieHeaders) {
                 res.append('Set-Cookie', cookie);
             }

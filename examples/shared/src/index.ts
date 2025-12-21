@@ -7,5 +7,5 @@ export type { RequireBearerAuthOptions } from './authMiddleware.js';
 export { getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from './authMiddleware.js';
 
 // Auth server setup
-export type { AuthServerResult, SetupAuthServerOptions } from './authServer.js';
+export type { SetupAuthServerOptions } from './authServer.js';
 export { createProtectedResourceMetadataRouter, getAuth, setupAuthServer, verifyAccessToken } from './authServer.js';

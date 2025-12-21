@@ -71,7 +71,8 @@ Server authentication & authorization is outside of the scope of the SDK, and th
 
 ### Why did we remove `server` SSE transport?
 
-The SSE transport has been deprecated for a long time, and `v2` will not support it on the server side any more. Client side will keep supporting it in order to be able to connect to legacy SSE servers via the `v2` SDK, but serving SSE from `v2` will not be possible. Servers wanting to switch to `v2` and using SSE should migrate to Streamable HTTP.
+The SSE transport has been deprecated for a long time, and `v2` will not support it on the server side any more. Client side will keep supporting it in order to be able to connect to legacy SSE servers via the `v2` SDK, but serving SSE from `v2` will not be possible. Servers
+wanting to switch to `v2` and using SSE should migrate to Streamable HTTP.
 
 ## v1 (legacy)
 
