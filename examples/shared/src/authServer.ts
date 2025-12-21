@@ -11,7 +11,8 @@
 
 import type { OAuthMetadata } from '@modelcontextprotocol/core';
 import { toNodeHandler } from 'better-auth/node';
-import type { Request, Response as ExpressResponse } from 'express';
+import { oAuthDiscoveryMetadata, oAuthProtectedResourceMetadata } from 'better-auth/plugins';
+import type { Request, Response as ExpressResponse, Router } from 'express';
 import express from 'express';
 
 import type { DemoAuth } from './auth.js';
@@ -132,19 +133,10 @@ export function setupAuthServer(options: SetupAuthServerOptions): OAuthMetadata 
     // This handles: authorization, token, client registration, etc.
     authApp.all('/api/auth/*', toNodeHandler(auth));
 
-    // OAuth metadata endpoints at well-known paths
-    // Some clients may not parse WWW-Authenticate header and need these
-    authApp.get('/.well-known/oauth-authorization-server', (_req, res) => {
-        res.json(createOAuthMetadata(authServerUrl));
-    });
-
-    authApp.get('/.well-known/oauth-protected-resource', (_req, res) => {
-        res.json({
-            resource: mcpServerUrl.toString(),
-            authorization_servers: [authServerUrl.toString().replace(/\/$/, '')],
-            scopes_supported: ['openid', 'profile', 'email', 'mcp:tools']
-        });
-    });
+    // OAuth metadata endpoints using better-auth's built-in handlers
+    // See: https://www.better-auth.com/docs/plugins/mcp#oauth-discovery-metadata
+    authApp.get('/.well-known/oauth-authorization-server', toNodeHandler(oAuthDiscoveryMetadata(auth)));
+    authApp.get('/.well-known/oauth-protected-resource', toNodeHandler(oAuthProtectedResourceMetadata(auth)));
 
     // Start the auth server
     const authPort = parseInt(authServerUrl.port, 10);
@@ -160,6 +152,25 @@ export function setupAuthServer(options: SetupAuthServerOptions): OAuthMetadata 
     });
 
     return createOAuthMetadata(authServerUrl);
+}
+
+/**
+ * Creates an Express router that serves OAuth Protected Resource Metadata
+ * on the MCP server using better-auth's built-in handler.
+ *
+ * This is needed because MCP clients discover the auth server by first
+ * fetching protected resource metadata from the MCP server.
+ *
+ * See: https://www.better-auth.com/docs/plugins/mcp#oauth-protected-resource-metadata
+ */
+export function createProtectedResourceMetadataRouter(): Router {
+    const auth = getAuth();
+    const router = express.Router();
+
+    // Serve at the standard well-known path
+    router.get('/.well-known/oauth-protected-resource', toNodeHandler(oAuthProtectedResourceMetadata(auth)));
+
+    return router;
 }
 
 /**

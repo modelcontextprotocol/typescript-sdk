@@ -7,7 +7,6 @@
  * For production use, configure a proper database and authentication flow.
  */
 
-import type { BetterAuthPlugin } from 'better-auth';
 import { betterAuth } from 'better-auth';
 import { mcp } from 'better-auth/plugins';
 import Database from 'better-sqlite3';
@@ -70,7 +69,7 @@ export function createDemoAuth(options: CreateDemoAuthOptions) {
             enabled: true,
             requireEmailVerification: false
         },
-        plugins: [mcpPlugin as BetterAuthPlugin]
+        plugins: [mcpPlugin]
     });
 }
 

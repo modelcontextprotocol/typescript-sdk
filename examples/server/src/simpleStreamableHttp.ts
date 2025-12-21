@@ -1,15 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+    createProtectedResourceMetadataRouter,
     getOAuthProtectedResourceMetadataUrl,
-    mcpAuthMetadataRouter,
     requireBearerAuth,
     setupAuthServer
 } from '@modelcontextprotocol/examples-shared';
 import type {
     CallToolResult,
     GetPromptResult,
-    OAuthMetadata,
     PrimitiveSchemaDefinition,
     ReadResourceResult,
     ResourceLink
@@ -528,17 +527,11 @@ if (useOAuth) {
     const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}/mcp`);
     const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
-    const oauthMetadata: OAuthMetadata = setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: strictOAuth });
+    setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: strictOAuth });
 
-    // Add metadata routes to the main MCP server
-    app.use(
-        mcpAuthMetadataRouter({
-            oauthMetadata,
-            resourceServerUrl: mcpServerUrl,
-            scopesSupported: ['mcp:tools'],
-            resourceName: 'MCP Demo Server'
-        })
-    );
+    // Add protected resource metadata route to the MCP server
+    // This allows clients to discover the auth server
+    app.use(createProtectedResourceMetadataRouter());
 
     authMiddleware = requireBearerAuth({
         requiredScopes: [],

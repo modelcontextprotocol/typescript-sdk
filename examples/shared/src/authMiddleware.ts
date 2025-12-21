@@ -3,12 +3,10 @@
  *
  * 🚨 DEMO ONLY - NOT FOR PRODUCTION
  *
- * This provides bearer auth middleware and metadata routes for MCP servers.
+ * This provides bearer auth middleware for MCP servers.
  */
 
-import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/server';
-import type { NextFunction, Request, Response, Router } from 'express';
-import express from 'express';
+import type { NextFunction, Request, Response } from 'express';
 
 import { verifyAccessToken } from './authServer.js';
 
@@ -76,43 +74,6 @@ export function requireBearerAuth(
             });
         }
     };
-}
-
-export interface McpAuthMetadataRouterOptions {
-    oauthMetadata: OAuthMetadata;
-    resourceServerUrl: URL;
-    scopesSupported?: string[];
-    resourceName?: string;
-}
-
-/**
- * Creates an Express router that serves OAuth and Protected Resource metadata.
- */
-export function mcpAuthMetadataRouter(options: McpAuthMetadataRouterOptions): Router {
-    const { oauthMetadata, resourceServerUrl, scopesSupported = ['mcp:tools'], resourceName } = options;
-
-    const router = express.Router();
-
-    // OAuth Protected Resource Metadata (RFC 9728)
-    const protectedResourceMetadata: OAuthProtectedResourceMetadata = {
-        resource: resourceServerUrl.toString(),
-        authorization_servers: [oauthMetadata.issuer],
-        scopes_supported: scopesSupported,
-        resource_name: resourceName
-    };
-
-    // Serve protected resource metadata
-    router.get('/.well-known/oauth-protected-resource', (req: Request, res: Response) => {
-        res.json(protectedResourceMetadata);
-    });
-
-    // Also serve at the MCP-specific path
-    const mcpPath = new URL(resourceServerUrl.pathname, resourceServerUrl).pathname;
-    router.get(`${mcpPath}/.well-known/oauth-protected-resource`, (req: Request, res: Response) => {
-        res.json(protectedResourceMetadata);
-    });
-
-    return router;
 }
 
 /**
