@@ -9,14 +9,13 @@
  * See: https://www.better-auth.com/docs/plugins/mcp
  */
 
-import type { OAuthMetadata } from '@modelcontextprotocol/core';
 import { toNodeHandler } from 'better-auth/node';
 import { oAuthDiscoveryMetadata, oAuthProtectedResourceMetadata } from 'better-auth/plugins';
 import type { Request, Response as ExpressResponse, Router } from 'express';
 import express from 'express';
 
 import type { DemoAuth } from './auth.js';
-import { createDemoAuth } from './auth.js';
+import { createDemoAuth, DEMO_USER_CREDENTIALS } from './auth.js';
 
 export interface SetupAuthServerOptions {
     authServerUrl: URL;
@@ -24,13 +23,9 @@ export interface SetupAuthServerOptions {
     strictResource?: boolean;
 }
 
-export interface AuthServerResult {
-    auth: DemoAuth;
-    oauthMetadata: OAuthMetadata;
-}
-
 // Store auth instance globally so it can be used for token verification
 let globalAuth: DemoAuth | null = null;
+let demoUserCreated = false;
 
 /**
  * Gets the global auth instance (must call setupAuthServer first)
@@ -43,12 +38,43 @@ export function getAuth(): DemoAuth {
 }
 
 /**
+ * Ensures the demo user exists by calling signUpEmail (creates user with proper password hash)
+ * Returns true if successful, false if user already exists (which is fine)
+ */
+async function ensureDemoUserExists(auth: DemoAuth): Promise<void> {
+    if (demoUserCreated) return;
+
+    try {
+        // Try to sign up the demo user
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (auth.api as any).signUpEmail({
+            body: {
+                email: DEMO_USER_CREDENTIALS.email,
+                password: DEMO_USER_CREDENTIALS.password,
+                name: DEMO_USER_CREDENTIALS.name
+            }
+        });
+        console.log('[Auth] Demo user created via signUpEmail');
+        demoUserCreated = true;
+    } catch (error) {
+        // User might already exist, which is fine
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('already') || message.includes('exists') || message.includes('unique')) {
+            console.log('[Auth] Demo user already exists');
+            demoUserCreated = true;
+        } else {
+            console.error('[Auth] Failed to create demo user:', error);
+            throw error;
+        }
+    }
+}
+
+/**
  * Sets up and starts the OAuth Authorization Server on a separate port.
  *
  * @param options - Server configuration
- * @returns OAuth metadata for the authorization server
  */
-export function setupAuthServer(options: SetupAuthServerOptions): OAuthMetadata {
+export function setupAuthServer(options: SetupAuthServerOptions): void {
     const { authServerUrl, mcpServerUrl } = options;
 
     // Create better-auth instance with MCP plugin
@@ -63,10 +89,8 @@ export function setupAuthServer(options: SetupAuthServerOptions): OAuthMetadata 
 
     // Create Express app for auth server
     const authApp = express();
-    authApp.use(express.json());
-    authApp.use(express.urlencoded({ extended: true }));
 
-    // Enable CORS for all origins (demo only)
+    // Enable CORS for all origins (demo only) - must be before other middleware
     authApp.use((_req, res, next) => {
         res.header('Access-Control-Allow-Origin', '*');
         res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -79,7 +103,47 @@ export function setupAuthServer(options: SetupAuthServerOptions): OAuthMetadata 
         next();
     });
 
-    // Auto-login page that immediately creates a session and redirects
+    // Request logging middleware for OAuth endpoints
+    authApp.use('/api/auth', (req, res, next) => {
+        const timestamp = new Date().toISOString();
+        console.log(`${timestamp} [Auth Request] ${req.method} ${req.url}`);
+        if (req.method === 'POST') {
+            console.log(`${timestamp} [Auth Request] Content-Type: ${req.headers['content-type']}`);
+        }
+        
+        // Log response when it finishes
+        const originalSend = res.send.bind(res);
+        res.send = function(body) {
+            console.log(`${timestamp} [Auth Response] ${res.statusCode} ${req.url}`);
+            if (res.statusCode >= 400 && body) {
+                try {
+                    const parsed = typeof body === 'string' ? JSON.parse(body) : body;
+                    console.log(`${timestamp} [Auth Response] Error:`, parsed);
+                } catch {
+                    // Not JSON, log as-is if short
+                    if (typeof body === 'string' && body.length < 200) {
+                        console.log(`${timestamp} [Auth Response] Body: ${body}`);
+                    }
+                }
+            }
+            return originalSend(body);
+        };
+        next();
+    });
+
+    // Mount better-auth handler BEFORE body parsers
+    // toNodeHandler reads the raw request body, so Express must not consume it first
+    authApp.all('/api/auth/{*splat}', toNodeHandler(auth));
+
+    // OAuth metadata endpoints using better-auth's built-in handlers
+    authApp.get('/.well-known/oauth-authorization-server', toNodeHandler(oAuthDiscoveryMetadata(auth)));
+    authApp.get('/.well-known/oauth-protected-resource', toNodeHandler(oAuthProtectedResourceMetadata(auth)));
+
+    // Body parsers for non-better-auth routes (like /sign-in)
+    authApp.use(express.json());
+    authApp.use(express.urlencoded({ extended: true }));
+
+    // Auto-login page that creates a real better-auth session
     // This simulates a user logging in and approving the OAuth request
     authApp.get('/sign-in', async (req: Request, res: ExpressResponse) => {
         // Get the OAuth authorization parameters from the query string
@@ -101,42 +165,51 @@ export function setupAuthServer(options: SetupAuthServerOptions): OAuthMetadata 
             return;
         }
 
-        // For demo: auto-approve by redirecting to the authorization endpoint
-        // with a flag indicating auto-approval
-        // In better-auth, we need to create a session first, then complete authorization
+        try {
+            // Ensure demo user exists (creates with proper password hash)
+            await ensureDemoUserExists(auth);
 
-        // Set a demo session cookie
-        const authCookieData = {
-            userId: 'demo_user',
-            name: 'Demo User',
-            timestamp: Date.now()
-        };
-        const cookieValue = encodeURIComponent(JSON.stringify(authCookieData));
-        res.cookie('demo_session', cookieValue, {
-            httpOnly: true,
-            sameSite: 'lax',
-            maxAge: 24 * 60 * 60 * 1000 // 24 hours
-        });
+            // Create a session using better-auth's signIn API with asResponse to get Set-Cookie headers
+            const signInResponse = await auth.api.signInEmail({
+                body: {
+                    email: DEMO_USER_CREDENTIALS.email,
+                    password: DEMO_USER_CREDENTIALS.password
+                },
+                asResponse: true
+            });
 
-        // Redirect to the actual authorization handler with auto-approve
-        // Better-auth handles the OAuth flow at /api/auth/authorize
-        const authorizeUrl = new URL('/api/auth/authorize', authServerUrl);
-        authorizeUrl.search = queryParams.toString();
-        // Add a flag to indicate auto-approval (this would be handled by a custom flow)
-        authorizeUrl.searchParams.set('auto_approve', 'true');
+            console.log('[Auth] Sign-in response status:', signInResponse.status);
 
-        console.log(`[Auth Server] Auto-approved login for client ${clientId}`);
-        res.redirect(authorizeUrl.toString());
+            // Forward all Set-Cookie headers from better-auth's response
+            const setCookieHeaders = signInResponse.headers.getSetCookie();
+            console.log('[Auth] Set-Cookie headers:', setCookieHeaders);
+            
+            for (const cookie of setCookieHeaders) {
+                res.append('Set-Cookie', cookie);
+            }
+
+            console.log(`[Auth Server] Session created, redirecting to authorize`);
+
+            // Redirect to the authorization endpoint
+            const authorizeUrl = new URL('/api/auth/mcp/authorize', authServerUrl);
+            authorizeUrl.search = queryParams.toString();
+
+            res.redirect(authorizeUrl.toString());
+        } catch (error) {
+            console.error('[Auth Server] Failed to create session:', error);
+            res.status(500).send(`
+                <!DOCTYPE html>
+                <html>
+                <head><title>Demo Login Error</title></head>
+                <body>
+                    <h1>Demo OAuth Server - Error</h1>
+                    <p>Failed to create demo session: ${error instanceof Error ? error.message : 'Unknown error'}</p>
+                    <pre>${error instanceof Error ? error.stack : ''}</pre>
+                </body>
+                </html>
+            `);
+        }
     });
-
-    // Mount better-auth handler for all /api/auth/* routes
-    // This handles: authorization, token, client registration, etc.
-    authApp.all('/api/auth/*', toNodeHandler(auth));
-
-    // OAuth metadata endpoints using better-auth's built-in handlers
-    // See: https://www.better-auth.com/docs/plugins/mcp#oauth-discovery-metadata
-    authApp.get('/.well-known/oauth-authorization-server', toNodeHandler(oAuthDiscoveryMetadata(auth)));
-    authApp.get('/.well-known/oauth-protected-resource', toNodeHandler(oAuthProtectedResourceMetadata(auth)));
 
     // Start the auth server
     const authPort = parseInt(authServerUrl.port, 10);
@@ -146,12 +219,10 @@ export function setupAuthServer(options: SetupAuthServerOptions): OAuthMetadata 
             process.exit(1);
         }
         console.log(`OAuth Authorization Server listening on port ${authPort}`);
-        console.log(`  Authorization: ${authServerUrl}api/auth/authorize`);
-        console.log(`  Token: ${authServerUrl}api/auth/token`);
+        console.log(`  Authorization: ${authServerUrl}api/auth/mcp/authorize`);
+        console.log(`  Token: ${authServerUrl}api/auth/mcp/token`);
         console.log(`  Metadata: ${authServerUrl}.well-known/oauth-authorization-server`);
     });
-
-    return createOAuthMetadata(authServerUrl);
 }
 
 /**
@@ -171,27 +242,6 @@ export function createProtectedResourceMetadataRouter(): Router {
     router.get('/.well-known/oauth-protected-resource', toNodeHandler(oAuthProtectedResourceMetadata(auth)));
 
     return router;
-}
-
-/**
- * Creates OAuth 2.0 Authorization Server Metadata (RFC 8414)
- */
-function createOAuthMetadata(issuerUrl: URL): OAuthMetadata {
-    const issuer = issuerUrl.toString().replace(/\/$/, '');
-    const apiAuthBase = `${issuer}/api/auth`;
-
-    return {
-        issuer,
-        authorization_endpoint: `${apiAuthBase}/authorize`,
-        token_endpoint: `${apiAuthBase}/token`,
-        registration_endpoint: `${apiAuthBase}/register`,
-        introspection_endpoint: `${apiAuthBase}/introspect`,
-        scopes_supported: ['openid', 'profile', 'email', 'offline_access', 'mcp:tools'],
-        response_types_supported: ['code'],
-        grant_types_supported: ['authorization_code', 'refresh_token'],
-        token_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
-        code_challenge_methods_supported: ['S256']
-    };
 }
 
 /**
