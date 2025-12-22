@@ -1,0 +1,17 @@
+{
+    "extends": "@modelcontextprotocol/tsconfig",
+    "include": ["./"],
+    "exclude": ["node_modules", "dist"],
+    "compilerOptions": {
+        "paths": {
+            "*": ["./*"],
+            "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
+            "@modelcontextprotocol/core": [
+                "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core/src/index.ts"
+            ],
+            "@modelcontextprotocol/examples-shared": ["./node_modules/@modelcontextprotocol/examples-shared/src/index.ts"],
+            "@modelcontextprotocol/eslint-config": ["./node_modules/@modelcontextprotocol/eslint-config/tsconfig.json"],
+            "@modelcontextprotocol/vitest-config": ["./node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"]
+        }
+    }
+}

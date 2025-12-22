@@ -15,27 +15,35 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              id: pnpm-install
+              with:
+                  run_install: false
 
             - name: Setup Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@v6
               with:
-                  node-version: '24'
+                  node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
 
             - name: Install dependencies
-              run: npm ci
+              run: pnpm install
 
             - name: Fetch latest spec types
-              run: npm run fetch:spec-types
+              run: pnpm run fetch:spec-types
 
             - name: Check for changes
               id: check_changes
               run: |
-                  if git diff --quiet src/spec.types.ts; then
+                  if git diff --quiet packages/core/src/types/spec.types.ts; then
                     echo "has_changes=false" >> $GITHUB_OUTPUT
                   else
                     echo "has_changes=true" >> $GITHUB_OUTPUT
-                    LATEST_SHA=$(grep "Last updated from commit:" src/spec.types.ts | cut -d: -f2 | tr -d ' ')
+                    LATEST_SHA=$(grep "Last updated from commit:" packages/core/src/types/spec.types.ts | cut -d: -f2 | tr -d ' ')
                     echo "sha=$LATEST_SHA" >> $GITHUB_OUTPUT
                   fi
 
@@ -48,12 +56,12 @@ jobs:
                   git config user.email "github-actions[bot]@users.noreply.github.com"
 
                   git checkout -B update-spec-types
-                  git add src/spec.types.ts
+                  git add packages/core/src/types/spec.types.ts
                   git commit -m "chore: update spec.types.ts from upstream"
                   git push -f origin update-spec-types
 
                   # Create PR if it doesn't exist, or update if it does
-                  PR_BODY="This PR updates \`src/spec.types.ts\` from the Model Context Protocol specification.
+                  PR_BODY="This PR updates \`packages/core/src/types/spec.types.ts\` from the Model Context Protocol specification.
 
                   Source file: https://github.com/modelcontextprotocol/modelcontextprotocol/blob/${{ steps.check_changes.outputs.sha }}/schema/draft/schema.ts
 
