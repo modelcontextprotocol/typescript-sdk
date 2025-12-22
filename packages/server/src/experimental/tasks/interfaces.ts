@@ -36,9 +36,7 @@ export type CreateTaskRequestHandler<
  * may be different from the one that handled createTask.
  * @experimental
  */
-export type TaskRequestHandler<SendResultT extends Result> = (
-    extra: TaskRequestHandlerExtra
-) => SendResultT | Promise<SendResultT>;
+export type TaskRequestHandler<SendResultT extends Result> = (extra: TaskRequestHandlerExtra) => SendResultT | Promise<SendResultT>;
 
 /**
  * Interface for task-based tool handlers.
