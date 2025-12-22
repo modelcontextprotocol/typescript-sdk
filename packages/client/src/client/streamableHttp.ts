@@ -1,8 +1,9 @@
 import type { ReadableWritablePair } from 'node:stream/web';
 
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+import type { FetchLike, JSONRPCMessage, Transport, UserAgentProvider } from '@modelcontextprotocol/core';
 import {
     createFetchWithInit,
+    createUserAgentProvider,
     isInitializedNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
@@ -125,6 +126,11 @@ export type StreamableHTTPClientTransportOptions = {
      * When not provided and connecting to a server that supports session IDs, the server will generate a new session ID.
      */
     sessionId?: string;
+
+    /**
+     * User agent provider for the connection.
+     */
+    userAgentProvider?: UserAgentProvider;
 };
 
 /**
@@ -148,6 +154,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private _reconnectionTimeout?: ReturnType<typeof setTimeout>;
+    private _userAgentProvider: UserAgentProvider;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -163,6 +170,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
+        this._userAgentProvider = opts?.userAgentProvider ?? createUserAgentProvider();
     }
 
     private async _authThenStart(): Promise<void> {
@@ -176,7 +184,8 @@ export class StreamableHTTPClientTransport implements Transport {
                 serverUrl: this._url,
                 resourceMetadataUrl: this._resourceMetadataUrl,
                 scope: this._scope,
-                fetchFn: this._fetchWithInit
+                fetchFn: this._fetchWithInit,
+                userAgentProvider: this._userAgentProvider
             });
         } catch (error) {
             this.onerror?.(error as Error);
@@ -205,6 +214,8 @@ export class StreamableHTTPClientTransport implements Transport {
         if (this._protocolVersion) {
             headers['mcp-protocol-version'] = this._protocolVersion;
         }
+
+        headers['user-agent'] = await this._userAgentProvider();
 
         const extraHeaders = normalizeHeaders(this._requestInit?.headers);
 
@@ -443,7 +454,8 @@ export class StreamableHTTPClientTransport implements Transport {
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
-            fetchFn: this._fetchWithInit
+            fetchFn: this._fetchWithInit,
+            userAgentProvider: this._userAgentProvider
         });
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');
@@ -511,7 +523,8 @@ export class StreamableHTTPClientTransport implements Transport {
                         serverUrl: this._url,
                         resourceMetadataUrl: this._resourceMetadataUrl,
                         scope: this._scope,
-                        fetchFn: this._fetchWithInit
+                        fetchFn: this._fetchWithInit,
+                        userAgentProvider: this._userAgentProvider
                     });
                     if (result !== 'AUTHORIZED') {
                         throw new UnauthorizedError();
@@ -548,7 +561,8 @@ export class StreamableHTTPClientTransport implements Transport {
                             serverUrl: this._url,
                             resourceMetadataUrl: this._resourceMetadataUrl,
                             scope: this._scope,
-                            fetchFn: this._fetch
+                            fetchFn: this._fetchWithInit,
+                            userAgentProvider: this._userAgentProvider
                         });
 
                         if (result !== 'AUTHORIZED') {

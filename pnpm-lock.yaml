@@ -117,6 +117,9 @@ catalogs:
     ajv-formats:
       specifier: ^3.0.1
       version: 3.0.1
+    bowser:
+      specifier: ^2.12.0
+      version: 2.13.1
     json-schema-typed:
       specifier: ^8.0.2
       version: 8.0.2
@@ -482,6 +485,9 @@ importers:
       ajv-formats:
         specifier: catalog:runtimeShared
         version: 3.0.1(ajv@8.17.1)
+      bowser:
+        specifier: catalog:runtimeShared
+        version: 2.13.1
       json-schema-typed:
         specifier: catalog:runtimeShared
         version: 8.0.2
@@ -1712,6 +1718,9 @@ packages:
   body-parser@2.2.0:
     resolution: {integrity: sha512-02qvAaxv8tp7fBa/mw1ga98OGm+eCbqzJOKoRt70sLmfEEi+jyBYVTDGfCL/k06/4EMk/z01gCe7HoCH/f2LTg==}
     engines: {node: '>=18'}
+
+  bowser@2.13.1:
+    resolution: {integrity: sha512-OHawaAbjwx6rqICCKgSG0SAnT05bzd7ppyKLVUITZpANBaaMFBAsaNkto3LoQ31tyFP5kNujE8Cdx85G9VzOkw==}
 
   brace-expansion@1.1.12:
     resolution: {integrity: sha512-9T9UjW3r0UW5c1Q7GTwllptXwhvYmEzFhzMfZ9H7FQWt+uZePjZPjBP/W1ZEyZ1twGWom5/56TF4lPcqjnDHcg==}
@@ -4337,6 +4346,8 @@ snapshots:
       type-is: 2.0.1
     transitivePeerDependencies:
       - supports-color
+
+  bowser@2.13.1: {}
 
   brace-expansion@1.1.12:
     dependencies:

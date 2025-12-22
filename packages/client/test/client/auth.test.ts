@@ -31,6 +31,9 @@ vi.mock('pkce-challenge', () => ({
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+const TEST_UA = 'test/1.0';
+const userAgentProvider = () => Promise.resolve(TEST_UA);
+
 describe('OAuth Authorization', () => {
     beforeEach(() => {
         mockFetch.mockReset();
@@ -121,7 +124,7 @@ describe('OAuth Authorization', () => {
                 json: async () => validMetadata
             });
 
-            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com');
+            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com', userAgentProvider);
             expect(metadata).toEqual(validMetadata);
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1);
@@ -152,7 +155,7 @@ describe('OAuth Authorization', () => {
             });
 
             // Should succeed with the second call
-            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com');
+            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com', userAgentProvider);
             expect(metadata).toEqual(validMetadata);
 
             // Verify both calls were made
@@ -180,7 +183,9 @@ describe('OAuth Authorization', () => {
             });
 
             // Should fail with the second error
-            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com')).rejects.toThrow('Second failure');
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com', userAgentProvider)).rejects.toThrow(
+                'Second failure'
+            );
 
             // Verify both calls were made
             expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -192,7 +197,7 @@ describe('OAuth Authorization', () => {
                 status: 404
             });
 
-            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com')).rejects.toThrow(
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com', userAgentProvider)).rejects.toThrow(
                 'Resource server does not implement OAuth 2.0 Protected Resource Metadata.'
             );
         });
@@ -203,7 +208,9 @@ describe('OAuth Authorization', () => {
                 status: 500
             });
 
-            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com')).rejects.toThrow('HTTP 500');
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com', userAgentProvider)).rejects.toThrow(
+                'HTTP 500'
+            );
         });
 
         it('validates metadata schema', async () => {
@@ -216,7 +223,7 @@ describe('OAuth Authorization', () => {
                 })
             });
 
-            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com')).rejects.toThrow();
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com', userAgentProvider)).rejects.toThrow();
         });
 
         it('returns metadata when discovery succeeds with path', async () => {
@@ -226,7 +233,7 @@ describe('OAuth Authorization', () => {
                 json: async () => validMetadata
             });
 
-            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name');
+            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name', userAgentProvider);
             expect(metadata).toEqual(validMetadata);
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1);
@@ -241,7 +248,10 @@ describe('OAuth Authorization', () => {
                 json: async () => validMetadata
             });
 
-            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/path?param=value');
+            const metadata = await discoverOAuthProtectedResourceMetadata(
+                'https://resource.example.com/path?param=value',
+                userAgentProvider
+            );
             expect(metadata).toEqual(validMetadata);
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1);
@@ -265,7 +275,7 @@ describe('OAuth Authorization', () => {
                     json: async () => validMetadata
                 });
 
-                const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name');
+                const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name', userAgentProvider);
                 expect(metadata).toEqual(validMetadata);
 
                 const calls = mockFetch.mock.calls;
@@ -275,14 +285,16 @@ describe('OAuth Authorization', () => {
                 const [firstUrl, firstOptions] = calls[0]!;
                 expect(firstUrl.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource/path/name');
                 expect(firstOptions.headers).toEqual({
-                    'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                    'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION,
+                    'User-Agent': TEST_UA
                 });
 
                 // Second call should be root fallback
                 const [secondUrl, secondOptions] = calls[1]!;
                 expect(secondUrl.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
                 expect(secondOptions.headers).toEqual({
-                    'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                    'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION,
+                    'User-Agent': TEST_UA
                 });
             }
         );
@@ -300,9 +312,9 @@ describe('OAuth Authorization', () => {
                 status: 404
             });
 
-            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name')).rejects.toThrow(
-                'Resource server does not implement OAuth 2.0 Protected Resource Metadata.'
-            );
+            await expect(
+                discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name', userAgentProvider)
+            ).rejects.toThrow('Resource server does not implement OAuth 2.0 Protected Resource Metadata.');
 
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(2);
@@ -315,7 +327,9 @@ describe('OAuth Authorization', () => {
                 status: 500
             });
 
-            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name')).rejects.toThrow();
+            await expect(
+                discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name', userAgentProvider)
+            ).rejects.toThrow();
 
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1); // Should not attempt fallback
@@ -328,7 +342,7 @@ describe('OAuth Authorization', () => {
                 status: 404
             });
 
-            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com/')).rejects.toThrow(
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com/', userAgentProvider)).rejects.toThrow(
                 'Resource server does not implement OAuth 2.0 Protected Resource Metadata.'
             );
 
@@ -346,7 +360,7 @@ describe('OAuth Authorization', () => {
                 status: 404
             });
 
-            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com')).rejects.toThrow(
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com', userAgentProvider)).rejects.toThrow(
                 'Resource server does not implement OAuth 2.0 Protected Resource Metadata.'
             );
 
@@ -374,7 +388,7 @@ describe('OAuth Authorization', () => {
                 json: async () => validMetadata
             });
 
-            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/deep/path');
+            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/deep/path', userAgentProvider);
             expect(metadata).toEqual(validMetadata);
 
             const calls = mockFetch.mock.calls;
@@ -384,7 +398,8 @@ describe('OAuth Authorization', () => {
             const [lastUrl, lastOptions] = calls[2]!;
             expect(lastUrl.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
             expect(lastOptions.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION,
+                'User-Agent': TEST_UA
             });
         });
 
@@ -396,7 +411,7 @@ describe('OAuth Authorization', () => {
             });
 
             await expect(
-                discoverOAuthProtectedResourceMetadata('https://resource.example.com/path', {
+                discoverOAuthProtectedResourceMetadata('https://resource.example.com/path', userAgentProvider, {
                     resourceMetadataUrl: 'https://custom.example.com/metadata'
                 })
             ).rejects.toThrow('Resource server does not implement OAuth 2.0 Protected Resource Metadata.');
@@ -420,7 +435,12 @@ describe('OAuth Authorization', () => {
                 json: async () => validMetadata
             });
 
-            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com', undefined, customFetch);
+            const metadata = await discoverOAuthProtectedResourceMetadata(
+                'https://resource.example.com',
+                userAgentProvider,
+                undefined,
+                customFetch
+            );
 
             expect(metadata).toEqual(validMetadata);
             expect(customFetch).toHaveBeenCalledTimes(1);
@@ -429,7 +449,8 @@ describe('OAuth Authorization', () => {
             const [url, options] = customFetch.mock.calls[0]!;
             expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
             expect(options.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION,
+                'User-Agent': TEST_UA
             });
         });
     });
@@ -451,14 +472,15 @@ describe('OAuth Authorization', () => {
                 json: async () => validMetadata
             });
 
-            const metadata = await discoverOAuthMetadata('https://auth.example.com');
+            const metadata = await discoverOAuthMetadata('https://auth.example.com', userAgentProvider);
             expect(metadata).toEqual(validMetadata);
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1);
             const [url, options] = calls[0]!;
             expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
             expect(options.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION,
+                'User-Agent': TEST_UA
             });
         });
 
@@ -469,14 +491,15 @@ describe('OAuth Authorization', () => {
                 json: async () => validMetadata
             });
 
-            const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name');
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name', userAgentProvider);
             expect(metadata).toEqual(validMetadata);
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1);
             const [url, options] = calls[0]!;
             expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/path/name');
             expect(options.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION,
+                'User-Agent': TEST_UA
             });
         });
 
@@ -494,7 +517,7 @@ describe('OAuth Authorization', () => {
                 json: async () => validMetadata
             });
 
-            const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name');
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name', userAgentProvider);
             expect(metadata).toEqual(validMetadata);
 
             const calls = mockFetch.mock.calls;
@@ -504,14 +527,16 @@ describe('OAuth Authorization', () => {
             const [firstUrl, firstOptions] = calls[0]!;
             expect(firstUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/path/name');
             expect(firstOptions.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION,
+                'User-Agent': TEST_UA
             });
 
             // Second call should be root fallback
             const [secondUrl, secondOptions] = calls[1]!;
             expect(secondUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
             expect(secondOptions.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION,
+                'User-Agent': TEST_UA
             });
         });
 
@@ -528,7 +553,7 @@ describe('OAuth Authorization', () => {
                 status: 404
             });
 
-            const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name');
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name', userAgentProvider);
             expect(metadata).toBeUndefined();
 
             const calls = mockFetch.mock.calls;
@@ -542,7 +567,7 @@ describe('OAuth Authorization', () => {
                 status: 404
             });
 
-            const metadata = await discoverOAuthMetadata('https://auth.example.com/');
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/', userAgentProvider);
             expect(metadata).toBeUndefined();
 
             const calls = mockFetch.mock.calls;
@@ -559,7 +584,7 @@ describe('OAuth Authorization', () => {
                 status: 404
             });
 
-            const metadata = await discoverOAuthMetadata('https://auth.example.com');
+            const metadata = await discoverOAuthMetadata('https://auth.example.com', userAgentProvider);
             expect(metadata).toBeUndefined();
 
             const calls = mockFetch.mock.calls;
@@ -586,7 +611,7 @@ describe('OAuth Authorization', () => {
                 json: async () => validMetadata
             });
 
-            const metadata = await discoverOAuthMetadata('https://auth.example.com/deep/path');
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/deep/path', userAgentProvider);
             expect(metadata).toEqual(validMetadata);
 
             const calls = mockFetch.mock.calls;
@@ -596,7 +621,8 @@ describe('OAuth Authorization', () => {
             const [lastUrl, lastOptions] = calls[2]!;
             expect(lastUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
             expect(lastOptions.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION,
+                'User-Agent': TEST_UA
             });
         });
 
@@ -623,7 +649,7 @@ describe('OAuth Authorization', () => {
             });
 
             // Should succeed with the second call
-            const metadata = await discoverOAuthMetadata('https://auth.example.com');
+            const metadata = await discoverOAuthMetadata('https://auth.example.com', userAgentProvider);
             expect(metadata).toEqual(validMetadata);
 
             // Verify both calls were made
@@ -651,7 +677,7 @@ describe('OAuth Authorization', () => {
             });
 
             // Should fail with the second error
-            await expect(discoverOAuthMetadata('https://auth.example.com')).rejects.toThrow('Second failure');
+            await expect(discoverOAuthMetadata('https://auth.example.com', userAgentProvider)).rejects.toThrow('Second failure');
 
             // Verify both calls were made
             expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -666,7 +692,7 @@ describe('OAuth Authorization', () => {
             });
 
             // This should return undefined (the desired behavior after the fix)
-            const metadata = await discoverOAuthMetadata('https://auth.example.com/path');
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/path', userAgentProvider);
             expect(metadata).toBeUndefined();
         });
 
@@ -676,14 +702,14 @@ describe('OAuth Authorization', () => {
                 status: 404
             });
 
-            const metadata = await discoverOAuthMetadata('https://auth.example.com');
+            const metadata = await discoverOAuthMetadata('https://auth.example.com', userAgentProvider);
             expect(metadata).toBeUndefined();
         });
 
         it('throws on non-404 errors', async () => {
             mockFetch.mockResolvedValueOnce(new Response(null, { status: 500 }));
 
-            await expect(discoverOAuthMetadata('https://auth.example.com')).rejects.toThrow('HTTP 500');
+            await expect(discoverOAuthMetadata('https://auth.example.com', userAgentProvider)).rejects.toThrow('HTTP 500');
         });
 
         it('validates metadata schema', async () => {
@@ -697,7 +723,7 @@ describe('OAuth Authorization', () => {
                 )
             );
 
-            await expect(discoverOAuthMetadata('https://auth.example.com')).rejects.toThrow();
+            await expect(discoverOAuthMetadata('https://auth.example.com', userAgentProvider)).rejects.toThrow();
         });
 
         it('supports overriding the fetch function used for requests', async () => {
@@ -716,7 +742,7 @@ describe('OAuth Authorization', () => {
                 json: async () => validMetadata
             });
 
-            const metadata = await discoverOAuthMetadata('https://auth.example.com', {}, customFetch);
+            const metadata = await discoverOAuthMetadata('https://auth.example.com', userAgentProvider, {}, customFetch);
 
             expect(metadata).toEqual(validMetadata);
             expect(customFetch).toHaveBeenCalledTimes(1);
@@ -725,7 +751,8 @@ describe('OAuth Authorization', () => {
             const [url, options] = customFetch.mock.calls[0]!;
             expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
             expect(options.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION,
+                'User-Agent': TEST_UA
             });
         });
     });
@@ -810,7 +837,7 @@ describe('OAuth Authorization', () => {
                 json: async () => validOpenIdMetadata
             });
 
-            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com/tenant1');
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com/tenant1', userAgentProvider);
 
             expect(metadata).toEqual(validOpenIdMetadata);
 
@@ -833,7 +860,7 @@ describe('OAuth Authorization', () => {
                 json: async () => validOpenIdMetadata
             });
 
-            const metadata = await discoverAuthorizationServerMetadata('https://mcp.example.com');
+            const metadata = await discoverAuthorizationServerMetadata('https://mcp.example.com', userAgentProvider);
 
             expect(metadata).toEqual(validOpenIdMetadata);
         });
@@ -844,7 +871,7 @@ describe('OAuth Authorization', () => {
                 status: 500
             });
 
-            await expect(discoverAuthorizationServerMetadata('https://mcp.example.com')).rejects.toThrow('HTTP 500');
+            await expect(discoverAuthorizationServerMetadata('https://mcp.example.com', userAgentProvider)).rejects.toThrow('HTTP 500');
         });
 
         it('handles CORS errors with retry', async () => {
@@ -858,7 +885,7 @@ describe('OAuth Authorization', () => {
                 json: async () => validOAuthMetadata
             });
 
-            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com', userAgentProvider);
 
             expect(metadata).toEqual(validOAuthMetadata);
             const calls = mockFetch.mock.calls;
@@ -878,7 +905,9 @@ describe('OAuth Authorization', () => {
                 json: async () => validOAuthMetadata
             });
 
-            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com', { fetchFn: customFetch });
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com', userAgentProvider, {
+                fetchFn: customFetch
+            });
 
             expect(metadata).toEqual(validOAuthMetadata);
             expect(customFetch).toHaveBeenCalledTimes(1);
@@ -892,14 +921,17 @@ describe('OAuth Authorization', () => {
                 json: async () => validOAuthMetadata
             });
 
-            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com', { protocolVersion: '2025-01-01' });
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com', userAgentProvider, {
+                protocolVersion: '2025-01-01'
+            });
 
             expect(metadata).toEqual(validOAuthMetadata);
             const calls = mockFetch.mock.calls;
             const [, options] = calls[0]!;
             expect(options.headers).toEqual({
                 'MCP-Protocol-Version': '2025-01-01',
-                Accept: 'application/json'
+                Accept: 'application/json',
+                'User-Agent': TEST_UA
             });
         });
 
@@ -907,7 +939,7 @@ describe('OAuth Authorization', () => {
             // All fetch attempts fail with CORS errors (TypeError)
             mockFetch.mockImplementation(() => Promise.reject(new TypeError('CORS error')));
 
-            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com/tenant1');
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com/tenant1', userAgentProvider);
 
             expect(metadata).toBeUndefined();
 
@@ -1127,7 +1159,8 @@ describe('OAuth Authorization', () => {
                 authorizationCode: 'code123',
                 codeVerifier: 'verifier123',
                 redirectUri: 'http://localhost:3000/callback',
-                resource: new URL('https://api.example.com/mcp-server')
+                resource: new URL('https://api.example.com/mcp-server'),
+                userAgentProvider
             });
 
             expect(tokens).toEqual(validTokens);
@@ -1216,7 +1249,8 @@ describe('OAuth Authorization', () => {
                     params.set('example_url', typeof url === 'string' ? url : url.toString());
                     params.set('example_metadata', metadata?.authorization_endpoint ?? '');
                     params.set('example_param', 'example_value');
-                }
+                },
+                userAgentProvider
             });
 
             expect(tokens).toEqual(validTokens);
@@ -1259,7 +1293,8 @@ describe('OAuth Authorization', () => {
                     clientInformation: validClientInfo,
                     authorizationCode: 'code123',
                     codeVerifier: 'verifier123',
-                    redirectUri: 'http://localhost:3000/callback'
+                    redirectUri: 'http://localhost:3000/callback',
+                    userAgentProvider
                 })
             ).rejects.toThrow();
         });
@@ -1272,7 +1307,8 @@ describe('OAuth Authorization', () => {
                     clientInformation: validClientInfo,
                     authorizationCode: 'code123',
                     codeVerifier: 'verifier123',
-                    redirectUri: 'http://localhost:3000/callback'
+                    redirectUri: 'http://localhost:3000/callback',
+                    userAgentProvider
                 })
             ).rejects.toThrow('Token exchange failed');
         });
@@ -1290,7 +1326,8 @@ describe('OAuth Authorization', () => {
                 codeVerifier: 'verifier123',
                 redirectUri: 'http://localhost:3000/callback',
                 resource: new URL('https://api.example.com/mcp-server'),
-                fetchFn: customFetch
+                fetchFn: customFetch,
+                userAgentProvider
             });
 
             expect(tokens).toEqual(validTokens);
@@ -1353,7 +1390,8 @@ describe('OAuth Authorization', () => {
             const tokens = await refreshAuthorization('https://auth.example.com', {
                 clientInformation: validClientInfo,
                 refreshToken: 'refresh123',
-                resource: new URL('https://api.example.com/mcp-server')
+                resource: new URL('https://api.example.com/mcp-server'),
+                userAgentProvider
             });
 
             expect(tokens).toEqual(validTokensWithNewRefreshToken);
@@ -1397,7 +1435,8 @@ describe('OAuth Authorization', () => {
                     params.set('example_url', typeof url === 'string' ? url : url.toString());
                     params.set('example_metadata', metadata?.authorization_endpoint ?? '?');
                     params.set('example_param', 'example_value');
-                }
+                },
+                userAgentProvider
             });
 
             expect(tokens).toEqual(validTokensWithNewRefreshToken);
@@ -1433,7 +1472,8 @@ describe('OAuth Authorization', () => {
             const refreshToken = 'refresh123';
             const tokens = await refreshAuthorization('https://auth.example.com', {
                 clientInformation: validClientInfo,
-                refreshToken
+                refreshToken,
+                userAgentProvider
             });
 
             expect(tokens).toEqual({ refresh_token: refreshToken, ...validTokens });
@@ -1452,7 +1492,8 @@ describe('OAuth Authorization', () => {
             await expect(
                 refreshAuthorization('https://auth.example.com', {
                     clientInformation: validClientInfo,
-                    refreshToken: 'refresh123'
+                    refreshToken: 'refresh123',
+                    userAgentProvider
                 })
             ).rejects.toThrow();
         });
@@ -1463,7 +1504,8 @@ describe('OAuth Authorization', () => {
             await expect(
                 refreshAuthorization('https://auth.example.com', {
                     clientInformation: validClientInfo,
-                    refreshToken: 'refresh123'
+                    refreshToken: 'refresh123',
+                    userAgentProvider
                 })
             ).rejects.toThrow('Token refresh failed');
         });
@@ -1491,7 +1533,8 @@ describe('OAuth Authorization', () => {
             });
 
             const clientInfo = await registerClient('https://auth.example.com', {
-                clientMetadata: validClientMetadata
+                clientMetadata: validClientMetadata,
+                userAgentProvider
             });
 
             expect(clientInfo).toEqual(validClientInfo);
@@ -1502,7 +1545,8 @@ describe('OAuth Authorization', () => {
                 expect.objectContaining({
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'User-Agent': TEST_UA
                     },
                     body: JSON.stringify(validClientMetadata)
                 })
@@ -1521,7 +1565,8 @@ describe('OAuth Authorization', () => {
 
             await expect(
                 registerClient('https://auth.example.com', {
-                    clientMetadata: validClientMetadata
+                    clientMetadata: validClientMetadata,
+                    userAgentProvider
                 })
             ).rejects.toThrow();
         });
@@ -1537,7 +1582,8 @@ describe('OAuth Authorization', () => {
             await expect(
                 registerClient('https://auth.example.com', {
                     metadata,
-                    clientMetadata: validClientMetadata
+                    clientMetadata: validClientMetadata,
+                    userAgentProvider
                 })
             ).rejects.toThrow(/does not support dynamic client registration/);
         });
@@ -1549,7 +1595,8 @@ describe('OAuth Authorization', () => {
 
             await expect(
                 registerClient('https://auth.example.com', {
-                    clientMetadata: validClientMetadata
+                    clientMetadata: validClientMetadata,
+                    userAgentProvider
                 })
             ).rejects.toThrow('Dynamic client registration failed');
         });
@@ -1730,7 +1777,8 @@ describe('OAuth Authorization', () => {
 
             // Call the auth function
             const result = await auth(mockProvider, {
-                serverUrl: 'https://resource.example.com'
+                serverUrl: 'https://resource.example.com',
+                userAgentProvider
             });
 
             // Verify the result
@@ -1802,7 +1850,8 @@ describe('OAuth Authorization', () => {
 
             // Call the auth function with a server URL that has a path
             const result = await auth(mockProvider, {
-                serverUrl: 'https://resource.example.com/path/to/server'
+                serverUrl: 'https://resource.example.com/path/to/server',
+                userAgentProvider
             });
 
             // Verify the result
@@ -1857,7 +1906,8 @@ describe('OAuth Authorization', () => {
 
             // Call auth without authorization code (should trigger redirect)
             const result = await auth(mockProvider, {
-                serverUrl: 'https://api.example.com/mcp-server'
+                serverUrl: 'https://api.example.com/mcp-server',
+                userAgentProvider
             });
 
             expect(result).toBe('REDIRECT');
@@ -1927,7 +1977,8 @@ describe('OAuth Authorization', () => {
             // Call auth with authorization code
             const result = await auth(mockProvider, {
                 serverUrl: 'https://api.example.com/mcp-server',
-                authorizationCode: 'auth-code-123'
+                authorizationCode: 'auth-code-123',
+                userAgentProvider
             });
 
             expect(result).toBe('AUTHORIZED');
@@ -1995,7 +2046,8 @@ describe('OAuth Authorization', () => {
 
             // Call auth with existing tokens (should trigger refresh)
             const result = await auth(mockProvider, {
-                serverUrl: 'https://api.example.com/mcp-server'
+                serverUrl: 'https://api.example.com/mcp-server',
+                userAgentProvider
             });
 
             expect(result).toBe('AUTHORIZED');
@@ -2059,7 +2111,8 @@ describe('OAuth Authorization', () => {
 
             // Call auth - should succeed despite resource mismatch because custom validation overrides default
             const result = await auth(providerWithCustomValidation, {
-                serverUrl: 'https://api.example.com/mcp-server'
+                serverUrl: 'https://api.example.com/mcp-server',
+                userAgentProvider
             });
 
             expect(result).toBe('REDIRECT');
@@ -2114,7 +2167,8 @@ describe('OAuth Authorization', () => {
 
             // Call auth with a URL that has the resource as prefix
             const result = await auth(mockProvider, {
-                serverUrl: 'https://api.example.com/mcp-server/endpoint'
+                serverUrl: 'https://api.example.com/mcp-server/endpoint',
+                userAgentProvider
             });
 
             expect(result).toBe('REDIRECT');
@@ -2172,7 +2226,8 @@ describe('OAuth Authorization', () => {
 
             // Call auth - should not include resource parameter
             const result = await auth(mockProvider, {
-                serverUrl: 'https://api.example.com/mcp-server'
+                serverUrl: 'https://api.example.com/mcp-server',
+                userAgentProvider
             });
 
             expect(result).toBe('REDIRECT');
@@ -2239,7 +2294,8 @@ describe('OAuth Authorization', () => {
             // Call auth with authorization code
             const result = await auth(mockProvider, {
                 serverUrl: 'https://api.example.com/mcp-server',
-                authorizationCode: 'auth-code-123'
+                authorizationCode: 'auth-code-123',
+                userAgentProvider
             });
 
             expect(result).toBe('AUTHORIZED');
@@ -2304,7 +2360,8 @@ describe('OAuth Authorization', () => {
 
             // Call auth with existing tokens (should trigger refresh)
             const result = await auth(mockProvider, {
-                serverUrl: 'https://api.example.com/mcp-server'
+                serverUrl: 'https://api.example.com/mcp-server',
+                userAgentProvider
             });
 
             expect(result).toBe('AUTHORIZED');
@@ -2373,7 +2430,8 @@ describe('OAuth Authorization', () => {
 
             // Call auth without scope parameter
             const result = await auth(mockProvider, {
-                serverUrl: 'https://api.example.com/'
+                serverUrl: 'https://api.example.com/',
+                userAgentProvider
             });
 
             expect(result).toBe('REDIRECT');
@@ -2438,7 +2496,8 @@ describe('OAuth Authorization', () => {
             // Call auth with explicit scope parameter
             const result = await auth(mockProvider, {
                 serverUrl: 'https://api.example.com/',
-                scope: 'mcp:read'
+                scope: 'mcp:read',
+                userAgentProvider
             });
 
             expect(result).toBe('REDIRECT');
@@ -2492,7 +2551,8 @@ describe('OAuth Authorization', () => {
 
             // Call auth with serverUrl that has a path
             const result = await auth(mockProvider, {
-                serverUrl: 'https://my.resource.com/path/name'
+                serverUrl: 'https://my.resource.com/path/name',
+                userAgentProvider
             });
 
             expect(result).toBe('REDIRECT');
@@ -2557,7 +2617,8 @@ describe('OAuth Authorization', () => {
 
             const result = await auth(mockProvider, {
                 serverUrl: 'https://resource.example.com',
-                fetchFn: customFetch
+                fetchFn: customFetch,
+                userAgentProvider
             });
 
             expect(result).toBe('REDIRECT');
@@ -2623,7 +2684,8 @@ describe('OAuth Authorization', () => {
                 clientInformation: validClientInfo,
                 authorizationCode: 'code123',
                 redirectUri: 'http://localhost:3000/callback',
-                codeVerifier: 'verifier123'
+                codeVerifier: 'verifier123',
+                userAgentProvider
             });
 
             expect(tokens).toEqual(validTokens);
@@ -2651,7 +2713,8 @@ describe('OAuth Authorization', () => {
                 clientInformation: validClientInfo,
                 authorizationCode: 'code123',
                 redirectUri: 'http://localhost:3000/callback',
-                codeVerifier: 'verifier123'
+                codeVerifier: 'verifier123',
+                userAgentProvider
             });
 
             expect(tokens).toEqual(validTokens);
@@ -2677,7 +2740,8 @@ describe('OAuth Authorization', () => {
                 clientInformation: validClientInfo,
                 authorizationCode: 'code123',
                 redirectUri: 'http://localhost:3000/callback',
-                codeVerifier: 'verifier123'
+                codeVerifier: 'verifier123',
+                userAgentProvider
             });
 
             expect(tokens).toEqual(validTokens);
@@ -2712,7 +2776,8 @@ describe('OAuth Authorization', () => {
                 clientInformation: clientInfoWithoutSecret,
                 authorizationCode: 'code123',
                 redirectUri: 'http://localhost:3000/callback',
-                codeVerifier: 'verifier123'
+                codeVerifier: 'verifier123',
+                userAgentProvider
             });
 
             expect(tokens).toEqual(validTokens);
@@ -2737,7 +2802,8 @@ describe('OAuth Authorization', () => {
                 clientInformation: validClientInfo,
                 authorizationCode: 'code123',
                 redirectUri: 'http://localhost:3000/callback',
-                codeVerifier: 'verifier123'
+                codeVerifier: 'verifier123',
+                userAgentProvider
             });
 
             expect(tokens).toEqual(validTokens);
@@ -2791,7 +2857,8 @@ describe('OAuth Authorization', () => {
             const tokens = await refreshAuthorization('https://auth.example.com', {
                 metadata: metadataWithBasicOnly,
                 clientInformation: validClientInfo,
-                refreshToken: 'refresh123'
+                refreshToken: 'refresh123',
+                userAgentProvider
             });
 
             expect(tokens).toEqual(validTokens);
@@ -2818,7 +2885,8 @@ describe('OAuth Authorization', () => {
             const tokens = await refreshAuthorization('https://auth.example.com', {
                 metadata: metadataWithPostOnly,
                 clientInformation: validClientInfo,
-                refreshToken: 'refresh123'
+                refreshToken: 'refresh123',
+                userAgentProvider
             });
 
             expect(tokens).toEqual(validTokens);
@@ -2855,14 +2923,13 @@ describe('OAuth Authorization', () => {
                 }
             });
 
-            await discoverOAuthProtectedResourceMetadata('https://resource.example.com', undefined, wrappedFetch);
+            await discoverOAuthProtectedResourceMetadata('https://resource.example.com', userAgentProvider, undefined, wrappedFetch);
 
             expect(customFetch).toHaveBeenCalledTimes(1);
             const [url, options] = customFetch.mock.calls[0]!;
 
             expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
             expect(options.headers).toMatchObject({
-                'user-agent': 'MyApp/1.0',
                 'x-custom-header': 'test-value',
                 'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
             });
@@ -2891,7 +2958,7 @@ describe('OAuth Authorization', () => {
                 }
             });
 
-            await discoverAuthorizationServerMetadata('https://auth.example.com', {
+            await discoverAuthorizationServerMetadata('https://auth.example.com', userAgentProvider, {
                 fetchFn: wrappedFetch
             });
 
@@ -2901,7 +2968,6 @@ describe('OAuth Authorization', () => {
             // Auth-specific Accept header should override base Accept header
             expect(options.headers).toMatchObject({
                 Accept: 'application/json', // Auth-specific value wins
-                'user-agent': 'MyApp/1.0', // Base value preserved
                 'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
             });
         });
@@ -2928,7 +2994,7 @@ describe('OAuth Authorization', () => {
                 }
             });
 
-            await discoverOAuthProtectedResourceMetadata('https://resource.example.com', undefined, wrappedFetch);
+            await discoverOAuthProtectedResourceMetadata('https://resource.example.com', userAgentProvider, undefined, wrappedFetch);
 
             expect(customFetch).toHaveBeenCalledTimes(1);
             const [, options] = customFetch.mock.calls[0]!;
@@ -2937,9 +3003,6 @@ describe('OAuth Authorization', () => {
             expect(options.credentials).toBe('include');
             expect(options.mode).toBe('cors');
             expect(options.cache).toBe('no-cache');
-            expect(options.headers).toMatchObject({
-                'user-agent': 'MyApp/1.0'
-            });
         });
     });
 
@@ -3033,7 +3096,8 @@ describe('OAuth Authorization', () => {
             });
 
             await auth(mockProvider, {
-                serverUrl: 'https://server.example.com'
+                serverUrl: 'https://server.example.com',
+                userAgentProvider
             });
 
             // Should save URL-based client info
@@ -3077,7 +3141,8 @@ describe('OAuth Authorization', () => {
             });
 
             await auth(mockProvider, {
-                serverUrl: 'https://server.example.com'
+                serverUrl: 'https://server.example.com',
+                userAgentProvider
             });
 
             // Should save DCR client info
@@ -3118,7 +3183,8 @@ describe('OAuth Authorization', () => {
 
             await expect(
                 auth(providerWithInvalidUri, {
-                    serverUrl: 'https://server.example.com'
+                    serverUrl: 'https://server.example.com',
+                    userAgentProvider
                 })
             ).rejects.toThrow(InvalidClientMetadataError);
         });
@@ -3153,7 +3219,8 @@ describe('OAuth Authorization', () => {
 
             await expect(
                 auth(providerWithRootPathname, {
-                    serverUrl: 'https://server.example.com'
+                    serverUrl: 'https://server.example.com',
+                    userAgentProvider
                 })
             ).rejects.toThrow(InvalidClientMetadataError);
         });
@@ -3188,7 +3255,8 @@ describe('OAuth Authorization', () => {
 
             await expect(
                 auth(providerWithInvalidUrl, {
-                    serverUrl: 'https://server.example.com'
+                    serverUrl: 'https://server.example.com',
+                    userAgentProvider
                 })
             ).rejects.toThrow(InvalidClientMetadataError);
         });
@@ -3233,7 +3301,8 @@ describe('OAuth Authorization', () => {
             });
 
             await auth(providerWithoutUri, {
-                serverUrl: 'https://server.example.com'
+                serverUrl: 'https://server.example.com',
+                userAgentProvider
             });
 
             // Should fall back to DCR
