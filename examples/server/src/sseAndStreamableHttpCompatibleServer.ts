@@ -96,19 +96,29 @@ app.all('/mcp', async (req: Request, res: Response) => {
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
         let transport: StreamableHTTPServerTransport;
 
-        if (sessionId && transports[sessionId]) {
+        if (sessionId) {
             // Check if the transport is of the correct type
             const existingTransport = transports[sessionId];
             if (existingTransport instanceof StreamableHTTPServerTransport) {
                 // Reuse existing transport
                 transport = existingTransport;
-            } else {
+            } else if (existingTransport) {
                 // Transport exists but is not a StreamableHTTPServerTransport (could be SSEServerTransport)
                 res.status(400).json({
                     jsonrpc: '2.0',
                     error: {
                         code: -32000,
                         message: 'Bad Request: Session exists but uses a different transport protocol'
+                    },
+                    id: null
+                });
+                return;
+            } else {
+                res.status(404).json({
+                    jsonrpc: '2.0',
+                    error: {
+                        code: -32000,
+                        message: 'Not Found: Invalid session ID'
                     },
                     id: null
                 });
@@ -144,7 +154,7 @@ app.all('/mcp', async (req: Request, res: Response) => {
                 jsonrpc: '2.0',
                 error: {
                     code: -32000,
-                    message: 'Bad Request: No valid session ID provided'
+                    message: 'Bad Request: No session ID provided'
                 },
                 id: null
             });
