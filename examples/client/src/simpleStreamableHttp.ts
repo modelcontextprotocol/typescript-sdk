@@ -16,6 +16,7 @@ import {
     ErrorCode,
     getDisplayName,
     GetPromptResultSchema,
+    InMemoryTaskStore,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListToolsResultSchema,
@@ -27,7 +28,6 @@ import {
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
 import { Ajv } from 'ajv';
-import { InMemoryTaskStore } from '../../experimental/tasks/stores/in-memory.js';
 
 // Create readline interface for user input
 const readline = createInterface({

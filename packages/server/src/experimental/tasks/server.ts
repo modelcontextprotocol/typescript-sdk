@@ -140,7 +140,7 @@ export class ExperimentalServerTasks<
         // These may appear even without tools/toolChoice in the current request when
         // a previous sampling request returned tool_use and this is a follow-up with results.
         if (params.messages.length > 0) {
-            const lastMessage = params.messages[params.messages.length - 1];
+            const lastMessage = params.messages[params.messages.length - 1]!;
             const lastContent = Array.isArray(lastMessage.content) ? lastMessage.content : [lastMessage.content];
             const hasToolResults = lastContent.some(c => c.type === 'tool_result');
 
