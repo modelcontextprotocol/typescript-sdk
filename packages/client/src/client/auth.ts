@@ -7,10 +7,12 @@ import type {
     OAuthClientMetadata,
     OAuthMetadata,
     OAuthProtectedResourceMetadata,
-    OAuthTokens
+    OAuthTokens,
+    UserAgentProvider
 } from '@modelcontextprotocol/core';
 import {
     checkResourceAllowed,
+    createUserAgentProvider,
     InvalidClientError,
     InvalidClientMetadataError,
     InvalidGrantError,
@@ -28,9 +30,6 @@ import {
     UnauthorizedClientError
 } from '@modelcontextprotocol/core';
 import pkceChallenge from 'pkce-challenge';
-
-export { createUserAgentProvider, UserAgentProvider } from '@modelcontextprotocol/core';
-import type { UserAgentProvider } from '@modelcontextprotocol/core';
 
 /**
  * Function type for adding client authentication to token requests.
@@ -364,19 +363,23 @@ export async function auth(
         scope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
-        userAgentProvider: UserAgentProvider;
+        userAgentProvider?: UserAgentProvider;
     }
 ): Promise<AuthResult> {
+    const optionsWithDefaults = {
+        ...options,
+        userAgentProvider: options.userAgentProvider ?? createUserAgentProvider()
+    };
     try {
-        return await authInternal(provider, options);
+        return await authInternal(provider, optionsWithDefaults);
     } catch (error) {
         // Handle recoverable error types by invalidating credentials and retrying
         if (error instanceof InvalidClientError || error instanceof UnauthorizedClientError) {
             await provider.invalidateCredentials?.('all');
-            return await authInternal(provider, options);
+            return await authInternal(provider, optionsWithDefaults);
         } else if (error instanceof InvalidGrantError) {
             await provider.invalidateCredentials?.('tokens');
-            return await authInternal(provider, options);
+            return await authInternal(provider, optionsWithDefaults);
         }
 
         // Throw otherwise
@@ -1148,7 +1151,7 @@ export async function exchangeAuthorization(
         resource?: URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
-        userAgentProvider: UserAgentProvider;
+        userAgentProvider?: UserAgentProvider;
     }
 ): Promise<OAuthTokens> {
     const tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, redirectUri);
@@ -1160,7 +1163,7 @@ export async function exchangeAuthorization(
         addClientAuthentication,
         resource,
         fetchFn,
-        userAgentProvider
+        userAgentProvider: userAgentProvider ?? createUserAgentProvider()
     });
 }
 
@@ -1193,7 +1196,7 @@ export async function refreshAuthorization(
         resource?: URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
-        userAgentProvider: UserAgentProvider;
+        userAgentProvider?: UserAgentProvider;
     }
 ): Promise<OAuthTokens> {
     const tokenRequestParams = new URLSearchParams({
@@ -1208,7 +1211,7 @@ export async function refreshAuthorization(
         addClientAuthentication,
         resource,
         fetchFn,
-        userAgentProvider
+        userAgentProvider: userAgentProvider ?? createUserAgentProvider()
     });
 
     // Preserve original refresh token if server didn't return a new one

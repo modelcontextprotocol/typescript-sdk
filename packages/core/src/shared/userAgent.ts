@@ -1,15 +1,19 @@
-import * as Bowser from 'bowser';
-import packageJson from '../../package.json';
+import Bowser from 'bowser';
+
+import packageJson from '../../package.json' with { type: 'json' };
 
 export type UserAgentProvider = () => Promise<string>;
 
 const UA_LANG = 'lang/js';
 
-function isBrowser() {
+// Declare window for browser environment detection
+declare const window: { navigator?: { userAgent?: string } } | undefined;
+
+function isBrowser(): boolean {
     return typeof window !== 'undefined';
 }
 
-function uaProduct() {
+function uaProduct(): string {
     return `mcp-sdk-ts/${packageJson.version}`;
 }
 
@@ -31,8 +35,10 @@ function uaNode(version: string | undefined) {
     }
 }
 
-function browserUserAgent() {
-    const ua = window.navigator?.userAgent ? Bowser.parse(window.navigator.userAgent) : undefined;
+function browserUserAgent(): string {
+    // window is guaranteed to exist when this function is called (checked by isBrowser())
+    const userAgent = window?.navigator?.userAgent;
+    const ua = userAgent ? Bowser.parse(userAgent) : undefined;
     return `${uaProduct()} ${uaOS(ua?.os.name, ua?.os.version)} ${UA_LANG}`;
 }
 
