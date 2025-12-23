@@ -260,7 +260,7 @@ export class SSEClientTransport implements Transport {
 
             const response = await (this._fetch ?? fetch)(this._endpoint, init);
             if (!response.ok) {
-                const text = await response.text().catch(() => null);
+                const text = await response.text?.().catch(() => null);
 
                 if (response.status === 401 && this._authProvider) {
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
@@ -285,7 +285,7 @@ export class SSEClientTransport implements Transport {
             }
 
             // Release connection - POST responses don't have content we need
-            await response.body?.cancel();
+            await response.text?.().catch(() => {});
         } catch (error) {
             this.onerror?.(error as Error);
             throw error;

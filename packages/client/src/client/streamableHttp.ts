@@ -235,7 +235,7 @@ export class StreamableHTTPClientTransport implements Transport {
             });
 
             if (!response.ok) {
-                await response.body?.cancel();
+                await response.text?.().catch(() => {});
 
                 if (response.status === 401 && this._authProvider) {
                     // Need to authenticate
@@ -495,7 +495,7 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             if (!response.ok) {
-                const text = await response.text().catch(() => null);
+                const text = await response.text?.().catch(() => null);
 
                 if (response.status === 401 && this._authProvider) {
                     // Prevent infinite recursion when server returns 401 after successful auth
@@ -568,7 +568,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {
-                await response.body?.cancel();
+                await response.text?.().catch(() => {});
                 // if the accepted notification is initialized, we start the SSE stream
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
@@ -603,12 +603,12 @@ export class StreamableHTTPClientTransport implements Transport {
                         this.onmessage?.(msg);
                     }
                 } else {
-                    await response.body?.cancel();
+                    await response.text?.().catch(() => {});
                     throw new StreamableHTTPError(-1, `Unexpected content type: ${contentType}`);
                 }
             } else {
                 // No requests in message but got 200 OK - still need to release connection
-                await response.body?.cancel();
+                await response.text?.().catch(() => {});
             }
         } catch (error) {
             this.onerror?.(error as Error);
@@ -647,7 +647,7 @@ export class StreamableHTTPClientTransport implements Transport {
             };
 
             const response = await (this._fetch ?? fetch)(this._url, init);
-            await response.body?.cancel();
+            await response.text?.().catch(() => {});
 
             // We specifically handle 405 as a valid response according to the spec,
             // meaning the server does not support explicit session termination
