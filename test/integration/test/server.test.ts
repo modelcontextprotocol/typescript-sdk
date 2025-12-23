@@ -796,7 +796,8 @@ test('should include url mode when sending elicitation URL requests', async () =
             url: 'https://example.com/verify'
         })
     ).resolves.toStrictEqual({
-        action: 'decline'
+        action: 'decline',
+        content: undefined
     });
 
     expect(receivedModes).toStrictEqual(['url']);
@@ -1327,7 +1328,8 @@ test('should allow elicitation reject and cancel without validation', async () =
             requestedSchema: schema
         })
     ).resolves.toStrictEqual({
-        action: 'decline'
+        action: 'decline',
+        content: undefined
     });
 
     // Test cancel - should not validate
@@ -1338,7 +1340,8 @@ test('should allow elicitation reject and cancel without validation', async () =
             requestedSchema: schema
         })
     ).resolves.toStrictEqual({
-        action: 'cancel'
+        action: 'cancel',
+        content: undefined
     });
 });
 

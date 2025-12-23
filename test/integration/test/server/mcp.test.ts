@@ -3390,8 +3390,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('test');
             expect(result.prompts[0]!.arguments).toStrictEqual([
-                { name: 'name', required: true },
-                { name: 'value', required: true }
+                { description: undefined, name: 'name', required: true },
+                { description: undefined, name: 'value', required: true }
             ]);
         });
 
