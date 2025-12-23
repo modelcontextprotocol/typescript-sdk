@@ -18,7 +18,6 @@ import type {
     PromptArgument,
     PromptReference,
     ReadResourceResult,
-    RequestHandlerExtra,
     Resource,
     ResourceTemplateReference,
     Result,
@@ -63,6 +62,7 @@ import { ZodOptional } from 'zod';
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcp-server.js';
 import { getCompleter, isCompletable } from './completable.js';
+import type { ContextInterface } from './context.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
@@ -326,7 +326,7 @@ export class McpServer {
     private async executeToolHandler(
         tool: RegisteredTool,
         args: unknown,
-        extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+        extra: ContextInterface<ServerRequest, ServerNotification>
     ): Promise<CallToolResult | CreateTaskResult> {
         const handler = tool.handler as AnyToolHandler<ZodRawShapeCompat | undefined>;
         const isTaskHandler = 'createTask' in handler;
@@ -340,7 +340,7 @@ export class McpServer {
             if (tool.inputSchema) {
                 const typedHandler = handler as ToolTaskHandler<ZodRawShapeCompat>;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return await Promise.resolve(typedHandler.createTask(args as any, taskExtra));
+                return await Promise.resolve(typedHandler.createTask(args as any, extra));
             } else {
                 const typedHandler = handler as ToolTaskHandler<undefined>;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -365,7 +365,7 @@ export class McpServer {
     private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
         tool: RegisteredTool,
         request: RequestT,
-        extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+        extra: ContextInterface<ServerRequest, ServerNotification>
     ): Promise<CallToolResult> {
         if (!extra.taskStore) {
             throw new Error('No task store provided for task-capable tool.');
@@ -374,12 +374,11 @@ export class McpServer {
         // Validate input and create task
         const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
         const handler = tool.handler as ToolTaskHandler<ZodRawShapeCompat | undefined>;
-        const taskExtra = { ...extra, taskStore: extra.taskStore };
 
         const createTaskResult: CreateTaskResult = args // undefined only if tool.inputSchema is undefined
-            ? await Promise.resolve((handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args, taskExtra))
+            ? await Promise.resolve((handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args, extra))
             : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              await Promise.resolve(((handler as ToolTaskHandler<undefined>).createTask as any)(taskExtra));
+              await Promise.resolve(((handler as ToolTaskHandler<undefined>).createTask as any)(extra));
 
         // Poll until completion
         const taskId = createTaskResult.task.taskId;
@@ -1137,7 +1136,7 @@ export class McpServer {
     /**
      * Registers a prompt with a config object and callback.
      */
-    registerPrompt<Args extends PromptArgsRawShape>(
+    registerPrompt<Args extends undefined | PromptArgsRawShape = undefined>(
         name: string,
         config: {
             title?: string;
@@ -1272,7 +1271,7 @@ export class ResourceTemplate {
 
 export type BaseToolCallback<
     SendResultT extends Result,
-    Extra extends RequestHandlerExtra<ServerRequest, ServerNotification>,
+    Extra extends ContextInterface<ServerRequest, ServerNotification>,
     Args extends undefined | ZodRawShapeCompat | AnySchema
 > = Args extends ZodRawShapeCompat
     ? (args: ShapeOutput<Args>, extra: Extra) => SendResultT | Promise<SendResultT>
@@ -1292,7 +1291,7 @@ export type BaseToolCallback<
  */
 export type ToolCallback<Args extends undefined | ZodRawShapeCompat | AnySchema = undefined> = BaseToolCallback<
     CallToolResult,
-    RequestHandlerExtra<ServerRequest, ServerNotification>,
+    ContextInterface<ServerRequest, ServerNotification>,
     Args
 >;
 
@@ -1411,7 +1410,7 @@ export type ResourceMetadata = Omit<Resource, 'uri' | 'name'>;
  * Callback to list all resources matching a given template.
  */
 export type ListResourcesCallback = (
-    extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+    extra: ContextInterface<ServerRequest, ServerNotification>
 ) => ListResourcesResult | Promise<ListResourcesResult>;
 
 /**
@@ -1419,7 +1418,7 @@ export type ListResourcesCallback = (
  */
 export type ReadResourceCallback = (
     uri: URL,
-    extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+    extra: ContextInterface<ServerRequest, ServerNotification>
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 export type RegisteredResource = {
@@ -1447,7 +1446,7 @@ export type RegisteredResource = {
 export type ReadResourceTemplateCallback = (
     uri: URL,
     variables: Variables,
-    extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+    extra: ContextInterface<ServerRequest, ServerNotification>
 ) => ReadResourceResult | Promise<ReadResourceResult>;
 
 export type RegisteredResourceTemplate = {
@@ -1472,8 +1471,8 @@ export type RegisteredResourceTemplate = {
 type PromptArgsRawShape = ZodRawShapeCompat;
 
 export type PromptCallback<Args extends undefined | PromptArgsRawShape = undefined> = Args extends PromptArgsRawShape
-    ? (args: ShapeOutput<Args>, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>
-    : (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
+    ? (args: ShapeOutput<Args>, extra: ContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>
+    : (extra: ContextInterface<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>;
 
 export type RegisteredPrompt = {
     title?: string;

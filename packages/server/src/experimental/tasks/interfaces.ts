@@ -6,14 +6,15 @@
 import type {
     AnySchema,
     CallToolResult,
-    CreateTaskRequestHandlerExtra,
     CreateTaskResult,
     GetTaskResult,
     Result,
-    TaskRequestHandlerExtra,
+    ServerNotification,
+    ServerRequest,
     ZodRawShapeCompat
 } from '@modelcontextprotocol/core';
 
+import type { ContextInterface } from '../../server/context.js';
 import type { BaseToolCallback } from '../../server/mcp.js';
 
 // ============================================================================
@@ -27,7 +28,7 @@ import type { BaseToolCallback } from '../../server/mcp.js';
 export type CreateTaskRequestHandler<
     SendResultT extends Result,
     Args extends undefined | ZodRawShapeCompat | AnySchema = undefined
-> = BaseToolCallback<SendResultT, CreateTaskRequestHandlerExtra, Args>;
+> = BaseToolCallback<SendResultT, ContextInterface<ServerRequest, ServerNotification>, Args>;
 
 /**
  * Handler for task operations (get, getResult).
@@ -36,7 +37,7 @@ export type CreateTaskRequestHandler<
 export type TaskRequestHandler<
     SendResultT extends Result,
     Args extends undefined | ZodRawShapeCompat | AnySchema = undefined
-> = BaseToolCallback<SendResultT, TaskRequestHandlerExtra, Args>;
+> = BaseToolCallback<SendResultT, ContextInterface<ServerRequest, ServerNotification>, Args>;
 
 /**
  * Interface for task-based tool handlers.
