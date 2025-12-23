@@ -606,9 +606,21 @@ const mcpPostHandler = async (req: Request, res: Response) => {
     }
     try {
         let transport: StreamableHTTPServerTransport;
-        if (sessionId && transports[sessionId]) {
-            // Reuse existing transport
-            transport = transports[sessionId];
+        if (sessionId) {
+            if (transports[sessionId]) {
+                // Reuse existing transport
+                transport = transports[sessionId];
+            } else {
+                res.status(404).json({
+                    jsonrpc: '2.0',
+                    error: {
+                        code: -32000,
+                        message: 'Not Found: Invalid session ID'
+                    },
+                    id: null
+                });
+                return;
+            }
         } else if (!sessionId && isInitializeRequest(req.body)) {
             // New initialization request
             const eventStore = new InMemoryEventStore();
@@ -645,7 +657,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
                 jsonrpc: '2.0',
                 error: {
                     code: -32000,
-                    message: 'Bad Request: No valid session ID provided'
+                    message: 'Bad Request: No session ID provided'
                 },
                 id: null
             });
@@ -680,8 +692,13 @@ if (useOAuth && authMiddleware) {
 // Handle GET requests for SSE streams (using built-in support from StreamableHTTP)
 const mcpGetHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+    if (!sessionId) {
+        res.status(400).send('Missing session ID');
+        return;
+    }
+
+    if (!transports[sessionId]) {
+        res.status(404).send('Invalid session ID');
         return;
     }
 
@@ -711,8 +728,13 @@ if (useOAuth && authMiddleware) {
 // Handle DELETE requests for session termination (according to MCP spec)
 const mcpDeleteHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+    if (!sessionId) {
+        res.status(400).send('Missing session ID');
+        return;
+    }
+
+    if (!transports[sessionId]) {
+        res.status(404).send('Invalid session ID');
         return;
     }
 
