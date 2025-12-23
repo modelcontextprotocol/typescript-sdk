@@ -77,7 +77,7 @@ describe('Client Registration Handler', () => {
 
             expect(response.status).toBe(405);
             expect(response.headers.allow).toBe('POST');
-            expect(response.body).toEqual({
+            expect(response.body).toStrictEqual({
                 error: 'method_not_allowed',
                 error_description: 'The method GET is not allowed for this endpoint'
             });
@@ -122,7 +122,7 @@ describe('Client Registration Handler', () => {
             expect(response.body.client_secret).toBeDefined();
             expect(response.body.client_id_issued_at).toBeDefined();
             expect(response.body.client_secret_expires_at).toBeDefined();
-            expect(response.body.redirect_uris).toEqual(['https://example.com/callback']);
+            expect(response.body.redirect_uris).toStrictEqual(['https://example.com/callback']);
 
             // Verify client was registered
             expect(spyRegisterClient).toHaveBeenCalledTimes(1);
@@ -256,7 +256,7 @@ describe('Client Registration Handler', () => {
 
             // Verify all metadata was preserved
             Object.entries(fullClientMetadata).forEach(([key, value]) => {
-                expect(response.body[key]).toEqual(value);
+                expect(response.body[key]).toStrictEqual(value);
             });
         });
 

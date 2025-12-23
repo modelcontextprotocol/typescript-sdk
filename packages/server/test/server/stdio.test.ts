@@ -64,7 +64,7 @@ test('should not read until started', async () => {
 
     expect(didRead).toBeFalsy();
     await server.start();
-    expect(await readMessage).toEqual(message);
+    expect(await readMessage).toStrictEqual(message);
 });
 
 test('should read multiple messages', async () => {
@@ -100,5 +100,5 @@ test('should read multiple messages', async () => {
 
     await server.start();
     await finished;
-    expect(readMessages).toEqual(messages);
+    expect(readMessages).toStrictEqual(messages);
 });

@@ -18,7 +18,7 @@ describe.each(zodTestMatrix)('completable with $zodVersionLabel', (entry: ZodMat
 
         const completer = getCompleter(schema);
         expect(completer).toBeDefined();
-        expect(await completer!('')).toEqual(completions);
+        expect(await completer!('')).toStrictEqual(completions);
     });
 
     it('allows async completion functions', async () => {
@@ -27,7 +27,7 @@ describe.each(zodTestMatrix)('completable with $zodVersionLabel', (entry: ZodMat
 
         const completer = getCompleter(schema);
         expect(completer).toBeDefined();
-        expect(await completer!('')).toEqual(completions);
+        expect(await completer!('')).toStrictEqual(completions);
     });
 
     it('passes current value to completion function', async () => {
@@ -35,7 +35,7 @@ describe.each(zodTestMatrix)('completable with $zodVersionLabel', (entry: ZodMat
 
         const completer = getCompleter(schema);
         expect(completer).toBeDefined();
-        expect(await completer!('test')).toEqual(['test!']);
+        expect(await completer!('test')).toStrictEqual(['test!']);
     });
 
     it('works with number schemas', async () => {
@@ -44,7 +44,7 @@ describe.each(zodTestMatrix)('completable with $zodVersionLabel', (entry: ZodMat
         expect(schema.parse(1)).toBe(1);
         const completer = getCompleter(schema);
         expect(completer).toBeDefined();
-        expect(await completer!(0)).toEqual([1, 2, 3]);
+        expect(await completer!(0)).toStrictEqual([1, 2, 3]);
     });
 
     it('preserves schema description', () => {

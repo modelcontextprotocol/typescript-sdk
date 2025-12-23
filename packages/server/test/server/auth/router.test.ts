@@ -213,11 +213,11 @@ describe('MCP Auth Router', () => {
             expect(response.body.revocation_endpoint).toBe('https://auth.example.com/revoke');
 
             // Verify supported features
-            expect(response.body.response_types_supported).toEqual(['code']);
-            expect(response.body.grant_types_supported).toEqual(['authorization_code', 'refresh_token']);
-            expect(response.body.code_challenge_methods_supported).toEqual(['S256']);
-            expect(response.body.token_endpoint_auth_methods_supported).toEqual(['client_secret_post', 'none']);
-            expect(response.body.revocation_endpoint_auth_methods_supported).toEqual(['client_secret_post']);
+            expect(response.body.response_types_supported).toStrictEqual(['code']);
+            expect(response.body.grant_types_supported).toStrictEqual(['authorization_code', 'refresh_token']);
+            expect(response.body.code_challenge_methods_supported).toStrictEqual(['S256']);
+            expect(response.body.token_endpoint_auth_methods_supported).toStrictEqual(['client_secret_post', 'none']);
+            expect(response.body.revocation_endpoint_auth_methods_supported).toStrictEqual(['client_secret_post']);
 
             // Verify optional fields
             expect(response.body.service_documentation).toBe('https://docs.example.com/');
@@ -266,7 +266,7 @@ describe('MCP Auth Router', () => {
             // Verify protected resource metadata
             expect(response.body.resource).toBe('https://mcp.example.com/');
             expect(response.body.authorization_servers).toContain('https://mcp.example.com/');
-            expect(response.body.scopes_supported).toEqual(['read', 'write']);
+            expect(response.body.scopes_supported).toStrictEqual(['read', 'write']);
             expect(response.body.resource_name).toBe('Test API');
         });
     });
@@ -419,10 +419,10 @@ describe('MCP Auth Metadata Router', () => {
             expect(response.body.issuer).toBe('https://auth.example.com/');
             expect(response.body.authorization_endpoint).toBe('https://auth.example.com/authorize');
             expect(response.body.token_endpoint).toBe('https://auth.example.com/token');
-            expect(response.body.response_types_supported).toEqual(['code']);
-            expect(response.body.grant_types_supported).toEqual(['authorization_code', 'refresh_token']);
-            expect(response.body.code_challenge_methods_supported).toEqual(['S256']);
-            expect(response.body.token_endpoint_auth_methods_supported).toEqual(['client_secret_post']);
+            expect(response.body.response_types_supported).toStrictEqual(['code']);
+            expect(response.body.grant_types_supported).toStrictEqual(['authorization_code', 'refresh_token']);
+            expect(response.body.code_challenge_methods_supported).toStrictEqual(['S256']);
+            expect(response.body.token_endpoint_auth_methods_supported).toStrictEqual(['client_secret_post']);
         });
 
         it('returns OAuth protected resource metadata', async () => {
@@ -432,8 +432,8 @@ describe('MCP Auth Metadata Router', () => {
 
             // Verify protected resource metadata
             expect(response.body.resource).toBe('https://api.example.com/');
-            expect(response.body.authorization_servers).toEqual(['https://auth.example.com/']);
-            expect(response.body.scopes_supported).toEqual(['read', 'write']);
+            expect(response.body.authorization_servers).toStrictEqual(['https://auth.example.com/']);
+            expect(response.body.scopes_supported).toStrictEqual(['read', 'write']);
             expect(response.body.resource_name).toBe('Test API');
             expect(response.body.resource_documentation).toBe('https://docs.example.com/');
         });
@@ -457,7 +457,7 @@ describe('MCP Auth Metadata Router', () => {
 
             expect(resourceResponse.status).toBe(200);
             expect(resourceResponse.body.resource).toBe('https://api.example.com/');
-            expect(resourceResponse.body.authorization_servers).toEqual(['https://auth.example.com/']);
+            expect(resourceResponse.body.authorization_servers).toStrictEqual(['https://auth.example.com/']);
             expect(resourceResponse.body.scopes_supported).toBeUndefined();
             expect(resourceResponse.body.resource_name).toBeUndefined();
             expect(resourceResponse.body.resource_documentation).toBeUndefined();

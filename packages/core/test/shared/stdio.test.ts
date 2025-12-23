@@ -18,7 +18,7 @@ test('should only yield a message after a newline', () => {
     expect(readBuffer.readMessage()).toBeNull();
 
     readBuffer.append(Buffer.from('\n'));
-    expect(readBuffer.readMessage()).toEqual(testMessage);
+    expect(readBuffer.readMessage()).toStrictEqual(testMessage);
     expect(readBuffer.readMessage()).toBeNull();
 });
 
@@ -31,5 +31,5 @@ test('should be reusable after clearing', () => {
 
     readBuffer.append(Buffer.from(JSON.stringify(testMessage)));
     readBuffer.append(Buffer.from('\n'));
-    expect(readBuffer.readMessage()).toEqual(testMessage);
+    expect(readBuffer.readMessage()).toStrictEqual(testMessage);
 });

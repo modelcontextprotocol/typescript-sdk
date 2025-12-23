@@ -241,7 +241,7 @@ test('should initialize with matching protocol version', async () => {
     );
 
     // Should have the instructions returned
-    expect(client.getInstructions()).toEqual('test instructions');
+    expect(client.getInstructions()).toStrictEqual('test instructions');
 });
 
 /***
@@ -286,7 +286,7 @@ test('should initialize with supported older protocol version', async () => {
     await client.connect(clientTransport);
 
     // Connection should succeed with the older version
-    expect(client.getServerVersion()).toEqual({
+    expect(client.getServerVersion()).toStrictEqual({
         name: 'test',
         version: '1.0'
     });
@@ -393,7 +393,7 @@ test('should connect new client to old, supported server version', async () => {
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    expect(client.getServerVersion()).toEqual({
+    expect(client.getServerVersion()).toStrictEqual({
         name: 'old server',
         version: '1.0'
     });
@@ -454,7 +454,7 @@ test('should negotiate version when client is old, and newer server supports its
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    expect(client.getServerVersion()).toEqual({
+    expect(client.getServerVersion()).toStrictEqual({
         name: 'new server',
         version: '1.0'
     });
@@ -575,7 +575,7 @@ test('should respect server capabilities', async () => {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     // Server supports resources and tools, but not prompts
-    expect(client.getServerCapabilities()).toEqual({
+    expect(client.getServerCapabilities()).toStrictEqual({
         resources: {},
         tools: {}
     });
@@ -830,7 +830,7 @@ test('should accept form-mode elicitation request when client advertises empty e
     });
 
     expect(result.action).toBe('accept');
-    expect(result.content).toEqual({
+    expect(result.content).toStrictEqual({
         username: 'test-user',
         confirmed: true
     });
@@ -1121,7 +1121,7 @@ test('should apply defaults for form-mode elicitation when applyDefaults is enab
     });
 
     expect(result.action).toBe('accept');
-    expect(result.content).toEqual({
+    expect(result.content).toStrictEqual({
         confirmed: true
     });
 
@@ -1863,7 +1863,7 @@ describe('outputSchema validation', () => {
 
         // Call the tool - should validate successfully
         const result = await client.callTool({ name: 'test-tool' });
-        expect(result.structuredContent).toEqual({ result: 'success', count: 42 });
+        expect(result.structuredContent).toStrictEqual({ result: 'success', count: 42 });
     });
 
     /***
@@ -2132,7 +2132,7 @@ describe('outputSchema validation', () => {
 
         // Call the tool - should work normally without validation
         const result = await client.callTool({ name: 'test-tool' });
-        expect(result.content).toEqual([{ type: 'text', text: 'Normal response' }]);
+        expect(result.content).toStrictEqual([{ type: 'text', text: 'Normal response' }]);
     });
 
     /***
@@ -2573,7 +2573,7 @@ describe('Task-based execution', () => {
 
             // Query task result using the captured task ID
             const result = await client.experimental.tasks.getTaskResult(taskId!, CallToolResultSchema);
-            expect(result.content).toEqual([{ type: 'text', text: 'Result data!' }]);
+            expect(result.content).toStrictEqual([{ type: 'text', text: 'Result data!' }]);
         });
 
         test('should query task list from server using listTasks', async () => {
@@ -2952,7 +2952,7 @@ describe('Task-based execution', () => {
             // Query task result using getTaskResult
             const taskResult = await server.experimental.tasks.getTaskResult(taskId, ElicitResultSchema);
             expect(taskResult.action).toBe('accept');
-            expect(taskResult.content).toEqual({ username: 'result-user' });
+            expect(taskResult.content).toStrictEqual({ username: 'result-user' });
         });
 
         test('should query task list from client using listTasks', async () => {
@@ -3155,7 +3155,7 @@ describe('Task-based execution', () => {
         // List all tasks without cursor
         const firstPage = await client.experimental.tasks.listTasks();
         expect(firstPage.tasks.length).toBeGreaterThan(0);
-        expect(firstPage.tasks.map(t => t.taskId)).toEqual(expect.arrayContaining(createdTaskIds));
+        expect(firstPage.tasks.map(t => t.taskId)).toStrictEqual(expect.arrayContaining(createdTaskIds));
 
         // If there's a cursor, test pagination
         if (firstPage.nextCursor) {
@@ -3396,7 +3396,7 @@ test('should respect server task capabilities', async () => {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     // Server supports task creation for tools/call
-    expect(client.getServerCapabilities()).toEqual({
+    expect(client.getServerCapabilities()).toStrictEqual({
         tools: {
             listChanged: true
         },
@@ -3469,7 +3469,7 @@ test('should expose requestStream() method for streaming responses', async () =>
 
     // First verify that regular request() works
     const regularResult = await client.callTool({ name: 'test-tool', arguments: {} });
-    expect(regularResult.content).toEqual([{ type: 'text', text: 'Tool result' }]);
+    expect(regularResult.content).toStrictEqual([{ type: 'text', text: 'Tool result' }]);
 
     // Test requestStream with non-task request (should yield only result)
     const stream = client.experimental.tasks.requestStream(
@@ -3489,7 +3489,7 @@ test('should expose requestStream() method for streaming responses', async () =>
     expect(messages.length).toBe(1);
     expect(messages[0]!.type).toBe('result');
     if (messages[0]!.type === 'result') {
-        expect(messages[0]!.result.content).toEqual([{ type: 'text', text: 'Tool result' }]);
+        expect(messages[0]!.result.content).toStrictEqual([{ type: 'text', text: 'Tool result' }]);
     }
 
     await client.close();
@@ -3544,7 +3544,7 @@ test('should expose callToolStream() method for streaming tool calls', async () 
     expect(messages.length).toBe(1);
     expect(messages[0]!.type).toBe('result');
     if (messages[0]!.type === 'result') {
-        expect(messages[0]!.result.content).toEqual([{ type: 'text', text: 'Tool result' }]);
+        expect(messages[0]!.result.content).toStrictEqual([{ type: 'text', text: 'Tool result' }]);
     }
 
     await client.close();
@@ -3625,7 +3625,7 @@ test('should validate structured output in callToolStream()', async () => {
     expect(messages.length).toBe(1);
     expect(messages[0]!.type).toBe('result');
     if (messages[0]!.type === 'result') {
-        expect(messages[0]!.result.structuredContent).toEqual({ value: 42 });
+        expect(messages[0]!.result.structuredContent).toStrictEqual({ value: 42 });
     }
 
     await client.close();
@@ -3838,7 +3838,7 @@ test('callToolStream() should handle tools without outputSchema normally', async
     expect(messages.length).toBe(1);
     expect(messages[0]!.type).toBe('result');
     if (messages[0]!.type === 'result') {
-        expect(messages[0]!.result.content).toEqual([{ type: 'text', text: 'Normal response' }]);
+        expect(messages[0]!.result.content).toStrictEqual([{ type: 'text', text: 'Normal response' }]);
     }
 
     await client.close();
@@ -4088,7 +4088,7 @@ test('callToolStream() should not validate structuredContent when isError is tru
     expect(messages[0]!.type).toBe('result');
     if (messages[0]!.type === 'result') {
         expect(messages[0]!.result.isError).toBe(true);
-        expect(messages[0]!.result.content).toEqual([{ type: 'text', text: 'Something went wrong' }]);
+        expect(messages[0]!.result.content).toStrictEqual([{ type: 'text', text: 'Something went wrong' }]);
     }
 
     await client.close();

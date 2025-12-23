@@ -66,7 +66,7 @@ describe('Types', () => {
                 expect(result.data.title).toBe('A comprehensive example resource');
                 expect(result.data.description).toBe('This resource demonstrates all fields');
                 expect(result.data.mimeType).toBe('text/plain');
-                expect(result.data._meta).toEqual({ custom: 'metadata' });
+                expect(result.data._meta).toStrictEqual({ custom: 'metadata' });
             }
         });
 
@@ -110,7 +110,7 @@ describe('Types', () => {
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('text');
-                expect(result.data.annotations).toEqual({
+                expect(result.data.annotations).toStrictEqual({
                     audience: ['user'],
                     priority: 0.5,
                     lastModified: mockDate
@@ -135,7 +135,7 @@ describe('Types', () => {
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('image');
-                expect(result.data.annotations).toEqual({
+                expect(result.data.annotations).toStrictEqual({
                     audience: ['user'],
                     priority: 0.5,
                     lastModified: mockDate
@@ -160,7 +160,7 @@ describe('Types', () => {
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('audio');
-                expect(result.data.annotations).toEqual({
+                expect(result.data.annotations).toStrictEqual({
                     audience: ['user'],
                     priority: 0.5,
                     lastModified: mockDate
@@ -186,7 +186,7 @@ describe('Types', () => {
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('resource_link');
-                expect(result.data.annotations).toEqual({
+                expect(result.data.annotations).toStrictEqual({
                     audience: ['user'],
                     priority: 0.5,
                     lastModified: mockDate
@@ -214,7 +214,7 @@ describe('Types', () => {
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.type).toBe('resource');
-                expect(result.data.annotations).toEqual({
+                expect(result.data.annotations).toStrictEqual({
                     audience: ['user'],
                     priority: 0.5,
                     lastModified: mockDate
@@ -285,7 +285,7 @@ describe('Types', () => {
             const result = CallToolResultSchema.safeParse(toolResult);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.content).toEqual([]);
+                expect(result.data.content).toStrictEqual([]);
             }
         });
     });
@@ -326,7 +326,7 @@ describe('Types', () => {
             const result = CompleteRequestSchema.safeParse(request);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.params.context?.arguments).toEqual({
+                expect(result.data.params.context?.arguments).toStrictEqual({
                     '{owner}': 'microsoft'
                 });
             }
@@ -347,7 +347,7 @@ describe('Types', () => {
             const result = CompleteRequestSchema.safeParse(request);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.params.context?.arguments).toEqual({});
+                expect(result.data.params.context?.arguments).toStrictEqual({});
             }
         });
 
@@ -369,7 +369,7 @@ describe('Types', () => {
             const result = CompleteRequestSchema.safeParse(request);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.params.context?.arguments).toEqual({
+                expect(result.data.params.context?.arguments).toStrictEqual({
                     '{tenant}': 'acme-corp',
                     '{resource}': 'users'
                 });
@@ -518,7 +518,7 @@ describe('Types', () => {
                 expect(result.data.type).toBe('tool_use');
                 expect(result.data.id).toBe('call_123');
                 expect(result.data.name).toBe('get_weather');
-                expect(result.data.input).toEqual({ city: 'San Francisco', units: 'celsius' });
+                expect(result.data.input).toStrictEqual({ city: 'San Francisco', units: 'celsius' });
             }
         });
 
@@ -534,7 +534,7 @@ describe('Types', () => {
             const result = ToolUseContentSchema.safeParse(toolCall);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data._meta).toEqual({ custom: 'data' });
+                expect(result.data._meta).toStrictEqual({ custom: 'data' });
             }
         });
 
@@ -563,7 +563,7 @@ describe('Types', () => {
             if (result.success) {
                 expect(result.data.type).toBe('tool_result');
                 expect(result.data.toolUseId).toBe('call_123');
-                expect(result.data.structuredContent).toEqual({ temperature: 72, condition: 'sunny' });
+                expect(result.data.structuredContent).toStrictEqual({ temperature: 72, condition: 'sunny' });
             }
         });
 
@@ -578,7 +578,7 @@ describe('Types', () => {
             const result = ToolResultContentSchema.safeParse(toolResult);
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.structuredContent).toEqual({ error: 'API_ERROR', message: 'Service unavailable' });
+                expect(result.data.structuredContent).toStrictEqual({ error: 'API_ERROR', message: 'Service unavailable' });
                 expect(result.data.isError).toBe(true);
             }
         });

@@ -22,13 +22,13 @@ describe('UriTemplate', () => {
         it('should expand simple string variables', () => {
             const template = new UriTemplate('http://example.com/users/{username}');
             expect(template.expand({ username: 'fred' })).toBe('http://example.com/users/fred');
-            expect(template.variableNames).toEqual(['username']);
+            expect(template.variableNames).toStrictEqual(['username']);
         });
 
         it('should handle multiple variables', () => {
             const template = new UriTemplate('{x,y}');
             expect(template.expand({ x: '1024', y: '768' })).toBe('1024,768');
-            expect(template.variableNames).toEqual(['x', 'y']);
+            expect(template.variableNames).toStrictEqual(['x', 'y']);
         });
 
         it('should encode reserved characters', () => {
@@ -41,7 +41,7 @@ describe('UriTemplate', () => {
         it('should not encode reserved characters with + operator', () => {
             const template = new UriTemplate('{+path}/here');
             expect(template.expand({ path: '/foo/bar' })).toBe('/foo/bar/here');
-            expect(template.variableNames).toEqual(['path']);
+            expect(template.variableNames).toStrictEqual(['path']);
         });
     });
 
@@ -49,7 +49,7 @@ describe('UriTemplate', () => {
         it('should add # prefix and not encode reserved chars', () => {
             const template = new UriTemplate('X{#var}');
             expect(template.expand({ var: '/test' })).toBe('X#/test');
-            expect(template.variableNames).toEqual(['var']);
+            expect(template.variableNames).toStrictEqual(['var']);
         });
     });
 
@@ -57,7 +57,7 @@ describe('UriTemplate', () => {
         it('should add . prefix', () => {
             const template = new UriTemplate('X{.var}');
             expect(template.expand({ var: 'test' })).toBe('X.test');
-            expect(template.variableNames).toEqual(['var']);
+            expect(template.variableNames).toStrictEqual(['var']);
         });
     });
 
@@ -65,7 +65,7 @@ describe('UriTemplate', () => {
         it('should add / prefix', () => {
             const template = new UriTemplate('X{/var}');
             expect(template.expand({ var: 'test' })).toBe('X/test');
-            expect(template.variableNames).toEqual(['var']);
+            expect(template.variableNames).toStrictEqual(['var']);
         });
     });
 
@@ -73,7 +73,7 @@ describe('UriTemplate', () => {
         it('should add ? prefix and name=value format', () => {
             const template = new UriTemplate('X{?var}');
             expect(template.expand({ var: 'test' })).toBe('X?var=test');
-            expect(template.variableNames).toEqual(['var']);
+            expect(template.variableNames).toStrictEqual(['var']);
         });
     });
 
@@ -81,7 +81,7 @@ describe('UriTemplate', () => {
         it('should add & prefix and name=value format', () => {
             const template = new UriTemplate('X{&var}');
             expect(template.expand({ var: 'test' })).toBe('X&var=test');
-            expect(template.variableNames).toEqual(['var']);
+            expect(template.variableNames).toStrictEqual(['var']);
         });
     });
 
@@ -89,13 +89,13 @@ describe('UriTemplate', () => {
         it('should match simple strings and extract variables', () => {
             const template = new UriTemplate('http://example.com/users/{username}');
             const match = template.match('http://example.com/users/fred');
-            expect(match).toEqual({ username: 'fred' });
+            expect(match).toStrictEqual({ username: 'fred' });
         });
 
         it('should match multiple variables', () => {
             const template = new UriTemplate('/users/{username}/posts/{postId}');
             const match = template.match('/users/fred/posts/123');
-            expect(match).toEqual({ username: 'fred', postId: '123' });
+            expect(match).toStrictEqual({ username: 'fred', postId: '123' });
         });
 
         it('should return null for non-matching URIs', () => {
@@ -107,7 +107,7 @@ describe('UriTemplate', () => {
         it('should handle exploded arrays', () => {
             const template = new UriTemplate('{/list*}');
             const match = template.match('/red,green,blue');
-            expect(match).toEqual({ list: ['red', 'green', 'blue'] });
+            expect(match).toStrictEqual({ list: ['red', 'green', 'blue'] });
         });
     });
 
@@ -139,7 +139,7 @@ describe('UriTemplate', () => {
                     id: '123'
                 })
             ).toBe('/api/v1/users/123');
-            expect(template.variableNames).toEqual(['version', 'resource', 'id']);
+            expect(template.variableNames).toStrictEqual(['version', 'resource', 'id']);
         });
 
         it('should handle query parameters with arrays', () => {
@@ -149,7 +149,7 @@ describe('UriTemplate', () => {
                     tags: ['nodejs', 'typescript', 'testing']
                 })
             ).toBe('/search?tags=nodejs,typescript,testing');
-            expect(template.variableNames).toEqual(['tags']);
+            expect(template.variableNames).toStrictEqual(['tags']);
         });
 
         it('should handle multiple query parameters', () => {
@@ -161,7 +161,7 @@ describe('UriTemplate', () => {
                     limit: '10'
                 })
             ).toBe('/search?q=test&page=1&limit=10');
-            expect(template.variableNames).toEqual(['q', 'page', 'limit']);
+            expect(template.variableNames).toStrictEqual(['q', 'page', 'limit']);
         });
     });
 
@@ -169,26 +169,26 @@ describe('UriTemplate', () => {
         it('should match nested path segments', () => {
             const template = new UriTemplate('/api/{version}/{resource}/{id}');
             const match = template.match('/api/v1/users/123');
-            expect(match).toEqual({
+            expect(match).toStrictEqual({
                 version: 'v1',
                 resource: 'users',
                 id: '123'
             });
-            expect(template.variableNames).toEqual(['version', 'resource', 'id']);
+            expect(template.variableNames).toStrictEqual(['version', 'resource', 'id']);
         });
 
         it('should match query parameters', () => {
             const template = new UriTemplate('/search{?q}');
             const match = template.match('/search?q=test');
-            expect(match).toEqual({ q: 'test' });
-            expect(template.variableNames).toEqual(['q']);
+            expect(match).toStrictEqual({ q: 'test' });
+            expect(template.variableNames).toStrictEqual(['q']);
         });
 
         it('should match multiple query parameters', () => {
             const template = new UriTemplate('/search{?q,page}');
             const match = template.match('/search?q=test&page=1');
-            expect(match).toEqual({ q: 'test', page: '1' });
-            expect(template.variableNames).toEqual(['q', 'page']);
+            expect(match).toStrictEqual({ q: 'test', page: '1' });
+            expect(template.variableNames).toStrictEqual(['q', 'page']);
         });
 
         it('should handle partial matches correctly', () => {
@@ -203,7 +203,7 @@ describe('UriTemplate', () => {
             const longString = 'x'.repeat(100000);
             const template = new UriTemplate(`/api/{param}`);
             expect(template.expand({ param: longString })).toBe(`/api/${longString}`);
-            expect(template.match(`/api/${longString}`)).toEqual({ param: longString });
+            expect(template.match(`/api/${longString}`)).toStrictEqual({ param: longString });
         });
 
         it('should handle deeply nested template expressions', () => {
@@ -255,20 +255,20 @@ describe('UriTemplate', () => {
         it('should handle repeated operators', () => {
             const template = new UriTemplate('{?a}{?b}{?c}');
             expect(template.expand({ a: '1', b: '2', c: '3' })).toBe('?a=1&b=2&c=3');
-            expect(template.variableNames).toEqual(['a', 'b', 'c']);
+            expect(template.variableNames).toStrictEqual(['a', 'b', 'c']);
         });
 
         it('should handle overlapping variable names', () => {
             const template = new UriTemplate('{var}{vara}');
             expect(template.expand({ var: '1', vara: '2' })).toBe('12');
-            expect(template.variableNames).toEqual(['var', 'vara']);
+            expect(template.variableNames).toStrictEqual(['var', 'vara']);
         });
 
         it('should handle empty segments', () => {
             const template = new UriTemplate('///{a}////{b}////');
             expect(template.expand({ a: '1', b: '2' })).toBe('///1////2////');
-            expect(template.match('///1////2////')).toEqual({ a: '1', b: '2' });
-            expect(template.variableNames).toEqual(['a', 'b']);
+            expect(template.match('///1////2////')).toStrictEqual({ a: '1', b: '2' });
+            expect(template.variableNames).toStrictEqual(['a', 'b']);
         });
 
         it('should handle maximum template expression limit', () => {

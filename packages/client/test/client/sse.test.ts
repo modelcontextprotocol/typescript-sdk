@@ -156,7 +156,7 @@ describe('SSEClientTransport', () => {
             await new Promise(resolve => setTimeout(resolve, 50));
 
             expect(receivedMessages).toHaveLength(1);
-            expect(receivedMessages[0]).toEqual(testMessage);
+            expect(receivedMessages[0]).toStrictEqual(testMessage);
         });
 
         it('handles malformed JSON messages', async () => {
@@ -193,7 +193,7 @@ describe('SSEClientTransport', () => {
 
             expect(lastServerRequest.method).toBe('POST');
             expect(lastServerRequest.headers['content-type']).toBe('application/json');
-            expect(JSON.parse((lastServerRequest as IncomingMessage & { body: string }).body)).toEqual(testMessage);
+            expect(JSON.parse((lastServerRequest as IncomingMessage & { body: string }).body)).toStrictEqual(testMessage);
         });
 
         it('handles POST request failures', async () => {

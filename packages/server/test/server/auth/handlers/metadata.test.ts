@@ -31,7 +31,7 @@ describe('Metadata Handler', () => {
 
         expect(response.status).toBe(405);
         expect(response.headers.allow).toBe('GET, OPTIONS');
-        expect(response.body).toEqual({
+        expect(response.body).toStrictEqual({
             error: 'method_not_allowed',
             error_description: 'The method POST is not allowed for this endpoint'
         });
@@ -41,7 +41,7 @@ describe('Metadata Handler', () => {
         const response = await supertest(app).get('/.well-known/oauth-authorization-server');
 
         expect(response.status).toBe(200);
-        expect(response.body).toEqual(exampleMetadata);
+        expect(response.body).toStrictEqual(exampleMetadata);
     });
 
     it('includes CORS headers in response', async () => {
@@ -74,6 +74,6 @@ describe('Metadata Handler', () => {
         const response = await supertest(minimalApp).get('/.well-known/oauth-authorization-server');
 
         expect(response.status).toBe(200);
-        expect(response.body).toEqual(minimalMetadata);
+        expect(response.body).toStrictEqual(minimalMetadata);
     });
 });

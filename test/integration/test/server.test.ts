@@ -193,7 +193,7 @@ test('should accept latest protocol version', async () => {
         close: vi.fn().mockResolvedValue(undefined),
         send: vi.fn().mockImplementation(message => {
             if (message.id === 1 && message.result) {
-                expect(message.result).toEqual({
+                expect(message.result).toStrictEqual({
                     protocolVersion: LATEST_PROTOCOL_VERSION,
                     capabilities: expect.any(Object),
                     serverInfo: {
@@ -256,7 +256,7 @@ test('should accept supported older protocol version', async () => {
         close: vi.fn().mockResolvedValue(undefined),
         send: vi.fn().mockImplementation(message => {
             if (message.id === 1 && message.result) {
-                expect(message.result).toEqual({
+                expect(message.result).toStrictEqual({
                     protocolVersion: OLD_VERSION,
                     capabilities: expect.any(Object),
                     serverInfo: {
@@ -316,7 +316,7 @@ test('should handle unsupported protocol version', async () => {
         close: vi.fn().mockResolvedValue(undefined),
         send: vi.fn().mockImplementation(message => {
             if (message.id === 1 && message.result) {
-                expect(message.result).toEqual({
+                expect(message.result).toStrictEqual({
                     protocolVersion: LATEST_PROTOCOL_VERSION,
                     capabilities: expect.any(Object),
                     serverInfo: {
@@ -411,7 +411,7 @@ test('should respect client capabilities', async () => {
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    expect(server.getClientCapabilities()).toEqual({ sampling: {} });
+    expect(server.getClientCapabilities()).toStrictEqual({ sampling: {} });
 
     // This should work because sampling is supported by the client
     await expect(
@@ -467,7 +467,7 @@ test('should respect client elicitation capabilities', async () => {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     // After schema parsing, empty elicitation object should have form capability injected
-    expect(server.getClientCapabilities()).toEqual({ elicitation: { form: {} } });
+    expect(server.getClientCapabilities()).toStrictEqual({ elicitation: { form: {} } });
 
     // This should work because elicitation is supported by the client
     await expect(
@@ -492,7 +492,7 @@ test('should respect client elicitation capabilities', async () => {
                 required: ['username']
             }
         })
-    ).resolves.toEqual({
+    ).resolves.toStrictEqual({
         action: 'accept',
         content: {
             username: 'test-user',
@@ -551,7 +551,7 @@ test('should use elicitInput with mode: "form" by default for backwards compatib
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     // After schema parsing, empty elicitation object should have form capability injected
-    expect(server.getClientCapabilities()).toEqual({ elicitation: { form: {} } });
+    expect(server.getClientCapabilities()).toStrictEqual({ elicitation: { form: {} } });
 
     // This should work because elicitation is supported by the client
     await expect(
@@ -575,7 +575,7 @@ test('should use elicitInput with mode: "form" by default for backwards compatib
                 required: ['username']
             }
         })
-    ).resolves.toEqual({
+    ).resolves.toStrictEqual({
         action: 'accept',
         content: {
             username: 'test-user',
@@ -737,14 +737,14 @@ test('should include form mode when sending elicitation form requests', async ()
                 required: ['confirmation']
             }
         })
-    ).resolves.toEqual({
+    ).resolves.toStrictEqual({
         action: 'accept',
         content: {
             confirmation: true
         }
     });
 
-    expect(receivedModes).toEqual(['form']);
+    expect(receivedModes).toStrictEqual(['form']);
 });
 
 test('should include url mode when sending elicitation URL requests', async () => {
@@ -795,12 +795,12 @@ test('should include url mode when sending elicitation URL requests', async () =
             elicitationId: 'elicitation-xyz',
             url: 'https://example.com/verify'
         })
-    ).resolves.toEqual({
+    ).resolves.toStrictEqual({
         action: 'decline'
     });
 
-    expect(receivedModes).toEqual(['url']);
-    expect(receivedIds).toEqual(['elicitation-xyz']);
+    expect(receivedModes).toStrictEqual(['url']);
+    expect(receivedIds).toStrictEqual(['elicitation-xyz']);
 });
 
 test('should reject elicitInput when client response violates requested schema', async () => {
@@ -997,7 +997,7 @@ test('should create notifier that emits elicitation completion notification', as
 
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    expect(receivedIds).toEqual(['elicitation-123']);
+    expect(receivedIds).toStrictEqual(['elicitation-123']);
 });
 
 test('should throw when creating notifier if client lacks URL elicitation support', async () => {
@@ -1071,7 +1071,7 @@ test('should apply back-compat form capability injection when client sends empty
     expect(clientCapabilities).toBeDefined();
     expect(clientCapabilities?.elicitation).toBeDefined();
     expect(clientCapabilities?.elicitation?.form).toBeDefined();
-    expect(clientCapabilities?.elicitation?.form).toEqual({});
+    expect(clientCapabilities?.elicitation?.form).toStrictEqual({});
     expect(clientCapabilities?.elicitation?.url).toBeUndefined();
 });
 
@@ -1116,7 +1116,7 @@ test('should preserve form capability configuration when client enables applyDef
     expect(clientCapabilities).toBeDefined();
     expect(clientCapabilities?.elicitation).toBeDefined();
     expect(clientCapabilities?.elicitation?.form).toBeDefined();
-    expect(clientCapabilities?.elicitation?.form).toEqual({ applyDefaults: true });
+    expect(clientCapabilities?.elicitation?.form).toStrictEqual({ applyDefaults: true });
     expect(clientCapabilities?.elicitation?.url).toBeUndefined();
 });
 
@@ -1188,7 +1188,7 @@ test('should validate elicitation response against requested schema', async () =
                 required: ['name', 'email']
             }
         })
-    ).resolves.toEqual({
+    ).resolves.toStrictEqual({
         action: 'accept',
         content: {
             name: 'John Doe',
@@ -1326,7 +1326,7 @@ test('should allow elicitation reject and cancel without validation', async () =
             message: 'Please provide your name',
             requestedSchema: schema
         })
-    ).resolves.toEqual({
+    ).resolves.toStrictEqual({
         action: 'decline'
     });
 
@@ -1337,7 +1337,7 @@ test('should allow elicitation reject and cancel without validation', async () =
             message: 'Please provide your name',
             requestedSchema: schema
         })
-    ).resolves.toEqual({
+    ).resolves.toStrictEqual({
         action: 'cancel'
     });
 });
@@ -1556,7 +1556,7 @@ test('should respect log level for transport without sessionId', async () => {
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    expect(clientTransport.sessionId).toEqual(undefined);
+    expect(clientTransport.sessionId).toStrictEqual(undefined);
 
     // Client sets logging level to warning
     await client.setLoggingLevel('warning');
@@ -1577,7 +1577,7 @@ test('should respect log level for transport without sessionId', async () => {
 
     // Test the one that makes it through
     clientTransport.onmessage = vi.fn().mockImplementation(message => {
-        expect(message).toEqual({
+        expect(message).toStrictEqual({
             jsonrpc: '2.0',
             method: 'notifications/message',
             params: warningParams
@@ -2042,7 +2042,7 @@ test('should respect log level for transport with sessionId', async () => {
 
     // Test the one that makes it through
     clientTransport.onmessage = vi.fn().mockImplementation(message => {
-        expect(message).toEqual({
+        expect(message).toStrictEqual({
             jsonrpc: '2.0',
             method: 'notifications/message',
             params: warningParams
@@ -2073,7 +2073,7 @@ describe('createMcpExpressApp', () => {
         const response = await supertest(app).post('/test').send({ hello: 'world' }).set('Content-Type', 'application/json');
 
         expect(response.status).toBe(200);
-        expect(response.body).toEqual({ received: { hello: 'world' } });
+        expect(response.body).toStrictEqual({ received: { hello: 'world' } });
     });
 
     test('should reject requests with invalid Host header by default', async () => {
@@ -2085,7 +2085,7 @@ describe('createMcpExpressApp', () => {
         const response = await supertest(app).post('/test').set('Host', 'evil.com:3000').send({});
 
         expect(response.status).toBe(403);
-        expect(response.body).toEqual({
+        expect(response.body).toStrictEqual({
             jsonrpc: '2.0',
             error: {
                 code: -32000,
@@ -2104,7 +2104,7 @@ describe('createMcpExpressApp', () => {
         const response = await supertest(app).post('/test').set('Host', 'localhost:3000').send({});
 
         expect(response.status).toBe(200);
-        expect(response.body).toEqual({ success: true });
+        expect(response.body).toStrictEqual({ success: true });
     });
 
     test('should allow requests with 127.0.0.1 Host header', async () => {
@@ -2116,7 +2116,7 @@ describe('createMcpExpressApp', () => {
         const response = await supertest(app).post('/test').set('Host', '127.0.0.1:3000').send({});
 
         expect(response.status).toBe(200);
-        expect(response.body).toEqual({ success: true });
+        expect(response.body).toStrictEqual({ success: true });
     });
 
     test('should not apply host validation when host is 0.0.0.0', async () => {
@@ -2129,7 +2129,7 @@ describe('createMcpExpressApp', () => {
         const response = await supertest(app).post('/test').set('Host', 'any-host.com:3000').send({});
 
         expect(response.status).toBe(200);
-        expect(response.body).toEqual({ success: true });
+        expect(response.body).toStrictEqual({ success: true });
     });
 
     test('should apply host validation when host is explicitly localhost', async () => {
@@ -2153,7 +2153,7 @@ describe('createMcpExpressApp', () => {
         const response = await supertest(app).post('/test').set('Host', '[::1]:3000').send({});
 
         expect(response.status).toBe(200);
-        expect(response.body).toEqual({ success: true });
+        expect(response.body).toStrictEqual({ success: true });
     });
 
     test('should apply host validation when host is ::1 (IPv6 localhost)', async () => {
@@ -2328,7 +2328,7 @@ describe('Task-based execution', () => {
 
         // Verify we can retrieve the result
         const result = await client.experimental.tasks.getTaskResult(taskId!, CallToolResultSchema);
-        expect(result.content).toEqual([{ type: 'text', text: 'Tool executed successfully!' }]);
+        expect(result.content).toStrictEqual([{ type: 'text', text: 'Tool executed successfully!' }]);
 
         // Cleanup
         taskStore.cleanup();
@@ -2553,7 +2553,7 @@ describe('Task-based execution', () => {
 
         // Verify tool result was correct
         const result = await client.experimental.tasks.getTaskResult(taskId!, CallToolResultSchema);
-        expect(result.content).toEqual([
+        expect(result.content).toStrictEqual([
             {
                 type: 'text',
                 text: 'Collected username: test-user'
@@ -2813,7 +2813,7 @@ describe('Task-based execution', () => {
             // Query result
             const result = await server.experimental.tasks.getTaskResult(taskId, ElicitResultSchema);
             expect(result.action).toBe('accept');
-            expect(result.content).toEqual({ username: 'result-user', confirmed: true });
+            expect(result.content).toStrictEqual({ username: 'result-user', confirmed: true });
         });
 
         test('should query task list from client using listTasks', async () => {
@@ -3028,7 +3028,7 @@ describe('Task-based execution', () => {
             expect(task.taskId).toBe(taskIds[i]!);
 
             const result = await client.experimental.tasks.getTaskResult(taskIds[i]!, CallToolResultSchema);
-            expect(result.content).toEqual([{ type: 'text', text: `Completed task ${i + 1}` }]);
+            expect(result.content).toStrictEqual([{ type: 'text', text: `Completed task ${i + 1}` }]);
         }
 
         // Verify listTasks returns all tasks
@@ -3223,7 +3223,7 @@ test('should respect client task capabilities', async () => {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     // Client supports task creation for elicitation/create and task methods
-    expect(server.getClientCapabilities()).toEqual({
+    expect(server.getClientCapabilities()).toStrictEqual({
         sampling: {},
         elicitation: {
             form: {}

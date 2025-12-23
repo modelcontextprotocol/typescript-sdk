@@ -159,7 +159,7 @@ describe('Revocation Handler', () => {
 
             expect(response.status).toBe(405);
             expect(response.headers.allow).toBe('POST');
-            expect(response.body).toEqual({
+            expect(response.body).toStrictEqual({
                 error: 'method_not_allowed',
                 error_description: 'The method GET is not allowed for this endpoint'
             });
@@ -198,7 +198,7 @@ describe('Revocation Handler', () => {
             });
 
             expect(response.status).toBe(200);
-            expect(response.body).toEqual({}); // Empty response on success
+            expect(response.body).toStrictEqual({}); // Empty response on success
             expect(spyRevokeToken).toHaveBeenCalledTimes(1);
             expect(spyRevokeToken).toHaveBeenCalledWith(validClient, {
                 token: 'token_to_revoke'

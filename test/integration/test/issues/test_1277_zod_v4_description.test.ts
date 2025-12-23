@@ -56,7 +56,7 @@ describe.each(zodTestMatrix)('Issue #1277: $zodVersionLabel', (entry: ZodMatrixE
 
         expect(result.prompts).toHaveLength(1);
         expect(result.prompts[0]!.name).toBe('test');
-        expect(result.prompts[0]!.arguments).toEqual([
+        expect(result.prompts[0]!.arguments).toStrictEqual([
             { name: 'name', required: true, description: 'The user name' },
             { name: 'value', required: true, description: 'The value to set' }
         ]);

@@ -45,7 +45,7 @@ describe('OAuth Authorization', () => {
                 }
             } as unknown as Response;
 
-            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ resourceMetadataUrl: new URL(resourceUrl) });
+            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({ resourceMetadataUrl: new URL(resourceUrl) });
         });
 
         it('returns scope when present', async () => {
@@ -56,7 +56,7 @@ describe('OAuth Authorization', () => {
                 }
             } as unknown as Response;
 
-            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ scope: scope });
+            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({ scope: scope });
         });
 
         it('returns empty object if not bearer', async () => {
@@ -70,7 +70,7 @@ describe('OAuth Authorization', () => {
                 }
             } as unknown as Response;
 
-            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({});
+            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({});
         });
 
         it('returns empty object if resource_metadata and scope not present', async () => {
@@ -80,7 +80,7 @@ describe('OAuth Authorization', () => {
                 }
             } as unknown as Response;
 
-            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({});
+            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({});
         });
 
         it('returns undefined resourceMetadataUrl on invalid url', async () => {
@@ -94,7 +94,7 @@ describe('OAuth Authorization', () => {
                 }
             } as unknown as Response;
 
-            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ scope: scope });
+            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({ scope: scope });
         });
 
         it('returns error when present', async () => {
@@ -104,7 +104,7 @@ describe('OAuth Authorization', () => {
                 }
             } as unknown as Response;
 
-            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ error: 'insufficient_scope', scope: 'admin' });
+            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({ error: 'insufficient_scope', scope: 'admin' });
         });
     });
 
@@ -122,7 +122,7 @@ describe('OAuth Authorization', () => {
             });
 
             const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com');
-            expect(metadata).toEqual(validMetadata);
+            expect(metadata).toStrictEqual(validMetadata);
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1);
             const [url] = calls[0]!;
@@ -153,7 +153,7 @@ describe('OAuth Authorization', () => {
 
             // Should succeed with the second call
             const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com');
-            expect(metadata).toEqual(validMetadata);
+            expect(metadata).toStrictEqual(validMetadata);
 
             // Verify both calls were made
             expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -227,7 +227,7 @@ describe('OAuth Authorization', () => {
             });
 
             const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name');
-            expect(metadata).toEqual(validMetadata);
+            expect(metadata).toStrictEqual(validMetadata);
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1);
             const [url] = calls[0]!;
@@ -242,7 +242,7 @@ describe('OAuth Authorization', () => {
             });
 
             const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/path?param=value');
-            expect(metadata).toEqual(validMetadata);
+            expect(metadata).toStrictEqual(validMetadata);
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1);
             const [url] = calls[0]!;
@@ -266,7 +266,7 @@ describe('OAuth Authorization', () => {
                 });
 
                 const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name');
-                expect(metadata).toEqual(validMetadata);
+                expect(metadata).toStrictEqual(validMetadata);
 
                 const calls = mockFetch.mock.calls;
                 expect(calls.length).toBe(2);
@@ -274,14 +274,14 @@ describe('OAuth Authorization', () => {
                 // First call should be path-aware
                 const [firstUrl, firstOptions] = calls[0]!;
                 expect(firstUrl.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource/path/name');
-                expect(firstOptions.headers).toEqual({
+                expect(firstOptions.headers).toStrictEqual({
                     'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
                 });
 
                 // Second call should be root fallback
                 const [secondUrl, secondOptions] = calls[1]!;
                 expect(secondUrl.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
-                expect(secondOptions.headers).toEqual({
+                expect(secondOptions.headers).toStrictEqual({
                     'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
                 });
             }
@@ -375,7 +375,7 @@ describe('OAuth Authorization', () => {
             });
 
             const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/deep/path');
-            expect(metadata).toEqual(validMetadata);
+            expect(metadata).toStrictEqual(validMetadata);
 
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(3);
@@ -383,7 +383,7 @@ describe('OAuth Authorization', () => {
             // Final call should be root fallback
             const [lastUrl, lastOptions] = calls[2]!;
             expect(lastUrl.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
-            expect(lastOptions.headers).toEqual({
+            expect(lastOptions.headers).toStrictEqual({
                 'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
             });
         });
@@ -422,13 +422,13 @@ describe('OAuth Authorization', () => {
 
             const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com', undefined, customFetch);
 
-            expect(metadata).toEqual(validMetadata);
+            expect(metadata).toStrictEqual(validMetadata);
             expect(customFetch).toHaveBeenCalledTimes(1);
             expect(mockFetch).not.toHaveBeenCalled();
 
             const [url, options] = customFetch.mock.calls[0]!;
             expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
-            expect(options.headers).toEqual({
+            expect(options.headers).toStrictEqual({
                 'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
             });
         });
@@ -452,12 +452,12 @@ describe('OAuth Authorization', () => {
             });
 
             const metadata = await discoverOAuthMetadata('https://auth.example.com');
-            expect(metadata).toEqual(validMetadata);
+            expect(metadata).toStrictEqual(validMetadata);
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1);
             const [url, options] = calls[0]!;
             expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
-            expect(options.headers).toEqual({
+            expect(options.headers).toStrictEqual({
                 'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
             });
         });
@@ -470,12 +470,12 @@ describe('OAuth Authorization', () => {
             });
 
             const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name');
-            expect(metadata).toEqual(validMetadata);
+            expect(metadata).toStrictEqual(validMetadata);
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1);
             const [url, options] = calls[0]!;
             expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/path/name');
-            expect(options.headers).toEqual({
+            expect(options.headers).toStrictEqual({
                 'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
             });
         });
@@ -495,7 +495,7 @@ describe('OAuth Authorization', () => {
             });
 
             const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name');
-            expect(metadata).toEqual(validMetadata);
+            expect(metadata).toStrictEqual(validMetadata);
 
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(2);
@@ -503,14 +503,14 @@ describe('OAuth Authorization', () => {
             // First call should be path-aware
             const [firstUrl, firstOptions] = calls[0]!;
             expect(firstUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/path/name');
-            expect(firstOptions.headers).toEqual({
+            expect(firstOptions.headers).toStrictEqual({
                 'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
             });
 
             // Second call should be root fallback
             const [secondUrl, secondOptions] = calls[1]!;
             expect(secondUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
-            expect(secondOptions.headers).toEqual({
+            expect(secondOptions.headers).toStrictEqual({
                 'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
             });
         });
@@ -587,7 +587,7 @@ describe('OAuth Authorization', () => {
             });
 
             const metadata = await discoverOAuthMetadata('https://auth.example.com/deep/path');
-            expect(metadata).toEqual(validMetadata);
+            expect(metadata).toStrictEqual(validMetadata);
 
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(3);
@@ -595,7 +595,7 @@ describe('OAuth Authorization', () => {
             // Final call should be root fallback
             const [lastUrl, lastOptions] = calls[2]!;
             expect(lastUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
-            expect(lastOptions.headers).toEqual({
+            expect(lastOptions.headers).toStrictEqual({
                 'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
             });
         });
@@ -624,7 +624,7 @@ describe('OAuth Authorization', () => {
 
             // Should succeed with the second call
             const metadata = await discoverOAuthMetadata('https://auth.example.com');
-            expect(metadata).toEqual(validMetadata);
+            expect(metadata).toStrictEqual(validMetadata);
 
             // Verify both calls were made
             expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -718,13 +718,13 @@ describe('OAuth Authorization', () => {
 
             const metadata = await discoverOAuthMetadata('https://auth.example.com', {}, customFetch);
 
-            expect(metadata).toEqual(validMetadata);
+            expect(metadata).toStrictEqual(validMetadata);
             expect(customFetch).toHaveBeenCalledTimes(1);
             expect(mockFetch).not.toHaveBeenCalled();
 
             const [url, options] = customFetch.mock.calls[0]!;
             expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
-            expect(options.headers).toEqual({
+            expect(options.headers).toStrictEqual({
                 'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
             });
         });
@@ -735,7 +735,7 @@ describe('OAuth Authorization', () => {
             const urls = buildDiscoveryUrls('https://auth.example.com');
 
             expect(urls).toHaveLength(2);
-            expect(urls.map(u => ({ url: u.url.toString(), type: u.type }))).toEqual([
+            expect(urls.map(u => ({ url: u.url.toString(), type: u.type }))).toStrictEqual([
                 {
                     url: 'https://auth.example.com/.well-known/oauth-authorization-server',
                     type: 'oauth'
@@ -751,7 +751,7 @@ describe('OAuth Authorization', () => {
             const urls = buildDiscoveryUrls('https://auth.example.com/tenant1');
 
             expect(urls).toHaveLength(3);
-            expect(urls.map(u => ({ url: u.url.toString(), type: u.type }))).toEqual([
+            expect(urls.map(u => ({ url: u.url.toString(), type: u.type }))).toStrictEqual([
                 {
                     url: 'https://auth.example.com/.well-known/oauth-authorization-server/tenant1',
                     type: 'oauth'
@@ -812,7 +812,7 @@ describe('OAuth Authorization', () => {
 
             const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com/tenant1');
 
-            expect(metadata).toEqual(validOpenIdMetadata);
+            expect(metadata).toStrictEqual(validOpenIdMetadata);
 
             // Verify it tried the URLs in the correct order
             const calls = mockFetch.mock.calls;
@@ -835,7 +835,7 @@ describe('OAuth Authorization', () => {
 
             const metadata = await discoverAuthorizationServerMetadata('https://mcp.example.com');
 
-            expect(metadata).toEqual(validOpenIdMetadata);
+            expect(metadata).toStrictEqual(validOpenIdMetadata);
         });
 
         it('throws on non-4xx errors', async () => {
@@ -860,7 +860,7 @@ describe('OAuth Authorization', () => {
 
             const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
 
-            expect(metadata).toEqual(validOAuthMetadata);
+            expect(metadata).toStrictEqual(validOAuthMetadata);
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(2);
 
@@ -880,7 +880,7 @@ describe('OAuth Authorization', () => {
 
             const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com', { fetchFn: customFetch });
 
-            expect(metadata).toEqual(validOAuthMetadata);
+            expect(metadata).toStrictEqual(validOAuthMetadata);
             expect(customFetch).toHaveBeenCalledTimes(1);
             expect(mockFetch).not.toHaveBeenCalled();
         });
@@ -894,10 +894,10 @@ describe('OAuth Authorization', () => {
 
             const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com', { protocolVersion: '2025-01-01' });
 
-            expect(metadata).toEqual(validOAuthMetadata);
+            expect(metadata).toStrictEqual(validOAuthMetadata);
             const calls = mockFetch.mock.calls;
             const [, options] = calls[0]!;
-            expect(options.headers).toEqual({
+            expect(options.headers).toStrictEqual({
                 'MCP-Protocol-Version': '2025-01-01',
                 Accept: 'application/json'
             });
@@ -1130,7 +1130,7 @@ describe('OAuth Authorization', () => {
                 resource: new URL('https://api.example.com/mcp-server')
             });
 
-            expect(tokens).toEqual(validTokens);
+            expect(tokens).toStrictEqual(validTokens);
             expect(mockFetch).toHaveBeenCalledWith(
                 expect.objectContaining({
                     href: 'https://auth.example.com/token'
@@ -1170,7 +1170,7 @@ describe('OAuth Authorization', () => {
                 resource: new URL('https://api.example.com/mcp-server')
             });
 
-            expect(tokens).toEqual(validTokens);
+            expect(tokens).toStrictEqual(validTokens);
             expect(mockFetch).toHaveBeenCalledWith(
                 expect.objectContaining({
                     href: 'https://auth.example.com/token'
@@ -1219,7 +1219,7 @@ describe('OAuth Authorization', () => {
                 }
             });
 
-            expect(tokens).toEqual(validTokens);
+            expect(tokens).toStrictEqual(validTokens);
             expect(mockFetch).toHaveBeenCalledWith(
                 expect.objectContaining({
                     href: 'https://auth.example.com/token'
@@ -1293,13 +1293,13 @@ describe('OAuth Authorization', () => {
                 fetchFn: customFetch
             });
 
-            expect(tokens).toEqual(validTokens);
+            expect(tokens).toStrictEqual(validTokens);
             expect(customFetch).toHaveBeenCalledTimes(1);
             expect(mockFetch).not.toHaveBeenCalled();
 
             const [url, options] = customFetch.mock.calls[0]!;
             expect(url.toString()).toBe('https://auth.example.com/token');
-            expect(options).toEqual(
+            expect(options).toStrictEqual(
                 expect.objectContaining({
                     method: 'POST',
                     headers: expect.any(Headers),
@@ -1356,7 +1356,7 @@ describe('OAuth Authorization', () => {
                 resource: new URL('https://api.example.com/mcp-server')
             });
 
-            expect(tokens).toEqual(validTokensWithNewRefreshToken);
+            expect(tokens).toStrictEqual(validTokensWithNewRefreshToken);
             expect(mockFetch).toHaveBeenCalledWith(
                 expect.objectContaining({
                     href: 'https://auth.example.com/token'
@@ -1400,7 +1400,7 @@ describe('OAuth Authorization', () => {
                 }
             });
 
-            expect(tokens).toEqual(validTokensWithNewRefreshToken);
+            expect(tokens).toStrictEqual(validTokensWithNewRefreshToken);
             expect(mockFetch).toHaveBeenCalledWith(
                 expect.objectContaining({
                     href: 'https://auth.example.com/token'
@@ -1436,7 +1436,7 @@ describe('OAuth Authorization', () => {
                 refreshToken
             });
 
-            expect(tokens).toEqual({ refresh_token: refreshToken, ...validTokens });
+            expect(tokens).toStrictEqual({ refresh_token: refreshToken, ...validTokens });
         });
 
         it('validates token response schema', async () => {
@@ -1494,7 +1494,7 @@ describe('OAuth Authorization', () => {
                 clientMetadata: validClientMetadata
             });
 
-            expect(clientInfo).toEqual(validClientInfo);
+            expect(clientInfo).toStrictEqual(validClientInfo);
             expect(mockFetch).toHaveBeenCalledWith(
                 expect.objectContaining({
                     href: 'https://auth.example.com/register'
@@ -2626,7 +2626,7 @@ describe('OAuth Authorization', () => {
                 codeVerifier: 'verifier123'
             });
 
-            expect(tokens).toEqual(validTokens);
+            expect(tokens).toStrictEqual(validTokens);
             const request = mockFetch.mock.calls[0]![1];
 
             // Check Authorization header
@@ -2654,7 +2654,7 @@ describe('OAuth Authorization', () => {
                 codeVerifier: 'verifier123'
             });
 
-            expect(tokens).toEqual(validTokens);
+            expect(tokens).toStrictEqual(validTokens);
             const request = mockFetch.mock.calls[0]![1];
 
             // Check no Authorization header
@@ -2680,7 +2680,7 @@ describe('OAuth Authorization', () => {
                 codeVerifier: 'verifier123'
             });
 
-            expect(tokens).toEqual(validTokens);
+            expect(tokens).toStrictEqual(validTokens);
             const request = mockFetch.mock.calls[0]![1];
 
             // Check Authorization header - should use Basic auth as it's the most secure
@@ -2715,7 +2715,7 @@ describe('OAuth Authorization', () => {
                 codeVerifier: 'verifier123'
             });
 
-            expect(tokens).toEqual(validTokens);
+            expect(tokens).toStrictEqual(validTokens);
             const request = mockFetch.mock.calls[0]![1];
 
             // Check no Authorization header
@@ -2740,7 +2740,7 @@ describe('OAuth Authorization', () => {
                 codeVerifier: 'verifier123'
             });
 
-            expect(tokens).toEqual(validTokens);
+            expect(tokens).toStrictEqual(validTokens);
             const request = mockFetch.mock.calls[0]![1];
 
             // Check headers
@@ -2794,7 +2794,7 @@ describe('OAuth Authorization', () => {
                 refreshToken: 'refresh123'
             });
 
-            expect(tokens).toEqual(validTokens);
+            expect(tokens).toStrictEqual(validTokens);
             const request = mockFetch.mock.calls[0]![1];
 
             // Check Authorization header
@@ -2821,7 +2821,7 @@ describe('OAuth Authorization', () => {
                 refreshToken: 'refresh123'
             });
 
-            expect(tokens).toEqual(validTokens);
+            expect(tokens).toStrictEqual(validTokens);
             const request = mockFetch.mock.calls[0]![1];
 
             // Check no Authorization header

@@ -222,7 +222,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 );
 
                 // Verify tool result
-                expect(greetingResult.content).toEqual([{ type: 'text', text: 'Hello, Stateless Transport!' }]);
+                expect(greetingResult.content).toStrictEqual([{ type: 'text', text: 'Hello, Stateless Transport!' }]);
 
                 // Clean up
                 await transport.close();
@@ -345,7 +345,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 );
 
                 // Verify tool result
-                expect(greetingResult.content).toEqual([{ type: 'text', text: 'Hello, Stateful Transport!' }]);
+                expect(greetingResult.content).toStrictEqual([{ type: 'text', text: 'Hello, Stateful Transport!' }]);
 
                 // Clean up
                 await transport.close();

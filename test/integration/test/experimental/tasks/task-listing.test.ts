@@ -24,7 +24,7 @@ describe('Task Listing with Pagination', () => {
     it('should return empty list when no tasks exist', async () => {
         const result = await client.experimental.tasks.listTasks();
 
-        expect(result.tasks).toEqual([]);
+        expect(result.tasks).toStrictEqual([]);
         expect(result.nextCursor).toBeUndefined();
     });
 

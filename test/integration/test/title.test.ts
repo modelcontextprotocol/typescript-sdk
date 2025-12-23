@@ -191,7 +191,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // Test reading the resource
             const readResult = await client.readResource({ uri: 'users://123/profile' });
             expect(readResult.contents).toHaveLength(1);
-            expect(readResult.contents).toEqual(
+            expect(readResult.contents).toStrictEqual(
                 expect.arrayContaining([
                     {
                         text: expect.stringContaining('Profile data for user 123'),

@@ -444,7 +444,7 @@ describe('protocol tests', () => {
                 });
             }
             await Promise.resolve();
-            await expect(requestPromise).resolves.toEqual({ result: 'success' });
+            await expect(requestPromise).resolves.toStrictEqual({ result: 'success' });
         });
 
         test('should respect maxTotalTimeout', async () => {
@@ -550,7 +550,7 @@ describe('protocol tests', () => {
                 });
             }
             await Promise.resolve();
-            await expect(requestPromise).resolves.toEqual({ result: 'success' });
+            await expect(requestPromise).resolves.toStrictEqual({ result: 'success' });
         });
 
         test('should handle progress notifications with message field', async () => {
@@ -618,7 +618,7 @@ describe('protocol tests', () => {
                 });
             }
             await Promise.resolve();
-            await expect(requestPromise).resolves.toEqual({ result: 'success' });
+            await expect(requestPromise).resolves.toStrictEqual({ result: 'success' });
         });
     });
 
@@ -850,9 +850,9 @@ describe('InMemoryTaskMessageQueue', () => {
             await queue.enqueue(taskId, msg2);
             await queue.enqueue(taskId, msg3);
 
-            expect(await queue.dequeue(taskId)).toEqual(msg1);
-            expect(await queue.dequeue(taskId)).toEqual(msg2);
-            expect(await queue.dequeue(taskId)).toEqual(msg3);
+            expect(await queue.dequeue(taskId)).toStrictEqual(msg1);
+            expect(await queue.dequeue(taskId)).toStrictEqual(msg2);
+            expect(await queue.dequeue(taskId)).toStrictEqual(msg3);
         });
 
         it('should return undefined when dequeuing from empty queue', async () => {
@@ -884,12 +884,12 @@ describe('InMemoryTaskMessageQueue', () => {
 
             const allMessages = await queue.dequeueAll(taskId);
 
-            expect(allMessages).toEqual([msg1, msg2, msg3]);
+            expect(allMessages).toStrictEqual([msg1, msg2, msg3]);
         });
 
         it('should return empty array for empty queue', async () => {
             const allMessages = await queue.dequeueAll(taskId);
-            expect(allMessages).toEqual([]);
+            expect(allMessages).toStrictEqual([]);
         });
 
         it('should clear queue after dequeueAll', async () => {
@@ -933,7 +933,7 @@ describe('mergeCapabilities', () => {
         };
 
         const merged = mergeCapabilities(base, additional);
-        expect(merged).toEqual({
+        expect(merged).toStrictEqual({
             sampling: {},
             elicitation: {},
             roots: {
@@ -965,7 +965,7 @@ describe('mergeCapabilities', () => {
         };
 
         const merged = mergeCapabilities(base, additional);
-        expect(merged).toEqual({
+        expect(merged).toStrictEqual({
             logging: {},
             prompts: {
                 listChanged: true
@@ -997,7 +997,7 @@ describe('mergeCapabilities', () => {
         const base = {};
         const additional = {};
         const merged = mergeCapabilities(base, additional);
-        expect(merged).toEqual({});
+        expect(merged).toStrictEqual({});
     });
 });
 
@@ -1183,7 +1183,7 @@ describe('Task-based execution', () => {
             const queuedMessage = await queue!.dequeue('parent-task-456');
             assertQueuedNotification(queuedMessage);
             expect(queuedMessage.message.method).toBe('notifications/message');
-            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({ taskId: 'parent-task-456' });
+            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toStrictEqual({ taskId: 'parent-task-456' });
         });
     });
 
@@ -1268,7 +1268,7 @@ describe('Task-based execution', () => {
 
             protocol.setRequestHandler(CallToolRequestSchema, async request => {
                 // Tool implementor can access task creation parameters from request.params.task
-                expect(request.params.task).toEqual({
+                expect(request.params.task).toStrictEqual({
                     ttl: 60000,
                     pollInterval: 1000
                 });
@@ -1349,7 +1349,7 @@ describe('Task-based execution', () => {
             const sentMessage = sendSpy.mock.calls[0]![0];
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(3);
-            expect(sentMessage.result.tasks).toEqual([
+            expect(sentMessage.result.tasks).toStrictEqual([
                 {
                     taskId: task1.taskId,
                     status: 'completed',
@@ -1367,7 +1367,7 @@ describe('Task-based execution', () => {
                     pollInterval: 1000
                 }
             ]);
-            expect(sentMessage.result._meta).toEqual({});
+            expect(sentMessage.result._meta).toStrictEqual({});
         });
 
         it('should handle tasks/list requests with cursor for pagination', async () => {
@@ -1412,7 +1412,7 @@ describe('Task-based execution', () => {
             const sentMessage = sendSpy.mock.calls[0]![0];
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(2);
-            expect(sentMessage.result.tasks).toEqual([
+            expect(sentMessage.result.tasks).toStrictEqual([
                 {
                     taskId: task3.taskId,
                     status: 'working',
@@ -1423,7 +1423,7 @@ describe('Task-based execution', () => {
                 }
             ]);
             expect(sentMessage.result.nextCursor).toBeUndefined();
-            expect(sentMessage.result._meta).toEqual({});
+            expect(sentMessage.result._meta).toStrictEqual({});
         });
 
         it('should handle tasks/list requests with empty results', async () => {
@@ -1456,9 +1456,9 @@ describe('Task-based execution', () => {
             const sentMessage = sendSpy.mock.calls[0]![0];
             expect(sentMessage.jsonrpc).toBe('2.0');
             expect(sentMessage.id).toBe(3);
-            expect(sentMessage.result.tasks).toEqual([]);
+            expect(sentMessage.result.tasks).toStrictEqual([]);
             expect(sentMessage.result.nextCursor).toBeUndefined();
-            expect(sentMessage.result._meta).toEqual({});
+            expect(sentMessage.result._meta).toStrictEqual({});
         });
 
         it('should return error for invalid cursor', async () => {
@@ -1895,7 +1895,7 @@ describe('Task-based execution', () => {
 
             // Verify response does NOT include related-task metadata
             const response = sendSpy.mock.calls[0]![0] as { result?: { _meta?: Record<string, unknown> } };
-            expect(response.result?._meta).toEqual({});
+            expect(response.result?._meta).toStrictEqual({});
         });
 
         it('should NOT include related-task metadata in tasks/cancel response', async () => {
@@ -1934,7 +1934,7 @@ describe('Task-based execution', () => {
 
             // Verify response does NOT include related-task metadata
             const response = sendSpy.mock.calls[0]![0] as { result?: { _meta?: Record<string, unknown> } };
-            expect(response.result?._meta).toEqual({});
+            expect(response.result?._meta).toStrictEqual({});
         });
 
         it('should include related-task metadata in tasks/result response', async () => {
@@ -2059,7 +2059,7 @@ describe('Task-based execution', () => {
             const queuedMessage = await queue!.dequeue('parent-task-123');
             assertQueuedNotification(queuedMessage);
             expect(queuedMessage.message.method).toBe('notifications/message');
-            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({
+            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toStrictEqual({
                 taskId: 'parent-task-123'
             });
 
@@ -3038,9 +3038,9 @@ describe('Capability negotiation for tasks', () => {
             }
         };
 
-        expect(serverCapabilities.tasks.list).toEqual({});
-        expect(serverCapabilities.tasks.cancel).toEqual({});
-        expect(serverCapabilities.tasks.requests.tools.call).toEqual({});
+        expect(serverCapabilities.tasks.list).toStrictEqual({});
+        expect(serverCapabilities.tasks.cancel).toStrictEqual({});
+        expect(serverCapabilities.tasks.requests.tools.call).toStrictEqual({});
     });
 
     it('should include list and cancel in server capabilities', () => {
@@ -3103,7 +3103,7 @@ describe('Message interception for task-related notifications', () => {
         const queuedMessage = await queue!.dequeue(task.taskId);
         assertQueuedNotification(queuedMessage);
         expect(queuedMessage.message.method).toBe('notifications/message');
-        expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({ taskId: task.taskId });
+        expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toStrictEqual({ taskId: task.taskId });
     });
 
     it('should not queue notifications without related-task metadata', async () => {
@@ -3290,7 +3290,7 @@ describe('Message interception for task-related requests', () => {
         const queuedMessage = await queue!.dequeue(task.taskId);
         assertQueuedRequest(queuedMessage);
         expect(queuedMessage.message.method).toBe('ping');
-        expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({ taskId: task.taskId });
+        expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toStrictEqual({ taskId: task.taskId });
 
         // Verify resolver is stored in _requestResolvers map (not in the message)
         const requestId = (queuedMessage!.message as JSONRPCRequest).id as RequestId;
@@ -3461,7 +3461,7 @@ describe('Message interception for task-related requests', () => {
 
         // Verify the response was routed correctly
         const result = await requestPromise;
-        expect(result).toEqual({ message: 'pong' });
+        expect(result).toStrictEqual({ message: 'pong' });
     });
 
     it('should log error when resolver is missing for side-channeled request', async () => {
@@ -3725,7 +3725,7 @@ describe('Message Interception', () => {
             expect(queuedMessage!.type).toBe('response');
             if (queuedMessage!.type === 'response') {
                 expect(queuedMessage!.message.id).toBe(requestId);
-                expect(queuedMessage!.message.result).toEqual({ content: 'test result' });
+                expect(queuedMessage!.message.result).toStrictEqual({ content: 'test result' });
             }
         });
 
@@ -4067,7 +4067,7 @@ describe('Message Interception', () => {
             expect(queuedMessage).toBeDefined();
             assertQueuedNotification(queuedMessage);
             expect(queuedMessage.message.params!._meta).toBeDefined();
-            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toEqual(relatedTask);
+            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toStrictEqual(relatedTask);
         });
 
         it('should preserve relatedTask metadata in queued request', async () => {
@@ -4092,7 +4092,7 @@ describe('Message Interception', () => {
             expect(queuedMessage).toBeDefined();
             assertQueuedRequest(queuedMessage);
             expect(queuedMessage.message.params!._meta).toBeDefined();
-            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toEqual(relatedTask);
+            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toStrictEqual(relatedTask);
 
             // Clean up
             transport.onmessage?.({
@@ -4130,7 +4130,7 @@ describe('Message Interception', () => {
             assertQueuedNotification(queuedMessage);
             expect(queuedMessage.message.params!._meta!.customField).toBe('customValue');
             expect(queuedMessage.message.params!._meta!.anotherField).toBe(123);
-            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toEqual({
+            expect(queuedMessage.message.params!._meta![RELATED_TASK_META_KEY]).toStrictEqual({
                 taskId: 'task-preserve-meta'
             });
         });
@@ -5373,7 +5373,7 @@ describe('Error handling for missing resolvers', () => {
             const calledError = resolverMock.mock.calls[0]![0];
             expect(calledError.code).toBe(ErrorCode.InvalidParams);
             expect(calledError.message).toContain('Validation failed');
-            expect(calledError.data).toEqual({ field: 'userName', reason: 'required' });
+            expect(calledError.data).toStrictEqual({ field: 'userName', reason: 'required' });
         });
 
         it('should not throw when processing error with missing resolver', async () => {
@@ -5561,7 +5561,7 @@ describe('Error handling for missing resolvers', () => {
             }
 
             // Verify FIFO order was maintained
-            expect(callOrder).toEqual([1, 2, 3]);
+            expect(callOrder).toStrictEqual([1, 2, 3]);
         });
     });
 });
