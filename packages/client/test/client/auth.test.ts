@@ -45,7 +45,11 @@ describe('OAuth Authorization', () => {
                 }
             } as unknown as Response;
 
-            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({ error: undefined, resourceMetadataUrl: new URL(resourceUrl), scope: undefined });
+            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({
+                error: undefined,
+                resourceMetadataUrl: new URL(resourceUrl),
+                scope: undefined
+            });
         });
 
         it('returns scope when present', async () => {
@@ -56,7 +60,11 @@ describe('OAuth Authorization', () => {
                 }
             } as unknown as Response;
 
-            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({ error: undefined, resourceMetadataUrl: undefined, scope: scope });
+            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({
+                error: undefined,
+                resourceMetadataUrl: undefined,
+                scope: scope
+            });
         });
 
         it('returns empty object if not bearer', async () => {
@@ -80,7 +88,11 @@ describe('OAuth Authorization', () => {
                 }
             } as unknown as Response;
 
-            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({ error: undefined, resourceMetadataUrl: undefined, scope: undefined });
+            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({
+                error: undefined,
+                resourceMetadataUrl: undefined,
+                scope: undefined
+            });
         });
 
         it('returns undefined resourceMetadataUrl on invalid url', async () => {
@@ -94,7 +106,11 @@ describe('OAuth Authorization', () => {
                 }
             } as unknown as Response;
 
-            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({ error: undefined, resourceMetadataUrl: undefined, scope: scope });
+            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({
+                error: undefined,
+                resourceMetadataUrl: undefined,
+                scope: scope
+            });
         });
 
         it('returns error when present', async () => {
@@ -104,7 +120,11 @@ describe('OAuth Authorization', () => {
                 }
             } as unknown as Response;
 
-            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({ error: 'insufficient_scope',  resourceMetadataUrl: undefined, scope: 'admin' });
+            expect(extractWWWAuthenticateParams(mockResponse)).toStrictEqual({
+                error: 'insufficient_scope',
+                resourceMetadataUrl: undefined,
+                scope: 'admin'
+            });
         });
     });
 
