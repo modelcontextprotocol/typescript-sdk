@@ -48,7 +48,7 @@ describe('requireBearerAuth middleware', () => {
         await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
         expect(mockVerifyAccessToken).toHaveBeenCalledWith('valid-token');
-        expect(mockRequest.auth).toEqual(validAuthInfo);
+        expect(mockRequest.auth).toStrictEqual(validAuthInfo);
         expect(nextFunction).toHaveBeenCalled();
         expect(mockResponse.status).not.toHaveBeenCalled();
         expect(mockResponse.json).not.toHaveBeenCalled();
@@ -128,7 +128,7 @@ describe('requireBearerAuth middleware', () => {
         await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
         expect(mockVerifyAccessToken).toHaveBeenCalledWith('valid-token');
-        expect(mockRequest.auth).toEqual(nonExpiredAuthInfo);
+        expect(mockRequest.auth).toStrictEqual(nonExpiredAuthInfo);
         expect(nextFunction).toHaveBeenCalled();
         expect(mockResponse.status).not.toHaveBeenCalled();
         expect(mockResponse.json).not.toHaveBeenCalled();
@@ -183,7 +183,7 @@ describe('requireBearerAuth middleware', () => {
         await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
 
         expect(mockVerifyAccessToken).toHaveBeenCalledWith('valid-token');
-        expect(mockRequest.auth).toEqual(authInfo);
+        expect(mockRequest.auth).toStrictEqual(authInfo);
         expect(nextFunction).toHaveBeenCalled();
         expect(mockResponse.status).not.toHaveBeenCalled();
         expect(mockResponse.json).not.toHaveBeenCalled();

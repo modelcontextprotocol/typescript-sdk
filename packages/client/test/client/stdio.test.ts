@@ -64,7 +64,7 @@ test('should read messages', async () => {
     await client.send(messages[0]!);
     await client.send(messages[1]!);
     await finished;
-    expect(readMessages).toEqual(messages);
+    expect(readMessages).toStrictEqual(messages);
 
     await client.close();
 });

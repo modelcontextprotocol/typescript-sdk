@@ -1034,7 +1034,7 @@ describe('createMiddleware', () => {
         const response = await enhancedFetch('https://api.example.com/data');
         const result = await response.json();
 
-        expect(result).toEqual({
+        expect(result).toStrictEqual({
             data: 'original',
             timestamp: 123456789
         });
