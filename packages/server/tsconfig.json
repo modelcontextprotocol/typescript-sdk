@@ -1,6 +1,6 @@
 {
     "extends": "@modelcontextprotocol/tsconfig",
-    "include": ["./", "../../test/integration/test/server/context.test.ts"],
+    "include": ["./"],
     "exclude": ["node_modules", "dist"],
     "compilerOptions": {
         "paths": {

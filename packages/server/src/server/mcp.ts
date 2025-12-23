@@ -18,7 +18,6 @@ import type {
     PromptArgument,
     PromptReference,
     ReadResourceResult,
-    RequestHandlerExtra,
     Resource,
     ResourceTemplateReference,
     Result,
@@ -341,7 +340,7 @@ export class McpServer {
             if (tool.inputSchema) {
                 const typedHandler = handler as ToolTaskHandler<ZodRawShapeCompat>;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return await Promise.resolve(typedHandler.createTask(args as any, taskExtra));
+                return await Promise.resolve(typedHandler.createTask(args as any, extra));
             } else {
                 const typedHandler = handler as ToolTaskHandler<undefined>;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -366,7 +365,7 @@ export class McpServer {
     private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
         tool: RegisteredTool,
         request: RequestT,
-        extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+        extra: ContextInterface<ServerRequest, ServerNotification>
     ): Promise<CallToolResult> {
         if (!extra.taskStore) {
             throw new Error('No task store provided for task-capable tool.');
@@ -375,12 +374,11 @@ export class McpServer {
         // Validate input and create task
         const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
         const handler = tool.handler as ToolTaskHandler<ZodRawShapeCompat | undefined>;
-        const taskExtra = { ...extra, taskStore: extra.taskStore };
 
         const createTaskResult: CreateTaskResult = args // undefined only if tool.inputSchema is undefined
-            ? await Promise.resolve((handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args, taskExtra))
+            ? await Promise.resolve((handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args, extra))
             : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              await Promise.resolve(((handler as ToolTaskHandler<undefined>).createTask as any)(taskExtra));
+              await Promise.resolve(((handler as ToolTaskHandler<undefined>).createTask as any)(extra));
 
         // Poll until completion
         const taskId = createTaskResult.task.taskId;
