@@ -159,7 +159,7 @@ describe('DemoInMemoryAuthProvider', () => {
 
             const tokens = await provider.exchangeAuthorizationCode(validClient, code);
 
-            expect(tokens).toEqual({
+            expect(tokens).toStrictEqual({
                 access_token: expect.any(String),
                 token_type: 'bearer',
                 expires_in: 3600,
@@ -253,7 +253,7 @@ describe('DemoInMemoryAuthProvider', () => {
             await store.registerClient(client);
             const retrieved = await store.getClient('test-client');
 
-            expect(retrieved).toEqual(client);
+            expect(retrieved).toStrictEqual(client);
         });
 
         it('should return undefined for non-existent client', async () => {

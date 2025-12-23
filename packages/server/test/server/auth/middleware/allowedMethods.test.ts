@@ -36,7 +36,7 @@ describe('allowedMethods', () => {
             // @ts-expect-error - dynamic method call
             const response = await request(app)[method]('/test');
             expect(response.status).toBe(405);
-            expect(response.body).toEqual({
+            expect(response.body).toStrictEqual({
                 error: 'method_not_allowed',
                 error_description: `The method ${method.toUpperCase()} is not allowed for this endpoint`
             });
