@@ -308,7 +308,8 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         });
 
         expect(result).toStrictEqual({
-            action: 'decline'
+            action: 'decline',
+            content: undefined
         });
     });
 
@@ -330,7 +331,8 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         });
 
         expect(result).toStrictEqual({
-            action: 'cancel'
+            action: 'cancel',
+            content: undefined
         });
     });
 

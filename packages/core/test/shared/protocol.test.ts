@@ -1353,6 +1353,7 @@ describe('Task-based execution', () => {
                 {
                     taskId: task1.taskId,
                     status: 'completed',
+                    statusMessage: undefined,
                     ttl: null,
                     createdAt: expect.any(String),
                     lastUpdatedAt: expect.any(String),
