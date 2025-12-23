@@ -241,7 +241,7 @@ describe('InMemoryTaskStore', () => {
             expect(task?.status).toBe('completed');
 
             const storedResult = await store.getTaskResult(taskId);
-            expect(storedResult).toEqual(result);
+            expect(storedResult).toStrictEqual(result);
         });
 
         it('should throw if task not found', async () => {
@@ -275,7 +275,7 @@ describe('InMemoryTaskStore', () => {
             expect(task?.status).toBe('failed');
 
             const storedResult = await store.getTaskResult(taskId);
-            expect(storedResult).toEqual(result);
+            expect(storedResult).toStrictEqual(result);
         });
 
         it('should reject storing result for task already in failed status', async () => {
@@ -349,7 +349,7 @@ describe('InMemoryTaskStore', () => {
             await store.storeTaskResult(createdTask.taskId, 'completed', result);
 
             const retrieved = await store.getTaskResult(createdTask.taskId);
-            expect(retrieved).toEqual(result);
+            expect(retrieved).toStrictEqual(result);
         });
     });
 
@@ -570,14 +570,14 @@ describe('InMemoryTaskStore', () => {
 
         it('should return empty array when no tasks', () => {
             const tasks = store.getAllTasks();
-            expect(tasks).toEqual([]);
+            expect(tasks).toStrictEqual([]);
         });
     });
 
     describe('listTasks', () => {
         it('should return empty list when no tasks', async () => {
             const result = await store.listTasks();
-            expect(result.tasks).toEqual([]);
+            expect(result.tasks).toStrictEqual([]);
             expect(result.nextCursor).toBeUndefined();
         });
 
@@ -690,7 +690,7 @@ describe('InMemoryTaskMessageQueue', () => {
             await queue.enqueue('task-1', requestMessage);
             const dequeued = await queue.dequeue('task-1');
 
-            expect(dequeued).toEqual(requestMessage);
+            expect(dequeued).toStrictEqual(requestMessage);
         });
 
         it('should enqueue and dequeue notification messages', async () => {
@@ -707,7 +707,7 @@ describe('InMemoryTaskMessageQueue', () => {
             await queue.enqueue('task-2', notificationMessage);
             const dequeued = await queue.dequeue('task-2');
 
-            expect(dequeued).toEqual(notificationMessage);
+            expect(dequeued).toStrictEqual(notificationMessage);
         });
 
         it('should enqueue and dequeue response messages', async () => {
@@ -724,7 +724,7 @@ describe('InMemoryTaskMessageQueue', () => {
             await queue.enqueue('task-3', responseMessage);
             const dequeued = await queue.dequeue('task-3');
 
-            expect(dequeued).toEqual(responseMessage);
+            expect(dequeued).toStrictEqual(responseMessage);
         });
 
         it('should return undefined when dequeuing from empty queue', async () => {
@@ -768,9 +768,9 @@ describe('InMemoryTaskMessageQueue', () => {
             await queue.enqueue('task-fifo', notification);
             await queue.enqueue('task-fifo', response);
 
-            expect(await queue.dequeue('task-fifo')).toEqual(request);
-            expect(await queue.dequeue('task-fifo')).toEqual(notification);
-            expect(await queue.dequeue('task-fifo')).toEqual(response);
+            expect(await queue.dequeue('task-fifo')).toStrictEqual(request);
+            expect(await queue.dequeue('task-fifo')).toStrictEqual(notification);
+            expect(await queue.dequeue('task-fifo')).toStrictEqual(response);
             expect(await queue.dequeue('task-fifo')).toBeUndefined();
         });
     });
@@ -815,14 +815,14 @@ describe('InMemoryTaskMessageQueue', () => {
             const all = await queue.dequeueAll('task-all');
 
             expect(all).toHaveLength(3);
-            expect(all[0]).toEqual(request);
-            expect(all[1]).toEqual(response);
-            expect(all[2]).toEqual(notification);
+            expect(all[0]).toStrictEqual(request);
+            expect(all[1]).toStrictEqual(response);
+            expect(all[2]).toStrictEqual(notification);
         });
 
         it('should return empty array for non-existent task', async () => {
             const all = await queue.dequeueAll('non-existent');
-            expect(all).toEqual([]);
+            expect(all).toStrictEqual([]);
         });
 
         it('should clear the queue after dequeueAll', async () => {
@@ -905,8 +905,8 @@ describe('InMemoryTaskMessageQueue', () => {
             await queue.enqueue('task-a', message1);
             await queue.enqueue('task-b', message2);
 
-            expect(await queue.dequeue('task-a')).toEqual(message1);
-            expect(await queue.dequeue('task-b')).toEqual(message2);
+            expect(await queue.dequeue('task-a')).toStrictEqual(message1);
+            expect(await queue.dequeue('task-b')).toStrictEqual(message2);
             expect(await queue.dequeue('task-a')).toBeUndefined();
             expect(await queue.dequeue('task-b')).toBeUndefined();
         });
@@ -930,7 +930,7 @@ describe('InMemoryTaskMessageQueue', () => {
             await queue.enqueue('task-error', errorResponse);
             const dequeued = await queue.dequeue('task-error');
 
-            expect(dequeued).toEqual(errorResponse);
+            expect(dequeued).toStrictEqual(errorResponse);
             expect(dequeued?.type).toBe('error');
         });
     });
