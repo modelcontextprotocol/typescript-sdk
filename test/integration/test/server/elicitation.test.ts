@@ -79,7 +79,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             }
         });
 
-        expect(result).toEqual({
+        expect(result).toStrictEqual({
             action: 'accept',
             content: { name: 'John Doe' }
         });
@@ -103,7 +103,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             }
         });
 
-        expect(result).toEqual({
+        expect(result).toStrictEqual({
             action: 'accept',
             content: { age: 42 }
         });
@@ -127,7 +127,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             }
         });
 
-        expect(result).toEqual({
+        expect(result).toStrictEqual({
             action: 'accept',
             content: { agree: true }
         });
@@ -171,7 +171,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         };
         const result = await server.elicitInput(formRequestParams);
 
-        expect(result).toEqual({
+        expect(result).toStrictEqual({
             action: 'accept',
             content: userData
         });
@@ -307,7 +307,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             }
         });
 
-        expect(result).toEqual({
+        expect(result).toStrictEqual({
             action: 'decline'
         });
     });
@@ -329,7 +329,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             }
         });
 
-        expect(result).toEqual({
+        expect(result).toStrictEqual({
             action: 'cancel'
         });
     });
@@ -377,12 +377,12 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         });
 
         expect(requestCount).toBe(3);
-        expect(nameResult).toEqual({
+        expect(nameResult).toStrictEqual({
             action: 'accept',
             content: { name: 'Alice' }
         });
-        expect(ageResult).toEqual({ action: 'accept', content: { age: 30 } });
-        expect(cityResult).toEqual({
+        expect(ageResult).toStrictEqual({ action: 'accept', content: { age: 30 } });
+        expect(cityResult).toStrictEqual({
             action: 'accept',
             content: { city: 'New York' }
         });
@@ -407,7 +407,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             }
         });
 
-        expect(result).toEqual({
+        expect(result).toStrictEqual({
             action: 'accept',
             content: { name: 'John', nickname: 'Johnny' }
         });
@@ -432,7 +432,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             }
         });
 
-        expect(result).toEqual({
+        expect(result).toStrictEqual({
             action: 'accept',
             content: { name: 'John' }
         });
@@ -456,7 +456,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             }
         });
 
-        expect(result).toEqual({
+        expect(result).toStrictEqual({
             action: 'accept',
             content: { email: 'user@example.com' }
         });
@@ -557,8 +557,8 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         // Client returns no values; SDK should apply defaults automatically (and validate)
         client.setRequestHandler(ElicitRequestSchema, request => {
-            expect(request.params.mode).toEqual('form');
-            expect((request.params as ElicitRequestFormParams).requestedSchema).toEqual(testSchemaProperties);
+            expect(request.params.mode).toStrictEqual('form');
+            expect((request.params as ElicitRequestFormParams).requestedSchema).toStrictEqual(testSchemaProperties);
             return {
                 action: 'accept',
                 content: {}
@@ -574,7 +574,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             requestedSchema: testSchemaProperties
         });
 
-        expect(result).toEqual({
+        expect(result).toStrictEqual({
             action: 'accept',
             content: {
                 subscribe: true,
@@ -642,7 +642,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                     required: ['color']
                 }
             })
-        ).resolves.toEqual({
+        ).resolves.toStrictEqual({
             action: 'accept',
             content: {
                 color: 'Red'
@@ -682,7 +682,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                     required: ['color']
                 }
             })
-        ).resolves.toEqual({
+        ).resolves.toStrictEqual({
             action: 'accept',
             content: {
                 color: '#FF0000'
@@ -718,7 +718,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                     required: ['color']
                 }
             })
-        ).resolves.toEqual({
+        ).resolves.toStrictEqual({
             action: 'accept',
             content: {
                 color: '#FF0000'
@@ -760,7 +760,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                     required: ['colors']
                 }
             })
-        ).resolves.toEqual({
+        ).resolves.toStrictEqual({
             action: 'accept',
             content: {
                 colors: ['Red', 'Blue']
@@ -803,7 +803,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                     required: ['colors']
                 }
             })
-        ).resolves.toEqual({
+        ).resolves.toStrictEqual({
             action: 'accept',
             content: {
                 colors: ['#FF0000', '#0000FF']

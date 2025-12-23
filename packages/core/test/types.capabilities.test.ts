@@ -10,7 +10,7 @@ describe('ClientCapabilitiesSchema backwards compatibility', () => {
             const result = ClientCapabilitiesSchema.parse(capabilities);
             expect(result.elicitation).toBeDefined();
             expect(result.elicitation?.form).toBeDefined();
-            expect(result.elicitation?.form).toEqual({});
+            expect(result.elicitation?.form).toStrictEqual({});
             expect(result.elicitation?.url).toBeUndefined();
         });
 
@@ -26,7 +26,7 @@ describe('ClientCapabilitiesSchema backwards compatibility', () => {
             const result = ClientCapabilitiesSchema.parse(capabilities);
             expect(result.elicitation).toBeDefined();
             expect(result.elicitation?.form).toBeDefined();
-            expect(result.elicitation?.form).toEqual({ applyDefaults: true });
+            expect(result.elicitation?.form).toStrictEqual({ applyDefaults: true });
             expect(result.elicitation?.url).toBeUndefined();
         });
 
@@ -40,7 +40,7 @@ describe('ClientCapabilitiesSchema backwards compatibility', () => {
             const result = ClientCapabilitiesSchema.parse(capabilities);
             expect(result.elicitation).toBeDefined();
             expect(result.elicitation?.form).toBeDefined();
-            expect(result.elicitation?.form).toEqual({});
+            expect(result.elicitation?.form).toStrictEqual({});
             expect(result.elicitation?.url).toBeUndefined();
         });
 
@@ -54,7 +54,7 @@ describe('ClientCapabilitiesSchema backwards compatibility', () => {
             const result = ClientCapabilitiesSchema.parse(capabilities);
             expect(result.elicitation).toBeDefined();
             expect(result.elicitation?.url).toBeDefined();
-            expect(result.elicitation?.url).toEqual({});
+            expect(result.elicitation?.url).toStrictEqual({});
             expect(result.elicitation?.form).toBeUndefined();
         });
 
@@ -70,8 +70,8 @@ describe('ClientCapabilitiesSchema backwards compatibility', () => {
             expect(result.elicitation).toBeDefined();
             expect(result.elicitation?.form).toBeDefined();
             expect(result.elicitation?.url).toBeDefined();
-            expect(result.elicitation?.form).toEqual({});
-            expect(result.elicitation?.url).toEqual({});
+            expect(result.elicitation?.form).toStrictEqual({});
+            expect(result.elicitation?.url).toStrictEqual({});
         });
 
         it('should not inject form capability when elicitation is undefined', () => {
@@ -97,7 +97,7 @@ describe('ClientCapabilitiesSchema backwards compatibility', () => {
             const result = InitializeRequestParamsSchema.parse(initializeParams);
             expect(result.capabilities.elicitation).toBeDefined();
             expect(result.capabilities.elicitation?.form).toBeDefined();
-            expect(result.capabilities.elicitation?.form).toEqual({});
+            expect(result.capabilities.elicitation?.form).toStrictEqual({});
         });
     });
 });

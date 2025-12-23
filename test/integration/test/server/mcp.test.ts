@@ -291,7 +291,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
-            expect(result.tools[0]!.inputSchema).toEqual({
+            expect(result.tools[0]!.inputSchema).toStrictEqual({
                 type: 'object',
                 properties: {}
             });
@@ -373,7 +373,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CallToolResultSchema
             );
 
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Updated response'
@@ -467,7 +467,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CallToolResultSchema
             );
 
-            expect(callResult.content).toEqual([
+            expect(callResult.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Updated: test, 42'
@@ -558,7 +558,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CallToolResultSchema
             );
 
-            expect(callResult.structuredContent).toEqual({
+            expect(callResult.structuredContent).toStrictEqual({
                 result: 42,
                 sum: 100
             });
@@ -691,7 +691,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             });
             expect(result.tools[1]!.name).toBe('test (new api)');
-            expect(result.tools[1]!.inputSchema).toEqual(result.tools[0]!.inputSchema);
+            expect(result.tools[1]!.inputSchema).toStrictEqual(result.tools[0]!.inputSchema);
         });
 
         /***
@@ -801,12 +801,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(result.tools).toHaveLength(2);
             expect(result.tools[0]!.name).toBe('test');
-            expect(result.tools[0]!.annotations).toEqual({
+            expect(result.tools[0]!.annotations).toStrictEqual({
                 title: 'Test Tool',
                 readOnlyHint: true
             });
             expect(result.tools[1]!.name).toBe('test (new api)');
-            expect(result.tools[1]!.annotations).toEqual({
+            expect(result.tools[1]!.annotations).toStrictEqual({
                 title: 'Test Tool',
                 readOnlyHint: true
             });
@@ -852,13 +852,13 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 type: 'object',
                 properties: { name: { type: 'string' } }
             });
-            expect(result.tools[0]!.annotations).toEqual({
+            expect(result.tools[0]!.annotations).toStrictEqual({
                 title: 'Test Tool',
                 readOnlyHint: true
             });
             expect(result.tools[1]!.name).toBe('test (new api)');
-            expect(result.tools[1]!.inputSchema).toEqual(result.tools[0]!.inputSchema);
-            expect(result.tools[1]!.annotations).toEqual(result.tools[0]!.annotations);
+            expect(result.tools[1]!.inputSchema).toStrictEqual(result.tools[0]!.inputSchema);
+            expect(result.tools[1]!.annotations).toStrictEqual(result.tools[0]!.annotations);
         });
 
         /***
@@ -913,15 +913,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 type: 'object',
                 properties: { name: { type: 'string' } }
             });
-            expect(result.tools[0]!.annotations).toEqual({
+            expect(result.tools[0]!.annotations).toStrictEqual({
                 title: 'Complete Test Tool',
                 readOnlyHint: true,
                 openWorldHint: false
             });
             expect(result.tools[1]!.name).toBe('test (new api)');
             expect(result.tools[1]!.description).toBe('A tool with everything');
-            expect(result.tools[1]!.inputSchema).toEqual(result.tools[0]!.inputSchema);
-            expect(result.tools[1]!.annotations).toEqual(result.tools[0]!.annotations);
+            expect(result.tools[1]!.inputSchema).toStrictEqual(result.tools[0]!.inputSchema);
+            expect(result.tools[1]!.annotations).toStrictEqual(result.tools[0]!.annotations);
         });
 
         /***
@@ -980,15 +980,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 type: 'object',
                 properties: {}
             });
-            expect(result.tools[0]!.annotations).toEqual({
+            expect(result.tools[0]!.annotations).toStrictEqual({
                 title: 'Complete Test Tool with empty params',
                 readOnlyHint: true,
                 openWorldHint: false
             });
             expect(result.tools[1]!.name).toBe('test (new api)');
             expect(result.tools[1]!.description).toBe('A tool with everything but empty params');
-            expect(result.tools[1]!.inputSchema).toEqual(result.tools[0]!.inputSchema);
-            expect(result.tools[1]!.annotations).toEqual(result.tools[0]!.annotations);
+            expect(result.tools[1]!.inputSchema).toStrictEqual(result.tools[0]!.inputSchema);
+            expect(result.tools[1]!.annotations).toStrictEqual(result.tools[0]!.annotations);
         });
 
         /***
@@ -1057,7 +1057,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
+            expect(result.content).toStrictEqual(
                 expect.arrayContaining([
                     {
                         type: 'text',
@@ -1081,7 +1081,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             expect(result2.isError).toBe(true);
-            expect(result2.content).toEqual(
+            expect(result2.content).toStrictEqual(
                 expect.arrayContaining([
                     {
                         type: 'text',
@@ -1236,7 +1236,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.content!).toHaveLength(1);
             expect(result.content![0]).toMatchObject({ type: 'text' });
             const textContent = result.content![0] as TextContent;
-            expect(JSON.parse(textContent.text)).toEqual(result.structuredContent);
+            expect(JSON.parse(textContent.text)).toStrictEqual(result.structuredContent);
         });
 
         /***
@@ -1290,7 +1290,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
+            expect(result.content).toStrictEqual(
                 expect.arrayContaining([
                     {
                         type: 'text',
@@ -1422,7 +1422,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
+            expect(result.content).toStrictEqual(
                 expect.arrayContaining([
                     {
                         type: 'text',
@@ -1521,7 +1521,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(receivedRequestId).toBeDefined();
             expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
-            expect(result.content).toEqual(
+            expect(result.content).toStrictEqual(
                 expect.arrayContaining([
                     {
                         type: 'text',
@@ -1631,7 +1631,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CallToolResultSchema
             );
 
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Processed: hello'
@@ -1672,7 +1672,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             expect(result.isError).toBe(true);
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Tool execution failed'
@@ -1718,7 +1718,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
+            expect(result.content).toStrictEqual(
                 expect.arrayContaining([
                     {
                         type: 'text',
@@ -1777,7 +1777,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     expect(error).toBeInstanceOf(UrlElicitationRequiredError);
                     if (error instanceof UrlElicitationRequiredError) {
                         expect(error.code).toBe(ErrorCode.UrlElicitationRequired);
-                        expect(error.elicitations).toEqual([elicitationParams]);
+                        expect(error.elicitations).toStrictEqual([elicitationParams]);
                     }
                 });
         });
@@ -1823,7 +1823,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test-with-meta');
             expect(result.tools[0]!.description).toBe('A tool with _meta field');
-            expect(result.tools[0]!._meta).toEqual(metaData);
+            expect(result.tools[0]!._meta).toStrictEqual(metaData);
         });
 
         /***
@@ -1923,7 +1923,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('task-tool');
-            expect(result.tools[0]!.execution).toEqual({
+            expect(result.tools[0]!.execution).toStrictEqual({
                 taskSupport: 'required'
             });
 
@@ -1992,7 +1992,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('optional-task-tool');
-            expect(result.tools[0]!.execution).toEqual({
+            expect(result.tools[0]!.execution).toStrictEqual({
                 taskSupport: 'optional'
             });
 
@@ -2144,7 +2144,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             expect(result.contents).toHaveLength(1);
-            expect(result.contents).toEqual(
+            expect(result.contents).toStrictEqual(
                 expect.arrayContaining([
                     {
                         text: expect.stringContaining('Updated content'),
@@ -2216,7 +2216,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             expect(result.contents).toHaveLength(1);
-            expect(result.contents).toEqual(
+            expect(result.contents).toStrictEqual(
                 expect.arrayContaining([
                     {
                         text: expect.stringContaining('Updated content'),
@@ -2439,7 +2439,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.resources).toHaveLength(1);
             expect(result.resources[0]!.description).toBe('Test resource');
             expect(result.resources[0]!.mimeType).toBe('text/plain');
-            expect(result.resources[0]!.annotations).toEqual({
+            expect(result.resources[0]!.annotations).toStrictEqual({
                 audience: ['user'],
                 priority: 0.5,
                 lastModified: mockDate
@@ -2583,7 +2583,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 ReadResourceResultSchema
             );
 
-            expect(result.contents).toEqual(
+            expect(result.contents).toStrictEqual(
                 expect.arrayContaining([
                     {
                         text: expect.stringContaining('Category: books, ID: 123'),
@@ -2882,7 +2882,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result.completion.values).toEqual(['books', 'movies', 'music']);
+            expect(result.completion.values).toStrictEqual(['books', 'movies', 'music']);
             expect(result.completion.total).toBe(3);
         });
 
@@ -2939,7 +2939,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result.completion.values).toEqual(['movies', 'music']);
+            expect(result.completion.values).toStrictEqual(['movies', 'music']);
             expect(result.completion.total).toBe(2);
         });
 
@@ -2986,7 +2986,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(receivedRequestId).toBeDefined();
             expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
-            expect(result.contents).toEqual(
+            expect(result.contents).toStrictEqual(
                 expect.arrayContaining([
                     {
                         text: expect.stringContaining(`Received request ID:`),
@@ -3099,7 +3099,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             expect(result.messages).toHaveLength(1);
-            expect(result.messages).toEqual(
+            expect(result.messages).toStrictEqual(
                 expect.arrayContaining([
                     {
                         role: 'assistant',
@@ -3183,7 +3183,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             expect(listResult.prompts[0]!.arguments).toHaveLength(2);
-            expect(listResult.prompts[0]!.arguments!.map(a => a.name).sort()).toEqual(['name', 'value']);
+            expect(listResult.prompts[0]!.arguments!.map(a => a.name).sort()).toStrictEqual(['name', 'value']);
 
             // Call the prompt with the new schema
             const getResult = await client.request(
@@ -3201,7 +3201,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             expect(getResult.messages).toHaveLength(1);
-            expect(getResult.messages).toEqual(
+            expect(getResult.messages).toStrictEqual(
                 expect.arrayContaining([
                     {
                         role: 'assistant',
@@ -3324,7 +3324,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             let result = await client.request({ method: 'prompts/list' }, ListPromptsResultSchema);
 
             expect(result.prompts).toHaveLength(2);
-            expect(result.prompts.map(p => p.name).sort()).toEqual(['prompt1', 'prompt2']);
+            expect(result.prompts.map(p => p.name).sort()).toStrictEqual(['prompt1', 'prompt2']);
 
             expect(notifications).toHaveLength(0);
 
@@ -3389,7 +3389,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('test');
-            expect(result.prompts[0]!.arguments).toEqual([
+            expect(result.prompts[0]!.arguments).toStrictEqual([
                 { name: 'name', required: true },
                 { name: 'value', required: true }
             ]);
@@ -3801,7 +3801,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result.completion.values).toEqual(['Alice', 'Bob', 'Charlie']);
+            expect(result.completion.values).toStrictEqual(['Alice', 'Bob', 'Charlie']);
             expect(result.completion.total).toBe(3);
         });
 
@@ -3858,7 +3858,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result.completion.values).toEqual(['Alice']);
+            expect(result.completion.values).toStrictEqual(['Alice']);
             expect(result.completion.total).toBe(1);
         });
 
@@ -3908,7 +3908,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(receivedRequestId).toBeDefined();
             expect(typeof receivedRequestId === 'string' || typeof receivedRequestId === 'number').toBe(true);
-            expect(result.messages).toEqual(
+            expect(result.messages).toStrictEqual(
                 expect.arrayContaining([
                     {
                         role: 'assistant',
@@ -4089,7 +4089,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('test-prompt');
-            expect(result.prompts[0]!.arguments).toEqual([
+            expect(result.prompts[0]!.arguments).toStrictEqual([
                 {
                     name: 'name',
                     description: undefined,
@@ -4301,7 +4301,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result1.completion.values).toEqual(['project1', 'project2', 'project3']);
+            expect(result1.completion.values).toStrictEqual(['project1', 'project2', 'project3']);
             expect(result1.completion.total).toBe(3);
 
             // Test with facebook owner
@@ -4327,7 +4327,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result2.completion.values).toEqual(['repo1', 'repo2', 'repo3']);
+            expect(result2.completion.values).toStrictEqual(['repo1', 'repo2', 'repo3']);
             expect(result2.completion.total).toBe(3);
 
             // Test with no resolved context
@@ -4348,7 +4348,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result3.completion.values).toEqual([]);
+            expect(result3.completion.values).toStrictEqual([]);
             expect(result3.completion.total).toBe(0);
         });
 
@@ -4425,7 +4425,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result1.completion.values).toEqual(['Alice']);
+            expect(result1.completion.values).toStrictEqual(['Alice']);
 
             // Test with sales department
             const result2 = await client.request(
@@ -4450,7 +4450,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result2.completion.values).toEqual(['David']);
+            expect(result2.completion.values).toStrictEqual(['David']);
 
             // Test with marketing department
             const result3 = await client.request(
@@ -4475,7 +4475,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result3.completion.values).toEqual(['Grace']);
+            expect(result3.completion.values).toStrictEqual(['Grace']);
 
             // Test with no resolved context
             const result4 = await client.request(
@@ -4495,7 +4495,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result4.completion.values).toEqual(['Guest']);
+            expect(result4.completion.values).toStrictEqual(['Guest']);
         });
     });
 
@@ -4638,7 +4638,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(checkAvailability).toHaveBeenCalledWith('ABC Restaurant', '2024-12-25', 2);
             expect(findAlternatives).toHaveBeenCalledWith('ABC Restaurant', '2024-12-25', 2, 'same_week');
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Found these alternatives: 2024-12-26, 2024-12-27, 2024-12-28'
@@ -4676,7 +4676,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(checkAvailability).toHaveBeenCalledWith('ABC Restaurant', '2024-12-25', 2);
             expect(findAlternatives).not.toHaveBeenCalled();
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'No booking made. Original date not available.'
@@ -4711,7 +4711,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(checkAvailability).toHaveBeenCalledWith('ABC Restaurant', '2024-12-25', 2);
             expect(findAlternatives).not.toHaveBeenCalled();
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'No booking made. Original date not available.'
@@ -4761,7 +4761,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             });
 
-            expect(emailResult.content).toEqual([
+            expect(emailResult.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Email contact: test@example.com'
@@ -4776,7 +4776,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             });
 
-            expect(phoneResult.content).toEqual([
+            expect(phoneResult.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Phone contact: +1234567890'
@@ -4823,7 +4823,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             });
 
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'User: 123, John Doe, 30 years old'
@@ -4884,7 +4884,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             });
 
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Processed: HELLO, 10, WORLD'
@@ -4927,7 +4927,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             expect(invalidTypeResult.isError).toBe(true);
-            expect(invalidTypeResult.content).toEqual(
+            expect(invalidTypeResult.content).toStrictEqual(
                 expect.arrayContaining([
                     expect.objectContaining({
                         type: 'text',
@@ -4981,7 +4981,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 arguments: { name: '  World  ' }
             });
 
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Hello, World!'
@@ -5026,7 +5026,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 arguments: { firstName: 'John', lastName: 'Doe' }
             });
 
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Full name: John Doe'
@@ -5066,7 +5066,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 arguments: { value: 'test' }
             });
 
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Value: test, Processed: true'
@@ -5124,7 +5124,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 arguments: { name: 'items', count: '5' }
             });
 
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'items: 5 -> 10'
@@ -5228,7 +5228,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 ReadResourceResultSchema
             );
 
-            expect(result.contents).toEqual([
+            expect(result.contents).toStrictEqual([
                 {
                     uri: 'test://resource',
                     text: 'Updated content'
@@ -5588,7 +5588,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result1.completion.values).toEqual(['project1', 'project2', 'project3']);
+            expect(result1.completion.values).toStrictEqual(['project1', 'project2', 'project3']);
             expect(result1.completion.total).toBe(3);
 
             // Test with facebook owner
@@ -5614,7 +5614,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result2.completion.values).toEqual(['repo1', 'repo2', 'repo3']);
+            expect(result2.completion.values).toStrictEqual(['repo1', 'repo2', 'repo3']);
             expect(result2.completion.total).toBe(3);
 
             // Test with no resolved context
@@ -5635,7 +5635,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result3.completion.values).toEqual([]);
+            expect(result3.completion.values).toStrictEqual([]);
             expect(result3.completion.total).toBe(0);
         });
 
@@ -5712,7 +5712,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result1.completion.values).toEqual(['Alice']);
+            expect(result1.completion.values).toStrictEqual(['Alice']);
 
             // Test with sales department
             const result2 = await client.request(
@@ -5737,7 +5737,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result2.completion.values).toEqual(['David']);
+            expect(result2.completion.values).toStrictEqual(['David']);
 
             // Test with marketing department
             const result3 = await client.request(
@@ -5762,7 +5762,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result3.completion.values).toEqual(['Grace']);
+            expect(result3.completion.values).toStrictEqual(['Grace']);
 
             // Test with no resolved context
             const result4 = await client.request(
@@ -5782,7 +5782,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 CompleteResultSchema
             );
 
-            expect(result4.completion.values).toEqual(['Guest']);
+            expect(result4.completion.values).toStrictEqual(['Guest']);
         });
     });
 
@@ -5926,7 +5926,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(checkAvailability).toHaveBeenCalledWith('ABC Restaurant', '2024-12-25', 2);
             expect(findAlternatives).toHaveBeenCalledWith('ABC Restaurant', '2024-12-25', 2, 'same_week');
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Found these alternatives: 2024-12-26, 2024-12-27, 2024-12-28'
@@ -5964,7 +5964,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(checkAvailability).toHaveBeenCalledWith('ABC Restaurant', '2024-12-25', 2);
             expect(findAlternatives).not.toHaveBeenCalled();
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'No booking made. Original date not available.'
@@ -5999,7 +5999,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(checkAvailability).toHaveBeenCalledWith('ABC Restaurant', '2024-12-25', 2);
             expect(findAlternatives).not.toHaveBeenCalled();
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'No booking made. Original date not available.'
@@ -6049,7 +6049,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             });
 
-            expect(emailResult.content).toEqual([
+            expect(emailResult.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Email contact: test@example.com'
@@ -6064,7 +6064,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             });
 
-            expect(phoneResult.content).toEqual([
+            expect(phoneResult.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Phone contact: +1234567890'
@@ -6111,7 +6111,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             });
 
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'User: 123, John Doe, 30 years old'
@@ -6172,7 +6172,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             });
 
-            expect(result.content).toEqual([
+            expect(result.content).toStrictEqual([
                 {
                     type: 'text',
                     text: 'Processed: HELLO, 10, WORLD'
@@ -6215,7 +6215,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             expect(invalidTypeResult.isError).toBe(true);
-            expect(invalidTypeResult.content).toEqual(
+            expect(invalidTypeResult.content).toStrictEqual(
                 expect.arrayContaining([
                     expect.objectContaining({
                         type: 'text',
@@ -6233,7 +6233,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             expect(invalidDiscriminatorResult.isError).toBe(true);
-            expect(invalidDiscriminatorResult.content).toEqual(
+            expect(invalidDiscriminatorResult.content).toStrictEqual(
                 expect.arrayContaining([
                     expect.objectContaining({
                         type: 'text',
@@ -6449,7 +6449,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Should receive CallToolResult directly, not CreateTaskResult
             expect(result).toHaveProperty('content');
-            expect(result.content).toEqual([{ type: 'text' as const, text: 'Result: 42' }]);
+            expect(result.content).toStrictEqual([{ type: 'text' as const, text: 'Result: 42' }]);
             expect(result).not.toHaveProperty('task');
 
             // Wait for async operations to complete
@@ -6675,7 +6675,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Should receive the error result
             expect(result).toHaveProperty('content');
-            expect(result.content).toEqual([{ type: 'text' as const, text: 'Error occurred' }]);
+            expect(result.content).toStrictEqual([{ type: 'text' as const, text: 'Error occurred' }]);
             expect(result.isError).toBe(true);
 
             // Wait for async operations to complete
@@ -6778,7 +6778,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             // Should receive an error since cancelled tasks don't have results
             expect(result).toHaveProperty('content');
-            expect(result.content).toEqual([{ type: 'text' as const, text: expect.stringContaining('has no result stored') }]);
+            expect(result.content).toStrictEqual([{ type: 'text' as const, text: expect.stringContaining('has no result stored') }]);
 
             // Wait for async operations to complete
             await waitForLatch();
