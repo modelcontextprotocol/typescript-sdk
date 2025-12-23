@@ -47,6 +47,7 @@ export default defineConfig(
             '@typescript-eslint/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
             'simple-import-sort/imports': 'warn',
             'simple-import-sort/exports': 'warn',
+            'import/consistent-type-specifier-style': ['error', 'prefer-top-level'],
             'import/no-extraneous-dependencies': [
                 'error',
                 {

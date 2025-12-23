@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import type { Server } from 'node:http';
+import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { TaskRequestOptions } from '@modelcontextprotocol/server';
@@ -13,8 +14,8 @@ import {
     InMemoryTaskStore,
     McpError,
     McpServer,
+    NodeStreamableHTTPServerTransport,
     RELATED_TASK_META_KEY,
-    StreamableHTTPServerTransport,
     TaskSchema
 } from '@modelcontextprotocol/server';
 import { listenOnRandomPort, waitForTaskStatus } from '@modelcontextprotocol/test-helpers';
@@ -23,7 +24,7 @@ import { z } from 'zod';
 describe('Task Lifecycle Integration Tests', () => {
     let server: Server;
     let mcpServer: McpServer;
-    let serverTransport: StreamableHTTPServerTransport;
+    let serverTransport: NodeStreamableHTTPServerTransport;
     let baseUrl: URL;
     let taskStore: InMemoryTaskStore;
 
@@ -188,7 +189,7 @@ describe('Task Lifecycle Integration Tests', () => {
         );
 
         // Create transport
-        serverTransport = new StreamableHTTPServerTransport({
+        serverTransport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID()
         });
 
