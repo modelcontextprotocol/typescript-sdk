@@ -1,6 +1,8 @@
 name: Publish Any Commit
+
 permissions:
     contents: read
+
 on:
     pull_request:
     push:
@@ -14,14 +16,26 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v4
-            - uses: actions/setup-node@v4
+            - uses: actions/checkout@v6
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  run_install: false
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v6
               with:
                   node-version: 24
-                  cache: npm
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+                  registry-url: 'https://registry.npmjs.org'
 
-            - run: npm ci
-            - name: Build
-              run: npm run build
-            - name: Publish
-              run: npx pkg-pr-new publish
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Build packages
+              run: pnpm run build:all
+
+            - name: Publish preview packages
+              run: pnpm dlx pkg-pr-new publish --packageManager=npm --pnpm './packages/server' './packages/client'

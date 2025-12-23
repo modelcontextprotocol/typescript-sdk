@@ -5,14 +5,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Test Commands
 
 ```sh
-npm run build        # Build ESM and CJS versions
-npm run lint         # Run ESLint and Prettier check
-npm run lint:fix     # Auto-fix lint and formatting issues
-npm test             # Run all tests (vitest)
-npm run test:watch   # Run tests in watch mode
-npx vitest path/to/file.test.ts  # Run specific test file
-npx vitest -t "test name"        # Run tests matching pattern
-npm run typecheck    # Type-check without emitting
+pnpm install         # Install all workspace dependencies
+
+pnpm build:all       # Build all packages
+pnpm lint:all        # Run ESLint + Prettier checks across all packages
+pnpm lint:fix:all    # Auto-fix lint and formatting issues across all packages
+pnpm typecheck:all   # Type-check all packages
+pnpm test:all        # Run all tests (vitest) across all packages
+pnpm check:all       # typecheck + lint across all packages
+
+# Run a single package script (examples)
+# Run a single package script from the repo root with pnpm filter
+pnpm --filter @modelcontextprotocol/core test                # vitest run (core)
+pnpm --filter @modelcontextprotocol/core test:watch          # vitest (watch)
+pnpm --filter @modelcontextprotocol/core test -- path/to/file.test.ts
+pnpm --filter @modelcontextprotocol/core test -- -t "test name"
 ```
 
 ## Code Style Guidelines
@@ -31,64 +38,64 @@ npm run typecheck    # Type-check without emitting
 
 The SDK is organized into three main layers:
 
-1. **Types Layer** (`src/types.ts`) - Protocol types generated from the MCP specification. All JSON-RPC message types, schemas, and protocol constants are defined here using Zod v4.
+1. **Types Layer** (`packages/core/src/types/types.ts`) - Protocol types generated from the MCP specification. All JSON-RPC message types, schemas, and protocol constants are defined here using Zod v4.
 
-2. **Protocol Layer** (`src/shared/protocol.ts`) - The abstract `Protocol` class that handles JSON-RPC message routing, request/response correlation, capability negotiation, and transport management. Both `Client` and `Server` extend this class.
+2. **Protocol Layer** (`packages/core/src/shared/protocol.ts`) - The abstract `Protocol` class that handles JSON-RPC message routing, request/response correlation, capability negotiation, and transport management. Both `Client` and `Server` extend this class.
 
 3. **High-Level APIs**:
-    - `Client` (`src/client/index.ts`) - Low-level client extending Protocol with typed methods for all MCP operations
-    - `Server` (`src/server/index.ts`) - Low-level server extending Protocol with request handler registration
-    - `McpServer` (`src/server/mcp.ts`) - High-level server API with simplified resource/tool/prompt registration
+    - `Client` (`packages/client/src/client/client.ts`) - Client implementation extending Protocol with typed methods for MCP operations
+    - `Server` (`packages/server/src/server/server.ts`) - Server implementation extending Protocol with request handler registration
+    - `McpServer` (`packages/server/src/server/mcp.ts`) - High-level server API with simplified resource/tool/prompt registration
 
 ### Transport System
 
-Transports (`src/shared/transport.ts`) provide the communication layer:
+Transports (`packages/core/src/shared/transport.ts`) provide the communication layer:
 
-- **Streamable HTTP** (`src/server/streamableHttp.ts`, `src/client/streamableHttp.ts`) - Recommended transport for remote servers, supports SSE for streaming
-- **SSE** (`src/server/sse.ts`, `src/client/sse.ts`) - Legacy HTTP+SSE transport for backwards compatibility
-- **stdio** (`src/server/stdio.ts`, `src/client/stdio.ts`) - For local process-spawned integrations
+- **Streamable HTTP** (`packages/server/src/server/streamableHttp.ts`, `packages/client/src/client/streamableHttp.ts`) - Recommended transport for remote servers, supports SSE for streaming
+- **SSE** (`packages/server/src/server/sse.ts`, `packages/client/src/client/sse.ts`) - Legacy HTTP+SSE transport for backwards compatibility
+- **stdio** (`packages/server/src/server/stdio.ts`, `packages/client/src/client/stdio.ts`) - For local process-spawned integrations
 
 ### Server-Side Features
 
 - **Tools/Resources/Prompts**: Registered via `McpServer.tool()`, `.resource()`, `.prompt()` methods
-- **OAuth/Auth**: Full OAuth 2.0 server implementation in `src/server/auth/`
-- **Completions**: Auto-completion support via `src/server/completable.ts`
+- **OAuth/Auth**: Full OAuth 2.0 server implementation in `packages/server/src/server/auth/`
+- **Completions**: Auto-completion support via `packages/server/src/server/completable.ts`
 
 ### Client-Side Features
 
-- **Auth**: OAuth client support in `src/client/auth.ts` and `src/client/auth-extensions.ts`
-- **Middleware**: Request middleware in `src/client/middleware.ts`
+- **Auth**: OAuth client support in `packages/client/src/client/auth.ts` and `packages/client/src/client/auth-extensions.ts`
+- **Middleware**: Request middleware in `packages/client/src/client/middleware.ts`
 - **Sampling**: Clients can handle `sampling/createMessage` requests from servers (LLM completions)
 - **Elicitation**: Clients can handle `elicitation/create` requests for user input (form or URL mode)
 - **Roots**: Clients can expose filesystem roots to servers via `roots/list`
 
 ### Experimental Features
 
-Located in `src/experimental/`:
+Located in `packages/*/src/experimental/`:
 
-- **Tasks**: Long-running task support with polling/resumption (`src/experimental/tasks/`)
+- **Tasks**: Long-running task support with polling/resumption (`packages/core/src/experimental/tasks/`)
 
 ### Zod Compatibility
 
 The SDK uses `zod/v4` internally but supports both v3 and v4 APIs. Compatibility utilities:
 
-- `src/server/zod-compat.ts` - Schema parsing helpers that work across versions
-- `src/server/zod-json-schema-compat.ts` - Converts Zod schemas to JSON Schema
+- `packages/core/src/util/zod-compat.ts` - Schema parsing helpers that work across versions
+- `packages/core/src/util/zod-json-schema-compat.ts` - Converts Zod schemas to JSON Schema
 
 ### Validation
 
-Pluggable JSON Schema validation (`src/validation/`):
+Pluggable JSON Schema validation (`packages/core/src/validation/`):
 
 - `ajv-provider.ts` - Default Ajv-based validator
 - `cfworker-provider.ts` - Cloudflare Workers-compatible alternative
 
 ### Examples
 
-Runnable examples in `src/examples/`:
+Runnable examples in `examples/`:
 
-- `server/` - Various server configurations (stateful, stateless, OAuth, etc.)
-- `client/` - Client examples (basic, OAuth, parallel calls, etc.)
-- `shared/` - Shared utilities like in-memory event store
+- `examples/server/src/` - Various server configurations (stateful, stateless, OAuth, etc.)
+- `examples/client/src/` - Client examples (basic, OAuth, parallel calls, etc.)
+- `examples/shared/src/` - Shared utilities (OAuth demo provider, etc.)
 
 ## Message Flow (Bidirectional Protocol)
 
@@ -98,9 +105,9 @@ MCP is bidirectional: both client and server can send requests. Understanding th
 
 ```
 Protocol (abstract base)
-├── Client (src/client/index.ts)     - can send requests TO server, handle requests FROM server
-└── Server (src/server/index.ts)     - can send requests TO client, handle requests FROM client
-    └── McpServer (src/server/mcp.ts) - high-level wrapper around Server
+├── Client (packages/client/src/client/client.ts)     - can send requests TO server, handle requests FROM server
+└── Server (packages/server/src/server/server.ts)     - can send requests TO client, handle requests FROM client
+    └── McpServer (packages/server/src/server/mcp.ts) - high-level wrapper around Server
 ```
 
 ### Outbound Flow: Sending Requests

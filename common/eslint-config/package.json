@@ -1,0 +1,36 @@
+{
+    "name": "@modelcontextprotocol/eslint-config",
+    "private": true,
+    "main": "eslint.config.mjs",
+    "type": "module",
+    "exports": {
+        ".": "./eslint.config.mjs"
+    },
+    "dependencies": {
+        "typescript": "catalog:devTools"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/modelcontextprotocol/typescript-sdk.git"
+    },
+    "bugs": {
+        "url": "https://github.com/modelcontextprotocol/typescript-sdk/issues"
+    },
+    "homepage": "https://github.com/modelcontextprotocol/typescript-sdk/tree/develop/common/eslint-config",
+    "publishConfig": {
+        "registry": "https://npm.pkg.github.com/"
+    },
+    "version": "2.0.0",
+    "devDependencies": {
+        "@eslint/js": "catalog:devTools",
+        "eslint": "catalog:devTools",
+        "eslint-config-prettier": "catalog:devTools",
+        "eslint-import-resolver-typescript": "^4.4.4",
+        "eslint-plugin-import": "^2.32.0",
+        "eslint-plugin-n": "catalog:devTools",
+        "eslint-plugin-simple-import-sort": "^12.1.1",
+        "prettier": "catalog:devTools",
+        "typescript": "catalog:devTools",
+        "typescript-eslint": "catalog:devTools"
+    }
+}

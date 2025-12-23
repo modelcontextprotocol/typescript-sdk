@@ -1,0 +1,28 @@
+{
+    "name": "@modelcontextprotocol/vitest-config",
+    "private": true,
+    "main": "vitest.config.mjs",
+    "type": "module",
+    "exports": {
+        ".": "./vitest.config.js"
+    },
+    "dependencies": {
+        "typescript": "catalog:devTools"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/modelcontextprotocol/typescript-sdk.git"
+    },
+    "bugs": {
+        "url": "https://github.com/modelcontextprotocol/typescript-sdk/issues"
+    },
+    "homepage": "https://github.com/modelcontextprotocol/typescript-sdk/tree/develop/common/vitest-config",
+    "publishConfig": {
+        "registry": "https://npm.pkg.github.com/"
+    },
+    "version": "2.0.0",
+    "devDependencies": {
+        "@modelcontextprotocol/tsconfig": "workspace:^",
+        "vite-tsconfig-paths": "catalog:devTools"
+    }
+}

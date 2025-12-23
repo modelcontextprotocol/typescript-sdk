@@ -1,0 +1,48 @@
+{
+    "name": "@modelcontextprotocol/examples-client",
+    "private": true,
+    "version": "2.0.0-alpha.0",
+    "description": "Model Context Protocol implementation for TypeScript",
+    "license": "MIT",
+    "author": "Anthropic, PBC (https://anthropic.com)",
+    "homepage": "https://modelcontextprotocol.io",
+    "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
+    "type": "module",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
+    },
+    "engines": {
+        "node": ">=20",
+        "pnpm": ">=10.24.0"
+    },
+    "packageManager": "pnpm@10.24.0",
+    "keywords": [
+        "modelcontextprotocol",
+        "mcp"
+    ],
+    "scripts": {
+        "typecheck": "tsgo -p tsconfig.json --noEmit",
+        "build": "tsdown",
+        "build:watch": "tsdown --watch",
+        "prepack": "npm run build:esm && npm run build:cjs",
+        "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
+        "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
+        "check": "npm run typecheck && npm run lint",
+        "start": "npm run server",
+        "server": "tsx watch --clear-screen=false scripts/cli.ts server",
+        "client": "tsx scripts/cli.ts client"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/client": "workspace:^",
+        "ajv": "catalog:runtimeShared",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "@modelcontextprotocol/examples-shared": "workspace:^",
+        "@modelcontextprotocol/tsconfig": "workspace:^",
+        "@modelcontextprotocol/eslint-config": "workspace:^",
+        "@modelcontextprotocol/vitest-config": "workspace:^",
+        "tsdown": "catalog:devTools"
+    }
+}
