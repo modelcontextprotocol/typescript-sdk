@@ -1,0 +1,11 @@
+{
+    "$schema": "https://typedoc.org/schema.json",
+    "entryPoints": ["src"],
+    "entryPointStrategy": "expand",
+    "exclude": ["**/*.test.ts", "**/__*__/**", "**/examples/**", "**/integration-tests/**", "**/spec.types.ts", "**/zodTestMatrix.ts"],
+    "projectDocuments": ["docs/*.md"],
+    "navigation": {
+        "includeGroups": true,
+        "includeCategories": true
+    }
+}

@@ -56,7 +56,8 @@
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools",
-        "ws": "catalog:devTools"
+        "ws": "catalog:devTools",
+        "typedoc": "catalog:devTools"
     },
     "resolutions": {
         "strip-ansi": "6.0.1"
