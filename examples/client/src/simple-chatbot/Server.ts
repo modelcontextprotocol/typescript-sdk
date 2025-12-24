@@ -10,6 +10,8 @@ export class Server {
   private client: Client | null = null;
   public childPid: number | null = null;
   private transport: StdioClientTransport | null = null;
+  // Serializes teardown to prevent concurrent cleanup races
+  private cleanupChain: Promise<void> = Promise.resolve();
 
   constructor(name: string, config: ServerConfigEntry) {
     this.name = name;
@@ -46,30 +48,6 @@ export class Server {
     return toolsResponse.tools;
   }
 
-  //  async def list_tools(self) -> list[Any]:
-  //       """List available tools from the server.
-
-  //       Returns:
-  //           A list of available tools.
-
-  //       Raises:
-  //           RuntimeError: If the server is not initialized.
-  //       """
-  //       if not self.session:
-  //           raise RuntimeError(f"Server {self.name} not initialized")
-
-  //       tools_response = await self.session.list_tools()
-  //       tools = []
-
-  //       for item in tools_response:
-  //           if isinstance(item, tuple) and item[0] == "tools":
-  //               tools.extend(
-  //                   Tool(tool.name, tool.description, tool.inputSchema, tool.title)
-  //                   for tool in item[1]
-  //               )
-
-  //       return tools
-
   async executeTool(
     toolName: string,
     args: Record<string, unknown>,
@@ -81,7 +59,36 @@ export class Server {
   }
 
   async cleanup(): Promise<void> {
-    // TODO: Close client and kill process
-    throw new Error('Not implemented');
+    this.cleanupChain = this.cleanupChain.then(async () => {
+      let error: unknown;
+      if (!(this.client || this.transport)) return;
+
+      if (this.client) {
+        try {
+          await this.client.close();
+        } catch (e) {
+          error ??= e;
+        }
+        this.client = null;
+      }
+
+      if (this.transport) {
+        try {
+          await this.transport.close();
+        } catch (e) {
+          error ??= e;
+        }
+        this.transport = null;
+      }
+
+      this.childPid = null;
+
+      if (error) {
+        // Align with Python behavior: log but do not rethrow
+        console.error(`Error during cleanup of server ${this.name}:`, error);
+      }
+    });
+
+    return this.cleanupChain;
   }
 }

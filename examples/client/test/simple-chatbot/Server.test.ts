@@ -43,18 +43,42 @@ describe('Server', () => {
 
         expect((server as unknown as { childPid: number | null }).childPid).not.toBeNull();
 
-        const pid = (server as unknown as { childPid: number | null }).childPid;
-        if (pid) {
-          process.kill(pid, 'SIGTERM');
-        }
+        await server.cleanup();
       },
       15_000
     );
   });
 
+  describe('cleanup', () => {
+    it('should clean up resources', async () => {
+      const config: ServerConfigEntry = {
+        command: 'node',
+        args: [fixture],
+      };
+      const server = new Server('test-server', config);
+
+      await server.initialize();
+      expect(server.childPid).toBeDefined();
+
+      await server.cleanup();
+
+      const pid = (server as unknown as { childPid: number | null }).childPid;
+      if (pid) {
+        // Check if process is still running
+        let isRunning = true;
+        try {
+          process.kill(pid, 0);
+        } catch {
+          isRunning = false;
+        }
+        expect(isRunning).toBe(false);
+      }
+    });  
+ 
+  });
   describe('listTools', () => {
     it(
-      'returns tools from the fake stdio MCP server (will fail until implemented)',
+      'returns tools from the fake stdio MCP server',
       async () => {
         const server = new Server('tools', {
           command: 'node',
@@ -67,10 +91,7 @@ describe('Server', () => {
           expect.arrayContaining([expect.objectContaining({ name: 'ping' })])
         );
 
-        const pid = (server as unknown as { childPid: number | null }).childPid;
-        if (pid) {
-          process.kill(pid, 'SIGTERM');
-        }
+        await server.cleanup();
       },
       15_000
     );
