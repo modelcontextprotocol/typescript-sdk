@@ -108,11 +108,7 @@ function parseSSEData(text: string): unknown {
     return JSON.parse(dataLine.substring(5).trim());
 }
 
-function expectErrorResponse(
-    data: unknown,
-    expectedCode: number,
-    expectedMessagePattern: RegExp
-): void {
+function expectErrorResponse(data: unknown, expectedCode: number, expectedMessagePattern: RegExp): void {
     expect(data).toMatchObject({
         jsonrpc: '2.0',
         error: expect.objectContaining({
@@ -133,9 +129,14 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         beforeEach(async () => {
             mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
 
-            mcpServer.tool('greet', 'A simple greeting tool', { name: z.string().describe('Name to greet') }, async ({ name }): Promise<CallToolResult> => {
-                return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
-            });
+            mcpServer.tool(
+                'greet',
+                'A simple greeting tool',
+                { name: z.string().describe('Name to greet') },
+                async ({ name }): Promise<CallToolResult> => {
+                    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+                }
+            );
 
             transport = new HTTPServerTransport({
                 sessionIdGenerator: () => randomUUID()

@@ -8,8 +8,8 @@
  */
 
 import { serve } from '@hono/node-server';
-import type { CallToolResult } from '@modelcontextprotocol/express';
-import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/express';
+import type { CallToolResult } from '@modelcontextprotocol/server';
+import { HTTPServerTransport, McpServer } from '@modelcontextprotocol/server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import * as z from 'zod/v4';
@@ -36,7 +36,7 @@ server.registerTool(
 );
 
 // Create a stateless transport (no options = no session management)
-const transport = new WebStandardStreamableHTTPServerTransport();
+const transport = new HTTPServerTransport();
 
 // Create the Hono app
 const app = new Hono();

@@ -296,15 +296,18 @@ importers:
 
   examples/server:
     dependencies:
-      '@hono/node-server':
-        specifier: catalog:runtimeServerOnly
-        version: 1.19.7(hono@4.11.1)
+      '@modelcontextprotocol/core':
+        specifier: workspace:^
+        version: link:../../packages/core
       '@modelcontextprotocol/examples-shared':
         specifier: workspace:^
         version: link:../shared
       '@modelcontextprotocol/express':
         specifier: workspace:^
         version: link:../../packages/middleware/express
+      '@modelcontextprotocol/node':
+        specifier: workspace:^
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../../packages/server
@@ -342,6 +345,9 @@ importers:
 
   examples/shared:
     dependencies:
+      '@modelcontextprotocol/core':
+        specifier: workspace:^
+        version: link:../../packages/core
       '@modelcontextprotocol/express':
         specifier: workspace:^
         version: link:../../packages/middleware/express

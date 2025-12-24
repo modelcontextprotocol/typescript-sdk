@@ -39,6 +39,7 @@
         "@modelcontextprotocol/examples-shared": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
+        "@modelcontextprotocol/node": "workspace:^",
         "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly",
         "zod": "catalog:runtimeShared"

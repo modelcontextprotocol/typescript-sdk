@@ -11,6 +11,8 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type {
     CallToolResult,
     CreateMessageRequest,
@@ -32,19 +34,17 @@ import type {
     TaskMessageQueue,
     TextContent,
     Tool
-} from '@modelcontextprotocol/express';
+} from '@modelcontextprotocol/server';
 import {
     CallToolRequestSchema,
-    createMcpExpressApp,
     GetTaskPayloadRequestSchema,
     GetTaskRequestSchema,
     InMemoryTaskStore,
     isTerminal,
     ListToolsRequestSchema,
     RELATED_TASK_META_KEY,
-    Server,
-    StreamableHTTPServerTransport
-} from '@modelcontextprotocol/express';
+    Server
+} from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 
 // ============================================================================

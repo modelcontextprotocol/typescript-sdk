@@ -1,6 +1,6 @@
-import type { OAuthClientInformationFull } from '@modelcontextprotocol/core';
 import type { AuthorizationParams } from '@modelcontextprotocol/express';
-import { InvalidRequestError } from '@modelcontextprotocol/express';
+import type { OAuthClientInformationFull } from '@modelcontextprotocol/server';
+import { InvalidRequestError } from '@modelcontextprotocol/server';
 import { createExpressResponseMock } from '@modelcontextprotocol/test-helpers';
 import type { Response } from 'express';
 import { beforeEach, describe, expect, it } from 'vitest';

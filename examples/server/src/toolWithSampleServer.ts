@@ -1,6 +1,6 @@
 // Run with: pnpm tsx src/toolWithSampleServer.ts
 
-import { McpServer, StdioServerTransport } from '@modelcontextprotocol/express';
+import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
 const mcpServer = new McpServer({

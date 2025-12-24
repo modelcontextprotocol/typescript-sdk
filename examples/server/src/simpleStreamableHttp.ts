@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
 import { setupAuthServer } from '@modelcontextprotocol/examples-shared';
+import {
+    createMcpExpressApp,
+    getOAuthProtectedResourceMetadataUrl,
+    mcpAuthMetadataRouter,
+    requireBearerAuth
+} from '@modelcontextprotocol/express';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type {
     CallToolResult,
     GetPromptResult,
@@ -8,20 +15,15 @@ import type {
     PrimitiveSchemaDefinition,
     ReadResourceResult,
     ResourceLink
-} from '@modelcontextprotocol/express';
+} from '@modelcontextprotocol/server';
 import {
     checkResourceAllowed,
-    createMcpExpressApp,
     ElicitResultSchema,
-    getOAuthProtectedResourceMetadataUrl,
     InMemoryTaskMessageQueue,
     InMemoryTaskStore,
     isInitializeRequest,
-    mcpAuthMetadataRouter,
-    McpServer,
-    requireBearerAuth,
-    StreamableHTTPServerTransport
-} from '@modelcontextprotocol/express';
+    McpServer
+} from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 

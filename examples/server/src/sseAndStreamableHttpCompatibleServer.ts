@@ -1,13 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
-import type { CallToolResult } from '@modelcontextprotocol/express';
-import {
-    createMcpExpressApp,
-    isInitializeRequest,
-    McpServer,
-    SSEServerTransport,
-    StreamableHTTPServerTransport
-} from '@modelcontextprotocol/express';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { SSEServerTransport, StreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import type { CallToolResult } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 

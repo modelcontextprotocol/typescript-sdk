@@ -15,7 +15,7 @@ import type {
 import type { EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
-import { listenOnRandomPort , zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 
 import { StreamableHTTPServerTransport } from '../src/http.js';
 
