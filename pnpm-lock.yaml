@@ -296,9 +296,9 @@ importers:
 
   examples/server:
     dependencies:
-      '@modelcontextprotocol/core':
-        specifier: workspace:^
-        version: link:../../packages/core
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.7(hono@4.11.1)
       '@modelcontextprotocol/examples-shared':
         specifier: workspace:^
         version: link:../shared
@@ -345,9 +345,6 @@ importers:
 
   examples/shared:
     dependencies:
-      '@modelcontextprotocol/core':
-        specifier: workspace:^
-        version: link:../../packages/core
       '@modelcontextprotocol/express':
         specifier: workspace:^
         version: link:../../packages/middleware/express
