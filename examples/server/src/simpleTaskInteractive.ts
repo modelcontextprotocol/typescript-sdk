@@ -32,7 +32,7 @@ import type {
     TaskMessageQueue,
     TextContent,
     Tool
-} from '@modelcontextprotocol/server';
+} from '@modelcontextprotocol/express';
 import {
     CallToolRequestSchema,
     createMcpExpressApp,
@@ -44,7 +44,7 @@ import {
     RELATED_TASK_META_KEY,
     Server,
     StreamableHTTPServerTransport
-} from '@modelcontextprotocol/server';
+} from '@modelcontextprotocol/express';
 import type { Request, Response } from 'express';
 
 // ============================================================================

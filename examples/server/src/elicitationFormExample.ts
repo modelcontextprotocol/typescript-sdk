@@ -9,7 +9,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { createMcpExpressApp, isInitializeRequest, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { createMcpExpressApp, isInitializeRequest, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/express';
 import { type Request, type Response } from 'express';
 
 // Create MCP server - it will automatically use AjvJsonSchemaValidator with sensible defaults

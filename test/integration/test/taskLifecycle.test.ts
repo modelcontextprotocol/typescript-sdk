@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import type { TaskRequestOptions } from '@modelcontextprotocol/server';
 import {
     CallToolResultSchema,
     CreateTaskResultSchema,
@@ -12,11 +11,12 @@ import {
     InMemoryTaskMessageQueue,
     InMemoryTaskStore,
     McpError,
-    McpServer,
     RELATED_TASK_META_KEY,
-    StreamableHTTPServerTransport,
+    type TaskRequestOptions,
     TaskSchema
-} from '@modelcontextprotocol/server';
+} from '@modelcontextprotocol/core';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort, waitForTaskStatus } from '@modelcontextprotocol/test-helpers';
 import { z } from 'zod';
 

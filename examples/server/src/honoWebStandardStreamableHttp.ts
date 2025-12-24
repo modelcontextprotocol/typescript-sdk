@@ -8,8 +8,8 @@
  */
 
 import { serve } from '@hono/node-server';
-import type { CallToolResult } from '@modelcontextprotocol/server';
-import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import type { CallToolResult } from '@modelcontextprotocol/express';
+import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/express';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import * as z from 'zod/v4';

@@ -4,7 +4,7 @@
  * This demonstrates how to easily create tools with structured output
  */
 
-import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
+import { McpServer, StdioServerTransport } from '@modelcontextprotocol/express';
 import * as z from 'zod/v4';
 
 const server = new McpServer({

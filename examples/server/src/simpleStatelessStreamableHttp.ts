@@ -1,5 +1,5 @@
-import type { CallToolResult, GetPromptResult, ReadResourceResult } from '@modelcontextprotocol/server';
-import { createMcpExpressApp, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import type { CallToolResult, GetPromptResult, ReadResourceResult } from '@modelcontextprotocol/express';
+import { createMcpExpressApp, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/express';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 

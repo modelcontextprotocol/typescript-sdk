@@ -8,7 +8,7 @@ import type {
     PrimitiveSchemaDefinition,
     ReadResourceResult,
     ResourceLink
-} from '@modelcontextprotocol/server';
+} from '@modelcontextprotocol/express';
 import {
     checkResourceAllowed,
     createMcpExpressApp,
@@ -21,7 +21,7 @@ import {
     McpServer,
     requireBearerAuth,
     StreamableHTTPServerTransport
-} from '@modelcontextprotocol/server';
+} from '@modelcontextprotocol/express';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 

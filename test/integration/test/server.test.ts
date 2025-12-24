@@ -18,6 +18,8 @@ import {
     ElicitRequestSchema,
     ElicitResultSchema,
     ErrorCode,
+    InMemoryTaskMessageQueue,
+    InMemoryTaskStore,
     InMemoryTransport,
     LATEST_PROTOCOL_VERSION,
     ListPromptsRequestSchema,
@@ -30,7 +32,8 @@ import {
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
-import { createMcpExpressApp, InMemoryTaskMessageQueue, InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { McpServer, Server } from '@modelcontextprotocol/server';
 import supertest from 'supertest';
 import * as z3 from 'zod/v3';
 import * as z4 from 'zod/v4';

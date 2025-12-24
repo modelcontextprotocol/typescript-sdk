@@ -14,8 +14,8 @@
  */
 import { randomUUID } from 'node:crypto';
 
-import type { CallToolResult } from '@modelcontextprotocol/server';
-import { createMcpExpressApp, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import type { CallToolResult } from '@modelcontextprotocol/express';
+import { createMcpExpressApp, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/express';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 
