@@ -1,0 +1,7 @@
+- Capture requirements for TypeScript multi-server chatbot (issue #740)
+	- Load multiple MCP server definitions (command/args/env) from a config file, similar to the Python example’s `servers_config.json`.
+	- Spin up each server via stdio + `ClientSession`, keeping them alive concurrently and shutting them down cleanly.
+	- Aggregate all exposed tools/resources to build a system prompt so the LLM knows every available capability.
+	- Route tool calls to the correct server (e.g., by matching tool name), handle retries, and surface responses labeled with the server name.
+	- Maintain an interactive chat loop (user ↔ LLM) where plain responses flow directly and tool-call JSON triggers execution.
+	- Ensure cleanup on exit/ctrl+C closes every session to avoid orphaned processes.
