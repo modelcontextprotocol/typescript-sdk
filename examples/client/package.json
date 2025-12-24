@@ -43,6 +43,7 @@
     "devDependencies": {
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/examples-shared": "workspace:^",
+        "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "tsdown": "catalog:devTools",

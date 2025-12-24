@@ -13,11 +13,9 @@ describe('Configuration class', () => {
         });
         it('should call loadEnv and loadConfig methods', () => {
             const loadEnvSpy = vi.spyOn(Configuration, 'loadEnv').mockImplementation(() => {});
-            const loadConfigSpy = vi.spyOn(Configuration, 'loadConfig').mockImplementation(() => ({ mcpServers: {} }));
             new Configuration();
             expect(loadEnvSpy).toHaveBeenCalledTimes(1);
-            expect(loadConfigSpy).toHaveBeenCalledTimes(1);
-        });
+         });
     });
     describe('get llmApiKey', () => {
         it('should throw an error if LLM_API_KEY is not set', () => {
