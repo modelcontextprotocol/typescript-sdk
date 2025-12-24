@@ -1,7 +1,7 @@
 {
     "name": "@modelcontextprotocol/node",
     "version": "2.0.0-alpha.0",
-    "description": "Node.js HTTP adapter for Model Context Protocol servers",
+    "description": "Node.js HTTP adapter for Model Context Protocol server transports",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
     "homepage": "https://modelcontextprotocol.io",
