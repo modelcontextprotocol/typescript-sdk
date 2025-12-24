@@ -1,4 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { Client } from '@modelcontextprotocol/client';
+import { beforeEach,describe, expect, it, vi } from 'vitest';
+
 import { Server, type ServerConfigEntry } from '../../src/simple-chatbot/Server.js';
 
 describe('Server', () => {
@@ -21,14 +23,15 @@ describe('Server', () => {
   });
 
   describe('initialize', () => {
-    it('throws "Not implemented" for now', async () => {
+    it('connects the client using stdio transport', async () => {
       const config: ServerConfigEntry = {
         command: 'npx',
         args: ['-y', '@modelcontextprotocol/server-puppeteer'],
       };
       const server = new Server('test-server', config);
-
-      await expect(server.initialize()).rejects.toThrow('Not implemented');
+      const connectSpy = vi.spyOn(Client.prototype, 'connect').mockResolvedValue();
+      await server.initialize();
+      expect(connectSpy).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -1,6 +1,7 @@
+import * as fs from 'node:fs';
+
 import { config } from 'dotenv';
 import { z } from 'zod';
-import * as fs from 'fs';
 
 const McpServersConfigSchema = z.object({
   mcpServers: z.record(z.object({

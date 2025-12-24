@@ -1,5 +1,6 @@
-import { Configuration } from '../../src/simple-chatbot/Configuration';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach,describe, expect, it, vi } from 'vitest';
+
+import { Configuration } from '../../src/simple-chatbot/Configuration.js';
 
 describe('Configuration class', () => {
     beforeEach(() => {
@@ -12,11 +13,10 @@ describe('Configuration class', () => {
         });
         it('should call loadEnv and loadConfig methods', () => {
             const loadEnvSpy = vi.spyOn(Configuration, 'loadEnv').mockImplementation(() => {});
-            const loadConfigSpy = vi.spyOn(Configuration, 'loadConfig').mockImplementation(() => ({}));
-            
+            const loadConfigSpy = vi.spyOn(Configuration, 'loadConfig').mockImplementation(() => ({ mcpServers: {} }));
             new Configuration();
-            
-            expect(loadEnvSpy).toHaveBeenCalled();
+            expect(loadEnvSpy).toHaveBeenCalledTimes(1);
+            expect(loadConfigSpy).toHaveBeenCalledTimes(1);
         });
     });
     describe('get llmApiKey', () => {
