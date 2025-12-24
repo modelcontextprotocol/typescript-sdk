@@ -1,8 +1,8 @@
 import type { AuthInfo, FetchLike, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
 import { OAuthClientInformationFullSchema, OAuthTokensSchema, ServerError } from '@modelcontextprotocol/core';
-import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/server';
 import type { Response } from 'express';
 
+import type { OAuthRegisteredClientsStore } from '../clients.js';
 import type { AuthorizationParams, OAuthServerProvider } from '../provider.js';
 
 export type ProxyEndpoints = {

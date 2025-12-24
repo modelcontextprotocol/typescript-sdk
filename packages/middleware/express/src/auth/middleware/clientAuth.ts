@@ -1,8 +1,9 @@
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/core';
 import { InvalidClientError, InvalidRequestError, OAuthError, ServerError } from '@modelcontextprotocol/core';
-import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/server';
 import type { RequestHandler } from 'express';
 import * as z from 'zod/v4';
+
+import type { OAuthRegisteredClientsStore } from '../clients.js';
 
 export type ClientAuthenticationMiddlewareOptions = {
     /**

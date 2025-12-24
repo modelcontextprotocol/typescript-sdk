@@ -8,13 +8,13 @@ import {
     ServerError,
     TooManyRequestsError
 } from '@modelcontextprotocol/core';
-import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { RequestHandler } from 'express';
 import express from 'express';
 import type { Options as RateLimitOptions } from 'express-rate-limit';
 import { rateLimit } from 'express-rate-limit';
 
+import type { OAuthRegisteredClientsStore } from '../clients.js';
 import { allowedMethods } from '../middleware/allowedMethods.js';
 
 export type ClientRegistrationHandlerOptions = {

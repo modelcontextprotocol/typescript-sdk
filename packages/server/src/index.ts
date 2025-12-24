@@ -4,9 +4,6 @@ export * from './server/mcp.js';
 export * from './server/server.js';
 export * from './server/stdio.js';
 
-// auth exports - only framework-agnostic types
-export * from './server/auth/clients.js';
-
 // experimental exports
 export * from './experimental/index.js';
 
