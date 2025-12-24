@@ -26,9 +26,9 @@ const app = createMcpExpressApp();
 const server = new McpServer({ name: 'my-server', version: '1.0.0' });
 
 app.post('/mcp', async (req, res) => {
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID() });
-  await server.connect(transport);
-  await transport.handleRequest(req, res, req.body);
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID() });
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
 });
 
 app.listen(3000);

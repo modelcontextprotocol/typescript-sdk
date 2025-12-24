@@ -22,12 +22,12 @@ import http from 'node:http';
 
 const server = new McpServer({ name: 'my-server', version: '1.0.0' });
 const transport = new StreamableHTTPServerTransport({
-  sessionIdGenerator: () => crypto.randomUUID()
+    sessionIdGenerator: () => crypto.randomUUID()
 });
 
 await server.connect(transport);
 
 http.createServer((req, res) => {
-  transport.handleRequest(req, res);
+    transport.handleRequest(req, res);
 }).listen(3000);
 ```
