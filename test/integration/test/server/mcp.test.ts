@@ -17,10 +17,8 @@ import {
     type TextContent,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/core';
-
-import { completable } from '../../../../packages/server/src/server/completable.js';
-import { McpServer, ResourceTemplate } from '../../../../packages/server/src/server/mcp.js';
-import { type ZodMatrixEntry, zodTestMatrix } from '../../../../packages/server/test/server/__fixtures__/zodTestMatrix.js';
+import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { type ZodMatrixEntry, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 
 function createLatch() {
     let latch = false;
