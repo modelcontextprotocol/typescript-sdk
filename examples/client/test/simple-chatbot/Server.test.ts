@@ -75,6 +75,41 @@ describe('Server', () => {
       }
     });  
  
+    it(
+      'serializes concurrent cleanup calls against a real server',
+      async () => {
+        const server = new Server('test-server', {
+          command: 'node',
+          args: [fixture],
+        });
+
+        await server.initialize();
+
+        // Grab references before cleanup clears them
+        const client = server.client;
+        const transport = server.transport;
+
+        if (!client || !transport) {
+          throw new Error('Server not initialized');
+        }
+
+        const clientCloseSpy = vi.spyOn(client, 'close');
+        const transportCloseSpy = vi.spyOn(transport, 'close');
+
+        await Promise.all([server.cleanup(), server.cleanup(), server.cleanup(), server.cleanup(), server.cleanup()]);
+
+        expect(clientCloseSpy).toHaveBeenCalledTimes(1);
+        // client.close may internally close the transport; our cleanup also closes it.
+        // Accept 1-2 calls depending on the transport/client implementation.
+        console.log(`transportCloseSpy calls: ${transportCloseSpy.mock.calls.length}`);
+        expect(transportCloseSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+        expect(transportCloseSpy.mock.calls.length).toBeLessThanOrEqual(2);
+        expect(server.client).toBeNull();
+        expect(server.transport).toBeNull();
+        expect(server.childPid).toBeNull();
+      },
+      15_000
+    );
   });
   describe('listTools', () => {
     it(
@@ -95,5 +130,26 @@ describe('Server', () => {
       },
       15_000
     );
+  });
+    describe('executeTool', () => {
+    it('executes a tool on the fake MCP server', async () => {
+      const server = new Server('tools', {
+        command: 'node',
+        args: [fixture],
+      });
+
+      await server.initialize();
+      const result = await server.executeTool('ping', { message: 'hi' });
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          content: expect.arrayContaining([
+            expect.objectContaining({ text: 'pong: hi' }),
+          ]),
+        })
+      );
+
+      await server.cleanup();
+    });
   });
 });
