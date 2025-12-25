@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { ReadResourceResult } from '@modelcontextprotocol/server';
 import { createMcpExpressApp, isInitializeRequest, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import cors from 'cors';
 import type { Request, Response } from 'express';
 
 // Create an MCP server with implementation details
@@ -35,6 +36,17 @@ const resourceChangeInterval = setInterval(() => {
 }, 5000); // Change resources every 5 seconds for testing
 
 const app = createMcpExpressApp();
+
+// Enable CORS for web clients
+// This allows browser-based MCP clients to access this server
+app.use(
+    cors({
+        origin: '*',
+        methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id'],
+        exposedHeaders: ['mcp-session-id', 'mcp-protocol-version']
+    })
+);
 
 app.post('/mcp', async (req: Request, res: Response) => {
     console.log('Received MCP request:', req.body);

@@ -1,5 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { createMcpExpressApp, McpServer, SSEServerTransport } from '@modelcontextprotocol/server';
+import cors from 'cors';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
@@ -77,6 +78,17 @@ const getServer = () => {
 };
 
 const app = createMcpExpressApp();
+
+// Enable CORS for web clients
+// This allows browser-based MCP clients to access this server
+app.use(
+    cors({
+        origin: '*',
+        methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id'],
+        exposedHeaders: ['mcp-session-id', 'mcp-protocol-version']
+    })
+);
 
 // Store transports by session ID
 const transports: Record<string, SSEServerTransport> = {};

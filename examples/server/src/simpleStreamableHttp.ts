@@ -22,6 +22,7 @@ import {
     requireBearerAuth,
     StreamableHTTPServerTransport
 } from '@modelcontextprotocol/server';
+import cors from 'cors';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
@@ -519,6 +520,17 @@ const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 300
 const AUTH_PORT = process.env.MCP_AUTH_PORT ? parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
 
 const app = createMcpExpressApp();
+
+// Enable CORS for web clients
+// This allows browser-based MCP clients to access this server
+app.use(
+    cors({
+        origin: '*',
+        methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id'],
+        exposedHeaders: ['mcp-session-id', 'mcp-protocol-version']
+    })
+);
 
 // Set up OAuth if enabled
 let authMiddleware = null;

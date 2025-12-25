@@ -1,5 +1,6 @@
 import type { CallToolResult, GetPromptResult, ReadResourceResult } from '@modelcontextprotocol/server';
 import { createMcpExpressApp, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import cors from 'cors';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
@@ -99,6 +100,17 @@ const getServer = () => {
 };
 
 const app = createMcpExpressApp();
+
+// Enable CORS for web clients
+// This allows browser-based MCP clients to access this server
+app.use(
+    cors({
+        origin: '*',
+        methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id'],
+        exposedHeaders: ['mcp-session-id', 'mcp-protocol-version']
+    })
+);
 
 app.post('/mcp', async (req: Request, res: Response) => {
     const server = getServer();

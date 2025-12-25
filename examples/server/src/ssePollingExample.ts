@@ -105,7 +105,17 @@ server.tool(
 
 // Set up Express app
 const app = createMcpExpressApp();
-app.use(cors());
+
+// Enable CORS for web clients
+// This allows browser-based MCP clients to access this server
+app.use(
+    cors({
+        origin: '*',
+        methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id'],
+        exposedHeaders: ['mcp-session-id', 'mcp-protocol-version']
+    })
+);
 
 // Create event store for resumability
 const eventStore = new InMemoryEventStore();
