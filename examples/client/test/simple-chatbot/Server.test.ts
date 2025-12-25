@@ -190,7 +190,7 @@ describe('Server', () => {
       );
     });
     it('should retry on failure when executing a tool', async () => {
-      const server = new Server('tools', {
+      const server = new Server('github', {
         command: 'node',
         args: [fixture],
       });

@@ -102,7 +102,6 @@ export class Server {
       this.childPid = null;
 
       if (error) {
-        // Align with Python behavior: log but do not rethrow
         console.error(`Error during cleanup of server ${this.name}:`, error);
       }
     });
