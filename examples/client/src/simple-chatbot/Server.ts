@@ -54,60 +54,27 @@ export class Server {
     retries = 2,
     delay = 1000
   ) {
-    // TODO: Execute tool with retry logic
     if(!this.client) {
       throw new Error(`Server ${this.name} not initialized`);
     }
-    return this.client.callTool({
-      name: toolName,
-      arguments: args
-    });
+    let attempt = 0;
+    while (attempt < retries) {
+      console.info(`Server ${this.name}: executing tool ${toolName}, attempt ${attempt + 1} of ${retries}`);
+      try {
+        return await this.client.callTool({
+          name: toolName,
+          arguments: args
+        });
+      } catch (err) {
+        attempt ++;
+        if (attempt >= retries) {
+          throw err;
+        }
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+     throw new Error(`Failed to execute tool ${toolName}. Attempt ${attempt} of ${retries}`);
   }
-    //   async def execute_tool(
-    //     self,
-    //     tool_name: str,
-    //     arguments: dict[str, Any],
-    //     retries: int = 2,
-    //     delay: float = 1.0,
-    // ) -> Any:
-    //     """Execute a tool with retry mechanism.
-
-    //     Args:
-    //         tool_name: Name of the tool to execute.
-    //         arguments: Tool arguments.
-    //         retries: Number of retry attempts.
-    //         delay: Delay between retries in seconds.
-
-    //     Returns:
-    //         Tool execution result.
-
-    //     Raises:
-    //         RuntimeError: If server is not initialized.
-    //         Exception: If tool execution fails after all retries.
-    //     """
-    //     if not self.session:
-    //         raise RuntimeError(f"Server {self.name} not initialized")
-
-    //     attempt = 0
-    //     while attempt < retries:
-    //         try:
-    //             logging.info(f"Executing {tool_name}...")
-    //             result = await self.session.call_tool(tool_name, arguments)
-
-    //             return result
-
-    //         except Exception as e:
-    //             attempt += 1
-    //             logging.warning(
-    //                 f"Error executing tool: {e}. Attempt {attempt} of {retries}."
-    //             )
-    //             if attempt < retries:
-    //                 logging.info(f"Retrying in {delay} seconds...")
-    //                 await asyncio.sleep(delay)
-    //             else:
-    //                 logging.error("Max retries reached. Failing.")
-    //                 raise
-
 
   async cleanup(): Promise<void> {
     this.cleanupChain = this.cleanupChain.then(async () => {

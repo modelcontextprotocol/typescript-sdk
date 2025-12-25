@@ -126,12 +126,15 @@ describe('Server', () => {
           expect.arrayContaining([expect.objectContaining({ name: 'ping' })])
         );
 
+        const ping = tools.find((t: any) => t.name === 'ping');
+        expect(ping?.execution?.taskSupport).toBe('forbidden');
+
         await server.cleanup();
       },
       15_000
     );
   });
-    describe('executeTool', () => {
+  describe('executeTool', () => {
     it('executes a tool on the fake MCP server', async () => {
       const server = new Server('tools', {
         command: 'node',
@@ -148,6 +151,95 @@ describe('Server', () => {
           ]),
         })
       );
+
+      await server.cleanup();
+    });
+
+    it('returns an MCP error when required tool input is missing', async () => {
+      const server = new Server('tools', {
+        command: 'node',
+        args: [fixture],
+      });
+
+      await server.initialize();
+
+      const result = await server.executeTool('ping', {});
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          isError: true,
+          content: expect.arrayContaining([
+            expect.objectContaining({
+              type: 'text',
+              text: expect.stringContaining('Input validation error'),
+            }),
+          ]),
+        })
+      );
+
+      await server.cleanup();
+    });
+    it('throws an error when executing a tool on uninitialized server', async () => {
+      const server = new Server('tools', {
+        command: 'node',
+        args: [fixture],
+      });
+
+      await expect(server.executeTool('ping', { message: 'hi' })).rejects.toThrow(
+        `Server tools not initialized`
+      );
+    });
+    it('should retry on failure when executing a tool', async () => {
+      const server = new Server('tools', {
+        command: 'node',
+        args: [fixture],
+      });
+
+      await server.initialize();
+
+      const callToolSpy = vi.spyOn(server.client as any, 'callTool').mockImplementationOnce(() => {
+        throw new Error('Simulated tool execution failure');
+      }).mockImplementationOnce(() => {
+        return Promise.resolve({
+          content: [
+            {
+              type: 'text',
+              text: 'pong: hi'
+            }
+          ]
+        });
+      });
+
+      const result = await server.executeTool('ping', { message: 'hi' }, 2, 500);
+
+      expect(callToolSpy).toHaveBeenCalledTimes(2);
+      expect(result).toEqual(
+        expect.objectContaining({
+          content: expect.arrayContaining([
+            expect.objectContaining({ text: 'pong: hi' }),
+          ]),
+        })
+      );
+
+      await server.cleanup();
+    });
+    it('should throw error after exhausting retries when executing a tool', async () => {
+      const server = new Server('tools', {
+        command: 'node',
+        args: [fixture],
+      });
+
+      await server.initialize();
+
+      const callToolSpy = vi.spyOn(server.client as any, 'callTool').mockImplementation(() => {
+        throw new Error('Simulated tool execution failure');
+      });
+
+      await expect(server.executeTool('ping', { message: 'hi' }, 3, 500)).rejects.toThrow(
+        'Simulated tool execution failure'
+      );
+
+      expect(callToolSpy).toHaveBeenCalledTimes(3);
 
       await server.cleanup();
     });
