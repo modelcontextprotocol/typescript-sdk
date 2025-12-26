@@ -17,17 +17,7 @@ describe('Tool', () => {
     expect(tool.title).toBe('Ping Tool');
   });
 
-  it('formatForLlm throws until implemented', () => {
-    const tool = new Tool({
-      name: 'ping',
-      description: 'Returns a canned response',
-      inputSchema: { type: 'object' },
-    });
-
-    expect(() => tool.formatForLlm()).toThrow('Not implemented');
-  });
-
-  it.skip('formats tool details for LLM prompts', () => {
+  it('formats tool details for LLM prompts', () => {
     const tool = new Tool({
       name: 'ping',
       title: 'Ping Tool',
@@ -39,13 +29,18 @@ describe('Tool', () => {
         },
         required: ['message'],
       },
+      execution: { taskSupport: 'forbidden' },
     });
 
     const output = tool.formatForLlm();
 
-    expect(output).toContain('Tool: ping');
-    expect(output).toContain('User-readable title: Ping Tool');
-    expect(output).toContain('Description: Returns a canned response');
-    expect(output).toContain('- message: Message to echo (required)');
-  });
+    const expected =
+      'Tool: ping\n' +
+      'User-readable title: Ping Tool\n' +
+      'Description: Returns a canned response\n' +
+      'Arguments:\n' +
+      '- message: Message to echo (required)\n';
+
+    expect(output).toBe(expected);
+   });
 });
