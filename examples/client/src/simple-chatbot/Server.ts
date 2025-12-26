@@ -1,6 +1,7 @@
-import { Client, StdioClientTransport, type Tool } from '@modelcontextprotocol/client';
+import { Client, StdioClientTransport } from '@modelcontextprotocol/client';
 
 import type { McpServersConfig } from './Configuration.js';
+import { Tool } from './Tool.js';
 
 export type ServerConfigEntry = McpServersConfig['mcpServers'][string];
 
@@ -37,15 +38,22 @@ export class Server {
     this.childPid = transport.pid;
   }
 
-  async listTools():  Promise<Tool[]>{
-    if(!this.client) {
+  async listTools(): Promise<Tool[]> {
+    if (!this.client) {
       throw new Error(`Server ${this.name} not initialized`);
     }
     const toolsResponse = await this.client.listTools();
-    if(!toolsResponse || !toolsResponse.tools || !Array.isArray(toolsResponse.tools)) {
+    if (!toolsResponse || !toolsResponse.tools || !Array.isArray(toolsResponse.tools)) {
       throw new Error(`Unexpected tools response from ${this.name}`);
     }
-    return toolsResponse.tools;
+    return toolsResponse.tools.map((tool) =>
+      new Tool({
+        name: tool.name,
+        description: tool.description ?? '',
+        inputSchema: tool.inputSchema ?? {},
+        title: tool.title ?? null,
+      })
+    );
   }
 
   async executeTool(
