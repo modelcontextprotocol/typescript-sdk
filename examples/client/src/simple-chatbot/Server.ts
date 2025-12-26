@@ -52,6 +52,7 @@ export class Server {
         description: tool.description ?? '',
         inputSchema: tool.inputSchema ?? {},
         title: tool.title ?? null,
+        execution: tool.execution ?? null,
       })
     );
   }

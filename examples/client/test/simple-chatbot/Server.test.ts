@@ -126,7 +126,7 @@ describe('Server', () => {
           expect.arrayContaining([expect.objectContaining({ name: 'ping' })])
         );
 
-        const ping = tools.find((t: any) => t.name === 'ping');
+        const ping = tools.find((t) => t.name === 'ping');
         expect(ping?.execution?.taskSupport).toBe('forbidden');
 
         await server.cleanup();
@@ -197,7 +197,7 @@ describe('Server', () => {
 
       await server.initialize();
 
-      const callToolSpy = vi.spyOn(server.client as any, 'callTool').mockImplementationOnce(() => {
+      const callToolSpy = vi.spyOn(server.client!, 'callTool').mockImplementationOnce(() => {
         throw new Error('Simulated tool execution failure');
       }).mockImplementationOnce(() => {
         return Promise.resolve({
@@ -230,8 +230,8 @@ describe('Server', () => {
       });
 
       await server.initialize();
-
-      const callToolSpy = vi.spyOn(server.client as any, 'callTool').mockImplementation(() => {
+      
+      const callToolSpy = vi.spyOn(server.client!, 'callTool').mockImplementation(() => {
         throw new Error('Simulated tool execution failure');
       });
 
