@@ -67,6 +67,31 @@ import type { ServerOptions } from "./server.js";
 import { Server } from "./server.js";
 
 /**
+ * Context passed to MCP middleware functions.
+ */
+export interface McpMiddlewareContext {
+    /**
+     * The incoming JSON-RPC request.
+     */
+    request: ServerRequest;
+
+    /**
+     * Additional metadata passed from the transport or SDK.
+     */
+    extra: RequestHandlerExtra<ServerRequest, ServerNotification>;
+}
+
+/**
+ * Middleware function for intercepting MCP requests.
+ * @param context The request context.
+ * @param next A function that calls the next middleware or the implementation handler.
+ */
+export type McpMiddleware = (
+    context: McpMiddleware,
+    next: () => Promise<void>,
+) => Promise<void>;
+
+/**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * Server instance available via the `server` property.
