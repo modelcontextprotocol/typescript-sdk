@@ -112,6 +112,7 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    private _middleware: McpMiddleware[] = [];
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
@@ -1677,7 +1678,56 @@ export class McpServer {
         request: RequestT,
         extra: ExtraT,
     ): Promise<ResultT> {
-        return handler(request, extra);
+        const middleware = this._middleware;
+
+        // Optimized path: If there are no middleware, just run the handler
+        if (middleware.length === 0) {
+            return handler(request, extra);
+        }
+
+        let result: ResultT | undefined;
+        let handlerError: unknown;
+
+        // Wrap the handler as the final middleware
+        const leafMiddleware: McpMiddleware = async (_context, _next) => {
+            try {
+                result = await handler(request, extra);
+            } catch (e) {
+                handlerError = e;
+            }
+        };
+
+        const chain = [...middleware, leafMiddleware];
+
+        // Execute the chain
+        const executeChain = async (i: number): Promise<void> => {
+            if (i >= chain.length) {
+                return;
+            }
+            const fn = chain[i] as McpMiddleware;
+
+            // Protect against creating a context with incorrect types by casting
+            const context: McpMiddlewareContext = {
+                request: request as unknown as ServerRequest,
+                extra: extra as unknown as RequestHandlerExtra<
+                    ServerRequest,
+                    ServerNotification
+                >,
+            };
+
+            await fn(context, async () => {
+                await executeChain(i + 1);
+            });
+        };
+
+        await executeChain(0);
+
+        if (handlerError) {
+            throw handlerError;
+        }
+
+        // Return result, asserting it exists (handlers should generally return something)
+        return result as ResultT;
     }
 }
 
