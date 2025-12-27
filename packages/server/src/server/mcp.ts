@@ -1625,6 +1625,17 @@ export class ResourceTemplate {
     ): CompleteResourceTemplateCallback | undefined {
         return this._callbacks.complete?.[variable];
     }
+
+    private async _executeRequest<ResultT, RequestT extends ServerRequest>(
+        handler: (
+            request: RequestT,
+            extra: RequestHandlerExtra<RequestT, ServerNotification>,
+        ) => Promise<ResultT>,
+        request: RequestT,
+        extra: RequestHandlerExtra<RequestT, ServerNotification>,
+    ): Promise<ResultT> {
+        return handler(request, extra);
+    }
 }
 
 export type BaseToolCallback<
