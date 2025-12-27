@@ -113,6 +113,7 @@ export class McpServer {
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
     private _middleware: McpMiddleware[] = [];
+    private _middlewareFrozen = false;
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
@@ -140,6 +141,11 @@ export class McpServer {
      * @param middleware The middleware to register.
      */
     public use(middleware: McpMiddleware) {
+        if (this._middlewareFrozen) {
+            throw new Error(
+                "Cannot register middleware after the server has started or processed requests.",
+            );
+        }
         this._middleware.push(middleware);
     }
 
@@ -149,6 +155,7 @@ export class McpServer {
      * The `server` object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
+        this._middlewareFrozen = true;
         return await this.server.connect(transport);
     }
 
@@ -1686,6 +1693,7 @@ export class McpServer {
         request: RequestT,
         extra: ExtraT,
     ): Promise<ResultT> {
+        this._middlewareFrozen = true;
         const middleware = this._middleware;
 
         // Optimized path: If there are no middleware, just run the handler
