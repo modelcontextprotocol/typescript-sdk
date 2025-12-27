@@ -136,6 +136,14 @@ export class McpServer {
     }
 
     /**
+     * Registers a middleware function.
+     * @param middleware The middleware to register.
+     */
+    public use(middleware: McpMiddleware) {
+        this._middleware.push(middleware);
+    }
+
+    /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
      * The `server` object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
