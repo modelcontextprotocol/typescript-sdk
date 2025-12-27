@@ -26,7 +26,7 @@ export class Tool {
     const required = Array.isArray(this.inputSchema?.required)
       ? (this.inputSchema.required as string[])
       : [];
-    
+
     const args = Object.entries(props).map(([paramName, info]) => {
       const suffix = required.includes(paramName) ? ' (required)' : '';
       const description = (info as Record<string, unknown>)?.description as string ?? 'No description';
