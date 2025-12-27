@@ -223,4 +223,124 @@ describe("McpServer Middleware", () => {
             });
         }).toThrow("Cannot register middleware after the server has started");
     });
+
+    // ============================================================
+    // Real World Use Case Integration Tests
+    // ============================================================
+
+    describe("Real World Use Cases", () => {
+        it("Logging: should observe request method and capture response timing", async () => {
+            const logs: { method: string; durationMs: number }[] = [];
+
+            server.use(async (context, next) => {
+                const start = Date.now();
+                const method = (context.request as any).method || "unknown";
+
+                await next();
+
+                const durationMs = Date.now() - start;
+                logs.push({ method, durationMs });
+            });
+
+            server.tool("fast-tool", {}, async () => {
+                return { content: [{ type: "text", text: "done" }] };
+            });
+
+            await simulateCallTool("fast-tool");
+
+            expect(logs).toHaveLength(1);
+            expect(logs[0]!.method).toBe("tools/call");
+            expect(logs[0]!.durationMs).toBeGreaterThanOrEqual(0);
+        });
+
+        it("Auth: should short-circuit unauthorized requests", async () => {
+            const VALID_TOKEN = "secret-token";
+
+            server.use(async (context, next) => {
+                // Simulate checking for an auth token in extra/authInfo
+                const authInfo = (context.extra as any)?.authInfo;
+
+                // In real usage, authInfo would come from the transport.
+                // For this test, we simulate by checking a header-like property.
+                // Since we can't inject authInfo easily, we'll check a custom property.
+                const token = (context.request as any).params?._authToken;
+
+                if (token !== VALID_TOKEN) {
+                    // Short-circuit: don't call next(), effectively blocking the request
+                    // In a real scenario, you might throw an error or set a response
+                    throw new Error("Unauthorized");
+                }
+
+                await next();
+            });
+
+            server.tool("protected-tool", {}, async () => {
+                return { content: [{ type: "text", text: "secret data" }] };
+            });
+
+            // Simulate unauthorized request (no token)
+            const response = await simulateCallTool("protected-tool");
+
+            expect((response as any).error).toBeDefined();
+            expect((response as any).error.message).toContain("Unauthorized");
+        });
+
+        it("Activity Aggregation: should intercept tools/list and count discoveries", async () => {
+            let toolListCount = 0;
+            let toolCallCount = 0;
+
+            server.use(async (context, next) => {
+                const method = (context.request as any).method;
+
+                if (method === "tools/list") {
+                    toolListCount++;
+                } else if (method === "tools/call") {
+                    toolCallCount++;
+                }
+
+                await next();
+            });
+
+            server.tool("my-tool", {}, async () => ({ content: [] }));
+
+            // Simulate tools/list
+            let serverOnMessage: any;
+            let resolveSend: any;
+            const p = new Promise((r) => (resolveSend = r));
+            const transport = {
+                start: vi.fn(),
+                send: vi.fn().mockImplementation(() => resolveSend()),
+                close: vi.fn(),
+                set onmessage(h: any) {
+                    serverOnMessage = h;
+                },
+            };
+            await server.connect(transport);
+
+            // First: tools/list
+            serverOnMessage({
+                jsonrpc: "2.0",
+                id: 1,
+                method: "tools/list",
+                params: {},
+            });
+            await p;
+
+            // Second: tools/call (need new promise)
+            let resolveSend2: any;
+            const p2 = new Promise((r) => (resolveSend2 = r));
+            transport.send.mockImplementation(() => resolveSend2());
+
+            serverOnMessage({
+                jsonrpc: "2.0",
+                id: 2,
+                method: "tools/call",
+                params: { name: "my-tool", arguments: {} },
+            });
+            await p2;
+
+            expect(toolListCount).toBe(1);
+            expect(toolCallCount).toBe(1);
+        });
+    });
 });
