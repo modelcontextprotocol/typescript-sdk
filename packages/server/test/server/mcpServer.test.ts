@@ -205,4 +205,22 @@ describe("McpServer Middleware", () => {
             "next() called multiple times",
         );
     });
+
+    it("should throw an error if use() is called after connect()", async () => {
+        const transport = {
+            start: vi.fn(),
+            send: vi.fn(),
+            close: vi.fn(),
+            set onmessage(_handler: any) {},
+        };
+
+        await server.connect(transport);
+
+        // Trying to register middleware after connect should throw
+        expect(() => {
+            server.use(async (context, next) => {
+                await next();
+            });
+        }).toThrow("Cannot register middleware after the server has started");
+    });
 });
