@@ -188,4 +188,21 @@ describe("McpServer Middleware", () => {
         expect((response as any).error).toBeDefined();
         expect((response as any).error.message).toContain("Middleware Error");
     });
+
+    it("should throw an error if next() is called multiple times", async () => {
+        server.use(async (context, next) => {
+            await next();
+            await next(); // Second call should throw
+        });
+
+        server.tool("test-tool", {}, async () => ({ content: [] }));
+
+        const response = await simulateCallTool("test-tool");
+
+        // Expect an error response due to double-call
+        expect((response as any).error).toBeDefined();
+        expect((response as any).error.message).toContain(
+            "next() called multiple times",
+        );
+    });
 });

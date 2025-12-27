@@ -1731,7 +1731,14 @@ export class McpServer {
                 >,
             };
 
+            let nextCalled = false;
             await fn(context, async () => {
+                if (nextCalled) {
+                    throw new Error(
+                        "next() called multiple times in middleware",
+                    );
+                }
+                nextCalled = true;
                 await executeChain(i + 1);
             });
         };
