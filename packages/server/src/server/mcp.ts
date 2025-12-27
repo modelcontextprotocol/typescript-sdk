@@ -7,16 +7,20 @@ import type {
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     CompleteResult,
+    CreateTaskRequestHandlerExtra,
     CreateTaskResult,
     GetPromptResult,
     Implementation,
     ListPromptsResult,
+    ListResourcesRequest,
     ListResourcesResult,
+    ListToolsRequest,
     ListToolsResult,
     LoggingMessageNotification,
     Prompt,
     PromptArgument,
     PromptReference,
+    ReadResourceRequest,
     ReadResourceResult,
     RequestHandlerExtra,
     Resource,
@@ -168,140 +172,180 @@ export class McpServer {
 
         this.server.setRequestHandler(
             ListToolsRequestSchema,
-            (): ListToolsResult => ({
-                tools: Object.entries(this._registeredTools)
-                    .filter(([, tool]) => tool.enabled)
-                    .map(([name, tool]): Tool => {
-                        const toolDefinition: Tool = {
-                            name,
-                            title: tool.title,
-                            description: tool.description,
-                            inputSchema: (() => {
-                                const obj = normalizeObjectSchema(
-                                    tool.inputSchema,
-                                );
-                                return obj
-                                    ? (toJsonSchemaCompat(obj, {
-                                        strictUnions: true,
-                                        pipeStrategy: "input",
-                                    }) as Tool["inputSchema"])
-                                    : EMPTY_OBJECT_JSON_SCHEMA;
-                            })(),
-                            annotations: tool.annotations,
-                            execution: tool.execution,
-                            _meta: tool._meta,
-                        };
+            (
+                request: ListToolsRequest,
+                extra: RequestHandlerExtra<
+                    ListToolsRequest,
+                    ServerNotification
+                >,
+            ) => this._executeRequest<
+                ListToolsResult,
+                ListToolsRequest,
+                RequestHandlerExtra<ListToolsRequest, ServerNotification>
+            >(
+                (): Promise<ListToolsResult> =>
+                    Promise.resolve({
+                        tools: Object.entries(this._registeredTools)
+                            .filter(([, tool]) => tool.enabled)
+                            .map(([name, tool]): Tool => {
+                                const toolDefinition: Tool = {
+                                    name,
+                                    title: tool.title,
+                                    description: tool.description,
+                                    inputSchema: (() => {
+                                        const obj = normalizeObjectSchema(
+                                            tool.inputSchema,
+                                        );
+                                        return obj
+                                            ? (toJsonSchemaCompat(obj, {
+                                                strictUnions: true,
+                                                pipeStrategy: "input",
+                                            }) as Tool["inputSchema"])
+                                            : EMPTY_OBJECT_JSON_SCHEMA;
+                                    })(),
+                                    annotations: tool.annotations,
+                                    execution: tool.execution,
+                                    _meta: tool._meta,
+                                };
 
-                        if (tool.outputSchema) {
-                            const obj = normalizeObjectSchema(
-                                tool.outputSchema,
-                            );
-                            if (obj) {
-                                toolDefinition.outputSchema =
-                                    toJsonSchemaCompat(obj, {
-                                        strictUnions: true,
-                                        pipeStrategy: "output",
-                                    }) as Tool["outputSchema"];
-                            }
-                        }
+                                if (tool.outputSchema) {
+                                    const obj = normalizeObjectSchema(
+                                        tool.outputSchema,
+                                    );
+                                    if (obj) {
+                                        toolDefinition.outputSchema =
+                                            toJsonSchemaCompat(obj, {
+                                                strictUnions: true,
+                                                pipeStrategy: "output",
+                                            }) as Tool["outputSchema"];
+                                    }
+                                }
 
-                        return toolDefinition;
+                                return toolDefinition;
+                            }),
                     }),
-            }),
+                request,
+                extra,
+            ),
         );
 
         this.server.setRequestHandler(
             CallToolRequestSchema,
-            async (
-                request,
-                extra,
-            ): Promise<CallToolResult | CreateTaskResult> => {
-                try {
-                    const tool = this._registeredTools[request.params.name];
-                    if (!tool) {
-                        throw new McpError(
-                            ErrorCode.InvalidParams,
-                            `Tool ${request.params.name} not found`,
-                        );
-                    }
-                    if (!tool.enabled) {
-                        throw new McpError(
-                            ErrorCode.InvalidParams,
-                            `Tool ${request.params.name} disabled`,
-                        );
-                    }
+            (
+                request: CallToolRequest,
+                extra: RequestHandlerExtra<
+                    CallToolRequest,
+                    ServerNotification
+                >,
+            ) => this._executeRequest<
+                CallToolResult | CreateTaskResult,
+                CallToolRequest,
+                RequestHandlerExtra<CallToolRequest, ServerNotification>
+            >(
+                async (
+                    request: CallToolRequest,
+                    extra: RequestHandlerExtra<
+                        CallToolRequest,
+                        ServerNotification
+                    >,
+                ): Promise<CallToolResult | CreateTaskResult> => {
+                    try {
+                        const tool = this._registeredTools[request.params.name];
+                        if (!tool) {
+                            throw new McpError(
+                                ErrorCode.InvalidParams,
+                                `Tool ${request.params.name} not found`,
+                            );
+                        }
+                        if (!tool.enabled) {
+                            throw new McpError(
+                                ErrorCode.InvalidParams,
+                                `Tool ${request.params.name} disabled`,
+                            );
+                        }
 
-                    const isTaskRequest = !!request.params.task;
-                    const taskSupport = tool.execution?.taskSupport;
-                    const isTaskHandler = "createTask" in
-                        (tool.handler as AnyToolHandler<ZodRawShapeCompat>);
+                        const isTaskRequest = !!request.params.task;
+                        const taskSupport = tool.execution?.taskSupport;
+                        const isTaskHandler = "createTask" in
+                            (tool.handler as AnyToolHandler<
+                                ZodRawShapeCompat
+                            >);
 
-                    // Validate task hint configuration
-                    if (
-                        (taskSupport === "required" ||
-                            taskSupport === "optional") && !isTaskHandler
-                    ) {
-                        throw new McpError(
-                            ErrorCode.InternalError,
-                            `Tool ${request.params.name} has taskSupport '${taskSupport}' but was not registered with registerToolTask`,
-                        );
-                    }
+                        // Validate task hint configuration
+                        if (
+                            (taskSupport === "required" ||
+                                taskSupport === "optional") &&
+                            !isTaskHandler
+                        ) {
+                            throw new McpError(
+                                ErrorCode.InternalError,
+                                `Tool ${request.params.name} has taskSupport '${taskSupport}' but was not registered with registerToolTask`,
+                            );
+                        }
 
-                    // Handle taskSupport 'required' without task augmentation
-                    if (taskSupport === "required" && !isTaskRequest) {
-                        throw new McpError(
-                            ErrorCode.MethodNotFound,
-                            `Tool ${request.params.name} requires task augmentation (taskSupport: 'required')`,
-                        );
-                    }
+                        // Handle taskSupport 'required' without task augmentation
+                        if (taskSupport === "required" && !isTaskRequest) {
+                            throw new McpError(
+                                ErrorCode.MethodNotFound,
+                                `Tool ${request.params.name} requires task augmentation (taskSupport: 'required')`,
+                            );
+                        }
 
-                    // Handle taskSupport 'optional' without task augmentation - automatic polling
-                    if (
-                        taskSupport === "optional" && !isTaskRequest &&
-                        isTaskHandler
-                    ) {
-                        return await this.handleAutomaticTaskPolling(
+                        // Handle taskSupport 'optional' without task augmentation - automatic polling
+                        if (
+                            taskSupport === "optional" && !isTaskRequest &&
+                            isTaskHandler
+                        ) {
+                            return await this.handleAutomaticTaskPolling(
+                                tool,
+                                request,
+                                extra,
+                            );
+                        }
+
+                        // Normal execution path
+                        const args = await this.validateToolInput(
                             tool,
-                            request,
+                            request.params.arguments,
+                            request.params.name,
+                        );
+                        const result = await this.executeToolHandler(
+                            tool,
+                            args,
                             extra,
                         );
-                    }
 
-                    // Normal execution path
-                    const args = await this.validateToolInput(
-                        tool,
-                        request.params.arguments,
-                        request.params.name,
-                    );
-                    const result = await this.executeToolHandler(
-                        tool,
-                        args,
-                        extra,
-                    );
-
-                    // Return CreateTaskResult immediately for task requests
-                    if (isTaskRequest) {
-                        return result;
-                    }
-
-                    // Validate output schema for non-task requests
-                    await this.validateToolOutput(
-                        tool,
-                        result,
-                        request.params.name,
-                    );
-                    return result;
-                } catch (error) {
-                    if (error instanceof McpError) {
-                        if (error.code === ErrorCode.UrlElicitationRequired) {
-                            throw error; // Return the error to the caller without wrapping in CallToolResult
+                        // Return CreateTaskResult immediately for task requests
+                        if (isTaskRequest) {
+                            return result;
                         }
+
+                        // Validate output schema for non-task requests
+                        await this.validateToolOutput(
+                            tool,
+                            result,
+                            request.params.name,
+                        );
+                        return result;
+                    } catch (error) {
+                        if (error instanceof McpError) {
+                            if (
+                                error.code ===
+                                    ErrorCode.UrlElicitationRequired
+                            ) {
+                                throw error;
+                            }
+                        }
+                        return this.createToolError(
+                            error instanceof Error
+                                ? error.message
+                                : String(error),
+                        );
                     }
-                    return this.createToolError(
-                        error instanceof Error ? error.message : String(error),
-                    );
-                }
-            },
+                },
+                request,
+                extra,
+            ),
         );
 
         this._toolHandlersInitialized = true;
@@ -409,10 +453,12 @@ export class McpServer {
     /**
      * Executes a tool handler (either regular or task-based).
      */
-    private async executeToolHandler(
+    private async executeToolHandler<
+        ExtraT extends RequestHandlerExtra<any, any>,
+    >(
         tool: RegisteredTool,
         args: unknown,
-        extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+        extra: ExtraT,
     ): Promise<CallToolResult | CreateTaskResult> {
         const handler = tool.handler as AnyToolHandler<
             ZodRawShapeCompat | undefined
@@ -431,13 +477,18 @@ export class McpServer {
                 >;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 return await Promise.resolve(
-                    typedHandler.createTask(args as any, taskExtra),
+                    typedHandler.createTask(
+                        args as any,
+                        taskExtra as unknown as CreateTaskRequestHandlerExtra,
+                    ),
                 );
             } else {
                 const typedHandler = handler as ToolTaskHandler<undefined>;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 return await Promise.resolve(
-                    (typedHandler.createTask as any)(taskExtra),
+                    (typedHandler.createTask as any)(
+                        taskExtra as unknown as CreateTaskRequestHandlerExtra,
+                    ),
                 );
             }
         }
@@ -456,10 +507,13 @@ export class McpServer {
     /**
      * Handles automatic task polling for tools with taskSupport 'optional'.
      */
-    private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
+    private async handleAutomaticTaskPolling<
+        RequestT extends CallToolRequest,
+        ExtraT extends RequestHandlerExtra<RequestT, ServerNotification>,
+    >(
         tool: RegisteredTool,
         request: RequestT,
-        extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+        extra: ExtraT,
     ): Promise<CallToolResult> {
         if (!extra.taskStore) {
             throw new Error("No task store provided for task-capable tool.");
@@ -480,13 +534,13 @@ export class McpServer {
             ? await Promise.resolve(
                 (handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(
                     args,
-                    taskExtra,
+                    taskExtra as unknown as CreateTaskRequestHandlerExtra,
                 ),
             )
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             : await Promise.resolve(
                 ((handler as ToolTaskHandler<undefined>).createTask as any)(
-                    taskExtra,
+                    taskExtra as unknown as CreateTaskRequestHandlerExtra,
                 ),
             );
 
@@ -658,39 +712,64 @@ export class McpServer {
 
         this.server.setRequestHandler(
             ListResourcesRequestSchema,
-            async (request, extra) => {
-                const resources = Object.entries(this._registeredResources)
-                    .filter(([_, resource]) => resource.enabled)
-                    .map(([uri, resource]) => ({
-                        uri,
-                        name: resource.name,
-                        ...resource.metadata,
-                    }));
-
-                const templateResources: Resource[] = [];
-                for (
-                    const template of Object.values(
-                        this._registeredResourceTemplates,
+            (
+                request: ListResourcesRequest,
+                extra: RequestHandlerExtra<
+                    ListResourcesRequest,
+                    ServerNotification
+                >,
+            ) => this._executeRequest<
+                ListResourcesResult,
+                ListResourcesRequest,
+                RequestHandlerExtra<ListResourcesRequest, ServerNotification>
+            >(
+                async (
+                    request: ListResourcesRequest,
+                    extra: RequestHandlerExtra<
+                        ListResourcesRequest,
+                        ServerNotification
+                    >,
+                ) => {
+                    const resources = Object.entries(
+                        this._registeredResources,
                     )
-                ) {
-                    if (!template.resourceTemplate.listCallback) {
-                        continue;
+                        .filter(([_, resource]) => resource.enabled)
+                        .map(([uri, resource]) => ({
+                            uri,
+                            name: resource.name,
+                            ...resource.metadata,
+                        }));
+
+                    const templateResources: Resource[] = [];
+                    for (
+                        const template of Object.values(
+                            this._registeredResourceTemplates,
+                        )
+                    ) {
+                        if (!template.resourceTemplate.listCallback) {
+                            continue;
+                        }
+
+                        const result = await template.resourceTemplate
+                            .listCallback(
+                                extra as any,
+                            );
+                        for (const resource of result.resources) {
+                            templateResources.push({
+                                ...template.metadata,
+                                // the defined resource metadata should override the template metadata if present
+                                ...resource,
+                            });
+                        }
                     }
 
-                    const result = await template.resourceTemplate.listCallback(
-                        extra,
-                    );
-                    for (const resource of result.resources) {
-                        templateResources.push({
-                            ...template.metadata,
-                            // the defined resource metadata should override the template metadata if present
-                            ...resource,
-                        });
-                    }
-                }
-
-                return { resources: [...resources, ...templateResources] };
-            },
+                    return {
+                        resources: [...resources, ...templateResources],
+                    };
+                },
+                request,
+                extra,
+            ),
         );
 
         this.server.setRequestHandler(
@@ -711,39 +790,65 @@ export class McpServer {
 
         this.server.setRequestHandler(
             ReadResourceRequestSchema,
-            async (request, extra) => {
-                const uri = new URL(request.params.uri);
+            (
+                request: ReadResourceRequest,
+                extra: RequestHandlerExtra<
+                    ReadResourceRequest,
+                    ServerNotification
+                >,
+            ) => this._executeRequest<
+                ReadResourceResult,
+                ReadResourceRequest,
+                RequestHandlerExtra<ReadResourceRequest, ServerNotification>
+            >(
+                async (
+                    request: ReadResourceRequest,
+                    extra: RequestHandlerExtra<
+                        ReadResourceRequest,
+                        ServerNotification
+                    >,
+                ) => {
+                    const uri = new URL(request.params.uri);
 
-                // First check for exact resource match
-                const resource = this._registeredResources[uri.toString()];
-                if (resource) {
-                    if (!resource.enabled) {
-                        throw new McpError(
-                            ErrorCode.InvalidParams,
-                            `Resource ${uri} disabled`,
-                        );
+                    // First check for exact resource match
+                    const resource = this._registeredResources[uri.toString()];
+                    if (resource) {
+                        if (!resource.enabled) {
+                            throw new McpError(
+                                ErrorCode.InvalidParams,
+                                `Resource ${uri} disabled`,
+                            );
+                        }
+                        return resource.readCallback(uri, extra as any);
                     }
-                    return resource.readCallback(uri, extra);
-                }
 
-                // Then check templates
-                for (
-                    const template of Object.values(
-                        this._registeredResourceTemplates,
-                    )
-                ) {
-                    const variables = template.resourceTemplate.uriTemplate
-                        .match(uri.toString());
-                    if (variables) {
-                        return template.readCallback(uri, variables, extra);
+                    // Then check templates
+                    for (
+                        const template of Object.values(
+                            this._registeredResourceTemplates,
+                        )
+                    ) {
+                        const variables = template.resourceTemplate
+                            .uriTemplate.match(
+                                uri.toString(),
+                            );
+                        if (variables) {
+                            return template.readCallback(
+                                uri,
+                                variables,
+                                extra as any,
+                            );
+                        }
                     }
-                }
 
-                throw new McpError(
-                    ErrorCode.InvalidParams,
-                    `Resource ${uri} not found`,
-                );
-            },
+                    throw new McpError(
+                        ErrorCode.InvalidParams,
+                        `Resource ${uri} not found`,
+                    );
+                },
+                request,
+                extra,
+            ),
         );
 
         this._resourceHandlersInitialized = true;
@@ -1563,6 +1668,17 @@ export class McpServer {
             this.server.sendPromptListChanged();
         }
     }
+
+    private async _executeRequest<ResultT, RequestT, ExtraT>(
+        handler: (
+            request: RequestT,
+            extra: ExtraT,
+        ) => Promise<ResultT>,
+        request: RequestT,
+        extra: ExtraT,
+    ): Promise<ResultT> {
+        return handler(request, extra);
+    }
 }
 
 /**
@@ -1624,17 +1740,6 @@ export class ResourceTemplate {
         variable: string,
     ): CompleteResourceTemplateCallback | undefined {
         return this._callbacks.complete?.[variable];
-    }
-
-    private async _executeRequest<ResultT, RequestT extends ServerRequest>(
-        handler: (
-            request: RequestT,
-            extra: RequestHandlerExtra<RequestT, ServerNotification>,
-        ) => Promise<ResultT>,
-        request: RequestT,
-        extra: RequestHandlerExtra<RequestT, ServerNotification>,
-    ): Promise<ResultT> {
-        return handler(request, extra);
     }
 }
 
