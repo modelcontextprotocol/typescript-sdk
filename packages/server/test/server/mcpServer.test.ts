@@ -343,4 +343,115 @@ describe("McpServer Middleware", () => {
             expect(toolCallCount).toBe(1);
         });
     });
+
+    // ============================================================
+    // Failure Mode Verification Tests
+    // ============================================================
+
+    describe("Failure Mode Verification", () => {
+        it("Pre-next: error thrown before next() maps to JSON-RPC error", async () => {
+            server.use(async (context, next) => {
+                // Error thrown BEFORE calling next()
+                throw new Error("Pre-next failure");
+            });
+
+            server.tool("test-tool", {}, async () => ({ content: [] }));
+
+            const response = await simulateCallTool("test-tool");
+
+            // Should be a proper JSON-RPC error response
+            expect((response as any).jsonrpc).toBe("2.0");
+            expect((response as any).id).toBe(1);
+            expect((response as any).error).toBeDefined();
+            expect((response as any).error.message).toContain(
+                "Pre-next failure",
+            );
+            // Server should not crash - we got a response
+        });
+
+        it("Post-next: error thrown after next() maps to JSON-RPC error", async () => {
+            server.use(async (context, next) => {
+                await next();
+                // Error thrown AFTER calling next()
+                throw new Error("Post-next failure");
+            });
+
+            server.tool("test-tool", {}, async () => ({ content: [] }));
+
+            const response = await simulateCallTool("test-tool");
+
+            // Should be a proper JSON-RPC error response
+            expect((response as any).jsonrpc).toBe("2.0");
+            expect((response as any).id).toBe(1);
+            expect((response as any).error).toBeDefined();
+            expect((response as any).error.message).toContain(
+                "Post-next failure",
+            );
+        });
+
+        it("Handler: error thrown in tool handler returns error result (SDK behavior)", async () => {
+            // No middleware - test pure handler error
+            server.tool("failing-tool", {}, async () => {
+                throw new Error("Handler failure");
+            });
+
+            const response = await simulateCallTool("failing-tool");
+
+            // MCP SDK converts handler errors to result with isError: true
+            // (not JSON-RPC error - this is intentional SDK behavior)
+            expect((response as any).jsonrpc).toBe("2.0");
+            expect((response as any).id).toBe(1);
+            expect((response as any).result).toBeDefined();
+            expect((response as any).result.isError).toBe(true);
+            expect((response as any).result.content[0]!.text).toContain(
+                "Handler failure",
+            );
+        });
+
+        it("Multiple middleware: error in second middleware propagates correctly", async () => {
+            const sequence: string[] = [];
+
+            server.use(async (context, next) => {
+                sequence.push("mw1 start");
+                try {
+                    await next();
+                } catch (e) {
+                    sequence.push("mw1 caught");
+                    throw e; // Re-throw to propagate
+                }
+                sequence.push("mw1 end");
+            });
+
+            server.use(async (context, next) => {
+                sequence.push("mw2 start");
+                throw new Error("mw2 failure");
+            });
+
+            server.tool("test-tool", {}, async () => ({ content: [] }));
+
+            const response = await simulateCallTool("test-tool");
+
+            expect((response as any).error).toBeDefined();
+            expect((response as any).error.message).toContain("mw2 failure");
+            // Verify mw1 caught the error
+            expect(sequence).toContain("mw1 caught");
+            // mw1 end should NOT be in sequence since error was re-thrown
+            expect(sequence).not.toContain("mw1 end");
+        });
+
+        it("Error contains proper JSON-RPC error code", async () => {
+            server.use(async (context, next) => {
+                throw new Error("Generic middleware error");
+            });
+
+            server.tool("test-tool", {}, async () => ({ content: [] }));
+
+            const response = await simulateCallTool("test-tool");
+
+            expect((response as any).error).toBeDefined();
+            // JSON-RPC internal error code is -32603
+            expect((response as any).error.code).toBeDefined();
+            expect(typeof (response as any).error.code).toBe("number");
+        });
+    });
 });
