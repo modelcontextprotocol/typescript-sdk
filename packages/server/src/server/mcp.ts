@@ -91,7 +91,7 @@ export interface McpMiddlewareContext {
  * @param next A function that calls the next middleware or the implementation handler.
  */
 export type McpMiddleware = (
-    context: McpMiddleware,
+    context: McpMiddlewareContext,
     next: () => Promise<void>,
 ) => Promise<void>;
 
