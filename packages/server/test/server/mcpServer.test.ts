@@ -114,6 +114,58 @@ describe("McpServer Middleware", () => {
         expect(sequence).toEqual(["mw1 start", "mw1 end"]);
     });
 
+    it("should allow middleware to communicate via ctx.state", async () => {
+        const server = new McpServer({ name: "test", version: "1.0" });
+        server.use(async (ctx, next) => {
+            ctx.state.value = 1;
+            await next();
+        });
+        server.use(async (ctx, next) => {
+            ctx.state.value = (ctx.state.value as number) + 1;
+            await next();
+        });
+
+        // Use a tool list request to trigger the chain
+        server.tool(
+            "test-tool",
+            {},
+            async () => ({ content: [{ type: "text", text: "ok" }] }),
+        );
+
+        let capturedState: any;
+        server.use(async (ctx, next) => {
+            capturedState = ctx.state;
+            await next();
+        });
+
+        let resolveSend: () => void;
+        const sendPromise = new Promise<void>((resolve) => {
+            resolveSend = resolve;
+        });
+
+        const transport = {
+            start: vi.fn(),
+            send: vi.fn().mockImplementation(async () => {
+                resolveSend();
+            }),
+            close: vi.fn(),
+        };
+        await server.connect(transport as any);
+        // @ts-ignore
+        const onMsg = (server.server.transport as any).onmessage;
+        onMsg({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name: "test-tool", arguments: {} },
+        });
+
+        await sendPromise;
+
+        expect(capturedState).toBeDefined();
+        expect(capturedState.value).toBe(2);
+    });
+
     it("should execute middleware for other methods (e.g. tools/list)", async () => {
         // For this check, we need to simulate tools/list.
         // We can adapt our helper or just copy-paste a simplified version here for variety.

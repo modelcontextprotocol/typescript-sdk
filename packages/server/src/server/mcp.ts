@@ -1721,21 +1721,21 @@ export class McpServer {
         const chain = [...middleware, leafMiddleware];
 
         // Execute the chain
+        // Protect against creating a context with incorrect types by casting
+        const context: McpMiddlewareContext = {
+            request: request as unknown as ServerRequest,
+            extra: extra as unknown as RequestHandlerExtra<
+                ServerRequest,
+                ServerNotification
+            >,
+            state: {},
+        };
+
         const executeChain = async (i: number): Promise<void> => {
             if (i >= chain.length) {
                 return;
             }
             const fn = chain[i] as McpMiddleware;
-
-            // Protect against creating a context with incorrect types by casting
-            const context: McpMiddlewareContext = {
-                request: request as unknown as ServerRequest,
-                extra: extra as unknown as RequestHandlerExtra<
-                    ServerRequest,
-                    ServerNotification
-                >,
-                state: {},
-            };
 
             let nextCalled = false;
             await fn(context, async () => {
