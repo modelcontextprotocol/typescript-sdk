@@ -992,10 +992,25 @@ export class McpServer {
                         const cb = prompt.callback as PromptCallback<
                             PromptArgsRawShape
                         >;
-                        return await Promise.resolve(cb(args, extra as any));
+                        return await Promise.resolve(
+                            cb(
+                                args,
+                                extra as unknown as RequestHandlerExtra<
+                                    ServerRequest,
+                                    ServerNotification
+                                >,
+                            ),
+                        );
                     } else {
                         const cb = prompt.callback as PromptCallback<undefined>;
-                        return await Promise.resolve((cb as any)(extra));
+                        return await Promise.resolve(
+                            cb(
+                                extra as unknown as RequestHandlerExtra<
+                                    ServerRequest,
+                                    ServerNotification
+                                >,
+                            ),
+                        );
                     }
                 },
                 request,
