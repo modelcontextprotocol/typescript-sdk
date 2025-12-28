@@ -3,19 +3,19 @@
         "server-1": {
             "command": "node",
             "args": [
-                "test/fixtures/fake-mcp-server.js"
+                "/Users/vibeke.tengroth/mcp-http/typescript-sdk/examples/client/test/fixtures/fake-mcp-server.js"
             ]
         },
         "server-2": {
             "command": "node",
             "args": [
-                "test/fixtures/fake-mcp-server.js"
+                "/Users/vibeke.tengroth/mcp-http/typescript-sdk/examples/client/test/fixtures/fake-mcp-server.js"
             ]
         },
         "server-3": {
             "command": "node",
             "args": [
-                "test/fixtures/fake-mcp-server.js"
+                "/Users/vibeke.tengroth/mcp-http/typescript-sdk/examples/client/test/fixtures/fake-mcp-server.js"
             ]
         }
     },
