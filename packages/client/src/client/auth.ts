@@ -1086,11 +1086,11 @@ async function executeTokenRequest(
         throw await parseErrorResponse(response);
     }
 
-    const json = await response.json();
+    const json: unknown = await response.json();
 
     // Some OAuth servers (e.g., GitHub) return error responses with HTTP 200 status.
     // Check for error field before attempting to parse as tokens.
-    if (json.error) {
+    if (typeof json === 'object' && json !== null && 'error' in json) {
         throw await parseErrorResponse(JSON.stringify(json));
     }
 
