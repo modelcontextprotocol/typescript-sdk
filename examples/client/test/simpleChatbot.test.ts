@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { Client, StdioClientTransport } from '@modelcontextprotocol/client';
+
 
 import { ChatSession, connectToAllServers, connectToServer, loadConfig } from '../src/simpleChatbot.js';
 import type { ChatMessage, LLMClient } from '../src/simpleChatbot.js';
@@ -27,7 +29,6 @@ describe('simpleChatbot', () => {
     });
 
     describe('connectToServer', () => {
-
         it('should connect to a single STDIO server', async () => {
             const serverConfig = {
                 command: 'node',
@@ -89,8 +90,18 @@ describe('simpleChatbot', () => {
         });
 
         describe('constructor', () => {
+            let clients: Map<string, Client>;
+            beforeEach(async () => {
+                const configPath = join(__dirname, 'fixtures', 'multi-server-config.json');
+                const config = await loadConfig(configPath);
+
+                clients = await connectToAllServers(config);
+            })
             it('should construct with provided clients and llm client', () => {
-                // TODO: Implement test
+                const session = new ChatSession(clients, mockLlmClient);
+                expect(session).toBeDefined();
+                expect(session.clients).toBe(clients);
+                expect(session.llmClient).toBe(mockLlmClient);
             });
         });
 

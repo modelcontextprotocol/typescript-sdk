@@ -83,9 +83,9 @@ export async function connectToAllServers(config: Config): Promise<Map<string, C
  * Handles tool discovery, execution, and maintains conversation state.
  */
 export class ChatSession {
-    private clients: Map<string, Client>;
-    private llmClient: LLMClient;
-    private messages: ChatMessage[] = [];
+    public readonly clients: Map<string, Client>;
+    public readonly llmClient: LLMClient;
+    public readonly messages: ChatMessage[] = [];
 
     constructor(clients: Map<string, Client>, llmClient: LLMClient) {
         this.clients = clients;
