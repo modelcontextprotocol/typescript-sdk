@@ -109,17 +109,51 @@ export class ChatSession {
     }
 
     /**
-     * Parse LLM response for tool call requests
+     * Parse LLM response for tool call requests, returns null if no tool call is requested
      */
     private parseToolCallRequest(llmResponse: string): { tool: string; arguments: unknown } | null {
-        throw new Error('Not implemented yet');
+        try {
+            const parsed = JSON.parse(llmResponse);
+            if (parsed && typeof parsed === 'object' && 'tool' in parsed && 'arguments' in parsed) {
+                return parsed as { tool: string; arguments: unknown };
+            }
+            return null;
+        } catch {
+            return null;
+        }
     }
 
     /**
      * Process LLM response and execute tool if needed
      */
     async processLlmResponse(llmResponse: string): Promise<string> {
-        throw new Error('Not implemented yet');
+        const parsedToolCall = this.parseToolCallRequest(llmResponse);
+        if (parsedToolCall === null) {
+            return llmResponse;
+        }
+
+        // Find which server has this tool
+        for (const client of this.clients.values()) {
+            const tools = await client.listTools();
+            const hasTool = tools.tools.some(t => t.name === parsedToolCall.tool);
+
+            if (hasTool) {
+                try {
+                    const result = await client.callTool({
+                        name: parsedToolCall.tool,
+                        arguments: parsedToolCall.arguments as Record<string, unknown>
+                    });
+
+                    return `Tool execution result: ${JSON.stringify(result)}`;
+                } catch (e) {
+                    const errorMsg = `Error executing tool: ${(e as Error).message}`;
+                    console.error(errorMsg);
+                    return errorMsg;
+                }
+            }
+        }
+
+        return `No server found with tool: ${parsedToolCall.tool}`;
     }
 
     /**

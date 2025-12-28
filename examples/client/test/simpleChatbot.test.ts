@@ -122,12 +122,29 @@ describe('simpleChatbot', () => {
         });
 
         describe('processLlmResponse', () => {
+            it('Should detect if LLM wants to call a tool, and execute it', async () => {
+                // Create mock LLM that will call the   tool
+                // const mockLlm = new MockLLMClient()
+                //     .callTool('ping', { message: 'hello from test' });
+
+                const session = new ChatSession(mcpClients, mockLlmClient);
+
+                // Simulate processing llm response that requests a tool call
+                const toolCallResponse = JSON.stringify({ tool: 'ping', arguments: { message: 'hello' } });
+                const result = await session.processLlmResponse(toolCallResponse);
+                expect(result).toContain('Tool execution result');
+                expect(result).toContain('pong: hello');
+            });
             it('should return response if no tool invocation is needed', async () => {
-                // TODO: Implement test
+                const session = new ChatSession(mcpClients, mockLlmClient);
+                const llmResponse = 'This is a simple response.';
+                const result = await session.processLlmResponse(llmResponse);
+                expect(result).toBe(llmResponse);
             });
 
             it('should execute tool and return result when llm message is tool invocation', async () => {
-                // TODO: Implement test
+
+
             });
 
             it('should handle tool execution errors gracefully', async () => {
