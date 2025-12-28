@@ -27,15 +27,16 @@ describe('simpleChatbot', () => {
     });
 
     describe('connectToServer', () => {
+
         it('should connect to a single STDIO server', async () => {
             const serverConfig = {
                 command: 'node',
                 args: [join(__dirname, 'fixtures', 'fake-mcp-server.js')]
             };
-            
+
             const client = await connectToServer("test-server", serverConfig);
             expect(client).toBeDefined();
-            
+
             // Clean up - close the transport
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const transport = (client as any)._transport;
@@ -45,13 +46,36 @@ describe('simpleChatbot', () => {
         });
 
         it('should handle connection errors', async () => {
-            // TODO: Implement test
+            const invalidConfig = {
+                command: 'nonexistent-command'
+            };
+            await expect(
+                connectToServer("invalid-server", invalidConfig)
+            ).rejects.toThrow();
         });
     });
 
     describe('connectToAllServers', () => {
         it('should connect to multiple servers in parallel', async () => {
-            // TODO: Implement test
+            const configPath = join(__dirname, 'fixtures', 'multi-server-config.json');
+            const config = await loadConfig(configPath);
+
+            const clients = await connectToAllServers(config);
+
+            // Verify we got a Map with the correct number of clients
+            expect(clients).toBeInstanceOf(Map);
+            expect(clients.size).toBe(3);
+
+            // Verify each client is connected
+            expect(clients.get('server-1')).toBeDefined();
+            expect(clients.get('server-2')).toBeDefined();
+            expect(clients.get('server-3')).toBeDefined();
+
+            // Clean up all connections
+            const closePromises = Array.from(clients.values()).map(client => {
+                return client.close();
+            });
+            await Promise.all(closePromises);
         });
     });
 

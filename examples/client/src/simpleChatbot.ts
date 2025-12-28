@@ -62,7 +62,20 @@ export async function connectToServer(name: string, config: ServerConfig): Promi
  * Connect to all MCP servers from config in parallel
  */
 export async function connectToAllServers(config: Config): Promise<Map<string, Client>> {
-    throw new Error('Not implemented yet');
+    const entries = Object.entries(config.mcpServers);
+
+    const clients = await Promise.all(
+        entries.map(([name, serverConfig]) =>
+            connectToServer(name, serverConfig)
+        )
+    );
+
+    const clientMap = new Map<string, Client>();
+    entries.forEach(([name], index) => {
+        clientMap.set(name, clients[index]!);
+    });
+
+    return clientMap;
 }
 
 /**
