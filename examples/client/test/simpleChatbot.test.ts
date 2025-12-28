@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { Client, StdioClientTransport } from '@modelcontextprotocol/client';
@@ -82,36 +82,42 @@ describe('simpleChatbot', () => {
 
     describe('ChatSession', () => {
         let mockLlmClient: LLMClient;
+        let mcpClients: Map<string, Client>;
 
-        beforeEach(() => {
+        beforeEach(async () => {
             mockLlmClient = {
                 getResponse: vi.fn().mockResolvedValue('Mock response')
             };
+            const configPath = join(__dirname, 'fixtures', 'multi-server-config.json');
+            const config = await loadConfig(configPath);
+
+            mcpClients = await connectToAllServers(config);
+        });
+
+        afterEach(async () => {
+            // Clean up all connections
+            const closePromises = Array.from(mcpClients.values()).map(client => {
+                return client.close();
+            });
+            await Promise.all(closePromises);
         });
 
         describe('constructor', () => {
-            let clients: Map<string, Client>;
-            beforeEach(async () => {
-                const configPath = join(__dirname, 'fixtures', 'multi-server-config.json');
-                const config = await loadConfig(configPath);
-
-                clients = await connectToAllServers(config);
-            })
             it('should construct with provided clients and llm client', () => {
-                const session = new ChatSession(clients, mockLlmClient);
+                const session = new ChatSession(mcpClients, mockLlmClient);
                 expect(session).toBeDefined();
-                expect(session.clients).toBe(clients);
+                expect(session.clients).toBe(mcpClients);
                 expect(session.llmClient).toBe(mockLlmClient);
             });
         });
 
         describe('getAvailableTools', () => {
-            it('should aggregate tools from all servers', async () => {
-                // TODO: Implement test
-            });
-
-            it('should return tools with server names', async () => {
-                // TODO: Implement test
+            it('should aggregate tools from all servers with server names', async () => {
+                const session = new ChatSession(mcpClients, mockLlmClient);
+                const availableTools = await session.getAvailableTools();
+                expect(availableTools.length).toEqual(3); // Based on the fake-mcp-server fixtures
+                const toolNames = availableTools.map(tool => tool.name);
+                expect(toolNames).toContain('ping');
             });
         });
 

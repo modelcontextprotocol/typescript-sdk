@@ -96,7 +96,16 @@ export class ChatSession {
      * Get all available tools from all connected servers
      */
     async getAvailableTools(): Promise<Array<Tool & { serverName: string }>> {
-        throw new Error('Not implemented yet');
+        const allTools: Array<Tool & { serverName: string }> = [];
+
+        for (const [serverName, client] of this.clients.entries()) {
+            const response = await client.listTools();
+            for (const tool of response.tools) {
+                allTools.push({ ...tool, serverName });
+            }
+        }
+
+        return allTools;
     }
 
     /**
