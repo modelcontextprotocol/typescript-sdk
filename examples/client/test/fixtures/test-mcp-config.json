@@ -6,5 +6,6 @@
                 "test/fixtures/fake-mcp-server.js"
             ]
         }
-    }
+    },
+    "llmApiKey": "123444"
 }

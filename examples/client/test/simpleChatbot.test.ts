@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 import { ChatSession, connectToAllServers, connectToServer, loadConfig } from '../src/simpleChatbot.js';
 import type { ChatMessage, LLMClient } from '../src/simpleChatbot.js';
+
+// Get the directory of this test file
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * Unit tests for simpleChatbot
@@ -13,15 +19,10 @@ describe('simpleChatbot', () => {
 
     describe('loadConfig', () => {
         it('should load configuration from a JSON file', async () => {
-            // TODO: Implement test
-        });
-
-        it('should throw error for missing file', async () => {
-            // TODO: Implement test
-        });
-
-        it('should throw error for invalid JSON', async () => {
-            // TODO: Implement test
+            const configPath = join(__dirname, 'fixtures', 'test-mcp-config.json');
+            const config = await loadConfig(configPath);
+            expect(config).toHaveProperty('mcpServers');
+            expect(config).toHaveProperty('llmApiKey');
         });
     });
 
