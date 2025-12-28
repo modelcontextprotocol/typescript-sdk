@@ -28,7 +28,20 @@ describe('simpleChatbot', () => {
 
     describe('connectToServer', () => {
         it('should connect to a single STDIO server', async () => {
-            // TODO: Implement test
+            const serverConfig = {
+                command: 'node',
+                args: [join(__dirname, 'fixtures', 'fake-mcp-server.js')]
+            };
+            
+            const client = await connectToServer("test-server", serverConfig);
+            expect(client).toBeDefined();
+            
+            // Clean up - close the transport
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const transport = (client as any)._transport;
+            if (transport?.close) {
+                await transport.close();
+            }
         });
 
         it('should handle connection errors', async () => {

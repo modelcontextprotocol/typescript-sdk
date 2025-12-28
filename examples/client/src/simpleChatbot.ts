@@ -43,7 +43,19 @@ export async function loadConfig(path: string): Promise<Config> {
  * Connect to a single MCP server via STDIO
  */
 export async function connectToServer(name: string, config: ServerConfig): Promise<Client> {
-    throw new Error('Not implemented yet');
+    const transport = new StdioClientTransport({
+        command: config.command,
+        args: config.args,
+        env: config.env
+    });
+
+    const client = new Client({
+        name: `chatbot-client-${name}`,
+        version: '1.0.0'
+    });
+
+    await client.connect(transport);
+    return client;
 }
 
 /**
