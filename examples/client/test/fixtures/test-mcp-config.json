@@ -1,0 +1,10 @@
+{
+    "mcpServers": {
+        "fake-mcp": {
+            "command": "node",
+            "args": [
+                "test/fixtures/fake-mcp-server.js"
+            ]
+        }
+    }
+}
