@@ -167,7 +167,15 @@ export class ChatSession {
      * Clean up all server connections
      */
     async cleanup(): Promise<void> {
-        throw new Error('Not implemented yet');
+        for (const [serverName, client] of this.clients.entries()) {
+            if (!client || !client.transport) continue
+            try {
+                await client.transport.close();
+            } catch (e) {
+                const message = e instanceof Error ? e.message : String(e);
+                console.warn(`Warning during cleanup of server ${serverName}: ${message}`);
+            }
+        }
     }
 
     /**

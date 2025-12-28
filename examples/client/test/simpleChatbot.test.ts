@@ -133,28 +133,26 @@ describe('simpleChatbot', () => {
                 const result = await session.processLlmResponse(llmResponse);
                 expect(result).toBe(llmResponse);
             });
-
-            it('should execute tool and return result when llm message is tool invocation', async () => {
-
-
-            });
-
-            it('should handle tool execution errors gracefully', async () => {
-                // TODO: Implement test
-            });
-
-            it('should handle malformed JSON gracefully', async () => {
-                // TODO: Implement test
-            });
         });
 
         describe('cleanup', () => {
-            it('should cleanup without throwing', async () => {
-                // TODO: Implement test
-            });
 
             it('should close all server connections', async () => {
-                // TODO: Implement test
+                const session = new ChatSession(mcpClients, mockLlmClient);
+
+                // Create spies on all transports
+                const closeSpies = Array.from(mcpClients.values()).map(client =>
+                    vi.spyOn(client.transport!, 'close')
+                );
+
+                // Verify none have been called yet
+                closeSpies.forEach(spy => expect(spy).not.toHaveBeenCalled());
+
+                // Cleanup
+                await session.cleanup();
+
+                // Verify all transports were closed
+                closeSpies.forEach(spy => expect(spy).toHaveBeenCalledOnce());
             });
         });
 
