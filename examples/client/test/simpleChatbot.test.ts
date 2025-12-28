@@ -11,8 +11,16 @@ import type { ChatMessage, LLMClient } from '../src/simpleChatbot.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+
+const cleanup = (clients: Client[]) => {
+    return Promise.all(clients.map(async client => {
+        try {
+            await client.transport?.close();
+        } catch { console.warn('Error closing client transport') }
+    }));
+}
 /**
- * Unit tests for simpleChatbot
+ * Integration tests for simpleChatbot functions and ChatSession class
  */
 describe('simpleChatbot', () => {
     beforeEach(() => {
@@ -37,13 +45,7 @@ describe('simpleChatbot', () => {
 
             const client = await connectToServer("test-server", serverConfig);
             expect(client).toBeDefined();
-
-            // Clean up - close the transport
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const transport = (client as any)._transport;
-            if (transport?.close) {
-                await transport.close();
-            }
+            await cleanup([client]);
         });
 
         it('should handle connection errors', async () => {
@@ -71,12 +73,7 @@ describe('simpleChatbot', () => {
             expect(clients.get('server-1')).toBeDefined();
             expect(clients.get('server-2')).toBeDefined();
             expect(clients.get('server-3')).toBeDefined();
-
-            // Clean up all connections
-            const closePromises = Array.from(clients.values()).map(client => {
-                return client.close();
-            });
-            await Promise.all(closePromises);
+            await cleanup(Array.from(clients.values()));
         });
     });
 
@@ -96,10 +93,9 @@ describe('simpleChatbot', () => {
 
         afterEach(async () => {
             // Clean up all connections
-            const closePromises = Array.from(mcpClients.values()).map(client => {
-                return client.close();
-            });
-            await Promise.all(closePromises);
+            if (mcpClients) {
+                await cleanup(Array.from(mcpClients.values()));
+            }
         });
 
         describe('constructor', () => {
@@ -123,10 +119,6 @@ describe('simpleChatbot', () => {
 
         describe('processLlmResponse', () => {
             it('Should detect if LLM wants to call a tool, and execute it', async () => {
-                // Create mock LLM that will call the   tool
-                // const mockLlm = new MockLLMClient()
-                //     .callTool('ping', { message: 'hello from test' });
-
                 const session = new ChatSession(mcpClients, mockLlmClient);
 
                 // Simulate processing llm response that requests a tool call
