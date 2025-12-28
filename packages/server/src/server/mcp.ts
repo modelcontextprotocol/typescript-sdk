@@ -156,6 +156,7 @@ export class McpServer {
             );
         }
         this._middleware.push(middleware);
+        return this;
     }
 
     /**

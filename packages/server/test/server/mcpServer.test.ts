@@ -258,6 +258,40 @@ describe("McpServer Middleware", () => {
         );
     });
 
+    it("should respect async timing (middleware can await)", async () => {
+        const sequence: string[] = [];
+        const delay = (ms: number) =>
+            new Promise((resolve) => setTimeout(resolve, ms));
+
+        server.use(async (context, next) => {
+            sequence.push("mw1 start");
+            await delay(10); // Wait 10ms
+            sequence.push("mw1 after delay");
+            await next();
+            sequence.push("mw1 end");
+        });
+
+        server.use(async (context, next) => {
+            sequence.push("mw2 start");
+            await next();
+        });
+
+        server.tool("test-tool", {}, async () => {
+            sequence.push("handler");
+            return { content: [] };
+        });
+
+        await simulateCallTool("test-tool");
+
+        expect(sequence).toEqual([
+            "mw1 start",
+            "mw1 after delay",
+            "mw2 start",
+            "handler",
+            "mw1 end",
+        ]);
+    });
+
     it("should throw an error if use() is called after connect()", async () => {
         const transport = {
             start: vi.fn(),
