@@ -9,8 +9,10 @@ import type {
     CompleteResult,
     CreateTaskRequestHandlerExtra,
     CreateTaskResult,
+    GetPromptRequest,
     GetPromptResult,
     Implementation,
+    ListPromptsRequest,
     ListPromptsResult,
     ListResourcesRequest,
     ListResourcesResult,
@@ -899,70 +901,106 @@ export class McpServer {
 
         this.server.setRequestHandler(
             ListPromptsRequestSchema,
-            (): ListPromptsResult => ({
-                prompts: Object.entries(this._registeredPrompts)
-                    .filter(([, prompt]) => prompt.enabled)
-                    .map(([name, prompt]): Prompt => {
-                        return {
-                            name,
-                            title: prompt.title,
-                            description: prompt.description,
-                            arguments: prompt.argsSchema
-                                ? promptArgumentsFromSchema(prompt.argsSchema)
-                                : undefined,
-                        };
+            (
+                request: ListPromptsRequest,
+                extra: RequestHandlerExtra<
+                    ListPromptsRequest,
+                    ServerNotification
+                >,
+            ) => this._executeRequest<
+                ListPromptsResult,
+                ListPromptsRequest,
+                RequestHandlerExtra<ListPromptsRequest, ServerNotification>
+            >(
+                (): Promise<ListPromptsResult> =>
+                    Promise.resolve({
+                        prompts: Object.entries(this._registeredPrompts)
+                            .filter(([, prompt]) => prompt.enabled)
+                            .map(([name, prompt]): Prompt => {
+                                return {
+                                    name,
+                                    title: prompt.title,
+                                    description: prompt.description,
+                                    arguments: prompt.argsSchema
+                                        ? promptArgumentsFromSchema(
+                                            prompt.argsSchema,
+                                        )
+                                        : undefined,
+                                };
+                            }),
                     }),
-            }),
+                request,
+                extra,
+            ),
         );
 
         this.server.setRequestHandler(
             GetPromptRequestSchema,
-            async (request, extra): Promise<GetPromptResult> => {
-                const prompt = this._registeredPrompts[request.params.name];
-                if (!prompt) {
-                    throw new McpError(
-                        ErrorCode.InvalidParams,
-                        `Prompt ${request.params.name} not found`,
-                    );
-                }
-
-                if (!prompt.enabled) {
-                    throw new McpError(
-                        ErrorCode.InvalidParams,
-                        `Prompt ${request.params.name} disabled`,
-                    );
-                }
-
-                if (prompt.argsSchema) {
-                    const argsObj = normalizeObjectSchema(
-                        prompt.argsSchema,
-                    ) as AnyObjectSchema;
-                    const parseResult = await safeParseAsync(
-                        argsObj,
-                        request.params.arguments,
-                    );
-                    if (!parseResult.success) {
-                        const error = "error" in parseResult
-                            ? parseResult.error
-                            : "Unknown error";
-                        const errorMessage = getParseErrorMessage(error);
+            (
+                request: GetPromptRequest,
+                extra: RequestHandlerExtra<
+                    GetPromptRequest,
+                    ServerNotification
+                >,
+            ) => this._executeRequest<
+                GetPromptResult,
+                GetPromptRequest,
+                RequestHandlerExtra<GetPromptRequest, ServerNotification>
+            >(
+                async (
+                    request: GetPromptRequest,
+                    extra: RequestHandlerExtra<
+                        GetPromptRequest,
+                        ServerNotification
+                    >,
+                ): Promise<GetPromptResult> => {
+                    const prompt = this._registeredPrompts[request.params.name];
+                    if (!prompt) {
                         throw new McpError(
                             ErrorCode.InvalidParams,
-                            `Invalid arguments for prompt ${request.params.name}: ${errorMessage}`,
+                            `Prompt ${request.params.name} not found`,
                         );
                     }
 
-                    const args = parseResult.data;
-                    const cb = prompt.callback as PromptCallback<
-                        PromptArgsRawShape
-                    >;
-                    return await Promise.resolve(cb(args, extra));
-                } else {
-                    const cb = prompt.callback as PromptCallback<undefined>;
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    return await Promise.resolve((cb as any)(extra));
-                }
-            },
+                    if (!prompt.enabled) {
+                        throw new McpError(
+                            ErrorCode.InvalidParams,
+                            `Prompt ${request.params.name} disabled`,
+                        );
+                    }
+
+                    if (prompt.argsSchema) {
+                        const argsObj = normalizeObjectSchema(
+                            prompt.argsSchema,
+                        ) as AnyObjectSchema;
+                        const parseResult = await safeParseAsync(
+                            argsObj,
+                            request.params.arguments,
+                        );
+                        if (!parseResult.success) {
+                            const error = "error" in parseResult
+                                ? parseResult.error
+                                : "Unknown error";
+                            const errorMessage = getParseErrorMessage(error);
+                            throw new McpError(
+                                ErrorCode.InvalidParams,
+                                `Invalid arguments for prompt ${request.params.name}: ${errorMessage}`,
+                            );
+                        }
+
+                        const args = parseResult.data;
+                        const cb = prompt.callback as PromptCallback<
+                            PromptArgsRawShape
+                        >;
+                        return await Promise.resolve(cb(args, extra as any));
+                    } else {
+                        const cb = prompt.callback as PromptCallback<undefined>;
+                        return await Promise.resolve((cb as any)(extra));
+                    }
+                },
+                request,
+                extra,
+            ),
         );
 
         this._promptHandlersInitialized = true;
@@ -1692,7 +1730,11 @@ export class McpServer {
         }
     }
 
-    private async _executeRequest<ResultT, RequestT, ExtraT>(
+    private async _executeRequest<
+        ResultT,
+        RequestT,
+        ExtraT extends RequestHandlerExtra<any, any>,
+    >(
         handler: (
             request: RequestT,
             extra: ExtraT,
