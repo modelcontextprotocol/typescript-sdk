@@ -83,6 +83,11 @@ export interface McpMiddlewareContext {
      * Additional metadata passed from the transport or SDK.
      */
     extra: RequestHandlerExtra<ServerRequest, ServerNotification>;
+
+    /**
+     * A generic key-value store for cross-middleware communication (e.g., attaching a user object after auth).
+     */
+    state: Record<string, unknown>;
 }
 
 /**
@@ -1729,6 +1734,7 @@ export class McpServer {
                     ServerRequest,
                     ServerNotification
                 >,
+                state: {},
             };
 
             let nextCalled = false;
