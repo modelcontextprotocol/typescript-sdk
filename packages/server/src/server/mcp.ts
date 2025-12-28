@@ -76,6 +76,8 @@ import { Server } from "./server.js";
 export interface McpMiddlewareContext {
     /**
      * The incoming JSON-RPC request.
+     * While technically mutable, middleware should generally treat this as read-only.
+     * Mutation is permitted only for specific cases like schema normalization or request enrichment.
      */
     request: ServerRequest;
 
