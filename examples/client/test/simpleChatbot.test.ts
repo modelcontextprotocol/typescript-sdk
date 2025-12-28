@@ -158,11 +158,75 @@ describe('simpleChatbot', () => {
 
         describe('getMessages', () => {
             it('should return empty array initially', () => {
-                // TODO: Implement test
+                const session = new ChatSession(mcpClients, mockLlmClient);
+                const messages = session.getMessages();
+                expect(messages).toEqual([]);
+                expect(messages.length).toBe(0);
             });
 
             it('should return copy of messages', () => {
-                // TODO: Implement test
+                const session = new ChatSession(mcpClients, mockLlmClient);
+                session.messages.push({ role: 'user', content: 'test' });
+
+                const messages = session.getMessages();
+                expect(messages).toEqual([{ role: 'user', content: 'test' }]);
+
+                // Verify it's a copy by modifying and checking original
+                messages.push({ role: 'assistant', content: 'response' });
+                expect(session.messages.length).toBe(1);
+                expect(messages.length).toBe(2);
+            });
+        });
+
+        describe('start', () => {
+            it('should handle interactive chat session with user input', async () => {
+                const session = new ChatSession(mcpClients, mockLlmClient);
+
+                // Mock readline interface (Promise-based from readline/promises)
+                const mockRl = {
+                    question: vi.fn(),
+                    close: vi.fn()
+                };
+
+                // Simulate user inputs: one message then exit
+                mockRl.question
+                    .mockResolvedValueOnce('Hello, assistant!')
+                    .mockResolvedValueOnce('exit');
+
+                await session.start(mockRl as any);
+
+                // Verify messages were added
+                const messages = session.getMessages();
+                expect(messages.length).toBeGreaterThanOrEqual(3); // system + user + assistant
+                expect(messages.some(m => m.role === 'user' && m.content === 'Hello, assistant!')).toBe(true);
+                expect(messages.some(m => m.role === 'assistant')).toBe(true);
+                expect(mockLlmClient.getResponse).toHaveBeenCalled();
+            });
+
+            it('should handle tool call during chat session', async () => {
+                const session = new ChatSession(mcpClients, mockLlmClient);
+
+                // Mock LLM to return tool call request
+                (mockLlmClient.getResponse as any).mockResolvedValueOnce(
+                    JSON.stringify({ tool: 'ping', arguments: { message: 'test' } })
+                );
+
+                const mockRl = {
+                    question: vi.fn(),
+                    close: vi.fn()
+                };
+
+                mockRl.question
+                    .mockResolvedValueOnce('Use the ping tool')
+                    .mockResolvedValueOnce('exit');
+
+                await session.start(mockRl as any);
+
+                const messages = session.getMessages();
+                // Tool result should be in a system message after the assistant's tool call
+                const toolResponse = messages.find(m => m.role === 'system' && m.content.includes('Tool execution result'));
+                expect(toolResponse).toBeDefined();
+                expect(toolResponse?.content).toContain('pong: test');
             });
         });
     });
