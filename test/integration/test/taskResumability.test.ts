@@ -136,8 +136,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
         afterEach(async () => {
             // Clean up resources
-            await mcpServer.close().catch(() => {});
-            await serverTransport.close().catch(() => {});
+            await mcpServer.close().catch(() => { });
+            await serverTransport.close().catch(() => { });
             server.close();
         });
 
