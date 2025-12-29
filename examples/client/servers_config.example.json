@@ -1,8 +1,0 @@
-{
-    "mcpServers": {
-        "weather": {
-            "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-everything"]
-        }
-    }
-}
