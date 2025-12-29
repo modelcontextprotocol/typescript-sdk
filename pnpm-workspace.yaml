@@ -49,6 +49,7 @@ catalogs:
         '@types/ws': ^8.5.12
         '@typescript/native-preview': ^7.0.0-dev.20251217.1
         tsdown: ^0.18.0
+        typedoc: ^0.28.14
 
 enableGlobalVirtualStore: false
 
