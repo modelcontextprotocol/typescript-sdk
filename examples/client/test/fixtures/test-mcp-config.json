@@ -1,9 +1,0 @@
-{
-    "mcpServers": {
-        "fake-mcp": {
-            "command": "node",
-            "args": ["/Users/vibeke.tengroth/mcp-http/typescript-sdk/examples/client/test/fixtures/fake-mcp-server.js"]
-        }
-    },
-    "llmApiKey": "123444"
-}
