@@ -5,7 +5,7 @@ import { type Client } from '@modelcontextprotocol/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LLMClient } from '../src/simpleChatbot.js';
-import { ChatSession, connectToAllServers, connectToServer, loadConfig } from '../src/simpleChatbot.js';
+import { ChatSession, connectToAllServers, loadConfig } from '../src/simpleChatbot.js';
 
 // Get the directory of this test file
 const __filename = fileURLToPath(import.meta.url);
