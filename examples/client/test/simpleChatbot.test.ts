@@ -1,10 +1,11 @@
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { Client, StdioClientTransport } from '@modelcontextprotocol/client';
+import { fileURLToPath } from 'node:url';
 
+import { type Client } from '@modelcontextprotocol/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { LLMClient } from '../src/simpleChatbot.js';
 import { ChatSession, connectToAllServers, connectToServer, loadConfig } from '../src/simpleChatbot.js';
-import type { ChatMessage, LLMClient } from '../src/simpleChatbot.js';
 
 // Get the directory of this test file
 const __filename = fileURLToPath(import.meta.url);

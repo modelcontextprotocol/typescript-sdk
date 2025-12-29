@@ -44,18 +44,18 @@ The simple chatbot demonstrates connecting to multiple MCP servers simultaneousl
 
 **Configuration:**
 
-Create a `servers_config.json` file with your server definitions:
+A `servers_config.json` file is included with default server configurations. You can edit it to add or modify servers:
 
 ```json
 {
     "mcpServers": {
-        "sqlite": {
-            "command": "uvx",
-            "args": ["mcp-server-sqlite", "--db-path", "./test.db"]
-        },
-        "puppeteer": {
+        "everything": {
             "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-puppeteer"]
+            "args": ["-y", "@modelcontextprotocol/server-everything"]
+        },
+        "memory": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-memory"]
         }
     }
 }

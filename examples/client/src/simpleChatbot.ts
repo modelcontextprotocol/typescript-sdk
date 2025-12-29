@@ -128,6 +128,9 @@ export class ChatSession {
             return llmResponse;
         }
 
+        console.info(`Executing tool: ${parsedToolCall.tool}`);
+        console.info(`With arguments: ${JSON.stringify(parsedToolCall.arguments)}`);
+
         // Find which server has this tool
         for (const client of this.clients.values()) {
             const tools = await client.listTools();
@@ -158,10 +161,54 @@ export class ChatSession {
     private async buildSystemPrompt(): Promise<string> {
         const tools = await this.getAvailableTools();
         const toolDescriptions = tools
-            .map(tool => `- ${tool.name} (from ${tool.serverName}): ${tool.description || 'No description available'}`)
+            .map(tool => {
+                let desc = `Tool: ${tool.name}\n`;
+                desc += `Description: ${tool.description || 'No description'}\n`;
+                desc += 'Arguments:\n';
+                if (tool.inputSchema && typeof tool.inputSchema === 'object' && 'properties' in tool.inputSchema) {
+                    const schema = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
+                    const props = schema.properties || {};
+                    const argsList: string[] = [];
+                    for (const [paramName, paramInfo] of Object.entries(props)) {
+                        const info = paramInfo as { description?: string };
+                        let argDesc = `- ${paramName}: ${info.description || 'No description'}`;
+                        if (schema.required?.includes(paramName)) {
+                            argDesc += ' (required)';
+                        }
+                        argsList.push(argDesc);
+                    }
+                    desc += argsList.join('\n');
+                }
+                return desc;
+            })
             .join('\n');
 
-        return `You are a helpful assistant with access to the following tools:\n${toolDescriptions}\n\nWhen you want to use a tool, respond with JSON in this format: {"tool": "tool_name", "arguments": {"arg": "value"}}`;
+        const prompt = [
+            'You are a helpful assistant with access to these tools:',
+            '',
+            toolDescriptions,
+            '',
+            "Choose the appropriate tool based on the user's question. If no tool is needed, reply directly.",
+            '',
+            'IMPORTANT: When you need to use a tool, you must ONLY respond with the exact JSON object format below, nothing else:',
+            '{',
+            '    "tool": "tool-name",',
+            '    "arguments": {',
+            '        "argument-name": "value"',
+            '    }',
+            '}',
+            '',
+            "After receiving a tool's response:",
+            '1. Transform the raw data into a natural, conversational response',
+            '2. Keep responses concise but informative',
+            '3. Focus on the most relevant information',
+            "4. Use appropriate context from the user's question",
+            '5. Avoid simply repeating the raw data',
+            '',
+            'Please use only the tools that are explicitly defined above.'
+        ].join('\n');
+
+        return prompt;
     }
 
     /**
@@ -191,6 +238,16 @@ export class ChatSession {
                 output: process.stdout
             });
 
+        // Handle Ctrl+C
+        const handleSigInt = async () => {
+            console.log('\n\nExiting...');
+            rl.close();
+            await this.cleanup();
+            process.exit(0);
+        };
+
+        process.on('SIGINT', handleSigInt);
+
         try {
             // Initialize system message
             const systemMessage = await this.buildSystemPrompt();
@@ -204,6 +261,10 @@ export class ChatSession {
                 try {
                     userInput = (await rl.question('You: ')).trim();
                 } catch (err) {
+                    // Handle Ctrl+C gracefully (readline throws AbortError)
+                    if (err instanceof Error && (err.message.includes('Ctrl+C') || err.name === 'AbortError')) {
+                        break;
+                    }
                     console.error('Error reading input:', err);
                     break;
                 }
@@ -216,7 +277,6 @@ export class ChatSession {
                 this.messages.push({ role: 'user', content: userInput });
 
                 const llmResponse = await this.llmClient.getResponse(this.messages);
-                console.log(`\nAssistant: ${llmResponse}`);
 
                 const result = await this.processLlmResponse(llmResponse);
 
@@ -227,15 +287,17 @@ export class ChatSession {
 
                     // Get final response from LLM
                     const finalResponse = await this.llmClient.getResponse(this.messages);
-                    console.log(`\nFinal response: ${finalResponse}`);
+                    console.log(`\nAssistant: ${finalResponse}`);
                     this.messages.push({ role: 'assistant', content: finalResponse });
                 } else {
+                    console.log(`\nAssistant: ${llmResponse}`);
                     this.messages.push({ role: 'assistant', content: llmResponse });
                 }
             }
         } catch (e) {
             console.error('Error during chat session:', e);
         } finally {
+            process.off('SIGINT', handleSigInt);
             rl.close();
             await this.cleanup();
         }
@@ -258,7 +320,7 @@ export class SimpleLLMClient implements LLMClient {
     private readonly endpoint: string;
     private readonly model: string;
 
-    constructor(apiKey: string, endpoint = 'https://api.openai.com/v1/chat/completions', model = 'gpt-4') {
+    constructor(apiKey: string, endpoint = 'https://api.groq.com/openai/v1/chat/completions', model = 'llama-3.3-70b-versatile') {
         this.apiKey = apiKey;
         this.endpoint = endpoint;
         this.model = model;
@@ -279,7 +341,8 @@ export class SimpleLLMClient implements LLMClient {
         });
 
         if (!response.ok) {
-            throw new Error(`LLM API error: ${response.status} ${response.statusText}`);
+            const errorBody = await response.text();
+            throw new Error(`LLM API error: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         const data = (await response.json()) as {
@@ -308,7 +371,7 @@ export async function main(): Promise<void> {
         const clients = await connectToAllServers(config);
         console.log(`Connected to ${clients.size} server(s): ${[...clients.keys()].join(', ')}\n`);
 
-        // Initialize LLM client (defaults to OpenAI, can be configured)
+        // Initialize LLM client (defaults to Groq, can be configured)
         const llmClient = new SimpleLLMClient(apiKey);
 
         // Start chat session

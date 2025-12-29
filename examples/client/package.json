@@ -29,6 +29,8 @@
         "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "npm run typecheck && npm run lint",
+        "test": "vitest run",
+        "test:watch": "vitest",
         "start": "npm run server",
         "server": "tsx watch --clear-screen=false scripts/cli.ts server",
         "client": "tsx scripts/cli.ts client"
@@ -44,6 +46,7 @@
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "tsdown": "catalog:devTools"
+        "tsdown": "catalog:devTools",
+        "vitest": "catalog:devTools"
     }
 }
