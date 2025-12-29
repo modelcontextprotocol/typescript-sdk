@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import { createInterface } from 'node:readline/promises';
 import type { Interface as ReadlineInterface } from 'node:readline/promises';
+import { createInterface } from 'node:readline/promises';
 
 import type { Tool } from '@modelcontextprotocol/client';
 import { Client, StdioClientTransport } from '@modelcontextprotocol/client';
@@ -65,11 +65,7 @@ export async function connectToServer(name: string, config: ServerConfig): Promi
 export async function connectToAllServers(config: Config): Promise<Map<string, Client>> {
     const entries = Object.entries(config.mcpServers);
 
-    const clients = await Promise.all(
-        entries.map(([name, serverConfig]) =>
-            connectToServer(name, serverConfig)
-        )
-    );
+    const clients = await Promise.all(entries.map(([name, serverConfig]) => connectToServer(name, serverConfig)));
 
     const clientMap = new Map<string, Client>();
     entries.forEach(([name], index) => {
@@ -162,9 +158,9 @@ export class ChatSession {
      */
     private async buildSystemPrompt(): Promise<string> {
         const tools = await this.getAvailableTools();
-        const toolDescriptions = tools.map(tool =>
-            `- ${tool.name} (from ${tool.serverName}): ${tool.description || 'No description available'}`
-        ).join('\n');
+        const toolDescriptions = tools
+            .map(tool => `- ${tool.name} (from ${tool.serverName}): ${tool.description || 'No description available'}`)
+            .join('\n');
 
         return `You are a helpful assistant with access to the following tools:\n${toolDescriptions}\n\nWhen you want to use a tool, respond with JSON in this format: {"tool": "tool_name", "arguments": {"arg": "value"}}`;
     }
@@ -174,7 +170,7 @@ export class ChatSession {
      */
     async cleanup(): Promise<void> {
         for (const [serverName, client] of this.clients.entries()) {
-            if (!client || !client.transport) continue
+            if (!client || !client.transport) continue;
             try {
                 await client.transport.close();
             } catch (e) {
@@ -189,10 +185,12 @@ export class ChatSession {
      * @param readlineInterface Optional readline interface for testing
      */
     async start(readlineInterface?: ReadlineInterface): Promise<void> {
-        const rl = readlineInterface ?? createInterface({
-            input: process.stdin,
-            output: process.stdout
-        });
+        const rl =
+            readlineInterface ??
+            createInterface({
+                input: process.stdin,
+                output: process.stdout
+            });
 
         try {
             // Initialize system message

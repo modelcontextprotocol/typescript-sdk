@@ -3,7 +3,6 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { Client, StdioClientTransport } from '@modelcontextprotocol/client';
 
-
 import { ChatSession, connectToAllServers, connectToServer, loadConfig } from '../src/simpleChatbot.js';
 import type { ChatMessage, LLMClient } from '../src/simpleChatbot.js';
 
@@ -11,14 +10,17 @@ import type { ChatMessage, LLMClient } from '../src/simpleChatbot.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-
 const cleanup = (clients: Client[]) => {
-    return Promise.all(clients.map(async client => {
-        try {
-            await client.transport?.close();
-        } catch { console.warn('Error closing client transport') }
-    }));
-}
+    return Promise.all(
+        clients.map(async client => {
+            try {
+                await client.transport?.close();
+            } catch {
+                console.warn('Error closing client transport');
+            }
+        })
+    );
+};
 /**
  * Integration tests for simpleChatbot functions and ChatSession class
  */
@@ -43,7 +45,7 @@ describe('simpleChatbot', () => {
                 args: [join(__dirname, 'fixtures', 'fake-mcp-server.js')]
             };
 
-            const client = await connectToServer("test-server", serverConfig);
+            const client = await connectToServer('test-server', serverConfig);
             expect(client).toBeDefined();
             await cleanup([client]);
         });
@@ -52,9 +54,7 @@ describe('simpleChatbot', () => {
             const invalidConfig = {
                 command: 'nonexistent-command'
             };
-            await expect(
-                connectToServer("invalid-server", invalidConfig)
-            ).rejects.toThrow();
+            await expect(connectToServer('invalid-server', invalidConfig)).rejects.toThrow();
         });
     });
 
@@ -136,14 +136,11 @@ describe('simpleChatbot', () => {
         });
 
         describe('cleanup', () => {
-
             it('should close all server connections', async () => {
                 const session = new ChatSession(mcpClients, mockLlmClient);
 
                 // Create spies on all transports
-                const closeSpies = Array.from(mcpClients.values()).map(client =>
-                    vi.spyOn(client.transport!, 'close')
-                );
+                const closeSpies = Array.from(mcpClients.values()).map(client => vi.spyOn(client.transport!, 'close'));
 
                 // Verify none have been called yet
                 closeSpies.forEach(spy => expect(spy).not.toHaveBeenCalled());
@@ -189,9 +186,7 @@ describe('simpleChatbot', () => {
                 };
 
                 // Simulate user inputs: one message then exit
-                mockRl.question
-                    .mockResolvedValueOnce('Hello, assistant!')
-                    .mockResolvedValueOnce('exit');
+                mockRl.question.mockResolvedValueOnce('Hello, assistant!').mockResolvedValueOnce('exit');
 
                 await session.start(mockRl as any);
 
@@ -207,18 +202,14 @@ describe('simpleChatbot', () => {
                 const session = new ChatSession(mcpClients, mockLlmClient);
 
                 // Mock LLM to return tool call request
-                (mockLlmClient.getResponse as any).mockResolvedValueOnce(
-                    JSON.stringify({ tool: 'ping', arguments: { message: 'test' } })
-                );
+                (mockLlmClient.getResponse as any).mockResolvedValueOnce(JSON.stringify({ tool: 'ping', arguments: { message: 'test' } }));
 
                 const mockRl = {
                     question: vi.fn(),
                     close: vi.fn()
                 };
 
-                mockRl.question
-                    .mockResolvedValueOnce('Use the ping tool')
-                    .mockResolvedValueOnce('exit');
+                mockRl.question.mockResolvedValueOnce('Use the ping tool').mockResolvedValueOnce('exit');
 
                 await session.start(mockRl as any);
 

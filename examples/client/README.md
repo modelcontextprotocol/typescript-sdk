@@ -48,17 +48,17 @@ Create a `servers_config.json` file with your server definitions:
 
 ```json
 {
-  "mcpServers": {
-    "sqlite": {
-      "command": "uvx",
-      "args": ["mcp-server-sqlite", "--db-path", "./test.db"]
+    "mcpServers": {
+        "sqlite": {
+            "command": "uvx",
+            "args": ["mcp-server-sqlite", "--db-path", "./test.db"]
+        },
+        "puppeteer": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-puppeteer"]
+        }
     },
-    "puppeteer": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-puppeteer"]
-    }
-  },
-  "llmApiKey": "your-api-key-here"
+    "llmApiKey": "your-api-key-here"
 }
 ```
 
