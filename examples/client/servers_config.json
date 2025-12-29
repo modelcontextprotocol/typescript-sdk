@@ -2,17 +2,11 @@
     "mcpServers": {
         "everything": {
             "command": "npx",
-            "args": [
-                "-y",
-                "@modelcontextprotocol/server-everything"
-            ]
+            "args": ["-y", "@modelcontextprotocol/server-everything"]
         },
         "memory": {
             "command": "npx",
-            "args": [
-                "-y",
-                "@modelcontextprotocol/server-memory"
-            ]
+            "args": ["-y", "@modelcontextprotocol/server-memory"]
         }
     }
 }
