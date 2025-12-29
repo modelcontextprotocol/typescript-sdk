@@ -13,7 +13,6 @@ interface ServerConfig {
 
 interface Config {
     mcpServers: Record<string, ServerConfig>;
-    llmApiKey: string;
 }
 
 export interface ChatMessage {
@@ -250,12 +249,78 @@ export class ChatSession {
     }
 }
 
+/**
+ * Simple LLM client using OpenAI-compatible API
+ * Compatible with OpenAI, Groq, and other providers following the OpenAI API format
+ */
+export class SimpleLLMClient implements LLMClient {
+    private readonly apiKey: string;
+    private readonly endpoint: string;
+    private readonly model: string;
+
+    constructor(apiKey: string, endpoint = 'https://api.openai.com/v1/chat/completions', model = 'gpt-4') {
+        this.apiKey = apiKey;
+        this.endpoint = endpoint;
+        this.model = model;
+    }
+
+    async getResponse(messages: ChatMessage[]): Promise<string> {
+        const response = await fetch(this.endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${this.apiKey}`
+            },
+            body: JSON.stringify({
+                model: this.model,
+                messages,
+                temperature: 0.7
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`LLM API error: ${response.status} ${response.statusText}`);
+        }
+
+        const data = (await response.json()) as {
+            choices: Array<{ message: { content: string } }>;
+        };
+
+        return data.choices[0]?.message?.content || 'No response from LLM';
+    }
+}
+
 export async function main(): Promise<void> {
-    // TODO: Implement main orchestration
-    // Example:
-    // const config = await loadConfig('./config.json');
-    // const clients = await connectToAllServers(config);
-    // const llmClient = new YourLLMClient(config.llmApiKey);
-    // const session = new ChatSession(clients, llmClient);
-    // await session.start();
+    try {
+        // Load configuration
+        const configPath = process.argv[2] || './servers_config.json';
+        console.log(`Loading configuration from ${configPath}...`);
+        const config = await loadConfig(configPath);
+
+        // Get API key from environment variable
+        const apiKey = process.env.LLM_API_KEY;
+        if (!apiKey) {
+            throw new Error('LLM_API_KEY environment variable is required');
+        }
+
+        // Connect to all MCP servers
+        console.log('Connecting to MCP servers...');
+        const clients = await connectToAllServers(config);
+        console.log(`Connected to ${clients.size} server(s): ${[...clients.keys()].join(', ')}\n`);
+
+        // Initialize LLM client (defaults to OpenAI, can be configured)
+        const llmClient = new SimpleLLMClient(apiKey);
+
+        // Start chat session
+        const session = new ChatSession(clients, llmClient);
+        await session.start();
+    } catch (error) {
+        console.error('Failed to start chatbot:', error);
+        process.exit(1);
+    }
+}
+
+// Run if executed directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+    main().catch(console.error);
 }

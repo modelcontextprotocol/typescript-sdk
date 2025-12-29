@@ -57,8 +57,7 @@ Create a `servers_config.json` file with your server definitions:
             "command": "npx",
             "args": ["-y", "@modelcontextprotocol/server-puppeteer"]
         }
-    },
-    "llmApiKey": "your-api-key-here"
+    }
 }
 ```
 
@@ -67,6 +66,10 @@ The chatbot will discover tools from all configured servers and allow interactiv
 **Running:**
 
 ```bash
+# Set your LLM API key (OpenAI, Groq, etc.)
+export LLM_API_KEY=your_api_key_here
+
+# Run the chatbot
 pnpm --filter @modelcontextprotocol/examples-client exec tsx src/simpleChatbot.ts
 ```
 

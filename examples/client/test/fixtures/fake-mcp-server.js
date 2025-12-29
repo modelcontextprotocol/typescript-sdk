@@ -1,7 +1,6 @@
 import process from 'node:process';
 import { setInterval } from 'node:timers';
 
-// eslint-disable-next-line import/no-unresolved
 import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 

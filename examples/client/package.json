@@ -35,6 +35,7 @@
     },
     "dependencies": {
         "@modelcontextprotocol/client": "workspace:^",
+        "@modelcontextprotocol/server": "workspace:^",
         "ajv": "catalog:runtimeShared",
         "zod": "catalog:runtimeShared"
     },

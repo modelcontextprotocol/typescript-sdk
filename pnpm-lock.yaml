@@ -271,6 +271,9 @@ importers:
       '@modelcontextprotocol/client':
         specifier: workspace:^
         version: link:../../packages/client
+      '@modelcontextprotocol/server':
+        specifier: workspace:^
+        version: link:../../packages/server
       ajv:
         specifier: catalog:runtimeShared
         version: 8.17.1
