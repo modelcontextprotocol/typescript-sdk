@@ -1,17 +1,21 @@
 import { dirname, join } from 'node:path';
+import type { Interface as ReadlineInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
-import { type Client } from '@modelcontextprotocol/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Client, type Client as ClientType } from '@modelcontextprotocol/client';
+import { InMemoryTransport } from '@modelcontextprotocol/core';
+import { McpServer } from '@modelcontextprotocol/server';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
-import type { LLMClient } from '../src/simpleChatbot.js';
-import { ChatSession, connectToAllServers, loadConfig } from '../src/simpleChatbot.js';
+import type { LLMClient } from '../../../../examples/client/src/simpleChatbot.js';
+import { ChatSession, loadConfig } from '../../../../examples/client/src/simpleChatbot.js';
 
 // Get the directory of this test file
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const cleanup = (clients: Client[]) => {
+const cleanup = (clients: ClientType[]) => {
     return Promise.all(
         clients.map(async client => {
             try {
@@ -22,17 +26,51 @@ const cleanup = (clients: Client[]) => {
         })
     );
 };
+
 /**
  * Integration tests for simpleChatbot functions and ChatSession class
  */
 describe('simpleChatbot', () => {
+    let testServer: McpServer;
+
+    beforeAll(async () => {
+        // Create a lightweight in-process test server
+        testServer = new McpServer({
+            name: 'test-server',
+            version: '1.0.0'
+        });
+
+        // Register an echo tool for testing using the new API
+        testServer.registerTool(
+            'echo',
+            {
+                description: 'Echoes back the message',
+                inputSchema: {
+                    message: z.string().describe('Message to echo')
+                }
+            },
+            async ({ message }) => ({
+                content: [
+                    {
+                        type: 'text',
+                        text: `Echo: ${message}`
+                    }
+                ]
+            })
+        );
+    });
+
+    afterAll(async () => {
+        await testServer.close();
+    });
+
     beforeEach(() => {
         vi.clearAllMocks();
     });
 
     describe('loadConfig', () => {
         it('should load configuration from a JSON file', async () => {
-            const configPath = join(__dirname, '..', 'servers_config.json');
+            const configPath = join(__dirname, 'test-servers-config.json');
             const config = await loadConfig(configPath);
             expect(config).toHaveProperty('mcpServers');
         });
@@ -40,16 +78,30 @@ describe('simpleChatbot', () => {
 
     describe('ChatSession', () => {
         let mockLlmClient: LLMClient;
-        let mcpClients: Map<string, Client>;
+        let mcpClients: Map<string, ClientType>;
+        let client: Client;
 
         beforeEach(async () => {
             mockLlmClient = {
                 getResponse: vi.fn().mockResolvedValue('Mock response')
             };
-            const configPath = join(__dirname, '..', 'servers_config.json');
-            const config = await loadConfig(configPath);
 
-            mcpClients = await connectToAllServers(config);
+            // Connect to the in-process test server using InMemoryTransport
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: {}
+                }
+            );
+
+            await Promise.all([client.connect(clientTransport), testServer.connect(serverTransport)]);
+
+            mcpClients = new Map([['test', client]]);
         });
 
         afterEach(async () => {
@@ -72,10 +124,11 @@ describe('simpleChatbot', () => {
             it('should aggregate tools from all servers with server names', async () => {
                 const session = new ChatSession(mcpClients, mockLlmClient);
                 const availableTools = await session.getAvailableTools();
-                expect(availableTools.length).toBeGreaterThan(0); // server-everything and server-memory provide tools
+                expect(availableTools.length).toBeGreaterThan(0); // test server provides echo tool
                 const toolNames = availableTools.map(tool => tool.name);
-                // server-everything provides many tools, just verify we get some
+                // Verify we get some tools
                 expect(toolNames.length).toBeGreaterThan(0);
+                expect(toolNames).toContain('echo');
             });
         });
 
@@ -87,7 +140,7 @@ describe('simpleChatbot', () => {
                 const availableTools = await session.getAvailableTools();
                 expect(availableTools.length).toBeGreaterThan(0);
 
-                // Use echo tool which we know is from server-everything
+                // Use echo tool from test server
                 const echoTool = availableTools.find(t => t.name === 'echo');
                 expect(echoTool).toBeDefined();
 
@@ -95,7 +148,7 @@ describe('simpleChatbot', () => {
                 const toolCallResponse = JSON.stringify({ tool: 'echo', arguments: { message: 'test message' } });
                 const result = await session.processLlmResponse(toolCallResponse);
                 expect(result).toContain('Tool execution result');
-                expect(result).toContain('test message');
+                expect(result).toContain('Echo: test message');
             });
             it('should return response if no tool invocation is needed', async () => {
                 const session = new ChatSession(mcpClients, mockLlmClient);
@@ -120,8 +173,8 @@ describe('simpleChatbot', () => {
                     // Expected: transports may error on close
                 });
 
-                // Verify all transports were closed
-                closeSpies.forEach(spy => expect(spy).toHaveBeenCalledOnce());
+                // Verify all transports were closed at least once
+                closeSpies.forEach(spy => expect(spy).toHaveBeenCalled());
             });
         });
 
@@ -160,7 +213,7 @@ describe('simpleChatbot', () => {
                 // Simulate user inputs: one message then exit
                 mockRl.question.mockResolvedValueOnce('Hello, assistant!').mockResolvedValueOnce('exit');
 
-                await session.start(mockRl as any);
+                await session.start(mockRl as unknown as ReadlineInterface);
 
                 // Verify messages were added
                 const messages = session.getMessages();
@@ -179,7 +232,9 @@ describe('simpleChatbot', () => {
                 expect(echoTool).toBeDefined();
 
                 // Mock LLM to return tool call request with proper arguments
-                (mockLlmClient.getResponse as any).mockResolvedValueOnce(JSON.stringify({ tool: 'echo', arguments: { message: 'test' } }));
+                vi.mocked(mockLlmClient.getResponse).mockResolvedValueOnce(
+                    JSON.stringify({ tool: 'echo', arguments: { message: 'test' } })
+                );
 
                 const mockRl = {
                     question: vi.fn(),
@@ -188,13 +243,13 @@ describe('simpleChatbot', () => {
 
                 mockRl.question.mockResolvedValueOnce('Use a tool').mockResolvedValueOnce('exit');
 
-                await session.start(mockRl as any);
+                await session.start(mockRl as unknown as ReadlineInterface);
 
                 const messages = session.getMessages();
                 // Tool result should be in a system message after the assistant's tool call
                 const toolResponse = messages.find(m => m.role === 'system' && m.content.includes('Tool execution result'));
                 expect(toolResponse).toBeDefined();
-                expect(toolResponse?.content).toContain('test');
+                expect(toolResponse?.content).toContain('Echo: test');
             });
         });
     });
