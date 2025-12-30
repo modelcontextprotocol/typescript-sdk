@@ -395,8 +395,8 @@ export class StreamableHTTPClientTransport implements Transport {
                 // Handle stream errors - check if this is a normal termination or an actual error
                 // "TypeError: terminated" occurs when the server closes the connection gracefully
                 // This is expected behavior for polling/timeout scenarios and should be handled quietly
-                const isGracefulTermination = error instanceof TypeError &&
-                    (error.message === 'terminated' || error.message.includes('body stream'));
+                const isGracefulTermination =
+                    error instanceof TypeError && (error.message === 'terminated' || error.message.includes('body stream'));
 
                 if (!isGracefulTermination) {
                     this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
