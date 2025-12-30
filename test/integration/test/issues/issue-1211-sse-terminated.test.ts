@@ -11,10 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import {
-    McpServer,
-    StreamableHTTPServerTransport
-} from '@modelcontextprotocol/server';
+import { McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 
 describe('SSE Stream Graceful Termination (Issue #1211)', () => {
@@ -57,13 +54,10 @@ describe('SSE Stream Graceful Termination (Issue #1211)', () => {
         const errors: Error[] = [];
 
         clientTransport = new StreamableHTTPClientTransport(baseUrl);
-        client = new Client(
-            { name: 'test-client', version: '1.0.0' },
-            { capabilities: {} }
-        );
+        client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {} });
 
         // Track any errors
-        clientTransport.onerror = (error) => {
+        clientTransport.onerror = error => {
             errors.push(error);
         };
 
@@ -79,9 +73,7 @@ describe('SSE Stream Graceful Termination (Issue #1211)', () => {
         await new Promise(resolve => setTimeout(resolve, 100));
 
         // Should not have any "TypeError: terminated" errors reported
-        const terminatedErrors = errors.filter(
-            e => e.message.includes('terminated') || e.message.includes('body stream')
-        );
+        const terminatedErrors = errors.filter(e => e.message.includes('terminated') || e.message.includes('body stream'));
 
         expect(terminatedErrors).toHaveLength(0);
     });
@@ -90,12 +82,9 @@ describe('SSE Stream Graceful Termination (Issue #1211)', () => {
         const errors: Error[] = [];
 
         clientTransport = new StreamableHTTPClientTransport(baseUrl);
-        client = new Client(
-            { name: 'test-client', version: '1.0.0' },
-            { capabilities: {} }
-        );
+        client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {} });
 
-        clientTransport.onerror = (error) => {
+        clientTransport.onerror = error => {
             errors.push(error);
         };
 
@@ -111,9 +100,7 @@ describe('SSE Stream Graceful Termination (Issue #1211)', () => {
         await new Promise(resolve => setTimeout(resolve, 100));
 
         // No terminated errors should be reported
-        const terminatedErrors = errors.filter(
-            e => e.message.includes('terminated') || e.message.includes('body stream')
-        );
+        const terminatedErrors = errors.filter(e => e.message.includes('terminated') || e.message.includes('body stream'));
 
         expect(terminatedErrors).toHaveLength(0);
     });
