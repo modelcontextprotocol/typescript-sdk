@@ -188,6 +188,45 @@ export interface OAuthClientProvider {
      * }
      */
     prepareTokenRequest?(scope?: string): URLSearchParams | Promise<URLSearchParams | undefined> | undefined;
+
+    /**
+     * Saves the resource metadata URL discovered during the initial OAuth challenge.
+     *
+     * This optional method allows browser-based applications to persist the resource
+     * metadata URL (from the WWW-Authenticate header) before redirecting to the
+     * authorization server. This is necessary because the URL would otherwise be
+     * lost during the redirect, causing token exchange to fail.
+     *
+     * In browser environments, implementations should persist this to sessionStorage
+     * or a similar mechanism that survives page navigation.
+     *
+     * @param url - The resource metadata URL discovered from the WWW-Authenticate header
+     *
+     * @example
+     * // Browser implementation using sessionStorage:
+     * saveResourceMetadataUrl(url) {
+     *   sessionStorage.setItem('oauth_resource_metadata_url', url.toString());
+     * }
+     */
+    saveResourceMetadataUrl?(url: URL): void | Promise<void>;
+
+    /**
+     * Loads a previously saved resource metadata URL.
+     *
+     * This optional method retrieves the resource metadata URL that was saved
+     * before the OAuth redirect. It's called when exchanging the authorization
+     * code for tokens, allowing the SDK to locate the correct token endpoint.
+     *
+     * @returns The saved resource metadata URL, or undefined if none was saved
+     *
+     * @example
+     * // Browser implementation using sessionStorage:
+     * resourceMetadataUrl() {
+     *   const url = sessionStorage.getItem('oauth_resource_metadata_url');
+     *   return url ? new URL(url) : undefined;
+     * }
+     */
+    resourceMetadataUrl?(): URL | undefined | Promise<URL | undefined>;
 }
 
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
@@ -399,8 +438,19 @@ async function authInternal(
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | URL | undefined;
 
+    // If resourceMetadataUrl is not provided, try to load it from the provider
+    // This handles the case where the URL was saved before a browser redirect
+    let effectiveResourceMetadataUrl = resourceMetadataUrl;
+    if (!effectiveResourceMetadataUrl && provider.resourceMetadataUrl) {
+        effectiveResourceMetadataUrl = await Promise.resolve(provider.resourceMetadataUrl());
+    }
+
     try {
-        resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl }, fetchFn);
+        resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+            serverUrl,
+            { resourceMetadataUrl: effectiveResourceMetadataUrl },
+            fetchFn
+        );
         if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
             authorizationServerUrl = resourceMetadata.authorization_servers[0];
         }
@@ -508,6 +558,12 @@ async function authInternal(
     }
 
     const state = provider.state ? await provider.state() : undefined;
+
+    // Save the resource metadata URL before redirect so it can be restored after
+    // This is essential for browser environments where the page navigates away
+    if (effectiveResourceMetadataUrl && provider.saveResourceMetadataUrl) {
+        await provider.saveResourceMetadataUrl(effectiveResourceMetadataUrl);
+    }
 
     // Start new authorization flow
     const { authorizationUrl, codeVerifier } = await startAuthorization(authorizationServerUrl, {
