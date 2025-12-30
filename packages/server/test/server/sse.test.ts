@@ -20,10 +20,15 @@ const createMockResponse = () => {
     return res as unknown as Mocked<http.ServerResponse>;
 };
 
-const createMockRequest = ({ headers = {}, body }: { headers?: Record<string, string>; body?: string } = {}) => {
+const createMockRequest = ({
+    headers = {},
+    body,
+    url = '/messages'
+}: { headers?: Record<string, string>; body?: string; url?: string } = {}) => {
     const mockReq = {
         headers,
         body: body ? body : undefined,
+        url,
         auth: {
             token: 'test-token'
         },
@@ -313,7 +318,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                                         'user-agent': 'node',
                                         'accept-encoding': 'gzip, deflate',
                                         'content-length': '124'
-                                    }
+                                    },
+                                    url: `/?sessionId=${sessionId}`
                                 })
                             }
                         ]
@@ -418,7 +424,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                         requestInfo: {
                             headers: {
                                 'content-type': 'application/json'
-                            }
+                            },
+                            url: '/messages'
                         }
                     }
                 );
