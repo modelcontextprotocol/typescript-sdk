@@ -1,0 +1,24 @@
+name: Conformance Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  client-conformance:
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Non-blocking initially
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.24.0
+      - run: pnpm install
+      - run: pnpm run build:all
+      - run: pnpm run conformance:client

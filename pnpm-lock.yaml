@@ -149,6 +149,9 @@ importers:
       '@eslint/js':
         specifier: catalog:devTools
         version: 9.39.1
+      '@modelcontextprotocol/client':
+        specifier: workspace:^
+        version: link:packages/client
       '@types/content-type':
         specifier: catalog:devTools
         version: 1.1.9
