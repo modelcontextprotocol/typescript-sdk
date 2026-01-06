@@ -20,8 +20,16 @@ import {
   PrivateKeyJwtProvider
 } from '@modelcontextprotocol/client';
 import { z } from 'zod';
-import { withOAuthRetry } from './helpers/withOAuthRetry.js';
+import { withOAuthRetry, handle401 } from './helpers/withOAuthRetry.js';
 import { logger } from './helpers/logger.js';
+
+/**
+ * Fixed client metadata URL for CIMD conformance tests.
+ * When server supports client_id_metadata_document_supported, this URL
+ * will be used as the client_id instead of doing dynamic registration.
+ */
+const CIMD_CLIENT_METADATA_URL =
+  'https://conformance-test.local/client-metadata.json';
 
 /**
  * Schema for client conformance test context passed via MCP_CONFORMANCE_CONTEXT.
@@ -138,7 +146,9 @@ async function runAuthClient(serverUrl: string): Promise<void> {
 
   const oauthFetch = withOAuthRetry(
     'test-auth-client',
-    new URL(serverUrl)
+    new URL(serverUrl),
+    handle401,
+    CIMD_CLIENT_METADATA_URL
   )(fetch);
 
   const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
@@ -266,7 +276,9 @@ async function runElicitationDefaultsClient(serverUrl: string): Promise<void> {
     {
       capabilities: {
         elicitation: {
-          applyDefaults: true
+          form: {
+            applyDefaults: true
+          }
         }
       }
     }
