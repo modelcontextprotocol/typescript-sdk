@@ -39,7 +39,7 @@ function registerScenarios(names: string[], handler: ScenarioHandler): void {
 }
 
 // ============================================================================
-// Basic scenarios (initialize, tools-call)
+// Basic scenarios (initialize, tools_call)
 // ============================================================================
 
 async function runBasicClient(serverUrl: string): Promise<void> {
@@ -60,7 +60,37 @@ async function runBasicClient(serverUrl: string): Promise<void> {
   logger.debug('Connection closed successfully');
 }
 
-registerScenarios(['initialize', 'tools-call'], runBasicClient);
+// tools_call scenario needs to actually call a tool
+async function runToolsCallClient(serverUrl: string): Promise<void> {
+  const client = new Client(
+    { name: 'test-client', version: '1.0.0' },
+    { capabilities: {} }
+  );
+
+  const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
+
+  await client.connect(transport);
+  logger.debug('Successfully connected to MCP server');
+
+  const tools = await client.listTools();
+  logger.debug('Successfully listed tools');
+
+  // Call the add_numbers tool
+  const addTool = tools.tools.find((t) => t.name === 'add_numbers');
+  if (addTool) {
+    const result = await client.callTool({
+      name: 'add_numbers',
+      arguments: { a: 5, b: 3 }
+    });
+    logger.debug('Tool call result:', JSON.stringify(result, null, 2));
+  }
+
+  await transport.close();
+  logger.debug('Connection closed successfully');
+}
+
+registerScenario('initialize', runBasicClient);
+registerScenario('tools_call', runToolsCallClient);
 
 // ============================================================================
 // Auth scenarios - well-behaved client
@@ -97,16 +127,23 @@ async function runAuthClient(serverUrl: string): Promise<void> {
 // Register all auth scenarios that should use the well-behaved auth client
 registerScenarios(
   [
-    'auth/basic-dcr',
-    'auth/basic-metadata-var1',
-    'auth/basic-metadata-var2',
-    'auth/basic-metadata-var3',
+    'auth/basic-cimd',
+    'auth/metadata-default',
+    'auth/metadata-var1',
+    'auth/metadata-var2',
+    'auth/metadata-var3',
     'auth/2025-03-26-oauth-metadata-backcompat',
     'auth/2025-03-26-oauth-endpoint-fallback',
     'auth/scope-from-www-authenticate',
     'auth/scope-from-scopes-supported',
     'auth/scope-omitted-when-undefined',
-    'auth/scope-step-up'
+    'auth/scope-step-up',
+    'auth/scope-retry-limit',
+    'auth/token-endpoint-auth-basic',
+    'auth/token-endpoint-auth-post',
+    'auth/token-endpoint-auth-none',
+    'auth/client-credentials-jwt',
+    'auth/client-credentials-basic'
   ],
   runAuthClient
 );
@@ -175,7 +212,49 @@ async function runElicitationDefaultsClient(serverUrl: string): Promise<void> {
   logger.debug('Connection closed successfully');
 }
 
-registerScenario('elicitation-defaults', runElicitationDefaultsClient);
+registerScenario('elicitation-sep1034-client-defaults', runElicitationDefaultsClient);
+
+// ============================================================================
+// SSE retry scenario
+// ============================================================================
+
+async function runSSERetryClient(serverUrl: string): Promise<void> {
+  const client = new Client(
+    { name: 'sse-retry-test-client', version: '1.0.0' },
+    { capabilities: {} }
+  );
+
+  const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
+
+  await client.connect(transport);
+  logger.debug('Successfully connected to MCP server');
+
+  // List tools to get the reconnection test tool
+  const tools = await client.listTools();
+  logger.debug(
+    'Available tools:',
+    tools.tools.map((t) => t.name)
+  );
+
+  // Call the test_reconnection tool which triggers stream closure
+  const testTool = tools.tools.find((t) => t.name === 'test_reconnection');
+  if (!testTool) {
+    throw new Error('Test tool not found: test_reconnection');
+  }
+
+  logger.debug('Calling test_reconnection tool...');
+  const result = await client.callTool({
+    name: 'test_reconnection',
+    arguments: {}
+  });
+
+  logger.debug('Tool result:', JSON.stringify(result, null, 2));
+
+  await transport.close();
+  logger.debug('Connection closed successfully');
+}
+
+registerScenario('sse-retry', runSSERetryClient);
 
 // ============================================================================
 // Main entry point
