@@ -15,10 +15,44 @@
 import {
   Client,
   StreamableHTTPClientTransport,
-  ElicitRequestSchema
+  ElicitRequestSchema,
+  ClientCredentialsProvider,
+  PrivateKeyJwtProvider
 } from '@modelcontextprotocol/client';
+import { z } from 'zod';
 import { withOAuthRetry } from './helpers/withOAuthRetry.js';
 import { logger } from './helpers/logger.js';
+
+/**
+ * Schema for client conformance test context passed via MCP_CONFORMANCE_CONTEXT.
+ *
+ * Each variant includes a `name` field matching the scenario name to enable
+ * discriminated union parsing and type-safe access to scenario-specific fields.
+ */
+const ClientConformanceContextSchema = z.discriminatedUnion('name', [
+  z.object({
+    name: z.literal('auth/client-credentials-jwt'),
+    client_id: z.string(),
+    private_key_pem: z.string(),
+    signing_algorithm: z.string().optional()
+  }),
+  z.object({
+    name: z.literal('auth/client-credentials-basic'),
+    client_id: z.string(),
+    client_secret: z.string()
+  })
+]);
+
+/**
+ * Parse the conformance context from MCP_CONFORMANCE_CONTEXT env var.
+ */
+function parseContext() {
+  const raw = process.env.MCP_CONFORMANCE_CONTEXT;
+  if (!raw) {
+    throw new Error('MCP_CONFORMANCE_CONTEXT not set');
+  }
+  return ClientConformanceContextSchema.parse(JSON.parse(raw));
+}
 
 // Scenario handler type
 type ScenarioHandler = (serverUrl: string) => Promise<void>;
@@ -125,6 +159,7 @@ async function runAuthClient(serverUrl: string): Promise<void> {
 }
 
 // Register all auth scenarios that should use the well-behaved auth client
+// Note: client-credentials-jwt and client-credentials-basic have their own handlers below
 registerScenarios(
   [
     'auth/basic-cimd',
@@ -141,12 +176,85 @@ registerScenarios(
     'auth/scope-retry-limit',
     'auth/token-endpoint-auth-basic',
     'auth/token-endpoint-auth-post',
-    'auth/token-endpoint-auth-none',
-    'auth/client-credentials-jwt',
-    'auth/client-credentials-basic'
+    'auth/token-endpoint-auth-none'
   ],
   runAuthClient
 );
+
+// ============================================================================
+// Client Credentials scenarios
+// ============================================================================
+
+/**
+ * Client credentials with private_key_jwt authentication.
+ */
+async function runClientCredentialsJwt(serverUrl: string): Promise<void> {
+  const ctx = parseContext();
+  if (ctx.name !== 'auth/client-credentials-jwt') {
+    throw new Error(`Expected jwt context, got ${ctx.name}`);
+  }
+
+  const provider = new PrivateKeyJwtProvider({
+    clientId: ctx.client_id,
+    privateKey: ctx.private_key_pem,
+    algorithm: ctx.signing_algorithm || 'ES256'
+  });
+
+  const client = new Client(
+    { name: 'conformance-client-credentials-jwt', version: '1.0.0' },
+    { capabilities: {} }
+  );
+
+  const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
+    authProvider: provider
+  });
+
+  await client.connect(transport);
+  logger.debug('Successfully connected with private_key_jwt auth');
+
+  await client.listTools();
+  logger.debug('Successfully listed tools');
+
+  await transport.close();
+  logger.debug('Connection closed successfully');
+}
+
+registerScenario('auth/client-credentials-jwt', runClientCredentialsJwt);
+
+/**
+ * Client credentials with client_secret_basic authentication.
+ */
+async function runClientCredentialsBasic(serverUrl: string): Promise<void> {
+  const ctx = parseContext();
+  if (ctx.name !== 'auth/client-credentials-basic') {
+    throw new Error(`Expected basic context, got ${ctx.name}`);
+  }
+
+  const provider = new ClientCredentialsProvider({
+    clientId: ctx.client_id,
+    clientSecret: ctx.client_secret
+  });
+
+  const client = new Client(
+    { name: 'conformance-client-credentials-basic', version: '1.0.0' },
+    { capabilities: {} }
+  );
+
+  const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
+    authProvider: provider
+  });
+
+  await client.connect(transport);
+  logger.debug('Successfully connected with client_secret_basic auth');
+
+  await client.listTools();
+  logger.debug('Successfully listed tools');
+
+  await transport.close();
+  logger.debug('Connection closed successfully');
+}
+
+registerScenario('auth/client-credentials-basic', runClientCredentialsBasic);
 
 // ============================================================================
 // Elicitation defaults scenario
