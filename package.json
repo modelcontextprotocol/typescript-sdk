@@ -30,7 +30,9 @@
         "lint:fix:all": "pnpm -r lint:fix",
         "check:all": "pnpm -r typecheck && pnpm -r lint",
         "test:all": "pnpm -r test",
-        "conformance:client": "npx @modelcontextprotocol/conformance client --command 'npx tsx src/conformance/everything-client.ts' --scenario initialize"
+        "conformance:client": "npx tsx src/conformance/everything-client.ts",
+        "test:conformance:client": "npx @modelcontextprotocol/conformance client --command 'npx tsx src/conformance/everything-client.ts'",
+        "test:conformance:client:all": "npx @modelcontextprotocol/conformance client --command 'npx tsx src/conformance/everything-client.ts' --suite all"
     },
     "devDependencies": {
         "@modelcontextprotocol/client": "workspace:^",
