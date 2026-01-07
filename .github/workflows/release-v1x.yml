@@ -1,0 +1,124 @@
+name: Release v1.x
+
+on:
+    workflow_dispatch:
+        inputs:
+            version:
+                description: 'Version to release (e.g., 1.25.2)'
+                required: true
+                type: string
+            npm_tag:
+                description: 'NPM tag for the release'
+                required: true
+                default: 'latest'
+                type: choice
+                options:
+                    - latest
+                    - release-1.25
+                    - release-1.24
+                    - release-1.23
+
+permissions:
+    contents: write
+
+jobs:
+    validate:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Validate version format
+              run: |
+                  VERSION="${{ inputs.version }}"
+                  if ! [[ "$VERSION" =~ ^1\.[0-9]+\.[0-9]+$ ]]; then
+                    echo "Error: Version must be in format 1.x.y (e.g., 1.25.2)"
+                    exit 1
+                  fi
+
+    build-and-test:
+        runs-on: ubuntu-latest
+        needs: validate
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: v1.x
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: npm
+            - run: npm ci
+            - run: npm run check
+            - run: npm run build
+            - run: npm test
+
+    create-release:
+        runs-on: ubuntu-latest
+        needs: build-and-test
+        outputs:
+            release_url: ${{ steps.create_release.outputs.html_url }}
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: v1.x
+                  fetch-depth: 0
+
+            - name: Verify tag exists
+              run: |
+                  if ! git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
+                    echo "Error: Tag v${{ inputs.version }} does not exist on v1.x branch"
+                    echo "Please create the tag first with: git tag v${{ inputs.version }} && git push origin v${{ inputs.version }}"
+                    exit 1
+                  fi
+
+            - name: Create GitHub Release
+              id: create_release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh release create "v${{ inputs.version }}" \
+                    --target v1.x \
+                    --title "v${{ inputs.version }}" \
+                    --notes "Release v${{ inputs.version }} from v1.x branch" \
+                    --latest=false
+
+    publish:
+        runs-on: ubuntu-latest
+        needs: create-release
+        environment: release
+
+        permissions:
+            contents: read
+            id-token: write
+
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: v${{ inputs.version }}
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: npm
+                  registry-url: 'https://registry.npmjs.org'
+
+            - run: npm ci
+
+            - name: Verify package version matches
+              run: |
+                  PKG_VERSION=$(node -p "require('./package.json').version")
+                  if [[ "$PKG_VERSION" != "${{ inputs.version }}" ]]; then
+                    echo "Error: package.json version ($PKG_VERSION) does not match input version (${{ inputs.version }})"
+                    exit 1
+                  fi
+
+            - name: Publish to npm
+              run: npm publish --provenance --access public --tag ${{ inputs.npm_tag }}
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+            - name: Summary
+              run: |
+                  echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Version**: v${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **NPM Tag**: ${{ inputs.npm_tag }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Branch**: v1.x" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "Install with: \`npm install @modelcontextprotocol/sdk@${{ inputs.npm_tag }}\`" >> $GITHUB_STEP_SUMMARY
