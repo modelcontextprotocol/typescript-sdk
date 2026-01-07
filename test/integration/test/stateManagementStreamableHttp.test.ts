@@ -7,10 +7,10 @@ import {
     LATEST_PROTOCOL_VERSION,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
-    ListToolsResultSchema,
-    McpServer,
-    StreamableHTTPServerTransport
-} from '@modelcontextprotocol/server';
+    ListToolsResultSchema
+} from '@modelcontextprotocol/core';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import { type ZodMatrixEntry, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 
