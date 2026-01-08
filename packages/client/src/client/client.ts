@@ -1,5 +1,6 @@
 import type {
     AnyObjectSchema,
+    AnySchema,
     CallToolRequest,
     ClientCapabilities,
     ClientNotification,
@@ -252,6 +253,8 @@ export class Client<
     private _experimental?: { tasks: ExperimentalClientTasks<RequestT, NotificationT, ResultT> };
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
+    private _lastTransport?: Transport;
+    private _sessionRecoveryAttempted = false;
 
     /**
      * Initializes this client with the given name and version information.
@@ -484,6 +487,8 @@ export class Client<
     }
 
     override async connect(transport: Transport, options?: RequestOptions): Promise<void> {
+        this._lastTransport = transport;
+        this._sessionRecoveryAttempted = false;
         await super.connect(transport);
         // When transport sessionId is already set this means we are trying to reconnect.
         // In this case we don't need to initialize again.
@@ -686,6 +691,64 @@ export class Client<
         }
 
         assertClientRequestTaskCapability(this._capabilities.tasks?.requests, method, 'Client');
+    }
+
+    /**
+     * Checks if an error indicates the server session has been terminated.
+     * This happens when the server returns HTTP 404 with a message containing "session".
+     */
+    private _isSessionTerminatedError(error: unknown): boolean {
+        if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+            const err = error as { code: number; message: string };
+            return err.code === 404 && err.message.toLowerCase().includes('session');
+        }
+        return false;
+    }
+
+    /**
+     * Sends a request and waits for a response, with automatic session recovery.
+     *
+     * When the server returns HTTP 404 indicating the session has been terminated,
+     * this method will automatically reconnect and retry the request once.
+     */
+    override request<T extends AnySchema>(
+        request: ClientRequest | RequestT,
+        resultSchema: T,
+        options?: RequestOptions
+    ): Promise<SchemaOutput<T>> {
+        // Wrap in an async IIFE to handle session recovery
+        return (async () => {
+            try {
+                return await super.request(request, resultSchema, options);
+            } catch (error) {
+                // Check if this is a session terminated error and we haven't already tried recovery
+                if (this._isSessionTerminatedError(error) && !this._sessionRecoveryAttempted && this._lastTransport) {
+                    this._sessionRecoveryAttempted = true;
+
+                    // Reset transport for reconnection without triggering onclose
+                    const transport = this._lastTransport as {
+                        resetForReconnect?: () => void;
+                        onmessage?: (message: unknown) => void;
+                        onerror?: (error: Error) => void;
+                        onclose?: () => void;
+                    };
+                    if (transport.resetForReconnect) {
+                        transport.resetForReconnect();
+                    }
+                    // Clear handlers to prevent double-wrapping when connect() is called again
+                    transport.onmessage = undefined;
+                    transport.onerror = undefined;
+                    transport.onclose = undefined;
+
+                    // Reconnect and re-initialize
+                    await this.connect(this._lastTransport, options);
+
+                    // Retry the original request
+                    return await super.request(request, resultSchema, options);
+                }
+                throw error;
+            }
+        })();
     }
 
     async ping(options?: RequestOptions) {

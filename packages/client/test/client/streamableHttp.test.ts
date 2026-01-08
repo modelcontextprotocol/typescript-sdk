@@ -1627,8 +1627,8 @@ describe('StreamableHTTPClientTransport', () => {
         });
     });
 
-    describe('Session Recovery', () => {
-        it('should automatically recover from session terminated error', async () => {
+    describe('Session Termination', () => {
+        it('should throw error on 404 session not found', async () => {
             const message: JSONRPCMessage = {
                 jsonrpc: '2.0',
                 method: 'test',
@@ -1648,73 +1648,17 @@ describe('StreamableHTTPClientTransport', () => {
                     status: 404,
                     text: () => Promise.resolve('Session not found'),
                     headers: new Headers()
-                })
-                .mockResolvedValueOnce({
-                    ok: true,
-                    status: 200,
-                    headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'session-2' }),
-                    body: null
                 });
 
             await transport.send(message);
             expect(transport.sessionId).toBe('session-1');
 
-            await transport.send(message);
-
-            expect(transport.sessionId).toBe('session-2');
-            expect(global.fetch).toHaveBeenCalledTimes(3);
-        });
-
-        it('should prevent infinite session recovery loops', async () => {
-            const message: JSONRPCMessage = {
-                jsonrpc: '2.0',
-                method: 'test',
-                params: {},
-                id: 'test-id'
-            };
-
-            const session404Response = {
-                ok: false,
-                status: 404,
-                text: () => Promise.resolve('Session not found'),
-                headers: new Headers()
-            };
-
-            (global.fetch as Mock)
-                .mockResolvedValueOnce({
-                    ok: true,
-                    status: 200,
-                    headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'session-1' }),
-                    body: null
-                })
-                .mockResolvedValue(session404Response);
-
-            await transport.send(message);
-            expect(transport.sessionId).toBe('session-1');
-
-            await expect(transport.send(message)).rejects.toThrow('Server returned 404 after session recovery attempt');
-        });
-
-        it('should not attempt session recovery during initial connection (no session ID)', async () => {
-            const message: JSONRPCMessage = {
-                jsonrpc: '2.0',
-                method: 'initialize',
-                params: {},
-                id: 'init-id'
-            };
-
-            (global.fetch as Mock).mockResolvedValueOnce({
-                ok: false,
-                status: 404,
-                text: () => Promise.resolve('Session not found'),
-                headers: new Headers()
-            });
-
+            // Should throw the error without attempting recovery (recovery is handled at Client level)
             await expect(transport.send(message)).rejects.toThrow('Streamable HTTP error: Error POSTing to endpoint: Session not found');
-            expect(global.fetch).toHaveBeenCalledTimes(1);
+            expect(global.fetch).toHaveBeenCalledTimes(2);
         });
 
-        it('should expose reconnect() method for manual session recovery', async () => {
+        it('should clear session ID and allow restart after close()', async () => {
             const message: JSONRPCMessage = {
                 jsonrpc: '2.0',
                 method: 'test',
@@ -1739,149 +1683,14 @@ describe('StreamableHTTPClientTransport', () => {
             await transport.send(message);
             expect(transport.sessionId).toBe('session-1');
 
-            await transport.reconnect();
+            // Close should clear session ID
+            await transport.close();
             expect(transport.sessionId).toBeUndefined();
 
+            // Should be able to restart and get a new session
+            await transport.start();
             await transport.send(message);
             expect(transport.sessionId).toBe('session-2');
-        });
-
-        it('should call onSessionRecovery callback when recovering', async () => {
-            const onSessionRecovery = vi.fn();
-            const callbackTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
-                authProvider: mockAuthProvider,
-                onSessionRecovery
-            });
-
-            const message: JSONRPCMessage = {
-                jsonrpc: '2.0',
-                method: 'test',
-                params: {},
-                id: 'test-id'
-            };
-
-            (global.fetch as Mock)
-                .mockResolvedValueOnce({
-                    ok: true,
-                    status: 200,
-                    headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'session-1' }),
-                    body: null
-                })
-                .mockResolvedValueOnce({
-                    ok: false,
-                    status: 404,
-                    text: () => Promise.resolve('Session not found'),
-                    headers: new Headers()
-                })
-                .mockResolvedValueOnce({
-                    ok: true,
-                    status: 200,
-                    headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'session-2' }),
-                    body: null
-                });
-
-            await callbackTransport.send(message);
-            await callbackTransport.send(message);
-
-            expect(onSessionRecovery).toHaveBeenCalledTimes(1);
-            expect(onSessionRecovery).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    code: 404,
-                    message: expect.stringContaining('Session not found')
-                })
-            );
-
-            await callbackTransport.close();
-        });
-
-        it('should not attempt session recovery when disabled via option', async () => {
-            // Create transport with session recovery disabled
-            const disabledTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
-                authProvider: mockAuthProvider,
-                sessionRecovery: false
-            });
-
-            const message: JSONRPCMessage = {
-                jsonrpc: '2.0',
-                method: 'test',
-                params: {},
-                id: 'test-id'
-            };
-
-            (global.fetch as Mock)
-                .mockResolvedValueOnce({
-                    ok: true,
-                    status: 200,
-                    headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'session-1' }),
-                    body: null
-                })
-                .mockResolvedValueOnce({
-                    ok: false,
-                    status: 404,
-                    text: () => Promise.resolve('Session not found'),
-                    headers: new Headers()
-                });
-
-            await disabledTransport.send(message);
-            expect(disabledTransport.sessionId).toBe('session-1');
-
-            // Should throw immediately without attempting recovery
-            await expect(disabledTransport.send(message)).rejects.toThrow(
-                'Streamable HTTP error: Error POSTing to endpoint: Session not found'
-            );
-            expect(global.fetch).toHaveBeenCalledTimes(2); // Only 2 calls, no recovery attempt
-
-            await disabledTransport.close();
-        });
-
-        it('should reset session recovery flag after successful request', async () => {
-            const message: JSONRPCMessage = {
-                jsonrpc: '2.0',
-                method: 'test',
-                params: {},
-                id: 'test-id'
-            };
-
-            (global.fetch as Mock)
-                .mockResolvedValueOnce({
-                    ok: true,
-                    status: 200,
-                    headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'session-1' }),
-                    body: null
-                })
-                .mockResolvedValueOnce({
-                    ok: false,
-                    status: 404,
-                    text: () => Promise.resolve('Session not found'),
-                    headers: new Headers()
-                })
-                .mockResolvedValueOnce({
-                    ok: true,
-                    status: 200,
-                    headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'session-2' }),
-                    body: null
-                })
-                .mockResolvedValueOnce({
-                    ok: false,
-                    status: 404,
-                    text: () => Promise.resolve('Session not found'),
-                    headers: new Headers()
-                })
-                .mockResolvedValueOnce({
-                    ok: true,
-                    status: 200,
-                    headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'session-3' }),
-                    body: null
-                });
-
-            await transport.send(message);
-            expect(transport.sessionId).toBe('session-1');
-
-            await transport.send(message);
-            expect(transport.sessionId).toBe('session-2');
-
-            await transport.send(message);
-            expect(transport.sessionId).toBe('session-3');
         });
     });
 });

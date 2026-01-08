@@ -4,7 +4,6 @@ import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol
 import {
     createFetchWithInit,
     isInitializedNotification,
-    isInitializeRequest,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
@@ -126,26 +125,6 @@ export type StreamableHTTPClientTransportOptions = {
      * When not provided and connecting to a server that supports session IDs, the server will generate a new session ID.
      */
     sessionId?: string;
-
-    /**
-     * Whether to automatically attempt session recovery when the server returns a 404
-     * "session not found" error. When enabled, the transport will reconnect and retry
-     * the request once. Defaults to true.
-     */
-    sessionRecovery?: boolean;
-
-    /**
-     * Callback invoked when the transport detects a session termination and attempts
-     * automatic recovery. This is called after the transport reconnects but before
-     * retrying the request. Use this to re-initialize the client connection.
-     *
-     * If the callback returns a Promise, the transport will wait for it to resolve
-     * before retrying the request. This allows you to call client.connect() to
-     * re-establish the MCP session before the retry.
-     *
-     * @param error The session termination error that triggered recovery
-     */
-    onSessionRecovery?: (error: StreamableHTTPError) => void | Promise<void>;
 };
 
 /**
@@ -167,9 +146,6 @@ export class StreamableHTTPClientTransport implements Transport {
     private _protocolVersion?: string;
     private _hasCompletedAuthFlow = false; // Circuit breaker: detect auth success followed by immediate 401
     private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
-    private _hasSessionRecoveryAttempted = false; // Circuit breaker: prevent infinite session recovery loops
-    private _sessionRecovery: boolean;
-    private _onSessionRecovery?: (error: StreamableHTTPError) => void | Promise<void>;
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private _reconnectionTimeout?: ReturnType<typeof setTimeout>;
 
@@ -187,8 +163,6 @@ export class StreamableHTTPClientTransport implements Transport {
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
-        this._sessionRecovery = opts?.sessionRecovery ?? true;
-        this._onSessionRecovery = opts?.onSessionRecovery;
     }
 
     private async _authThenStart(): Promise<void> {
@@ -482,26 +456,23 @@ export class StreamableHTTPClientTransport implements Transport {
             this._reconnectionTimeout = undefined;
         }
         this._abortController?.abort();
+        this._abortController = undefined;
+        this._sessionId = undefined;
         this.onclose?.();
     }
 
     /**
-     * Reconnects the transport by closing the current connection and starting a fresh session.
-     * Use this method when you need to manually recover from a terminated session.
-     *
-     * This clears the current session ID, allowing the server to issue a new one
-     * on the next request.
+     * Resets the transport state for reconnection without triggering the onclose callback.
+     * This allows the Client to reconnect after a session termination error.
      */
-    async reconnect(): Promise<void> {
-        // Clean up without triggering onclose callback
+    resetForReconnect(): void {
         if (this._reconnectionTimeout) {
             clearTimeout(this._reconnectionTimeout);
             this._reconnectionTimeout = undefined;
         }
         this._abortController?.abort();
-        this._sessionId = undefined;
         this._abortController = undefined;
-        await this.start();
+        this._sessionId = undefined;
     }
 
     async send(
@@ -604,30 +575,12 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 }
 
-                // Check for session terminated error (404 with "session" in message)
-                const isSessionError = response.status === 404 && text?.toLowerCase().includes('session');
-
-                // Circuit breaker - if we already attempted recovery, don't retry
-                if (this._hasSessionRecoveryAttempted && isSessionError) {
-                    throw new StreamableHTTPError(404, 'Server returned 404 after session recovery attempt');
-                }
-
-                // Attempt recovery if enabled, we have a session ID, and haven't tried yet
-                if (this._sessionRecovery && isSessionError && this._sessionId) {
-                    this._hasSessionRecoveryAttempted = true;
-                    await this.reconnect();
-                    // Call callback after reconnect - allows re-initialization before retry
-                    await this._onSessionRecovery?.(new StreamableHTTPError(response.status, `Error POSTing to endpoint: ${text}`));
-                    return this.send(message, options);
-                }
-
                 throw new StreamableHTTPError(response.status, `Error POSTing to endpoint: ${text}`);
             }
 
             // Reset circuit breaker flags on successful response
             this._hasCompletedAuthFlow = false;
             this._lastUpscopingHeader = undefined;
-            this._hasSessionRecoveryAttempted = false;
 
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {
