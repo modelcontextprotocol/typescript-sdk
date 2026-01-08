@@ -136,12 +136,16 @@ export type StreamableHTTPClientTransportOptions = {
 
     /**
      * Callback invoked when the transport detects a session termination and attempts
-     * automatic recovery. This is called before the reconnect happens, allowing you
-     * to perform additional actions like logging or cleanup.
+     * automatic recovery. This is called after the transport reconnects but before
+     * retrying the request. Use this to re-initialize the client connection.
+     *
+     * If the callback returns a Promise, the transport will wait for it to resolve
+     * before retrying the request. This allows you to call client.connect() to
+     * re-establish the MCP session before the retry.
      *
      * @param error The session termination error that triggered recovery
      */
-    onSessionRecovery?: (error: StreamableHTTPError) => void;
+    onSessionRecovery?: (error: StreamableHTTPError) => void | Promise<void>;
 };
 
 /**
@@ -165,7 +169,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
     private _hasSessionRecoveryAttempted = false; // Circuit breaker: prevent infinite session recovery loops
     private _sessionRecovery: boolean;
-    private _onSessionRecovery?: (error: StreamableHTTPError) => void;
+    private _onSessionRecovery?: (error: StreamableHTTPError) => void | Promise<void>;
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private _reconnectionTimeout?: ReturnType<typeof setTimeout>;
 
@@ -489,7 +493,12 @@ export class StreamableHTTPClientTransport implements Transport {
      * on the next request.
      */
     async reconnect(): Promise<void> {
-        await this.close();
+        // Clean up without triggering onclose callback
+        if (this._reconnectionTimeout) {
+            clearTimeout(this._reconnectionTimeout);
+            this._reconnectionTimeout = undefined;
+        }
+        this._abortController?.abort();
         this._sessionId = undefined;
         this._abortController = undefined;
         await this.start();
@@ -596,10 +605,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 }
 
                 // Check for session terminated error (404 with "session" in message)
-                // Don't attempt recovery for initialize requests - 404 means endpoint not found
-                const messages = Array.isArray(message) ? message : [message];
-                const isInitialize = messages.some(isInitializeRequest);
-                const isSessionError = response.status === 404 && text?.toLowerCase().includes('session') && !isInitialize;
+                const isSessionError = response.status === 404 && text?.toLowerCase().includes('session');
 
                 // Circuit breaker - if we already attempted recovery, don't retry
                 if (this._hasSessionRecoveryAttempted && isSessionError) {
@@ -609,8 +615,9 @@ export class StreamableHTTPClientTransport implements Transport {
                 // Attempt recovery if enabled, we have a session ID, and haven't tried yet
                 if (this._sessionRecovery && isSessionError && this._sessionId) {
                     this._hasSessionRecoveryAttempted = true;
-                    this._onSessionRecovery?.(new StreamableHTTPError(response.status, `Error POSTing to endpoint: ${text}`));
                     await this.reconnect();
+                    // Call callback after reconnect - allows re-initialization before retry
+                    await this._onSessionRecovery?.(new StreamableHTTPError(response.status, `Error POSTing to endpoint: ${text}`));
                     return this.send(message, options);
                 }
 
