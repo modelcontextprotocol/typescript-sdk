@@ -459,6 +459,17 @@ export class StreamableHTTPClientTransport implements Transport {
         this.onclose?.();
     }
 
+    /**
+     * Resets the session by closing the current connection and clearing the session ID.
+     * After calling this, the next request will establish a fresh session.
+     */
+    async resetSession(): Promise<void> {
+        await this.close();
+        this._sessionId = undefined;
+        this._abortController = undefined;
+        await this.start();
+    }
+
     async send(
         message: JSONRPCMessage | JSONRPCMessage[],
         options?: { resumptionToken?: string; onresumptiontoken?: (token: string) => void }

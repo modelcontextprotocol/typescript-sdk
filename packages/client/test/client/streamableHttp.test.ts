@@ -1626,4 +1626,38 @@ describe('StreamableHTTPClientTransport', () => {
             });
         });
     });
+
+    describe('resetSession', () => {
+        it('should clear session and allow new session to be established', async () => {
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'test',
+                params: {},
+                id: 'test-id'
+            };
+
+            (global.fetch as Mock)
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'session-1' }),
+                    body: null
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'session-2' }),
+                    body: null
+                });
+
+            await transport.send(message);
+            expect(transport.sessionId).toBe('session-1');
+
+            await transport.resetSession();
+            expect(transport.sessionId).toBeUndefined();
+
+            await transport.send(message);
+            expect(transport.sessionId).toBe('session-2');
+        });
+    });
 });
