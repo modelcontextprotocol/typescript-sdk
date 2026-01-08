@@ -1088,13 +1088,16 @@ async function executeTokenRequest(
 
     const json: unknown = await response.json();
 
-    // Some OAuth servers (e.g., GitHub) return error responses with HTTP 200 status.
-    // Check for error field before attempting to parse as tokens.
-    if (typeof json === 'object' && json !== null && 'error' in json) {
-        throw await parseErrorResponse(JSON.stringify(json));
+    try {
+        return OAuthTokensSchema.parse(json);
+    } catch (parseError) {
+        // Some OAuth servers (e.g., GitHub) return error responses with HTTP 200 status.
+        // Check for error field only if token parsing failed.
+        if (typeof json === 'object' && json !== null && 'error' in json) {
+            throw await parseErrorResponse(JSON.stringify(json));
+        }
+        throw parseError;
     }
-
-    return OAuthTokensSchema.parse(json);
 }
 
 /**
