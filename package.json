@@ -30,8 +30,8 @@
         "lint:fix:all": "pnpm -r lint:fix",
         "check:all": "pnpm -r typecheck && pnpm -r lint",
         "test:all": "pnpm -r test",
-        "test:conformance:client": "npx @modelcontextprotocol/conformance client --command 'npx tsx src/conformance/everything-client.ts'",
-        "test:conformance:client:all": "npx @modelcontextprotocol/conformance client --command 'npx tsx src/conformance/everything-client.ts' --suite all",
+        "test:conformance:client": "conformance client --command 'npx tsx src/conformance/everything-client.ts'",
+        "test:conformance:client:all": "conformance client --command 'npx tsx src/conformance/everything-client.ts' --suite all",
         "test:conformance:client:run": "npx tsx src/conformance/everything-client.ts"
     },
     "devDependencies": {
@@ -40,6 +40,7 @@
         "@changesets/cli": "^2.29.8",
         "@eslint/js": "catalog:devTools",
         "@modelcontextprotocol/client": "workspace:^",
+        "@modelcontextprotocol/conformance": "0.1.9",
         "@types/content-type": "catalog:devTools",
         "@types/cors": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",
