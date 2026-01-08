@@ -385,25 +385,25 @@ async function main(): Promise<void> {
   const serverUrl = process.argv[2];
 
   if (!scenarioName || !serverUrl) {
-    console.error(
+    logger.error(
       'Usage: MCP_CONFORMANCE_SCENARIO=<scenario> everything-client <server-url>'
     );
-    console.error(
+    logger.error(
       '\nThe MCP_CONFORMANCE_SCENARIO env var is set automatically by the conformance runner.'
     );
-    console.error('\nAvailable scenarios:');
+    logger.error('\nAvailable scenarios:');
     for (const name of Object.keys(scenarioHandlers).sort()) {
-      console.error(`  - ${name}`);
+      logger.error(`  - ${name}`);
     }
     process.exit(1);
   }
 
   const handler = scenarioHandlers[scenarioName];
   if (!handler) {
-    console.error(`Unknown scenario: ${scenarioName}`);
-    console.error('\nAvailable scenarios:');
+    logger.error(`Unknown scenario: ${scenarioName}`);
+    logger.error('\nAvailable scenarios:');
     for (const name of Object.keys(scenarioHandlers).sort()) {
-      console.error(`  - ${name}`);
+      logger.error(`  - ${name}`);
     }
     process.exit(1);
   }
@@ -412,12 +412,12 @@ async function main(): Promise<void> {
     await handler(serverUrl);
     process.exit(0);
   } catch (error) {
-    console.error('Error:', error);
+    logger.error('Error:', error);
     process.exit(1);
   }
 }
 
 main().catch((error) => {
-  console.error('Unhandled error:', error);
+  logger.error('Unhandled error:', error);
   process.exit(1);
 });
