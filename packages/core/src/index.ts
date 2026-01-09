@@ -15,8 +15,8 @@ export * from './util/zod-json-schema-compat.js';
 
 // experimental exports
 export * from './experimental/index.js';
-export * from './validation/ajv-provider.js';
-export * from './validation/cfworker-provider.js';
+export * from './validators/ajv-provider.js';
+export * from './validators/cfworker-provider.js';
 /**
  * JSON Schema validation
  *
@@ -46,4 +46,4 @@ export * from './validation/cfworker-provider.js';
  */
 
 // Core types only - implementations are exported via separate entry points
-export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './validation/types.js';
+export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './validators/types.js';
