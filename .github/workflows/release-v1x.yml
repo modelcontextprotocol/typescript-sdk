@@ -31,6 +31,8 @@ on:
 permissions:
     contents: read
 
+concurrency: ${{ github.workflow }}-${{ inputs.ref || github.ref }}
+
 jobs:
     build:
         runs-on: ubuntu-latest
