@@ -26,6 +26,7 @@ Most clients expect a server to be running. Start one from [`../server/README.md
 
 | Scenario                                            | Description                                                                               | File                                                                                       |
 | --------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Simple multi-server chatbot                         | CLI chatbot connecting to multiple MCP servers via STDIO with LLM integration.            | [`src/simpleChatbot.ts`](src/simpleChatbot.ts)                                             |
 | Interactive Streamable HTTP client                  | CLI client that exercises tools/resources/prompts, notifications, elicitation, and tasks. | [`src/simpleStreamableHttp.ts`](src/simpleStreamableHttp.ts)                               |
 | Backwards-compatible client (Streamable HTTP → SSE) | Tries Streamable HTTP first, falls back to legacy SSE on 4xx responses.                   | [`src/streamableHttpWithSseFallbackClient.ts`](src/streamableHttpWithSseFallbackClient.ts) |
 | SSE polling client (legacy)                         | Polls a legacy HTTP+SSE server and demonstrates notification handling.                    | [`src/ssePollingClient.ts`](src/ssePollingClient.ts)                                       |
@@ -36,6 +37,41 @@ Most clients expect a server to be running. Start one from [`../server/README.md
 | Client credentials (M2M)                            | Machine-to-machine OAuth client credentials example.                                      | [`src/simpleClientCredentials.ts`](src/simpleClientCredentials.ts)                         |
 | URL elicitation client                              | Drives URL-mode elicitation flows (sensitive input in a browser).                         | [`src/elicitationUrlExample.ts`](src/elicitationUrlExample.ts)                             |
 | Task interactive client                             | Demonstrates task-based execution + interactive server→client requests.                   | [`src/simpleTaskInteractiveClient.ts`](src/simpleTaskInteractiveClient.ts)                 |
+
+## Simple chatbot example
+
+The simple chatbot demonstrates connecting to multiple MCP servers simultaneously and integrating with an LLM provider.
+
+**Configuration:**
+
+A `servers_config.json` file is included with default server configurations. You can edit it to add or modify servers:
+
+```json
+{
+    "mcpServers": {
+        "everything": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-everything"]
+        },
+        "memory": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-memory"]
+        }
+    }
+}
+```
+
+The chatbot will discover tools from all configured servers and allow interactive conversation. Type `quit` or `exit` to end the session.
+
+**Running:**
+
+```bash
+# Set your LLM API key (OpenAI, Groq, etc.)
+export LLM_API_KEY=your_api_key_here
+
+# Run the chatbot
+pnpm --filter @modelcontextprotocol/examples-client exec tsx src/simpleChatbot.ts
+```
 
 ## URL elicitation example (server + client)
 
