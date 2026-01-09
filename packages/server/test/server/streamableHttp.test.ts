@@ -651,6 +651,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const response = await sendPostRequest(baseUrl, batchNotifications, sessionId);
 
             expect(response.status).toBe(202);
+            expect(response.headers.get('content-type')).toBe('application/json');
         });
 
         it('should handle batch request messages with SSE stream for responses', async () => {
