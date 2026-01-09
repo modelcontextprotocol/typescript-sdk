@@ -480,6 +480,7 @@ const getServer = () => {
         {
             async createTask({ duration }, { taskStore, taskRequestedTtl }) {
                 // Create the task
+                if (!taskStore) throw new Error('Task store not found');
                 const task = await taskStore.createTask({
                     ttl: taskRequestedTtl
                 });
@@ -503,10 +504,12 @@ const getServer = () => {
                 };
             },
             async getTask(_args, { taskId, taskStore }) {
-                return await taskStore.getTask(taskId);
+                if (!taskStore) throw new Error('Task store not found');
+                return await taskStore.getTask(taskId!);
             },
             async getTaskResult(_args, { taskId, taskStore }) {
-                const result = await taskStore.getTaskResult(taskId);
+                if (!taskStore) throw new Error('Task store not found');
+                const result = await taskStore.getTaskResult(taskId!);
                 return result as CallToolResult;
             }
         }
