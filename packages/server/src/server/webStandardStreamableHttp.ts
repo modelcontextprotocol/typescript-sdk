@@ -667,7 +667,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 for (const message of messages) {
                     this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo });
                 }
-                return new Response(null, { status: 202 });
+                return new Response(null, {
+                    status: 202,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
             }
 
             // The default behavior is to use SSE streaming
