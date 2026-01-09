@@ -1,79 +1,67 @@
-import type { NextFunction, Request, RequestHandler, Response } from 'express';
+export type HostHeaderValidationResult =
+    | { ok: true; hostname: string }
+    | {
+          ok: false;
+          errorCode: 'missing_host' | 'invalid_host_header' | 'invalid_host';
+          message: string;
+          hostHeader?: string;
+          hostname?: string;
+      };
 
 /**
- * Express middleware for DNS rebinding protection.
- * Validates Host header hostname (port-agnostic) against an allowed list.
+ * Parse and validate a Host header against an allowlist of hostnames (port-agnostic).
  *
- * This is particularly important for servers without authorization or HTTPS,
- * such as localhost servers or development servers. DNS rebinding attacks can
- * bypass same-origin policy by manipulating DNS to point a domain to a
- * localhost address, allowing malicious websites to access your local server.
- *
- * @param allowedHostnames - List of allowed hostnames (without ports).
- *   For IPv6, provide the address with brackets (e.g., '[::1]').
- * @returns Express middleware function
- *
- * @example
- * ```typescript
- * const middleware = hostHeaderValidation(['localhost', '127.0.0.1', '[::1]']);
- * app.use(middleware);
- * ```
+ * - Input host header may include a port (e.g. `localhost:3000`) or IPv6 brackets (e.g. `[::1]:3000`).
+ * - Allowlist items should be hostnames only (no ports). For IPv6, include brackets (e.g. `[::1]`).
  */
-export function hostHeaderValidation(allowedHostnames: string[]): RequestHandler {
-    return (req: Request, res: Response, next: NextFunction) => {
-        const hostHeader = req.headers.host;
-        if (!hostHeader) {
-            res.status(403).json({
-                jsonrpc: '2.0',
-                error: {
-                    code: -32000,
-                    message: 'Missing Host header'
-                },
-                id: null
-            });
-            return;
-        }
+export function validateHostHeader(hostHeader: string | null | undefined, allowedHostnames: string[]): HostHeaderValidationResult {
+    if (!hostHeader) {
+        return { ok: false, errorCode: 'missing_host', message: 'Missing Host header' };
+    }
 
-        // Use URL API to parse hostname (handles IPv4, IPv6, and regular hostnames)
-        let hostname: string;
-        try {
-            hostname = new URL(`http://${hostHeader}`).hostname;
-        } catch {
-            res.status(403).json({
-                jsonrpc: '2.0',
-                error: {
-                    code: -32000,
-                    message: `Invalid Host header: ${hostHeader}`
-                },
-                id: null
-            });
-            return;
-        }
+    // Use URL API to parse hostname (handles IPv4, IPv6, and regular hostnames)
+    let hostname: string;
+    try {
+        hostname = new URL(`http://${hostHeader}`).hostname;
+    } catch {
+        return { ok: false, errorCode: 'invalid_host_header', message: `Invalid Host header: ${hostHeader}`, hostHeader };
+    }
 
-        if (!allowedHostnames.includes(hostname)) {
-            res.status(403).json({
-                jsonrpc: '2.0',
-                error: {
-                    code: -32000,
-                    message: `Invalid Host: ${hostname}`
-                },
-                id: null
-            });
-            return;
-        }
-        next();
-    };
+    if (!allowedHostnames.includes(hostname)) {
+        return { ok: false, errorCode: 'invalid_host', message: `Invalid Host: ${hostname}`, hostHeader, hostname };
+    }
+
+    return { ok: true, hostname };
 }
 
 /**
- * Convenience middleware for localhost DNS rebinding protection.
- * Allows only localhost, 127.0.0.1, and [::1] (IPv6 localhost) hostnames.
- *
- * @example
- * ```typescript
- * app.use(localhostHostValidation());
- * ```
+ * Convenience allowlist for localhost DNS rebinding protection.
  */
-export function localhostHostValidation(): RequestHandler {
-    return hostHeaderValidation(['localhost', '127.0.0.1', '[::1]']);
+export function localhostAllowedHostnames(): string[] {
+    return ['localhost', '127.0.0.1', '[::1]'];
+}
+
+/**
+ * Web-standard Request helper for DNS rebinding protection.
+ * @example
+ * const result = validateHostHeader(req.headers.get('host'), ['localhost'])
+ */
+export function hostHeaderValidationResponse(req: Request, allowedHostnames: string[]): Response | undefined {
+    const result = validateHostHeader(req.headers.get('host'), allowedHostnames);
+    if (result.ok) return undefined;
+
+    return new Response(
+        JSON.stringify({
+            jsonrpc: '2.0',
+            error: {
+                code: -32000,
+                message: result.message
+            },
+            id: null
+        }),
+        {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' }
+        }
+    );
 }

@@ -9,8 +9,9 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { createMcpExpressApp, isInitializeRequest, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
-import { type Request, type Response } from 'express';
+import { isInitializeRequest, McpServer, NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
+import type { Request, Response } from 'express';
 
 // Create MCP server - it will automatically use AjvJsonSchemaValidator with sensible defaults
 // The validator supports format validation (email, date, etc.) if ajv-formats is installed
@@ -321,7 +322,7 @@ async function main() {
     const app = createMcpExpressApp();
 
     // Map to store transports by session ID
-    const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+    const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
 
     // MCP POST endpoint
     const mcpPostHandler = async (req: Request, res: Response) => {
@@ -331,13 +332,13 @@ async function main() {
         }
 
         try {
-            let transport: StreamableHTTPServerTransport;
+            let transport: NodeStreamableHTTPServerTransport;
             if (sessionId && transports[sessionId]) {
                 // Reuse existing transport for this session
                 transport = transports[sessionId];
             } else if (!sessionId && isInitializeRequest(req.body)) {
                 // New initialization request - create new transport
-                transport = new StreamableHTTPServerTransport({
+                transport = new NodeStreamableHTTPServerTransport({
                     sessionIdGenerator: () => randomUUID(),
                     onsessioninitialized: sessionId => {
                         // Store the transport by session ID when session is initialized

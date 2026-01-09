@@ -15,9 +15,10 @@ import type {
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 
 import { McpServer } from '../../src/server/mcp.js';
-import { StreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
+import { NodeStreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
 import type { EventId, EventStore, StreamId } from '../../src/server/webStandardStreamableHttp.js';
-import { type ZodMatrixEntry, zodTestMatrix } from './__fixtures__/zodTestMatrix.js';
+import type { ZodMatrixEntry } from './__fixtures__/zodTestMatrix.js';
+import { zodTestMatrix } from './__fixtures__/zodTestMatrix.js';
 
 async function getFreePort() {
     return new Promise(res => {
@@ -34,7 +35,7 @@ async function getFreePort() {
 }
 
 /**
- * Test server configuration for StreamableHTTPServerTransport tests
+ * Test server configuration for NodeStreamableHTTPServerTransport tests
  */
 interface TestServerConfig {
     sessionIdGenerator: (() => string) | undefined;
@@ -49,7 +50,7 @@ interface TestServerConfig {
 /**
  * Helper to stop test server
  */
-async function stopTestServer({ server, transport }: { server: Server; transport: StreamableHTTPServerTransport }): Promise<void> {
+async function stopTestServer({ server, transport }: { server: Server; transport: NodeStreamableHTTPServerTransport }): Promise<void> {
     // First close the transport to ensure all SSE streams are closed
     await transport.close();
 
@@ -153,7 +154,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
      */
     async function createTestServer(config: TestServerConfig = { sessionIdGenerator: () => randomUUID() }): Promise<{
         server: Server;
-        transport: StreamableHTTPServerTransport;
+        transport: NodeStreamableHTTPServerTransport;
         mcpServer: McpServer;
         baseUrl: URL;
     }> {
@@ -168,7 +169,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             }
         );
 
-        const transport = new StreamableHTTPServerTransport({
+        const transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: config.sessionIdGenerator,
             enableJsonResponse: config.enableJsonResponse ?? false,
             eventStore: config.eventStore,
@@ -202,7 +203,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
      */
     async function createTestAuthServer(config: TestServerConfig = { sessionIdGenerator: () => randomUUID() }): Promise<{
         server: Server;
-        transport: StreamableHTTPServerTransport;
+        transport: NodeStreamableHTTPServerTransport;
         mcpServer: McpServer;
         baseUrl: URL;
     }> {
@@ -217,7 +218,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             }
         );
 
-        const transport = new StreamableHTTPServerTransport({
+        const transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: config.sessionIdGenerator,
             enableJsonResponse: config.enableJsonResponse ?? false,
             eventStore: config.eventStore,
@@ -247,10 +248,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     }
 
     const { z } = entry;
-    describe('StreamableHTTPServerTransport', () => {
+    describe('NodeStreamableHTTPServerTransport', () => {
         let server: Server;
         let mcpServer: McpServer;
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
         let baseUrl: URL;
         let sessionId: string;
 
@@ -980,9 +981,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
     });
 
-    describe('StreamableHTTPServerTransport with AuthInfo', () => {
+    describe('NodeStreamableHTTPServerTransport with AuthInfo', () => {
         let server: Server;
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
         let baseUrl: URL;
         let sessionId: string;
 
@@ -1080,9 +1081,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     });
 
     // Test JSON Response Mode
-    describe('StreamableHTTPServerTransport with JSON Response Mode', () => {
+    describe('NodeStreamableHTTPServerTransport with JSON Response Mode', () => {
         let server: Server;
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
         let baseUrl: URL;
         let sessionId: string;
 
@@ -1167,9 +1168,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     });
 
     // Test pre-parsed body handling
-    describe('StreamableHTTPServerTransport with pre-parsed body', () => {
+    describe('NodeStreamableHTTPServerTransport with pre-parsed body', () => {
         let server: Server;
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
         let baseUrl: URL;
         let sessionId: string;
         let parsedBody: unknown = null;
@@ -1303,9 +1304,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     });
 
     // Test resumability support
-    describe('StreamableHTTPServerTransport with resumability', () => {
+    describe('NodeStreamableHTTPServerTransport with resumability', () => {
         let server: Server;
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
         let baseUrl: URL;
         let sessionId: string;
         let mcpServer: McpServer;
@@ -1539,9 +1540,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     });
 
     // Test stateless mode
-    describe('StreamableHTTPServerTransport in stateless mode', () => {
+    describe('NodeStreamableHTTPServerTransport in stateless mode', () => {
         let server: Server;
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
         let baseUrl: URL;
 
         beforeEach(async () => {
@@ -1627,9 +1628,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     });
 
     // Test SSE priming events for POST streams
-    describe('StreamableHTTPServerTransport POST SSE priming events', () => {
+    describe('NodeStreamableHTTPServerTransport POST SSE priming events', () => {
         let server: Server;
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
         let baseUrl: URL;
         let sessionId: string;
         let mcpServer: McpServer;
@@ -2328,7 +2329,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     });
 
     // Test onsessionclosed callback
-    describe('StreamableHTTPServerTransport onsessionclosed callback', () => {
+    describe('NodeStreamableHTTPServerTransport onsessionclosed callback', () => {
         it('should call onsessionclosed callback when session is closed via DELETE', async () => {
             const mockCallback = vi.fn();
 
@@ -2487,7 +2488,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     });
 
     // Test async callbacks for onsessioninitialized and onsessionclosed
-    describe('StreamableHTTPServerTransport async callbacks', () => {
+    describe('NodeStreamableHTTPServerTransport async callbacks', () => {
         it('should support async onsessioninitialized callback', async () => {
             const initializationOrder: string[] = [];
 
@@ -2694,9 +2695,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     });
 
     // Test DNS rebinding protection
-    describe('StreamableHTTPServerTransport DNS rebinding protection', () => {
+    describe('NodeStreamableHTTPServerTransport DNS rebinding protection', () => {
         let server: Server;
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
         let baseUrl: URL;
 
         afterEach(async () => {
@@ -2932,7 +2933,7 @@ async function createTestServerWithDnsProtection(config: {
     enableDnsRebindingProtection?: boolean;
 }): Promise<{
     server: Server;
-    transport: StreamableHTTPServerTransport;
+    transport: NodeStreamableHTTPServerTransport;
     mcpServer: McpServer;
     baseUrl: URL;
 }> {
@@ -2949,7 +2950,7 @@ async function createTestServerWithDnsProtection(config: {
         });
     }
 
-    const transport = new StreamableHTTPServerTransport({
+    const transport = new NodeStreamableHTTPServerTransport({
         sessionIdGenerator: config.sessionIdGenerator,
         allowedHosts: config.allowedHosts,
         allowedOrigins: config.allowedOrigins,

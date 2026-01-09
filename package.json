@@ -15,7 +15,7 @@
         "node": ">=20",
         "pnpm": ">=10.24.0"
     },
-    "packageManager": "pnpm@10.24.0",
+    "packageManager": "pnpm@10.26.1",
     "keywords": [
         "modelcontextprotocol",
         "mcp"

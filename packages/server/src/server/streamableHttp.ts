@@ -59,7 +59,7 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  * - No Session ID is included in any responses
  * - No session validation is performed
  */
-export class StreamableHTTPServerTransport implements Transport {
+export class NodeStreamableHTTPServerTransport implements Transport {
     private _webStandardTransport: WebStandardStreamableHTTPServerTransport;
     private _requestListener: ReturnType<typeof getRequestListener>;
     // Store auth and parsedBody per request for passing through to handleRequest
