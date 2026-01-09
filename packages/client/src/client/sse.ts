@@ -1,5 +1,5 @@
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders } from '@modelcontextprotocol/core';
+import type { FetchLike, JSONRPCMessage, Transport, UserAgentProvider } from '@modelcontextprotocol/core';
+import { createFetchWithInit, createUserAgentProvider, JSONRPCMessageSchema, normalizeHeaders } from '@modelcontextprotocol/core';
 import { type ErrorEvent, EventSource, type EventSourceInit } from 'eventsource';
 
 import type { AuthResult, OAuthClientProvider } from './auth.js';
@@ -54,6 +54,11 @@ export type SSEClientTransportOptions = {
      * Custom fetch implementation used for all network requests.
      */
     fetch?: FetchLike;
+
+    /**
+     * User agent provider for the connection.
+     */
+    userAgentProvider?: UserAgentProvider;
 };
 
 /**
@@ -74,6 +79,7 @@ export class SSEClientTransport implements Transport {
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
+    private _userAgentProvider: UserAgentProvider;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -88,6 +94,7 @@ export class SSEClientTransport implements Transport {
         this._authProvider = opts?.authProvider;
         this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
+        this._userAgentProvider = opts?.userAgentProvider ?? createUserAgentProvider();
     }
 
     private async _authThenStart(): Promise<void> {
@@ -101,7 +108,8 @@ export class SSEClientTransport implements Transport {
                 serverUrl: this._url,
                 resourceMetadataUrl: this._resourceMetadataUrl,
                 scope: this._scope,
-                fetchFn: this._fetchWithInit
+                fetchFn: this._fetchWithInit,
+                userAgentProvider: this._userAgentProvider
             });
         } catch (error) {
             this.onerror?.(error as Error);
@@ -126,6 +134,8 @@ export class SSEClientTransport implements Transport {
         if (this._protocolVersion) {
             headers['mcp-protocol-version'] = this._protocolVersion;
         }
+
+        headers['user-agent'] = await this._userAgentProvider();
 
         const extraHeaders = normalizeHeaders(this._requestInit?.headers);
 
@@ -229,7 +239,8 @@ export class SSEClientTransport implements Transport {
             authorizationCode,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
-            fetchFn: this._fetchWithInit
+            fetchFn: this._fetchWithInit,
+            userAgentProvider: this._userAgentProvider
         });
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');
@@ -271,7 +282,8 @@ export class SSEClientTransport implements Transport {
                         serverUrl: this._url,
                         resourceMetadataUrl: this._resourceMetadataUrl,
                         scope: this._scope,
-                        fetchFn: this._fetchWithInit
+                        fetchFn: this._fetchWithInit,
+                        userAgentProvider: this._userAgentProvider
                     });
                     if (result !== 'AUTHORIZED') {
                         throw new UnauthorizedError();
