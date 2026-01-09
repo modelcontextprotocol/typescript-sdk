@@ -26,6 +26,7 @@ catalogs:
         cross-spawn: ^7.0.5
         eventsource: ^3.0.2
         eventsource-parser: ^3.0.0
+        qs: ^6.13.0
     devTools:
         typescript: ^5.9.3
         vitest: ^4.0.8
