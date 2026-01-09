@@ -445,7 +445,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             const requestInfo = JSON.parse(eventData.result.content[1].text);
             expect(requestInfo).toMatchObject({
-                headers: {
+                headers: new Headers({
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream',
                     connection: 'keep-alive',
@@ -454,7 +454,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     'user-agent': expect.any(String),
                     'accept-encoding': expect.any(String),
                     'content-length': expect.any(String)
-                }
+                })
             });
         });
 
