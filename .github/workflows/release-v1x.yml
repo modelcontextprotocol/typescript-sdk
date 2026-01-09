@@ -1,10 +1,17 @@
 # Publish v1.x releases when a v1.* tag is pushed
 # This allows releasing from the v1.x branch without switching GitHub's default branch
 #
-# Usage:
+# Automatic (latest v1.x):
 #   git checkout v1.x
 #   npm version patch  # bumps version and creates tag
 #   git push origin v1.x --tags
+#
+# Manual (for older minor versions like v1.23.x):
+#   1. Create a release branch: git checkout -b release/1.23 v1.23.1
+#   2. Apply your fixes
+#   3. Bump version: npm version patch  # creates v1.23.2 tag
+#   4. Push: git push origin release/1.23 --tags
+#   5. Run this workflow manually from GitHub Actions, specifying the tag
 #
 # The workflow will automatically build, test, and publish to npm.
 
@@ -14,6 +21,12 @@ on:
     push:
         tags:
             - 'v1.*'
+    workflow_dispatch:
+        inputs:
+            ref:
+                description: 'Git ref to release (tag, e.g., v1.23.2)'
+                required: true
+                type: string
 
 permissions:
     contents: read
@@ -24,6 +37,8 @@ jobs:
 
         steps:
             - uses: actions/checkout@v4
+              with:
+                  ref: ${{ inputs.ref || github.ref }}
             - uses: actions/setup-node@v4
               with:
                   node-version: 24
@@ -42,6 +57,8 @@ jobs:
 
         steps:
             - uses: actions/checkout@v4
+              with:
+                  ref: ${{ inputs.ref || github.ref }}
             - uses: actions/setup-node@v4
               with:
                   node-version: ${{ matrix.node-version }}
@@ -61,6 +78,8 @@ jobs:
 
         steps:
             - uses: actions/checkout@v4
+              with:
+                  ref: ${{ inputs.ref || github.ref }}
             - uses: actions/setup-node@v4
               with:
                   node-version: 24
