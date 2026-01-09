@@ -2489,12 +2489,12 @@ describe('Progress notification support for tasks', () => {
 
         // Set up a request handler that will complete the task
         protocol.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-            if (extra.taskStore) {
-                const task = await extra.taskStore.createTask({ ttl: 60000 });
+            if (extra.task?.store) {
+                const task = await extra.task?.store.createTask({ ttl: 60000 });
 
                 // Simulate async work then complete the task
                 setTimeout(async () => {
-                    await extra.taskStore!.storeTaskResult(task.taskId, 'completed', {
+                    await extra.task?.store!.storeTaskResult(task.taskId, 'completed', {
                         content: [{ type: 'text', text: 'Done' }]
                     });
                 }, 50);
