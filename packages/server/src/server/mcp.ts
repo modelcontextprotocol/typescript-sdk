@@ -7,16 +7,22 @@ import type {
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     CompleteResult,
+    CreateTaskRequestHandlerExtra,
     CreateTaskResult,
+    GetPromptRequest,
     GetPromptResult,
     Implementation,
+    ListPromptsRequest,
     ListPromptsResult,
+    ListResourcesRequest,
     ListResourcesResult,
+    ListToolsRequest,
     ListToolsResult,
     LoggingMessageNotification,
     Prompt,
     PromptArgument,
     PromptReference,
+    ReadResourceRequest,
     ReadResourceResult,
     RequestHandlerExtra,
     Resource,
@@ -67,6 +73,35 @@ import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
 /**
+ * Context passed to MCP middleware functions.
+ */
+export interface McpMiddlewareContext {
+    /**
+     * The incoming JSON-RPC request.
+     * While technically mutable, middleware should generally treat this as read-only.
+     * Mutation is permitted only for specific cases like schema normalization or request enrichment.
+     */
+    request: ServerRequest;
+
+    /**
+     * Additional metadata passed from the transport or SDK.
+     */
+    extra: RequestHandlerExtra<ServerRequest, ServerNotification>;
+
+    /**
+     * A generic key-value store for cross-middleware communication (e.g., attaching a user object after auth).
+     */
+    state: Record<string, unknown>;
+}
+
+/**
+ * Middleware function for intercepting MCP requests.
+ * @param context The request context.
+ * @param next A function that calls the next middleware or the implementation handler.
+ */
+export type McpMiddleware = (context: McpMiddlewareContext, next: () => Promise<void>) => Promise<void>;
+
+/**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * Server instance available via the `server` property.
@@ -83,6 +118,8 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    private _middleware: McpMiddleware[] = [];
+    private _middlewareFrozen = false;
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
@@ -106,11 +143,24 @@ export class McpServer {
     }
 
     /**
+     * Registers a middleware function.
+     * @param middleware The middleware to register.
+     */
+    public use(middleware: McpMiddleware) {
+        if (this._middlewareFrozen) {
+            throw new Error('Cannot register middleware after the server has started or processed requests.');
+        }
+        this._middleware.push(middleware);
+        return this;
+    }
+
+    /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
      * The `server` object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
+        this._middlewareFrozen = true;
         return await this.server.connect(transport);
     }
 
@@ -139,99 +189,120 @@ export class McpServer {
 
         this.server.setRequestHandler(
             ListToolsRequestSchema,
-            (): ListToolsResult => ({
-                tools: Object.entries(this._registeredTools)
-                    .filter(([, tool]) => tool.enabled)
-                    .map(([name, tool]): Tool => {
-                        const toolDefinition: Tool = {
-                            name,
-                            title: tool.title,
-                            description: tool.description,
-                            inputSchema: (() => {
-                                const obj = normalizeObjectSchema(tool.inputSchema);
-                                return obj
-                                    ? (toJsonSchemaCompat(obj, {
-                                          strictUnions: true,
-                                          pipeStrategy: 'input'
-                                      }) as Tool['inputSchema'])
-                                    : EMPTY_OBJECT_JSON_SCHEMA;
-                            })(),
-                            annotations: tool.annotations,
-                            execution: tool.execution,
-                            _meta: tool._meta
-                        };
+            (request: ListToolsRequest, extra: RequestHandlerExtra<ListToolsRequest, ServerNotification>) =>
+                this._executeRequest<ListToolsResult, ListToolsRequest, RequestHandlerExtra<ListToolsRequest, ServerNotification>>(
+                    (): Promise<ListToolsResult> =>
+                        Promise.resolve({
+                            tools: Object.entries(this._registeredTools)
+                                .filter(([, tool]) => tool.enabled)
+                                .map(([name, tool]): Tool => {
+                                    const toolDefinition: Tool = {
+                                        name,
+                                        title: tool.title,
+                                        description: tool.description,
+                                        inputSchema: (() => {
+                                            const obj = normalizeObjectSchema(tool.inputSchema);
+                                            return obj
+                                                ? (toJsonSchemaCompat(obj, {
+                                                      strictUnions: true,
+                                                      pipeStrategy: 'input'
+                                                  }) as Tool['inputSchema'])
+                                                : EMPTY_OBJECT_JSON_SCHEMA;
+                                        })(),
+                                        annotations: tool.annotations,
+                                        execution: tool.execution,
+                                        _meta: tool._meta
+                                    };
 
-                        if (tool.outputSchema) {
-                            const obj = normalizeObjectSchema(tool.outputSchema);
-                            if (obj) {
-                                toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
-                                    strictUnions: true,
-                                    pipeStrategy: 'output'
-                                }) as Tool['outputSchema'];
-                            }
-                        }
+                                    if (tool.outputSchema) {
+                                        const obj = normalizeObjectSchema(tool.outputSchema);
+                                        if (obj) {
+                                            toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
+                                                strictUnions: true,
+                                                pipeStrategy: 'output'
+                                            }) as Tool['outputSchema'];
+                                        }
+                                    }
 
-                        return toolDefinition;
-                    })
-            })
+                                    return toolDefinition;
+                                })
+                        }),
+                    request,
+                    extra
+                )
         );
 
-        this.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult | CreateTaskResult> => {
-            try {
-                const tool = this._registeredTools[request.params.name];
-                if (!tool) {
-                    throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
-                }
-                if (!tool.enabled) {
-                    throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
-                }
+        this.server.setRequestHandler(
+            CallToolRequestSchema,
+            (request: CallToolRequest, extra: RequestHandlerExtra<CallToolRequest, ServerNotification>) =>
+                this._executeRequest<
+                    CallToolResult | CreateTaskResult,
+                    CallToolRequest,
+                    RequestHandlerExtra<CallToolRequest, ServerNotification>
+                >(
+                    async (
+                        request: CallToolRequest,
+                        extra: RequestHandlerExtra<CallToolRequest, ServerNotification>
+                    ): Promise<CallToolResult | CreateTaskResult> => {
+                        try {
+                            const tool = this._registeredTools[request.params.name];
+                            if (!tool) {
+                                throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
+                            }
+                            if (!tool.enabled) {
+                                throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
+                            }
 
-                const isTaskRequest = !!request.params.task;
-                const taskSupport = tool.execution?.taskSupport;
-                const isTaskHandler = 'createTask' in (tool.handler as AnyToolHandler<ZodRawShapeCompat>);
+                            const isTaskRequest = !!request.params.task;
+                            const taskSupport = tool.execution?.taskSupport;
+                            const isTaskHandler = 'createTask' in (tool.handler as AnyToolHandler<ZodRawShapeCompat>);
 
-                // Validate task hint configuration
-                if ((taskSupport === 'required' || taskSupport === 'optional') && !isTaskHandler) {
-                    throw new McpError(
-                        ErrorCode.InternalError,
-                        `Tool ${request.params.name} has taskSupport '${taskSupport}' but was not registered with registerToolTask`
-                    );
-                }
+                            // Validate task hint configuration
+                            if ((taskSupport === 'required' || taskSupport === 'optional') && !isTaskHandler) {
+                                throw new McpError(
+                                    ErrorCode.InternalError,
+                                    `Tool ${request.params.name} has taskSupport '${taskSupport}' but was not registered with registerToolTask`
+                                );
+                            }
 
-                // Handle taskSupport 'required' without task augmentation
-                if (taskSupport === 'required' && !isTaskRequest) {
-                    throw new McpError(
-                        ErrorCode.MethodNotFound,
-                        `Tool ${request.params.name} requires task augmentation (taskSupport: 'required')`
-                    );
-                }
+                            // Handle taskSupport 'required' without task augmentation
+                            if (taskSupport === 'required' && !isTaskRequest) {
+                                throw new McpError(
+                                    ErrorCode.MethodNotFound,
+                                    `Tool ${request.params.name} requires task augmentation (taskSupport: 'required')`
+                                );
+                            }
 
-                // Handle taskSupport 'optional' without task augmentation - automatic polling
-                if (taskSupport === 'optional' && !isTaskRequest && isTaskHandler) {
-                    return await this.handleAutomaticTaskPolling(tool, request, extra);
-                }
+                            // Handle taskSupport 'optional' without task augmentation - automatic polling
+                            if (taskSupport === 'optional' && !isTaskRequest && isTaskHandler) {
+                                return await this.handleAutomaticTaskPolling(tool, request, extra);
+                            }
 
-                // Normal execution path
-                const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
-                const result = await this.executeToolHandler(tool, args, extra);
+                            // Normal execution path
+                            const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
+                            const result = await this.executeToolHandler(tool, args, extra);
 
-                // Return CreateTaskResult immediately for task requests
-                if (isTaskRequest) {
-                    return result;
-                }
+                            // Return CreateTaskResult immediately for task requests
+                            if (isTaskRequest) {
+                                return result;
+                            }
 
-                // Validate output schema for non-task requests
-                await this.validateToolOutput(tool, result, request.params.name);
-                return result;
-            } catch (error) {
-                if (error instanceof McpError) {
-                    if (error.code === ErrorCode.UrlElicitationRequired) {
-                        throw error; // Return the error to the caller without wrapping in CallToolResult
-                    }
-                }
-                return this.createToolError(error instanceof Error ? error.message : String(error));
-            }
-        });
+                            // Validate output schema for non-task requests
+                            await this.validateToolOutput(tool, result, request.params.name);
+                            return result;
+                        } catch (error) {
+                            if (error instanceof McpError) {
+                                if (error.code === ErrorCode.UrlElicitationRequired) {
+                                    throw error;
+                                }
+                            }
+                            return this.createToolError(error instanceof Error ? error.message : String(error));
+                        }
+                    },
+                    request,
+                    extra
+                )
+        );
 
         this._toolHandlersInitialized = true;
     }
@@ -323,50 +394,56 @@ export class McpServer {
     /**
      * Executes a tool handler (either regular or task-based).
      */
-    private async executeToolHandler(
+    private async executeToolHandler<ExtraT>(
         tool: RegisteredTool,
         args: unknown,
-        extra: RequestHandlerExtra<ServerRequest, ServerNotification>
+        extra: ExtraT
     ): Promise<CallToolResult | CreateTaskResult> {
         const handler = tool.handler as AnyToolHandler<ZodRawShapeCompat | undefined>;
         const isTaskHandler = 'createTask' in handler;
 
         if (isTaskHandler) {
-            if (!extra.taskStore) {
+            const hasTaskStore = 'taskStore' in (extra as object) && (extra as { taskStore?: unknown }).taskStore;
+            if (!hasTaskStore) {
                 throw new Error('No task store provided.');
             }
-            const taskExtra = { ...extra, taskStore: extra.taskStore };
+            const taskExtra = {
+                ...extra,
+                taskStore: (extra as { taskStore: unknown }).taskStore
+            };
 
             if (tool.inputSchema) {
                 const typedHandler = handler as ToolTaskHandler<ZodRawShapeCompat>;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return await Promise.resolve(typedHandler.createTask(args as any, taskExtra));
+                return await Promise.resolve(
+                    typedHandler.createTask(args as ShapeOutput<ZodRawShapeCompat>, taskExtra as unknown as CreateTaskRequestHandlerExtra)
+                );
             } else {
                 const typedHandler = handler as ToolTaskHandler<undefined>;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return await Promise.resolve((typedHandler.createTask as any)(taskExtra));
+                return await Promise.resolve(typedHandler.createTask(taskExtra as unknown as CreateTaskRequestHandlerExtra));
             }
         }
 
         if (tool.inputSchema) {
             const typedHandler = handler as ToolCallback<ZodRawShapeCompat>;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return await Promise.resolve(typedHandler(args as any, extra));
+            return await Promise.resolve(
+                typedHandler(
+                    args as ShapeOutput<ZodRawShapeCompat>,
+                    extra as unknown as RequestHandlerExtra<ServerRequest, ServerNotification>
+                )
+            );
         } else {
             const typedHandler = handler as ToolCallback<undefined>;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return await Promise.resolve((typedHandler as any)(extra));
+            return await Promise.resolve(typedHandler(extra as unknown as RequestHandlerExtra<ServerRequest, ServerNotification>));
         }
     }
 
     /**
      * Handles automatic task polling for tools with taskSupport 'optional'.
      */
-    private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
-        tool: RegisteredTool,
-        request: RequestT,
-        extra: RequestHandlerExtra<ServerRequest, ServerNotification>
-    ): Promise<CallToolResult> {
+    private async handleAutomaticTaskPolling<
+        RequestT extends CallToolRequest,
+        ExtraT extends RequestHandlerExtra<RequestT, ServerNotification>
+    >(tool: RegisteredTool, request: RequestT, extra: ExtraT): Promise<CallToolResult> {
         if (!extra.taskStore) {
             throw new Error('No task store provided for task-capable tool.');
         }
@@ -377,9 +454,15 @@ export class McpServer {
         const taskExtra = { ...extra, taskStore: extra.taskStore };
 
         const createTaskResult: CreateTaskResult = args // undefined only if tool.inputSchema is undefined
-            ? await Promise.resolve((handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args, taskExtra))
-            : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              await Promise.resolve(((handler as ToolTaskHandler<undefined>).createTask as any)(taskExtra));
+            ? await Promise.resolve(
+                  (handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(
+                      args as ShapeOutput<ZodRawShapeCompat>,
+                      taskExtra as unknown as CreateTaskRequestHandlerExtra
+                  )
+              )
+            : await Promise.resolve(
+                  (handler as ToolTaskHandler<undefined>).createTask(taskExtra as unknown as CreateTaskRequestHandlerExtra)
+              );
 
         // Poll until completion
         const taskId = createTaskResult.task.taskId;
@@ -499,33 +582,49 @@ export class McpServer {
             }
         });
 
-        this.server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
-            const resources = Object.entries(this._registeredResources)
-                .filter(([_, resource]) => resource.enabled)
-                .map(([uri, resource]) => ({
-                    uri,
-                    name: resource.name,
-                    ...resource.metadata
-                }));
+        this.server.setRequestHandler(
+            ListResourcesRequestSchema,
+            (request: ListResourcesRequest, extra: RequestHandlerExtra<ListResourcesRequest, ServerNotification>) =>
+                this._executeRequest<
+                    ListResourcesResult,
+                    ListResourcesRequest,
+                    RequestHandlerExtra<ListResourcesRequest, ServerNotification>
+                >(
+                    async (request: ListResourcesRequest, extra: RequestHandlerExtra<ListResourcesRequest, ServerNotification>) => {
+                        const resources = Object.entries(this._registeredResources)
+                            .filter(([_, resource]) => resource.enabled)
+                            .map(([uri, resource]) => ({
+                                uri,
+                                name: resource.name,
+                                ...resource.metadata
+                            }));
 
-            const templateResources: Resource[] = [];
-            for (const template of Object.values(this._registeredResourceTemplates)) {
-                if (!template.resourceTemplate.listCallback) {
-                    continue;
-                }
+                        const templateResources: Resource[] = [];
+                        for (const template of Object.values(this._registeredResourceTemplates)) {
+                            if (!template.resourceTemplate.listCallback) {
+                                continue;
+                            }
 
-                const result = await template.resourceTemplate.listCallback(extra);
-                for (const resource of result.resources) {
-                    templateResources.push({
-                        ...template.metadata,
-                        // the defined resource metadata should override the template metadata if present
-                        ...resource
-                    });
-                }
-            }
+                            const result = await template.resourceTemplate.listCallback(
+                                extra as unknown as RequestHandlerExtra<ServerRequest, ServerNotification>
+                            );
+                            for (const resource of result.resources) {
+                                templateResources.push({
+                                    ...template.metadata,
+                                    // the defined resource metadata should override the template metadata if present
+                                    ...resource
+                                });
+                            }
+                        }
 
-            return { resources: [...resources, ...templateResources] };
-        });
+                        return {
+                            resources: [...resources, ...templateResources]
+                        };
+                    },
+                    request,
+                    extra
+                )
+        );
 
         this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
             const resourceTemplates = Object.entries(this._registeredResourceTemplates).map(([name, template]) => ({
@@ -537,28 +636,40 @@ export class McpServer {
             return { resourceTemplates };
         });
 
-        this.server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
-            const uri = new URL(request.params.uri);
+        this.server.setRequestHandler(
+            ReadResourceRequestSchema,
+            (request: ReadResourceRequest, extra: RequestHandlerExtra<ReadResourceRequest, ServerNotification>) =>
+                this._executeRequest<ReadResourceResult, ReadResourceRequest, RequestHandlerExtra<ReadResourceRequest, ServerNotification>>(
+                    async (request: ReadResourceRequest, extra: RequestHandlerExtra<ReadResourceRequest, ServerNotification>) => {
+                        const uri = new URL(request.params.uri);
 
-            // First check for exact resource match
-            const resource = this._registeredResources[uri.toString()];
-            if (resource) {
-                if (!resource.enabled) {
-                    throw new McpError(ErrorCode.InvalidParams, `Resource ${uri} disabled`);
-                }
-                return resource.readCallback(uri, extra);
-            }
+                        // First check for exact resource match
+                        const resource = this._registeredResources[uri.toString()];
+                        if (resource) {
+                            if (!resource.enabled) {
+                                throw new McpError(ErrorCode.InvalidParams, `Resource ${uri} disabled`);
+                            }
+                            return resource.readCallback(uri, extra as unknown as RequestHandlerExtra<ServerRequest, ServerNotification>);
+                        }
 
-            // Then check templates
-            for (const template of Object.values(this._registeredResourceTemplates)) {
-                const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
-                if (variables) {
-                    return template.readCallback(uri, variables, extra);
-                }
-            }
+                        // Then check templates
+                        for (const template of Object.values(this._registeredResourceTemplates)) {
+                            const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
+                            if (variables) {
+                                return template.readCallback(
+                                    uri,
+                                    variables,
+                                    extra as unknown as RequestHandlerExtra<ServerRequest, ServerNotification>
+                                );
+                            }
+                        }
 
-            throw new McpError(ErrorCode.InvalidParams, `Resource ${uri} not found`);
-        });
+                        throw new McpError(ErrorCode.InvalidParams, `Resource ${uri} not found`);
+                    },
+                    request,
+                    extra
+                )
+        );
 
         this._resourceHandlersInitialized = true;
     }
@@ -581,48 +692,69 @@ export class McpServer {
 
         this.server.setRequestHandler(
             ListPromptsRequestSchema,
-            (): ListPromptsResult => ({
-                prompts: Object.entries(this._registeredPrompts)
-                    .filter(([, prompt]) => prompt.enabled)
-                    .map(([name, prompt]): Prompt => {
-                        return {
-                            name,
-                            title: prompt.title,
-                            description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromSchema(prompt.argsSchema) : undefined
-                        };
-                    })
-            })
+            (request: ListPromptsRequest, extra: RequestHandlerExtra<ListPromptsRequest, ServerNotification>) =>
+                this._executeRequest<ListPromptsResult, ListPromptsRequest, RequestHandlerExtra<ListPromptsRequest, ServerNotification>>(
+                    (): Promise<ListPromptsResult> =>
+                        Promise.resolve({
+                            prompts: Object.entries(this._registeredPrompts)
+                                .filter(([, prompt]) => prompt.enabled)
+                                .map(([name, prompt]): Prompt => {
+                                    return {
+                                        name,
+                                        title: prompt.title,
+                                        description: prompt.description,
+                                        arguments: prompt.argsSchema ? promptArgumentsFromSchema(prompt.argsSchema) : undefined
+                                    };
+                                })
+                        }),
+                    request,
+                    extra
+                )
         );
 
-        this.server.setRequestHandler(GetPromptRequestSchema, async (request, extra): Promise<GetPromptResult> => {
-            const prompt = this._registeredPrompts[request.params.name];
-            if (!prompt) {
-                throw new McpError(ErrorCode.InvalidParams, `Prompt ${request.params.name} not found`);
-            }
+        this.server.setRequestHandler(
+            GetPromptRequestSchema,
+            (request: GetPromptRequest, extra: RequestHandlerExtra<GetPromptRequest, ServerNotification>) =>
+                this._executeRequest<GetPromptResult, GetPromptRequest, RequestHandlerExtra<GetPromptRequest, ServerNotification>>(
+                    async (
+                        request: GetPromptRequest,
+                        extra: RequestHandlerExtra<GetPromptRequest, ServerNotification>
+                    ): Promise<GetPromptResult> => {
+                        const prompt = this._registeredPrompts[request.params.name];
+                        if (!prompt) {
+                            throw new McpError(ErrorCode.InvalidParams, `Prompt ${request.params.name} not found`);
+                        }
 
-            if (!prompt.enabled) {
-                throw new McpError(ErrorCode.InvalidParams, `Prompt ${request.params.name} disabled`);
-            }
+                        if (!prompt.enabled) {
+                            throw new McpError(ErrorCode.InvalidParams, `Prompt ${request.params.name} disabled`);
+                        }
 
-            if (prompt.argsSchema) {
-                const argsObj = normalizeObjectSchema(prompt.argsSchema) as AnyObjectSchema;
-                const parseResult = await safeParseAsync(argsObj, request.params.arguments);
-                if (!parseResult.success) {
-                    const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
-                    const errorMessage = getParseErrorMessage(error);
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid arguments for prompt ${request.params.name}: ${errorMessage}`);
-                }
+                        if (prompt.argsSchema) {
+                            const argsObj = normalizeObjectSchema(prompt.argsSchema) as AnyObjectSchema;
+                            const parseResult = await safeParseAsync(argsObj, request.params.arguments);
+                            if (!parseResult.success) {
+                                const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
+                                const errorMessage = getParseErrorMessage(error);
+                                throw new McpError(
+                                    ErrorCode.InvalidParams,
+                                    `Invalid arguments for prompt ${request.params.name}: ${errorMessage}`
+                                );
+                            }
 
-                const args = parseResult.data;
-                const cb = prompt.callback as PromptCallback<PromptArgsRawShape>;
-                return await Promise.resolve(cb(args, extra));
-            } else {
-                const cb = prompt.callback as PromptCallback<undefined>;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return await Promise.resolve((cb as any)(extra));
-            }
-        });
+                            const args = parseResult.data;
+                            const cb = prompt.callback as PromptCallback<PromptArgsRawShape>;
+                            return await Promise.resolve(
+                                cb(args, extra as unknown as RequestHandlerExtra<ServerRequest, ServerNotification>)
+                            );
+                        } else {
+                            const cb = prompt.callback as PromptCallback<undefined>;
+                            return await Promise.resolve(cb(extra as unknown as RequestHandlerExtra<ServerRequest, ServerNotification>));
+                        }
+                    },
+                    request,
+                    extra
+                )
+        );
 
         this._promptHandlersInitialized = true;
     }
@@ -770,13 +902,25 @@ export class McpServer {
             update: updates => {
                 if (typeof updates.uri !== 'undefined' && updates.uri !== uri) {
                     delete this._registeredResources[uri];
-                    if (updates.uri) this._registeredResources[updates.uri] = registeredResource;
+                    if (updates.uri) {
+                        this._registeredResources[updates.uri] = registeredResource;
+                    }
                 }
-                if (typeof updates.name !== 'undefined') registeredResource.name = updates.name;
-                if (typeof updates.title !== 'undefined') registeredResource.title = updates.title;
-                if (typeof updates.metadata !== 'undefined') registeredResource.metadata = updates.metadata;
-                if (typeof updates.callback !== 'undefined') registeredResource.readCallback = updates.callback;
-                if (typeof updates.enabled !== 'undefined') registeredResource.enabled = updates.enabled;
+                if (typeof updates.name !== 'undefined') {
+                    registeredResource.name = updates.name;
+                }
+                if (typeof updates.title !== 'undefined') {
+                    registeredResource.title = updates.title;
+                }
+                if (typeof updates.metadata !== 'undefined') {
+                    registeredResource.metadata = updates.metadata;
+                }
+                if (typeof updates.callback !== 'undefined') {
+                    registeredResource.readCallback = updates.callback;
+                }
+                if (typeof updates.enabled !== 'undefined') {
+                    registeredResource.enabled = updates.enabled;
+                }
                 this.sendResourceListChanged();
             }
         };
@@ -803,13 +947,25 @@ export class McpServer {
             update: updates => {
                 if (typeof updates.name !== 'undefined' && updates.name !== name) {
                     delete this._registeredResourceTemplates[name];
-                    if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
+                    if (updates.name) {
+                        this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
+                    }
                 }
-                if (typeof updates.title !== 'undefined') registeredResourceTemplate.title = updates.title;
-                if (typeof updates.template !== 'undefined') registeredResourceTemplate.resourceTemplate = updates.template;
-                if (typeof updates.metadata !== 'undefined') registeredResourceTemplate.metadata = updates.metadata;
-                if (typeof updates.callback !== 'undefined') registeredResourceTemplate.readCallback = updates.callback;
-                if (typeof updates.enabled !== 'undefined') registeredResourceTemplate.enabled = updates.enabled;
+                if (typeof updates.title !== 'undefined') {
+                    registeredResourceTemplate.title = updates.title;
+                }
+                if (typeof updates.template !== 'undefined') {
+                    registeredResourceTemplate.resourceTemplate = updates.template;
+                }
+                if (typeof updates.metadata !== 'undefined') {
+                    registeredResourceTemplate.metadata = updates.metadata;
+                }
+                if (typeof updates.callback !== 'undefined') {
+                    registeredResourceTemplate.readCallback = updates.callback;
+                }
+                if (typeof updates.enabled !== 'undefined') {
+                    registeredResourceTemplate.enabled = updates.enabled;
+                }
                 this.sendResourceListChanged();
             }
         };
@@ -844,13 +1000,25 @@ export class McpServer {
             update: updates => {
                 if (typeof updates.name !== 'undefined' && updates.name !== name) {
                     delete this._registeredPrompts[name];
-                    if (updates.name) this._registeredPrompts[updates.name] = registeredPrompt;
+                    if (updates.name) {
+                        this._registeredPrompts[updates.name] = registeredPrompt;
+                    }
                 }
-                if (typeof updates.title !== 'undefined') registeredPrompt.title = updates.title;
-                if (typeof updates.description !== 'undefined') registeredPrompt.description = updates.description;
-                if (typeof updates.argsSchema !== 'undefined') registeredPrompt.argsSchema = objectFromShape(updates.argsSchema);
-                if (typeof updates.callback !== 'undefined') registeredPrompt.callback = updates.callback;
-                if (typeof updates.enabled !== 'undefined') registeredPrompt.enabled = updates.enabled;
+                if (typeof updates.title !== 'undefined') {
+                    registeredPrompt.title = updates.title;
+                }
+                if (typeof updates.description !== 'undefined') {
+                    registeredPrompt.description = updates.description;
+                }
+                if (typeof updates.argsSchema !== 'undefined') {
+                    registeredPrompt.argsSchema = objectFromShape(updates.argsSchema);
+                }
+                if (typeof updates.callback !== 'undefined') {
+                    registeredPrompt.callback = updates.callback;
+                }
+                if (typeof updates.enabled !== 'undefined') {
+                    registeredPrompt.enabled = updates.enabled;
+                }
                 this.sendPromptListChanged();
             }
         };
@@ -903,16 +1071,34 @@ export class McpServer {
                         validateAndWarnToolName(updates.name);
                     }
                     delete this._registeredTools[name];
-                    if (updates.name) this._registeredTools[updates.name] = registeredTool;
+                    if (updates.name) {
+                        this._registeredTools[updates.name] = registeredTool;
+                    }
                 }
-                if (typeof updates.title !== 'undefined') registeredTool.title = updates.title;
-                if (typeof updates.description !== 'undefined') registeredTool.description = updates.description;
-                if (typeof updates.paramsSchema !== 'undefined') registeredTool.inputSchema = objectFromShape(updates.paramsSchema);
-                if (typeof updates.outputSchema !== 'undefined') registeredTool.outputSchema = objectFromShape(updates.outputSchema);
-                if (typeof updates.callback !== 'undefined') registeredTool.handler = updates.callback;
-                if (typeof updates.annotations !== 'undefined') registeredTool.annotations = updates.annotations;
-                if (typeof updates._meta !== 'undefined') registeredTool._meta = updates._meta;
-                if (typeof updates.enabled !== 'undefined') registeredTool.enabled = updates.enabled;
+                if (typeof updates.title !== 'undefined') {
+                    registeredTool.title = updates.title;
+                }
+                if (typeof updates.description !== 'undefined') {
+                    registeredTool.description = updates.description;
+                }
+                if (typeof updates.paramsSchema !== 'undefined') {
+                    registeredTool.inputSchema = objectFromShape(updates.paramsSchema);
+                }
+                if (typeof updates.outputSchema !== 'undefined') {
+                    registeredTool.outputSchema = objectFromShape(updates.outputSchema);
+                }
+                if (typeof updates.callback !== 'undefined') {
+                    registeredTool.handler = updates.callback;
+                }
+                if (typeof updates.annotations !== 'undefined') {
+                    registeredTool.annotations = updates.annotations;
+                }
+                if (typeof updates._meta !== 'undefined') {
+                    registeredTool._meta = updates._meta;
+                }
+                if (typeof updates.enabled !== 'undefined') {
+                    registeredTool.enabled = updates.enabled;
+                }
                 this.sendToolListChanged();
             }
         };
@@ -1209,6 +1395,67 @@ export class McpServer {
         if (this.isConnected()) {
             this.server.sendPromptListChanged();
         }
+    }
+
+    private async _executeRequest<ResultT, RequestT, ExtraT>(
+        handler: (request: RequestT, extra: ExtraT) => Promise<ResultT>,
+        request: RequestT,
+        extra: ExtraT
+    ): Promise<ResultT> {
+        this._middlewareFrozen = true;
+        const middleware = this._middleware;
+
+        // Optimized path: If there are no middleware, just run the handler
+        if (middleware.length === 0) {
+            return handler(request, extra);
+        }
+
+        let result: ResultT | undefined;
+        let handlerError: unknown;
+
+        // Wrap the handler as the final middleware
+        const leafMiddleware: McpMiddleware = async (_context, _next) => {
+            try {
+                result = await handler(request, extra);
+            } catch (e) {
+                handlerError = e;
+            }
+        };
+
+        const chain = [...middleware, leafMiddleware];
+
+        // Execute the chain
+        // Protect against creating a context with incorrect types by casting
+        const context: McpMiddlewareContext = {
+            request: request as unknown as ServerRequest,
+            extra: extra as unknown as RequestHandlerExtra<ServerRequest, ServerNotification>,
+            state: {}
+        };
+
+        const executeChain = async (i: number): Promise<void> => {
+            if (i >= chain.length) {
+                return;
+            }
+            const fn = chain[i] as McpMiddleware;
+
+            let nextCalled = false;
+            await fn(context, async () => {
+                if (nextCalled) {
+                    throw new Error('next() called multiple times in middleware');
+                }
+                nextCalled = true;
+                await executeChain(i + 1);
+            });
+        };
+
+        await executeChain(0);
+
+        if (handlerError) {
+            throw handlerError;
+        }
+
+        // Return result, asserting it exists (handlers should generally return something)
+        return result as ResultT;
     }
 }
 
