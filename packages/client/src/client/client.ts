@@ -70,6 +70,7 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
+import { StreamableHTTPClientTransport, StreamableHTTPError } from './streamableHttp.js';
 
 /**
  * Elicitation default application helper. Applies defaults to the data based on the schema.
@@ -533,6 +534,43 @@ export class Client<
         } catch (error) {
             // Disconnect if initialization fails.
             void this.close();
+            throw error;
+        }
+    }
+
+    /**
+     * Override request to handle session recovery.
+     * When a 404 error is caught on an active session (server returned 404 for expired session),
+     * this will automatically reconnect and retry the request once.
+     */
+    override request<T extends AnyObjectSchema>(
+        request: ClientRequest | RequestT,
+        resultSchema: T,
+        options?: RequestOptions
+    ): Promise<SchemaOutput<T>> {
+        return this._requestWithSessionRecovery(request, resultSchema, options);
+    }
+
+    private async _requestWithSessionRecovery<T extends AnyObjectSchema>(
+        request: ClientRequest | RequestT,
+        resultSchema: T,
+        options?: RequestOptions
+    ): Promise<SchemaOutput<T>> {
+        try {
+            return await super.request(request, resultSchema, options);
+        } catch (error) {
+            const transport = this.transport;
+            const isSessionTerminated =
+                error instanceof StreamableHTTPError &&
+                error.code === 404 &&
+                transport instanceof StreamableHTTPClientTransport &&
+                transport.sessionId !== undefined;
+
+            if (isSessionTerminated && request.method !== 'initialize') {
+                await transport.resetSession();
+                await this.connect(transport, options);
+                return await super.request(request, resultSchema, options);
+            }
             throw error;
         }
     }
