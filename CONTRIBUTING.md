@@ -60,6 +60,48 @@ pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamabl
 pnpm --filter @modelcontextprotocol/examples-client exec tsx src/simpleStreamableHttp.ts
 ```
 
+## Releasing v1.x Patches
+
+The `v1.x` branch contains the stable v1 release. To release a patch:
+
+### Latest v1.x (e.g., v1.25.3)
+
+```bash
+git checkout v1.x
+git pull origin v1.x
+# Apply your fix or cherry-pick commits
+npm version patch      # Bumps version and creates tag (e.g., v1.25.3)
+git push origin v1.x --tags
+```
+
+The tag push automatically triggers the release workflow.
+
+### Older minor versions (e.g., v1.23.2)
+
+For patching older minor versions that aren't on the `v1.x` branch:
+
+```bash
+# 1. Create a release branch from the last release tag
+git checkout -b release/1.23 v1.23.1
+
+# 2. Apply your fixes (cherry-pick or manual)
+git cherry-pick <commit-hash>
+
+# 3. Bump version and push
+npm version patch      # Creates v1.23.2 tag
+git push origin release/1.23 --tags
+```
+
+Then manually trigger the "Publish v1.x" workflow from [GitHub Actions](https://github.com/modelcontextprotocol/typescript-sdk/actions/workflows/release-v1x.yml), specifying the tag (e.g., `v1.23.2`).
+
+### npm Tags
+
+v1.x releases are published with `release-X.Y` npm tags (e.g., `release-1.25`), not `latest`. To install a specific minor version:
+
+```bash
+npm install @modelcontextprotocol/sdk@release-1.25
+```
+
 ## Code of Conduct
 
 This project follows our [Code of Conduct](CODE_OF_CONDUCT.md). Please review it before contributing.
