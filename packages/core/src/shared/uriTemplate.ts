@@ -225,7 +225,7 @@ export class UriTemplate {
 
         switch (part.operator) {
             case '':
-                pattern = part.exploded ? '([^/]+(?:,[^/]+)*)' : '([^/,]+)';
+                pattern = part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/,]+)';
                 break;
             case '+':
             case '#':
@@ -235,7 +235,7 @@ export class UriTemplate {
                 pattern = '\\.([^/,]+)';
                 break;
             case '/':
-                pattern = '/' + (part.exploded ? '([^/]+(?:,[^/]+)*)' : '([^/,]+)');
+                pattern = '/' + (part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/,]+)');
                 break;
             default:
                 pattern = '([^/]+)';
