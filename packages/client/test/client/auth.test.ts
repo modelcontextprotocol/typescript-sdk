@@ -2,6 +2,7 @@ import type { AuthorizationServerMetadata, OAuthTokens } from '@modelcontextprot
 import { InvalidClientMetadataError, LATEST_PROTOCOL_VERSION, ServerError } from '@modelcontextprotocol/core';
 import { expect, type Mock, vi } from 'vitest';
 
+import { createPrivateKeyJwtAuth } from '../../src/client/auth-extensions.js';
 import {
     auth,
     buildDiscoveryUrls,
@@ -17,7 +18,6 @@ import {
     selectClientAuthMethod,
     startAuthorization
 } from '../../src/client/auth.js';
-import { createPrivateKeyJwtAuth } from '../../src/client/auth-extensions.js';
 
 // Mock pkce-challenge
 vi.mock('pkce-challenge', () => ({
@@ -3242,6 +3242,354 @@ describe('OAuth Authorization', () => {
                 client_secret: 'generated-secret',
                 redirect_uris: ['http://localhost:3000/callback']
             });
+        });
+    });
+
+    describe('resource metadata URL persistence', () => {
+        const mockProvider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return {
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    client_name: 'Test Client'
+                };
+            },
+            clientInformation: vi.fn().mockReturnValue({
+                client_id: 'test-client-id'
+            }),
+            tokens: vi.fn().mockReturnValue(undefined),
+            saveTokens: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockReturnValue('test_verifier'),
+            saveResourceMetadataUrl: vi.fn(),
+            resourceMetadataUrl: vi.fn()
+        };
+
+        beforeEach(() => {
+            vi.clearAllMocks();
+        });
+
+        it('saves resource metadata URL before redirect when saveResourceMetadataUrl is implemented', async () => {
+            const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+            // Mock protected resource metadata discovery
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://resource.example.com',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            await auth(mockProvider, {
+                serverUrl: 'https://resource.example.com',
+                resourceMetadataUrl
+            });
+
+            // Verify that saveResourceMetadataUrl was called with the URL
+            expect(mockProvider.saveResourceMetadataUrl).toHaveBeenCalledWith(resourceMetadataUrl);
+            // Verify redirect was triggered
+            expect(mockProvider.redirectToAuthorization).toHaveBeenCalled();
+        });
+
+        it('loads resource metadata URL from provider when not passed in options', async () => {
+            const savedResourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+            // Configure provider to return saved URL
+            (mockProvider.resourceMetadataUrl as Mock).mockReturnValue(savedResourceMetadataUrl);
+
+            // Mock protected resource metadata discovery using the saved URL
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://resource.example.com',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'test_token',
+                            token_type: 'bearer',
+                            expires_in: 3600
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            // Call auth with authorization code (simulating post-redirect)
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://resource.example.com',
+                authorizationCode: 'test_code'
+                // resourceMetadataUrl is NOT passed - should be loaded from provider
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            // Verify provider.resourceMetadataUrl was called to retrieve saved URL
+            expect(mockProvider.resourceMetadataUrl).toHaveBeenCalled();
+        });
+
+        it('does not call saveResourceMetadataUrl when provider does not implement it', async () => {
+            const providerWithoutPersistence: OAuthClientProvider = {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                    };
+                },
+                clientInformation: vi.fn().mockReturnValue({
+                    client_id: 'test-client-id'
+                }),
+                tokens: vi.fn().mockReturnValue(undefined),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn().mockReturnValue('test_verifier')
+                // Note: saveResourceMetadataUrl and resourceMetadataUrl are NOT implemented
+            };
+
+            const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://resource.example.com',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            // Should not throw - provider without persistence is still valid
+            await auth(providerWithoutPersistence, {
+                serverUrl: 'https://resource.example.com',
+                resourceMetadataUrl
+            });
+
+            // Verify redirect was triggered (auth flow proceeded normally)
+            expect(providerWithoutPersistence.redirectToAuthorization).toHaveBeenCalled();
+        });
+
+        it('handles async resourceMetadataUrl that returns a Promise', async () => {
+            const savedResourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+            // Configure provider to return a Promise
+            (mockProvider.resourceMetadataUrl as Mock).mockResolvedValue(savedResourceMetadataUrl);
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://resource.example.com',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'test_token',
+                            token_type: 'bearer',
+                            expires_in: 3600
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://resource.example.com',
+                authorizationCode: 'test_code'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(mockProvider.resourceMetadataUrl).toHaveBeenCalled();
+        });
+
+        it('does not call provider.resourceMetadataUrl when resourceMetadataUrl is passed in options', async () => {
+            const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://resource.example.com',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            await auth(mockProvider, {
+                serverUrl: 'https://resource.example.com',
+                resourceMetadataUrl // Explicitly passed
+            });
+
+            // Provider's resourceMetadataUrl should NOT be called when URL is passed in options
+            expect(mockProvider.resourceMetadataUrl).not.toHaveBeenCalled();
+        });
+
+        it('proceeds normally when provider.resourceMetadataUrl returns undefined', async () => {
+            // Configure provider to return undefined (no saved URL)
+            (mockProvider.resourceMetadataUrl as Mock).mockReturnValue(undefined);
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://resource.example.com',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            // Should not throw - undefined return is valid
+            await auth(mockProvider, {
+                serverUrl: 'https://resource.example.com'
+            });
+
+            expect(mockProvider.resourceMetadataUrl).toHaveBeenCalled();
+            expect(mockProvider.redirectToAuthorization).toHaveBeenCalled();
+            // saveResourceMetadataUrl should NOT be called when there's no URL to save
+            expect(mockProvider.saveResourceMetadataUrl).not.toHaveBeenCalled();
         });
     });
 });

@@ -8,6 +8,7 @@ export class InMemoryOAuthClientProvider implements OAuthClientProvider {
     private _clientInformation?: OAuthClientInformationMixed;
     private _tokens?: OAuthTokens;
     private _codeVerifier?: string;
+    private _resourceMetadataUrl?: URL;
 
     constructor(
         private readonly _redirectUrl: string | URL,
@@ -61,5 +62,21 @@ export class InMemoryOAuthClientProvider implements OAuthClientProvider {
             throw new Error('No code verifier saved');
         }
         return this._codeVerifier;
+    }
+
+    /**
+     * Saves the resource metadata URL discovered during the initial OAuth challenge.
+     * In browser environments, you should persist this to sessionStorage.
+     */
+    saveResourceMetadataUrl(url: URL): void {
+        this._resourceMetadataUrl = url;
+    }
+
+    /**
+     * Loads a previously saved resource metadata URL.
+     * This is called when exchanging the authorization code for tokens after redirect.
+     */
+    resourceMetadataUrl(): URL | undefined {
+        return this._resourceMetadataUrl;
     }
 }
