@@ -16,32 +16,47 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v4
-            - uses: actions/setup-node@v4
+            - uses: actions/checkout@v6
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              id: pnpm-install
+              with:
+                  run_install: false
+            - uses: actions/setup-node@v6
               with:
                   node-version: 24
-                  cache: npm
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
 
-            - run: npm ci
-            - run: npm run check
-            - run: npm run build
+            - run: pnpm install
+            - run: pnpm run check:all
+            - run: pnpm run build:all
 
     test:
         runs-on: ubuntu-latest
         strategy:
             fail-fast: false
             matrix:
-                node-version: [18, 24]
+                node-version: [20, 22, 24]
 
         steps:
-            - uses: actions/checkout@v4
-            - uses: actions/setup-node@v4
+            - uses: actions/checkout@v6
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              id: pnpm-install
+              with:
+                  run_install: false
+            - uses: actions/setup-node@v6
               with:
                   node-version: ${{ matrix.node-version }}
-                  cache: npm
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
 
-            - run: npm ci
-            - run: npm test
+            - run: pnpm install
+
+            - run: pnpm test:all
 
     publish:
         runs-on: ubuntu-latest
@@ -55,13 +70,19 @@ jobs:
 
         steps:
             - uses: actions/checkout@v4
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              id: pnpm-install
+              with:
+                  run_install: false
             - uses: actions/setup-node@v4
               with:
                   node-version: 24
-                  cache: npm
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
                   registry-url: 'https://registry.npmjs.org'
-
-            - run: npm ci
+            - run: pnpm install
 
             - name: Determine npm tag
               id: npm-tag
@@ -84,6 +105,6 @@ jobs:
                     echo "tag=" >> $GITHUB_OUTPUT
                   fi
 
-            - run: npm publish --provenance --access public ${{ steps.npm-tag.outputs.tag }}
+            - run: pnpm publish --provenance --access public ${{ steps.npm-tag.outputs.tag }}
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
