@@ -1144,7 +1144,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const listResponse = results.find((r: { id?: RequestId }) => r.id === 'batch-1');
             const callResponse = results.find((r: { id?: RequestId }) => r.id === 'batch-2');
 
-            expect(listResponse).toEqual(
+            expect(listResponse).toStrictEqual(
                 expect.objectContaining({
                     jsonrpc: '2.0',
                     id: 'batch-1',
@@ -1154,7 +1154,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 })
             );
 
-            expect(callResponse).toEqual(
+            expect(callResponse).toStrictEqual(
                 expect.objectContaining({
                     jsonrpc: '2.0',
                     id: 'batch-2',
@@ -2513,7 +2513,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // Give time for async callback to complete
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            expect(initializationOrder).toEqual(['async-start', 'async-end', tempSessionId]);
+            expect(initializationOrder).toStrictEqual(['async-start', 'async-end', tempSessionId]);
 
             // Clean up
             tempServer.close();
@@ -2537,7 +2537,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
             const tempSessionId = initResponse.headers.get('mcp-session-id');
 
-            expect(capturedSessionId).toEqual([tempSessionId]);
+            expect(capturedSessionId).toStrictEqual([tempSessionId]);
 
             // Clean up
             tempServer.close();
@@ -2580,7 +2580,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // Give time for async callback to complete
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            expect(closureOrder).toEqual(['async-close-start', 'async-close-end', tempSessionId]);
+            expect(closureOrder).toStrictEqual(['async-close-start', 'async-close-end', tempSessionId]);
 
             // Clean up
             tempServer.close();

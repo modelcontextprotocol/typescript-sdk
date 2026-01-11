@@ -137,7 +137,7 @@ describe('Proxy OAuth Server Provider', () => {
                     body: expect.stringContaining('grant_type=authorization_code')
                 })
             );
-            expect(tokens).toEqual(mockTokenResponse);
+            expect(tokens).toStrictEqual(mockTokenResponse);
         });
 
         it('includes redirect_uri in token request when provided', async () => {
@@ -154,7 +154,7 @@ describe('Proxy OAuth Server Provider', () => {
                     body: expect.stringContaining(`redirect_uri=${encodeURIComponent(redirectUri)}`)
                 })
             );
-            expect(tokens).toEqual(mockTokenResponse);
+            expect(tokens).toStrictEqual(mockTokenResponse);
         });
 
         it('includes resource parameter in authorization code exchange', async () => {
@@ -176,7 +176,7 @@ describe('Proxy OAuth Server Provider', () => {
                     body: expect.stringContaining('resource=' + encodeURIComponent('https://api.example.com/resource'))
                 })
             );
-            expect(tokens).toEqual(mockTokenResponse);
+            expect(tokens).toStrictEqual(mockTokenResponse);
         });
 
         it('handles authorization code exchange without resource parameter', async () => {
@@ -185,7 +185,7 @@ describe('Proxy OAuth Server Provider', () => {
             const fetchCall = (global.fetch as Mock).mock.calls[0];
             const body = fetchCall![1].body as string;
             expect(body).not.toContain('resource=');
-            expect(tokens).toEqual(mockTokenResponse);
+            expect(tokens).toStrictEqual(mockTokenResponse);
         });
 
         it('exchanges refresh token for new tokens', async () => {
@@ -201,7 +201,7 @@ describe('Proxy OAuth Server Provider', () => {
                     body: expect.stringContaining('grant_type=refresh_token')
                 })
             );
-            expect(tokens).toEqual(mockTokenResponse);
+            expect(tokens).toStrictEqual(mockTokenResponse);
         });
 
         it('includes resource parameter in refresh token exchange', async () => {
@@ -222,7 +222,7 @@ describe('Proxy OAuth Server Provider', () => {
                     body: expect.stringContaining('resource=' + encodeURIComponent('https://api.example.com/resource'))
                 })
             );
-            expect(tokens).toEqual(mockTokenResponse);
+            expect(tokens).toStrictEqual(mockTokenResponse);
         });
     });
 
@@ -252,7 +252,7 @@ describe('Proxy OAuth Server Provider', () => {
                     body: JSON.stringify(newClient)
                 })
             );
-            expect(result).toEqual(newClient);
+            expect(result).toStrictEqual(newClient);
         });
 
         it('handles registration failure', async () => {
@@ -312,7 +312,7 @@ describe('Proxy OAuth Server Provider', () => {
             mockVerifyToken.mockResolvedValue(validAuthInfo);
 
             const authInfo = await provider.verifyAccessToken('valid-token');
-            expect(authInfo).toEqual(validAuthInfo);
+            expect(authInfo).toStrictEqual(validAuthInfo);
             expect(mockVerifyToken).toHaveBeenCalledWith('valid-token');
         });
 
