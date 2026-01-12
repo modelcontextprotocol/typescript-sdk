@@ -29,13 +29,18 @@
         "lint:all": "pnpm -r lint",
         "lint:fix:all": "pnpm -r lint:fix",
         "check:all": "pnpm -r typecheck && pnpm -r lint",
-        "test:all": "pnpm -r test"
+        "test:all": "pnpm -r test",
+        "test:conformance:client": "conformance client --command 'npx tsx src/conformance/everything-client.ts'",
+        "test:conformance:client:all": "conformance client --command 'npx tsx src/conformance/everything-client.ts' --suite all",
+        "test:conformance:client:run": "npx tsx src/conformance/everything-client.ts"
     },
     "devDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
         "@changesets/changelog-github": "^0.5.2",
         "@changesets/cli": "^2.29.8",
         "@eslint/js": "catalog:devTools",
+        "@modelcontextprotocol/client": "workspace:^",
+        "@modelcontextprotocol/conformance": "0.1.9",
         "@types/content-type": "catalog:devTools",
         "@types/cors": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",
@@ -56,7 +61,8 @@
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools",
-        "ws": "catalog:devTools"
+        "ws": "catalog:devTools",
+        "zod": "catalog:runtimeShared"
     },
     "resolutions": {
         "strip-ansi": "6.0.1"
