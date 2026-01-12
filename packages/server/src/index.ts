@@ -1,4 +1,3 @@
-export * from '../../middleware/node/src/streamableHttp.js';
 export * from './server/completable.js';
 export * from './server/helper/body.js';
 export * from './server/mcp.js';

@@ -3,14 +3,14 @@ import type { Server } from 'node:http';
 import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import {
     CallToolResultSchema,
     LATEST_PROTOCOL_VERSION,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListToolsResultSchema,
-    McpServer,
-    NodeStreamableHTTPServerTransport
+    McpServer
 } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';

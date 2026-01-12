@@ -48,7 +48,8 @@
     "dependencies": {
         "@hono/node-server": "catalog:runtimeServerOnly",
         "content-type": "catalog:runtimeServerOnly",
-        "raw-body": "catalog:runtimeServerOnly"
+        "raw-body": "catalog:runtimeServerOnly",
+        "@modelcontextprotocol/core": "workspace:^"
     },
     "peerDependencies": {
         "@modelcontextprotocol/server": "workspace:^"

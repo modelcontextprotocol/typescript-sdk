@@ -7,6 +7,7 @@ import {
     setupAuthServer
 } from '@modelcontextprotocol/examples-shared';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type {
     CallToolResult,
     GetPromptResult,
@@ -19,8 +20,7 @@ import {
     InMemoryTaskMessageQueue,
     InMemoryTaskStore,
     isInitializeRequest,
-    McpServer,
-    NodeStreamableHTTPServerTransport
+    McpServer
 } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';

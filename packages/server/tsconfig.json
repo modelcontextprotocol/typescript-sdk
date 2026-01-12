@@ -1,6 +1,6 @@
 {
     "extends": "@modelcontextprotocol/tsconfig",
-    "include": ["./", "../middleware/node/src/streamableHttp.ts", "../middleware/node/test/streamableHttp.test.ts"],
+    "include": ["./"],
     "exclude": ["node_modules", "dist"],
     "compilerOptions": {
         "paths": {

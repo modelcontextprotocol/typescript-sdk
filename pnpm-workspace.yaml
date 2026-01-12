@@ -54,7 +54,9 @@ enableGlobalVirtualStore: false
 
 linkWorkspacePackages: deep
 
-minimumReleaseAge: 4320 # 3 days
+minimumReleaseAge: 10080 # 7 days
+minimumReleaseAgeExclude: 
+    - '@modelcontextprotocol/conformance'
 
 onlyBuiltDependencies:
     - better-sqlite3

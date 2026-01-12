@@ -16,13 +16,9 @@ import {
     setupAuthServer
 } from '@modelcontextprotocol/examples-shared';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ElicitRequestURLParams, ElicitResult } from '@modelcontextprotocol/server';
-import {
-    isInitializeRequest,
-    McpServer,
-    NodeStreamableHTTPServerTransport,
-    UrlElicitationRequiredError
-} from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer, UrlElicitationRequiredError } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';

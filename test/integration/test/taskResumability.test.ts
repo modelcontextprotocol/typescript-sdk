@@ -3,13 +3,9 @@ import type { Server } from 'node:http';
 import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { EventStore, JSONRPCMessage } from '@modelcontextprotocol/server';
-import {
-    CallToolResultSchema,
-    LoggingMessageNotificationSchema,
-    McpServer,
-    NodeStreamableHTTPServerTransport
-} from '@modelcontextprotocol/server';
+import { CallToolResultSchema, LoggingMessageNotificationSchema, McpServer } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 

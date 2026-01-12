@@ -3,6 +3,7 @@ import type { Server } from 'node:http';
 import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { TaskRequestOptions } from '@modelcontextprotocol/server';
 import {
     CallToolResultSchema,
@@ -14,7 +15,6 @@ import {
     InMemoryTaskStore,
     McpError,
     McpServer,
-    NodeStreamableHTTPServerTransport,
     RELATED_TASK_META_KEY,
     TaskSchema
 } from '@modelcontextprotocol/server';
@@ -1041,7 +1041,7 @@ describe('Task Lifecycle Integration Tests', () => {
                     method: 'tasks/cancel',
                     params: { taskId }
                 },
-                z.object({ _meta: z.record(z.unknown()).optional() })
+                z.object({ _meta: z.record(z.string(), z.unknown()).optional() })
             );
 
             // Verify task is cancelled

@@ -1,6 +1,7 @@
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, GetPromptResult, ReadResourceResult } from '@modelcontextprotocol/server';
-import { McpServer, NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
