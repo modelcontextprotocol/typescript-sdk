@@ -32,14 +32,20 @@
         "test:all": "pnpm -r test",
         "test:conformance:client": "conformance client --command 'npx tsx src/conformance/everything-client.ts'",
         "test:conformance:client:all": "conformance client --command 'npx tsx src/conformance/everything-client.ts' --suite all",
-        "test:conformance:client:run": "npx tsx src/conformance/everything-client.ts"
+        "test:conformance:client:run": "npx tsx src/conformance/everything-client.ts",
+        "test:conformance:server": "scripts/run-server-conformance.sh",
+        "test:conformance:server:all": "scripts/run-server-conformance.sh all",
+        "test:conformance:all": "pnpm run test:conformance:client:all && pnpm run test:conformance:server:all"
     },
     "devDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
+        "cors": "catalog:runtimeServerOnly",
+        "express": "catalog:runtimeServerOnly",
         "@changesets/changelog-github": "^0.5.2",
         "@changesets/cli": "^2.29.8",
         "@eslint/js": "catalog:devTools",
         "@modelcontextprotocol/client": "workspace:^",
+        "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/conformance": "0.1.9",
         "@types/content-type": "catalog:devTools",
         "@types/cors": "catalog:devTools",

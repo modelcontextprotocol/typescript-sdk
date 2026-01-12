@@ -133,3 +133,6 @@ dist/
 
 # IDE
 .idea/
+
+# Conformance test results
+results/
