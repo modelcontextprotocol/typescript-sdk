@@ -3277,3 +3277,21 @@ test('should respect client task capabilities', async () => {
 
     clientTaskStore.cleanup();
 });
+
+test('should return empty arrays for list methods when server has capabilities but no handlers', async () => {
+    const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: { prompts: {}, resources: {}, tools: {} } });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    expect((await client.listPrompts()).prompts).toEqual([]);
+    expect((await client.listResources()).resources).toEqual([]);
+    expect((await client.listResourceTemplates()).resourceTemplates).toEqual([]);
+    expect((await client.listTools()).tools).toEqual([]);
+
+    await client.close();
+    await server.close();
+});
