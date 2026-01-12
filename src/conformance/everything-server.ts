@@ -13,7 +13,6 @@ import type {
     CallToolResult,
     GetPromptResult,
     ReadResourceResult,
-    Tool,
     EventId,
     EventStore,
     StreamId
@@ -80,28 +79,6 @@ const TEST_IMAGE_BASE64 =
 
 // Sample base64 encoded minimal WAV file for testing
 const TEST_AUDIO_BASE64 = 'UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAA=';
-
-// SEP-1613: Raw JSON Schema 2020-12 definition for conformance testing
-// This schema includes $schema, $defs, and additionalProperties to test
-// that SDKs correctly preserve these fields
-const JSON_SCHEMA_2020_12_INPUT_SCHEMA = {
-    $schema: 'https://json-schema.org/draft/2020-12/schema',
-    type: 'object' as const,
-    $defs: {
-        address: {
-            type: 'object',
-            properties: {
-                street: { type: 'string' },
-                city: { type: 'string' }
-            }
-        }
-    },
-    properties: {
-        name: { type: 'string' },
-        address: { $ref: '#/$defs/address' }
-    },
-    additionalProperties: false
-};
 
 // Function to create a new MCP server instance (one per session)
 function createMcpServer(sessionId?: string) {
@@ -283,7 +260,7 @@ function createMcpServer(sessionId?: string) {
         },
         async (_args, extra): Promise<CallToolResult> => {
             const progressToken = extra._meta?.progressToken ?? 0;
-            console.log('📊 Progress token:', progressToken);
+            console.log('Progress token:', progressToken);
             await extra.sendNotification({
                 method: 'notifications/progress',
                 params: {
