@@ -689,7 +689,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 id: request.id,
                 error: {
                     code: ErrorCode.MethodNotFound,
-                    message: 'Method not found'
+                    message: `Method '${request.method}' not found`
                 }
             };
 

@@ -2392,7 +2392,7 @@ describe('Task-based execution', () => {
 
         // Try to get a task when server doesn't have TaskStore
         // The server will return a "Method not found" error
-        await expect(client.experimental.tasks.getTask('non-existent')).rejects.toThrow('Method not found');
+        await expect(client.experimental.tasks.getTask('non-existent')).rejects.toThrow("Method 'tasks/get' not found");
     });
 
     test('should automatically attach related-task metadata to nested requests during tool execution', async () => {
