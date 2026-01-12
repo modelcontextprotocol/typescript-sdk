@@ -185,7 +185,7 @@ export interface CreateDemoAuthOptions {
  *
  * @see https://www.better-auth.com/docs/plugins/mcp
  */
-export function createDemoAuth(options: CreateDemoAuthOptions) {
+export function createDemoAuth(options: CreateDemoAuthOptions): ReturnType<typeof betterAuth> {
     const { baseURL, resource, loginPage = '/sign-in' } = options;
 
     // Use in-memory SQLite database for demo purposes

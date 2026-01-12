@@ -35,7 +35,7 @@
         "@modelcontextprotocol/core": "workspace:^",
         "@modelcontextprotocol/client": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
-        "@modelcontextprotocol/server-express": "workspace:^",
+        "@modelcontextprotocol/express": "workspace:^",
         "zod": "catalog:runtimeShared",
         "vitest": "catalog:devTools",
         "supertest": "catalog:devTools",

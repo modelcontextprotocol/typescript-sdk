@@ -5,7 +5,7 @@ import { vi } from 'vitest';
 import { createMcpHonoApp } from '../src/hono.js';
 import { hostHeaderValidation } from '../src/middleware/hostHeaderValidation.js';
 
-describe('@modelcontextprotocol/server-hono', () => {
+describe('@modelcontextprotocol/hono', () => {
     test('hostHeaderValidation blocks invalid Host and allows valid Host', async () => {
         const app = new Hono();
         app.use('*', hostHeaderValidation(['localhost']));

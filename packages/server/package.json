@@ -1,7 +1,7 @@
 {
     "name": "@modelcontextprotocol/server",
     "version": "2.0.0-alpha.0",
-    "description": "Model Context Protocol implementation for TypeScript",
+    "description": "Model Context Protocol implementation for TypeScript - Server package",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
     "homepage": "https://modelcontextprotocol.io",
@@ -18,7 +18,8 @@
     "packageManager": "pnpm@10.24.0",
     "keywords": [
         "modelcontextprotocol",
-        "mcp"
+        "mcp",
+        "server"
     ],
     "exports": {
         ".": {
@@ -44,10 +45,6 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
-        "@hono/node-server": "catalog:runtimeServerOnly",
-        "content-type": "catalog:runtimeServerOnly",
-        "pkce-challenge": "catalog:runtimeShared",
-        "raw-body": "catalog:runtimeServerOnly",
         "zod": "catalog:runtimeShared",
         "zod-to-json-schema": "catalog:runtimeShared"
     },
@@ -71,13 +68,8 @@
         "@modelcontextprotocol/test-helpers": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@types/content-type": "catalog:devTools",
-        "@types/cors": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",
         "@types/eventsource": "catalog:devTools",
-        "@types/express": "catalog:devTools",
-        "@types/express-serve-static-core": "catalog:devTools",
-        "@types/supertest": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",

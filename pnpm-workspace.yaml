@@ -26,7 +26,7 @@ catalogs:
         typescript: ^5.9.3
         typescript-eslint: ^8.48.1
         vite-tsconfig-paths: ^5.1.4
-        vitest: ^4.0.8
+        vitest: ^4.0.15
         ws: ^8.18.0
     runtimeClientOnly:
         cross-spawn: ^7.0.5
@@ -53,6 +53,8 @@ catalogs:
 enableGlobalVirtualStore: false
 
 linkWorkspacePackages: deep
+
+minimumReleaseAge: 4320 # 3 days
 
 onlyBuiltDependencies:
     - better-sqlite3

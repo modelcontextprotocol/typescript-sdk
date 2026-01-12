@@ -40,4 +40,4 @@ jobs:
             - name: Publish preview packages
               run:
                   pnpm dlx pkg-pr-new publish --packageManager=npm --pnpm './packages/server' './packages/client'
-                  './packages/server-express' './packages/server-hono'
+                  './packages/middleware/express' './packages/middleware/hono' './packages/middleware/node'

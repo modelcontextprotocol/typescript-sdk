@@ -1,8 +1,8 @@
 {
-    "name": "@modelcontextprotocol/server-hono",
+    "name": "@modelcontextprotocol/express",
     "private": false,
     "version": "2.0.0-alpha.0",
-    "description": "Hono adapters for the Model Context Protocol TypeScript server SDK",
+    "description": "Express adapters for the Model Context Protocol TypeScript server SDK - Express middleware",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
     "homepage": "https://modelcontextprotocol.io",
@@ -20,7 +20,8 @@
     "keywords": [
         "modelcontextprotocol",
         "mcp",
-        "hono"
+        "express",
+        "middleware"
     ],
     "exports": {
         ".": {
@@ -44,18 +45,23 @@
     },
     "dependencies": {
         "@modelcontextprotocol/server": "workspace:^",
-        "hono": "catalog:runtimeServerOnly"
+        "express": "catalog:runtimeServerOnly",
+        "@remix-run/node-fetch-server": "catalog:runtimeServerOnly"
     },
     "devDependencies": {
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@eslint/js": "catalog:devTools",
+        "@types/express": "catalog:devTools",
+        "@types/express-serve-static-core": "catalog:devTools",
+        "@types/supertest": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",
         "eslint-plugin-n": "catalog:devTools",
         "prettier": "catalog:devTools",
+        "supertest": "catalog:devTools",
         "tsdown": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",

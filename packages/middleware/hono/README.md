@@ -1,4 +1,4 @@
-# `@modelcontextprotocol/server-hono`
+# `@modelcontextprotocol/hono`
 
 Hono adapters for the MCP TypeScript server SDK.
 
@@ -7,7 +7,7 @@ This package is the Hono-specific companion to [`@modelcontextprotocol/server`](
 ## Install
 
 ```bash
-npm install @modelcontextprotocol/server @modelcontextprotocol/server-hono hono zod
+npm install @modelcontextprotocol/server @modelcontextprotocol/hono hono zod
 ```
 
 ## Exports
@@ -25,7 +25,7 @@ npm install @modelcontextprotocol/server @modelcontextprotocol/server-hono hono 
 ```ts
 import { Hono } from 'hono';
 import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
-import { mcpStreamableHttpHandler } from '@modelcontextprotocol/server-hono';
+import { mcpStreamableHttpHandler } from '@modelcontextprotocol/hono';
 
 const server = new McpServer({ name: 'my-server', version: '1.0.0' });
 const transport = new WebStandardStreamableHTTPServerTransport();
@@ -42,7 +42,7 @@ app.all('/mcp', mcpStreamableHttpHandler(transport));
 ```ts
 import { Hono } from 'hono';
 import type { OAuthServerProvider } from '@modelcontextprotocol/server';
-import { registerMcpAuthRoutes } from '@modelcontextprotocol/server-hono';
+import { registerMcpAuthRoutes } from '@modelcontextprotocol/hono';
 
 const provider: OAuthServerProvider = /* ... */;
 
@@ -57,7 +57,7 @@ registerMcpAuthRoutes(app, {
 
 ```ts
 import { Hono } from 'hono';
-import { localhostHostValidation } from '@modelcontextprotocol/server-hono';
+import { localhostHostValidation } from '@modelcontextprotocol/hono';
 
 const app = new Hono();
 app.use('*', localhostHostValidation());

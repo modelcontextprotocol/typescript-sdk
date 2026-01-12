@@ -22,7 +22,7 @@ function createMockReqResNext(host?: string) {
     return { req, res, next };
 }
 
-describe('@modelcontextprotocol/server-express', () => {
+describe('@modelcontextprotocol/express', () => {
     describe('hostHeaderValidation', () => {
         test('should block invalid Host header', () => {
             const middleware = hostHeaderValidation(['localhost']);

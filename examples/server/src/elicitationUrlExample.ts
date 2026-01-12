@@ -15,6 +15,7 @@ import {
     requireBearerAuth,
     setupAuthServer
 } from '@modelcontextprotocol/examples-shared';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import type { CallToolResult, ElicitRequestURLParams, ElicitResult } from '@modelcontextprotocol/server';
 import {
     isInitializeRequest,
@@ -22,7 +23,6 @@ import {
     NodeStreamableHTTPServerTransport,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/server';
-import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';

@@ -6,6 +6,7 @@ import {
     requireBearerAuth,
     setupAuthServer
 } from '@modelcontextprotocol/examples-shared';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import type {
     CallToolResult,
     GetPromptResult,
@@ -21,7 +22,6 @@ import {
     McpServer,
     NodeStreamableHTTPServerTransport
 } from '@modelcontextprotocol/server';
-import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 

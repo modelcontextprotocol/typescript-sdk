@@ -11,6 +11,7 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import type {
     CallToolResult,
     CreateMessageRequest,
@@ -44,7 +45,6 @@ import {
     RELATED_TASK_META_KEY,
     Server
 } from '@modelcontextprotocol/server';
-import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
 import type { Request, Response } from 'express';
 
 // ============================================================================

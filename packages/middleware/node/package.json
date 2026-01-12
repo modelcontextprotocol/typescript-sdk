@@ -1,7 +1,7 @@
 {
-    "name": "@modelcontextprotocol/client",
+    "name": "@modelcontextprotocol/node",
     "version": "2.0.0-alpha.0",
-    "description": "Model Context Protocol implementation for TypeScript - Client package",
+    "description": "Model Context Protocol implementation for TypeScript - Node.js middleware",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
     "homepage": "https://modelcontextprotocol.io",
@@ -19,7 +19,8 @@
     "keywords": [
         "modelcontextprotocol",
         "mcp",
-        "client"
+        "node.js",
+        "middleware"
     ],
     "exports": {
         ".": {
@@ -45,45 +46,37 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
-        "cross-spawn": "catalog:runtimeClientOnly",
-        "eventsource": "catalog:runtimeClientOnly",
-        "eventsource-parser": "catalog:runtimeClientOnly",
-        "jose": "catalog:runtimeClientOnly",
-        "pkce-challenge": "catalog:runtimeShared",
-        "zod": "catalog:runtimeShared"
+        "@hono/node-server": "catalog:runtimeServerOnly",
+        "content-type": "catalog:runtimeServerOnly",
+        "raw-body": "catalog:runtimeServerOnly"
     },
     "peerDependencies": {
-        "@cfworker/json-schema": "catalog:runtimeShared",
-        "zod": "catalog:runtimeShared"
-    },
-    "peerDependenciesMeta": {
-        "@cfworker/json-schema": {
-            "optional": true
-        },
-        "zod": {
-            "optional": false
-        }
+        "@modelcontextprotocol/server": "workspace:^"
     },
     "devDependencies": {
-        "@modelcontextprotocol/core": "workspace:^",
-        "@modelcontextprotocol/tsconfig": "workspace:^",
-        "@modelcontextprotocol/vitest-config": "workspace:^",
+        "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/test-helpers": "workspace:^",
-        "@cfworker/json-schema": "catalog:runtimeShared",
+        "@modelcontextprotocol/tsconfig": "workspace:^",
+        "@modelcontextprotocol/vitest-config": "workspace:^",
+        "@eslint/js": "catalog:devTools",
         "@types/content-type": "catalog:devTools",
+        "@types/cors": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",
         "@types/eventsource": "catalog:devTools",
+        "@types/express": "catalog:devTools",
+        "@types/express-serve-static-core": "catalog:devTools",
+        "@types/supertest": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
-        "@eslint/js": "catalog:devTools",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",
         "eslint-plugin-n": "catalog:devTools",
         "prettier": "catalog:devTools",
+        "supertest": "catalog:devTools",
+        "tsdown": "catalog:devTools",
         "tsx": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
-        "vitest": "catalog:devTools",
-        "tsdown": "catalog:devTools"
+        "vitest": "catalog:devTools"
     }
 }

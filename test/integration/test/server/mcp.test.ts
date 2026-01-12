@@ -18,11 +18,10 @@ import {
     UriTemplate,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/core';
-
-import { completable } from '../../../../packages/server/src/server/completable.js';
-import { McpServer, ResourceTemplate } from '../../../../packages/server/src/server/mcp.js';
-import type { ZodMatrixEntry } from '../../../../packages/server/test/server/__fixtures__/zodTestMatrix.js';
-import { zodTestMatrix } from '../../../../packages/server/test/server/__fixtures__/zodTestMatrix.js';
+import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
+import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 function createLatch() {
     let latch = false;

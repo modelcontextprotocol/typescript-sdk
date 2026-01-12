@@ -1,4 +1,4 @@
-# `@modelcontextprotocol/server-express`
+# `@modelcontextprotocol/express`
 
 Express adapters for the MCP TypeScript server SDK.
 
@@ -7,7 +7,7 @@ This package is the Express-specific companion to [`@modelcontextprotocol/server
 ## Install
 
 ```bash
-npm install @modelcontextprotocol/server @modelcontextprotocol/server-express zod
+npm install @modelcontextprotocol/server @modelcontextprotocol/express zod
 ```
 
 ## Exports
@@ -24,7 +24,7 @@ npm install @modelcontextprotocol/server @modelcontextprotocol/server-express zo
 ### Create an Express app with localhost DNS rebinding protection
 
 ```ts
-import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
 
 const app = createMcpExpressApp(); // default host is 127.0.0.1; protection enabled
 ```
@@ -33,7 +33,7 @@ const app = createMcpExpressApp(); // default host is 127.0.0.1; protection enab
 
 ```ts
 import { McpServer, NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
-import { createMcpExpressApp } from '@modelcontextprotocol/server-express';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
 
 const app = createMcpExpressApp();
 
@@ -48,7 +48,7 @@ app.post('/mcp', async (req, res) => {
 `@modelcontextprotocol/server` provides Web-standard auth handlers; this package wraps them as Express routers.
 
 ```ts
-import { mcpAuthRouter } from '@modelcontextprotocol/server-express';
+import { mcpAuthRouter } from '@modelcontextprotocol/express';
 import type { OAuthServerProvider } from '@modelcontextprotocol/server';
 import express from 'express';
 
@@ -72,7 +72,7 @@ app.use(
 `requireBearerAuth` validates the `Authorization: Bearer ...` header and sets `req.auth` on success.
 
 ```ts
-import { requireBearerAuth } from '@modelcontextprotocol/server-express';
+import { requireBearerAuth } from '@modelcontextprotocol/express';
 import type { OAuthTokenVerifier } from '@modelcontextprotocol/server';
 
 const verifier: OAuthTokenVerifier = /* ... */;
