@@ -133,10 +133,7 @@ dist/
 
 # IDE
 .idea/
-<<<<<<< HEAD
 .cursor/
-=======
 
 # Conformance test results
 results/
->>>>>>> 0073ab212cd5632068e93629344a0274ee67749a
