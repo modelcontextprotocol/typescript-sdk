@@ -597,9 +597,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 return this.createJsonErrorResponse(415, -32000, 'Unsupported Media Type: Content-Type must be application/json');
             }
 
-            // Build request info from headers
+            // Build request info from headers and URL
             const requestInfo: RequestInfo = {
-                headers: Object.fromEntries(req.headers.entries())
+                headers: Object.fromEntries(req.headers.entries()),
+                url: new URL(req.url)
             };
 
             let rawMessage;
