@@ -1,0 +1,55 @@
+packages:
+    - packages/**/*
+    - common/**/*
+    - examples/**/*
+    - test/**/*
+
+catalogs:
+    runtimeShared:
+        ajv: ^8.17.1
+        ajv-formats: ^3.0.1
+        json-schema-typed: ^8.0.2
+        pkce-challenge: ^5.0.0
+        zod: ^3.25 || ^4.0
+        zod-to-json-schema: ^3.25.0
+        '@cfworker/json-schema': ^4.1.1
+    runtimeServerOnly:
+        '@hono/node-server': ^1.19.7
+        hono: ^4.11.1
+        content-type: ^1.0.5
+        cors: ^2.8.5
+        express: ^5.0.1
+        express-rate-limit: ^7.5.0
+        raw-body: ^3.0.0
+    runtimeClientOnly:
+        jose: ^6.1.1
+        cross-spawn: ^7.0.5
+        eventsource: ^3.0.2
+        eventsource-parser: ^3.0.0
+    devTools:
+        typescript: ^5.9.3
+        vitest: ^4.0.8
+        eslint: ^9.8.0
+        '@eslint/js': ^9.39.1
+        eslint-config-prettier: ^10.1.8
+        eslint-plugin-n: ^17.23.1
+        prettier: 3.6.2
+        tsx: ^4.16.5
+        'typescript-eslint': ^8.48.1
+        supertest: ^7.0.0
+        ws: ^8.18.0
+        vite-tsconfig-paths: ^5.1.4
+        '@types/content-type': ^1.1.8
+        '@types/cors': ^2.8.17
+        '@types/cross-spawn': ^6.0.6
+        '@types/eventsource': ^1.1.15
+        '@types/express': ^5.0.0
+        '@types/express-serve-static-core': ^5.1.0
+        '@types/supertest': ^6.0.2
+        '@types/ws': ^8.5.12
+        '@typescript/native-preview': ^7.0.0-dev.20251217.1
+        tsdown: ^0.18.0
+
+enableGlobalVirtualStore: false
+
+linkWorkspacePackages: deep

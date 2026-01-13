@@ -10,8 +10,7 @@ This document outlines how to contribute effectively to the TypeScript SDK.
 
 **Please open an issue before starting work on new features or significant changes.** This gives us a chance to align on approach and save you time if we see potential issues.
 
-We'll close PRs for undiscussed features—not because we don't appreciate the effort, but because every merged feature becomes an ongoing maintenance burden for our small team of volunteer maintainers. Talking first helps us figure out together whether something belongs in the
-SDK.
+We'll close PRs for undiscussed features—not because we don't appreciate the effort, but because every merged feature becomes an ongoing maintenance burden for our small team of volunteer maintainers. Talking first helps us figure out together whether something belongs in the SDK.
 
 Straightforward bug fixes (a few lines of code with tests demonstrating the fix) can skip this step. For complex bugs that need significant changes, consider opening an issue first.
 
@@ -48,12 +47,23 @@ Before starting work, comment on the issue so we can assign it to you. This lets
 
 By the time you open a PR, the "what" and "why" should already be settled in an issue. This keeps PR reviews focused on implementation rather than revisiting whether we should do it at all.
 
+### Branches
+
+This repository has two main branches:
+
+- **`main`** – v2 of the SDK (currently in development). This is a monorepo with split packages.
+- **`v1.x`** – stable v1 release. Bug fixes and patches for v1 should target this branch.
+
+**Which branch should I use as a base?**
+
+- For **new features** or **v2-related work**: base your PR on `main`
+- For **v1 bug fixes** or **patches**: base your PR on `v1.x`
+
 ### Scope
 
 Small PRs get reviewed fast. Large PRs sit in the queue.
 
-We can review a few dozen lines in a few minutes. But a PR touching hundreds of lines across many files takes real effort to verify—and things inevitably slip through. If your change is big, break it into a stack of smaller PRs or get clear alignment from a maintainer on your
-approach in an issue before submitting a large PR.
+We can review a few dozen lines in a few minutes. But a PR touching hundreds of lines across many files takes real effort to verify—and things inevitably slip through. If your change is big, break it into a stack of smaller PRs or get clear alignment from a maintainer on your approach in an issue before submitting a large PR.
 
 ### What Gets Rejected
 
@@ -77,24 +87,83 @@ PRs may be rejected for:
 
 ### Getting Started
 
+This project uses [pnpm](https://pnpm.io/) as its package manager. If you don't have pnpm installed, enable it via [corepack](https://nodejs.org/api/corepack.html) (included with Node.js 16.9+):
+
+```bash
+corepack enable
+```
+
+Then:
+
 1. Fork the repository
 2. Clone your fork: `git clone https://github.com/YOUR-USERNAME/typescript-sdk.git`
-3. Install dependencies: `npm install`
-4. Build the project: `npm run build`
-5. Run tests: `npm test`
+3. Install dependencies: `pnpm install`
+4. Build the project: `pnpm build:all`
+5. Run tests: `pnpm test:all`
 
 ### Workflow
 
-1. Create a new branch for your changes
+1. Create a new branch for your changes (based on `main` or `v1.x` as appropriate)
 2. Make your changes
-3. Run `npm run lint` to ensure code style compliance
-4. Run `npm test` to verify all tests pass
+3. Run `pnpm lint:all` to ensure code style compliance
+4. Run `pnpm test:all` to verify all tests pass
 5. Submit a pull request
 
 ### Running Examples
 
-- Start the server: `npm run server`
-- Run the client: `npm run client`
+See [`examples/server/README.md`](examples/server/README.md) and [`examples/client/README.md`](examples/client/README.md) for a full list of runnable examples.
+
+Quick start:
+
+```bash
+# Run a server example
+pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts
+
+# Run a client example (in another terminal)
+pnpm --filter @modelcontextprotocol/examples-client exec tsx src/simpleStreamableHttp.ts
+```
+
+## Releasing v1.x Patches
+
+The `v1.x` branch contains the stable v1 release. To release a patch:
+
+### Latest v1.x (e.g., v1.25.3)
+
+```bash
+git checkout v1.x
+git pull origin v1.x
+# Apply your fix or cherry-pick commits
+npm version patch      # Bumps version and creates tag (e.g., v1.25.3)
+git push origin v1.x --tags
+```
+
+The tag push automatically triggers the release workflow.
+
+### Older minor versions (e.g., v1.23.2)
+
+For patching older minor versions that aren't on the `v1.x` branch:
+
+```bash
+# 1. Create a release branch from the last release tag
+git checkout -b release/1.23 v1.23.1
+
+# 2. Apply your fixes (cherry-pick or manual)
+git cherry-pick <commit-hash>
+
+# 3. Bump version and push
+npm version patch      # Creates v1.23.2 tag
+git push origin release/1.23 --tags
+```
+
+Then manually trigger the "Publish v1.x" workflow from [GitHub Actions](https://github.com/modelcontextprotocol/typescript-sdk/actions/workflows/release-v1x.yml), specifying the tag (e.g., `v1.23.2`).
+
+### npm Tags
+
+v1.x releases are published with `release-X.Y` npm tags (e.g., `release-1.25`), not `latest`. To install a specific minor version:
+
+```bash
+npm install @modelcontextprotocol/sdk@release-1.25
+```
 
 ## Policies
 
