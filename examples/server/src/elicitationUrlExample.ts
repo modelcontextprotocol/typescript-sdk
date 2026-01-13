@@ -235,7 +235,7 @@ let authMiddleware = null;
 const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}/mcp`);
 const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
-setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: true });
+setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: true, demoMode: true });
 
 // Add protected resource metadata route to the MCP server
 // This allows clients to discover the auth server

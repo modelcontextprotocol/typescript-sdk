@@ -9,6 +9,7 @@
 
 import { randomBytes } from 'node:crypto';
 
+import type { BetterAuthOptions } from 'better-auth';
 import { betterAuth } from 'better-auth';
 import { mcp } from 'better-auth/plugins';
 import Database from 'better-sqlite3';
@@ -173,6 +174,7 @@ export interface CreateDemoAuthOptions {
     baseURL: string;
     resource?: string;
     loginPage?: string;
+    demoMode: boolean;
 }
 
 /**
@@ -186,7 +188,7 @@ export interface CreateDemoAuthOptions {
  * @see https://www.better-auth.com/docs/plugins/mcp
  */
 export function createDemoAuth(options: CreateDemoAuthOptions) {
-    const { baseURL, resource, loginPage = '/sign-in' } = options;
+    const { baseURL, resource, loginPage = '/sign-in', demoMode } = options;
 
     // Use in-memory SQLite database for demo purposes
     // Note: All data is lost on restart - demo only!
@@ -214,7 +216,7 @@ export function createDemoAuth(options: CreateDemoAuthOptions) {
         baseURL,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         database: db as any, // Type cast to avoid exposing better-sqlite3 in exported types
-        trustedOrigins: ['*'],
+        trustedOrigins: [baseURL.toString()],
         // Basic email+password for demo
         emailAndPassword: {
             enabled: true,
@@ -222,20 +224,22 @@ export function createDemoAuth(options: CreateDemoAuthOptions) {
         },
         plugins: [mcpPlugin],
         // Enable verbose logging for demo/debugging
-        logger: {
-            disabled: false,
-            level: 'debug',
-            log: (level, message, ...args) => {
-                const timestamp = new Date().toISOString();
-                const prefix = `[Auth ${level.toUpperCase()}]`;
-                if (args.length > 0) {
-                    console.log(`${timestamp} ${prefix} ${message}`, ...args);
-                } else {
-                    console.log(`${timestamp} ${prefix} ${message}`);
-                }
-            }
-        }
-    });
+        logger: demoMode
+            ? {
+                  disabled: false,
+                  level: 'debug',
+                  log: (level, message, ...args) => {
+                      const timestamp = new Date().toISOString();
+                      const prefix = `[Auth ${level.toUpperCase()}]`;
+                      if (args.length > 0) {
+                          console.log(`${timestamp} ${prefix} ${message}`, ...args);
+                      } else {
+                          console.log(`${timestamp} ${prefix} ${message}`);
+                      }
+                  }
+              }
+            : undefined
+    } satisfies BetterAuthOptions);
 }
 
 /**

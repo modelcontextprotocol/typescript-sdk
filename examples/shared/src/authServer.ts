@@ -21,6 +21,10 @@ export interface SetupAuthServerOptions {
     authServerUrl: URL;
     mcpServerUrl: URL;
     strictResource?: boolean;
+    /**
+     * Examples should be used for **demo** only and not for production purposes, however this mode disables some logging and other features.
+     */
+    demoMode: boolean;
 }
 
 // Store auth instance globally so it can be used for token verification
@@ -75,13 +79,14 @@ async function ensureDemoUserExists(auth: DemoAuth): Promise<void> {
  * @param options - Server configuration
  */
 export function setupAuthServer(options: SetupAuthServerOptions): void {
-    const { authServerUrl, mcpServerUrl } = options;
+    const { authServerUrl, mcpServerUrl, demoMode } = options;
 
     // Create better-auth instance with MCP plugin
     const auth = createDemoAuth({
         baseURL: authServerUrl.toString().replace(/\/$/, ''),
         resource: mcpServerUrl.toString(),
-        loginPage: '/sign-in'
+        loginPage: '/sign-in',
+        demoMode: demoMode
     });
 
     // Store globally for token verification
@@ -111,23 +116,25 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
             console.log(`${timestamp} [Auth Request] Content-Type: ${req.headers['content-type']}`);
         }
 
-        // Log response when it finishes
-        const originalSend = res.send.bind(res);
-        res.send = function (body) {
-            console.log(`${timestamp} [Auth Response] ${res.statusCode} ${req.url}`);
-            if (res.statusCode >= 400 && body) {
-                try {
-                    const parsed = typeof body === 'string' ? JSON.parse(body) : body;
-                    console.log(`${timestamp} [Auth Response] Error:`, parsed);
-                } catch {
-                    // Not JSON, log as-is if short
-                    if (typeof body === 'string' && body.length < 200) {
-                        console.log(`${timestamp} [Auth Response] Body: ${body}`);
+        if (demoMode) {
+            // Log response when it finishes
+            const originalSend = res.send.bind(res);
+            res.send = function (body) {
+                console.log(`${timestamp} [Auth Response] ${res.statusCode} ${req.url}`);
+                if (res.statusCode >= 400 && body) {
+                    try {
+                        const parsed = typeof body === 'string' ? JSON.parse(body) : body;
+                        console.log(`${timestamp} [Auth Response] Error:`, parsed);
+                    } catch {
+                        // Not JSON, log as-is if short
+                        if (typeof body === 'string' && body.length < 200) {
+                            console.log(`${timestamp} [Auth Response] Body: ${body}`);
+                        }
                     }
                 }
-            }
-            return originalSend(body);
-        };
+                return originalSend(body);
+            };
+        }
         next();
     });
 
@@ -137,7 +144,6 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
 
     // OAuth metadata endpoints using better-auth's built-in handlers
     authApp.get('/.well-known/oauth-authorization-server', toNodeHandler(oAuthDiscoveryMetadata(auth)));
-    authApp.get('/.well-known/oauth-protected-resource', toNodeHandler(oAuthProtectedResourceMetadata(auth)));
 
     // Body parsers for non-better-auth routes (like /sign-in)
     authApp.use(express.json());

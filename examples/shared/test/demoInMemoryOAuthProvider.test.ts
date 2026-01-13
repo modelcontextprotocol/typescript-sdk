@@ -16,7 +16,8 @@ describe('createDemoAuth', () => {
     const validOptions: CreateDemoAuthOptions = {
         baseURL: 'http://localhost:3001',
         resource: 'http://localhost:3000/mcp',
-        loginPage: '/sign-in'
+        loginPage: '/sign-in',
+        demoMode: true
     };
 
     it('creates a better-auth instance with MCP plugin', () => {
@@ -27,7 +28,8 @@ describe('createDemoAuth', () => {
 
     it('uses default loginPage when not specified', () => {
         const options: CreateDemoAuthOptions = {
-            baseURL: 'http://localhost:3001'
+            baseURL: 'http://localhost:3001',
+            demoMode: true
         };
         const auth = createDemoAuth(options);
         expect(auth).toBeDefined();
