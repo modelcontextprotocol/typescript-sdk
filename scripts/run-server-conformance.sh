@@ -39,8 +39,7 @@ done
 
 echo "Server is ready. Running conformance tests..."
 
-# Run conformance tests - use suite from argument or default to "active"
-SUITE="${1:-active}"
-npx @modelcontextprotocol/conformance server --url "${SERVER_URL}" --suite "${SUITE}"
+# Run conformance tests - pass through all arguments
+npx @modelcontextprotocol/conformance server --url "${SERVER_URL}" "$@"
 
 echo "Conformance tests completed."

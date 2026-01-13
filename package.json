@@ -34,7 +34,7 @@
         "test:conformance:client:all": "conformance client --command 'npx tsx src/conformance/everything-client.ts' --suite all",
         "test:conformance:client:run": "npx tsx src/conformance/everything-client.ts",
         "test:conformance:server": "scripts/run-server-conformance.sh",
-        "test:conformance:server:all": "scripts/run-server-conformance.sh all",
+        "test:conformance:server:all": "scripts/run-server-conformance.sh --suite all",
         "test:conformance:all": "pnpm run test:conformance:client:all && pnpm run test:conformance:server:all"
     },
     "devDependencies": {
