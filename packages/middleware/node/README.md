@@ -30,11 +30,11 @@ const server = new McpServer({ name: 'my-server', version: '1.0.0' });
 const app = createMcpExpressApp();
 
 app.post('/mcp', async (req, res) => {
-  const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  await server.connect(transport);
+    const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await server.connect(transport);
 
-  // If you use Express JSON parsing, pass the pre-parsed body to avoid re-reading the stream.
-  await transport.handleRequest(req, res, req.body);
+    // If you use Express JSON parsing, pass the pre-parsed body to avoid re-reading the stream.
+    await transport.handleRequest(req, res, req.body);
 });
 ```
 
@@ -48,9 +48,8 @@ import { McpServer } from '@modelcontextprotocol/server';
 const server = new McpServer({ name: 'my-server', version: '1.0.0' });
 
 createServer(async (req, res) => {
-  const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  await server.connect(transport);
-  await transport.handleRequest(req, res);
+    const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await server.connect(transport);
+    await transport.handleRequest(req, res);
 }).listen(3000);
 ```
-
