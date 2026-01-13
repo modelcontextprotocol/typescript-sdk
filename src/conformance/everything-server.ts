@@ -21,6 +21,7 @@ import {
     CompleteRequestSchema,
     ElicitResultSchema,
     isInitializeRequest,
+    ListToolsRequestSchema,
     SetLevelRequestSchema,
     McpServer,
     ResourceTemplate,
@@ -79,6 +80,29 @@ const TEST_IMAGE_BASE64 =
 
 // Sample base64 encoded minimal WAV file for testing
 const TEST_AUDIO_BASE64 = 'UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAA=';
+
+// SEP-1613: Raw JSON Schema 2020-12 definition for conformance testing
+// This schema includes $schema, $defs, and additionalProperties to test
+// that SDKs correctly preserve these fields when listing tools
+const JSON_SCHEMA_2020_12_TOOL_NAME = 'json_schema_2020_12_tool';
+const JSON_SCHEMA_2020_12_INPUT_SCHEMA = {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    type: 'object' as const,
+    $defs: {
+        address: {
+            type: 'object',
+            properties: {
+                street: { type: 'string' },
+                city: { type: 'string' }
+            }
+        }
+    },
+    properties: {
+        name: { type: 'string' },
+        address: { $ref: '#/$defs/address' }
+    },
+    additionalProperties: false
+};
 
 // Function to create a new MCP server instance (one per session)
 function createMcpServer(sessionId?: string) {
@@ -627,8 +651,9 @@ function createMcpServer(sessionId?: string) {
     );
 
     // SEP-1613: JSON Schema 2020-12 conformance test tool
+    // Register with Zod for call handling, but we'll override the inputSchema in ListTools
     mcpServer.registerTool(
-        'json_schema_2020_12_tool',
+        JSON_SCHEMA_2020_12_TOOL_NAME,
         {
             description: 'Tool with JSON Schema 2020-12 features for conformance testing (SEP-1613)',
             inputSchema: {
@@ -652,6 +677,22 @@ function createMcpServer(sessionId?: string) {
             };
         }
     );
+
+    // Override ListToolsRequestSchema to inject raw JSON Schema 2020-12 for SEP-1613 test
+    // This is necessary because McpServer's registerTool converts Zod to JSON Schema,
+    // which strips $schema, $defs, and additionalProperties fields
+    const originalListToolsHandler = mcpServer.server['_requestHandlers'].get('tools/list');
+    if (originalListToolsHandler) {
+        mcpServer.server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
+            const result = (await originalListToolsHandler(request, extra)) as { tools: Array<{ name: string; inputSchema: unknown }> };
+            // Replace the inputSchema for our SEP-1613 test tool
+            const tool = result.tools.find(t => t.name === JSON_SCHEMA_2020_12_TOOL_NAME);
+            if (tool) {
+                tool.inputSchema = JSON_SCHEMA_2020_12_INPUT_SCHEMA;
+            }
+            return result;
+        });
+    }
 
     // ===== RESOURCES =====
 
