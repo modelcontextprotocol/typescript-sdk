@@ -2,20 +2,24 @@
 
 Hono adapters for the MCP TypeScript server SDK.
 
-This package is the Hono-specific companion to [`@modelcontextprotocol/server`](../server/), which is framework-agnostic and uses Web Standard `Request`/`Response` interfaces.
+This package is a thin Hono integration layer for [`@modelcontextprotocol/server`](../../server/).
+
+It does **not** implement MCP itself. Instead, it helps you:
+
+- create a Hono app with sensible defaults for MCP servers
+- parse JSON request bodies and expose them as `c.get('parsedBody')` for Streamable HTTP transports
+- add DNS rebinding protection via Host header validation (recommended for localhost servers)
 
 ## Install
 
 ```bash
-npm install @modelcontextprotocol/server @modelcontextprotocol/hono hono zod
+npm install @modelcontextprotocol/server @modelcontextprotocol/hono hono
 ```
 
 ## Exports
 
-- `mcpStreamableHttpHandler(transport)`
-- `registerMcpAuthRoutes(app, options)`
-- `registerMcpAuthMetadataRoutes(app, options)`
-- `hostHeaderValidation(allowedHosts)`
+- `createMcpHonoApp(options?)`
+- `hostHeaderValidation(allowedHostnames)`
 - `localhostHostValidation()`
 
 ## Usage
@@ -23,42 +27,22 @@ npm install @modelcontextprotocol/server @modelcontextprotocol/hono hono zod
 ### Streamable HTTP endpoint (Hono)
 
 ```ts
-import { Hono } from 'hono';
 import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
-import { mcpStreamableHttpHandler } from '@modelcontextprotocol/hono';
+import { createMcpHonoApp } from '@modelcontextprotocol/hono';
 
 const server = new McpServer({ name: 'my-server', version: '1.0.0' });
-const transport = new WebStandardStreamableHTTPServerTransport();
+const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 await server.connect(transport);
 
-const app = new Hono();
-app.all('/mcp', mcpStreamableHttpHandler(transport));
-```
-
-### OAuth routes (Hono)
-
-`@modelcontextprotocol/server` provides Web-standard auth handlers; this package mounts them onto a Hono app.
-
-```ts
-import { Hono } from 'hono';
-import type { OAuthServerProvider } from '@modelcontextprotocol/server';
-import { registerMcpAuthRoutes } from '@modelcontextprotocol/hono';
-
-const provider: OAuthServerProvider = /* ... */;
-
-const app = new Hono();
-registerMcpAuthRoutes(app, {
-  provider,
-  issuerUrl: new URL('https://auth.example.com')
-});
+const app = createMcpHonoApp();
+app.all('/mcp', c => transport.handleRequest(c.req.raw, { parsedBody: c.get('parsedBody') }));
 ```
 
 ### Host header validation (DNS rebinding protection)
 
 ```ts
-import { Hono } from 'hono';
 import { localhostHostValidation } from '@modelcontextprotocol/hono';
 
-const app = new Hono();
+const app = createMcpHonoApp();
 app.use('*', localhostHostValidation());
 ```

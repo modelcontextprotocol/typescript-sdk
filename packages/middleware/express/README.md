@@ -2,26 +2,31 @@
 
 Express adapters for the MCP TypeScript server SDK.
 
-This package is the Express-specific companion to [`@modelcontextprotocol/server`](../server/), which is framework-agnostic and uses Web Standard `Request`/`Response` interfaces.
+This package is a thin Express integration layer for [`@modelcontextprotocol/server`](../../server/).
+
+It does **not** implement MCP itself. Instead, it helps you:
+
+- create an Express app with sensible defaults for MCP servers
+- add DNS rebinding protection via Host header validation (recommended for localhost servers)
 
 ## Install
 
 ```bash
-npm install @modelcontextprotocol/server @modelcontextprotocol/express zod
+npm install @modelcontextprotocol/server @modelcontextprotocol/express express
+
+# For MCP Streamable HTTP over Node.js (IncomingMessage/ServerResponse):
+npm install @modelcontextprotocol/node
 ```
 
 ## Exports
 
 - `createMcpExpressApp(options?)`
-- `hostHeaderValidation(allowedHosts)`
+- `hostHeaderValidation(allowedHostnames)`
 - `localhostHostValidation()`
-- `mcpAuthRouter(options)`
-- `mcpAuthMetadataRouter(options)`
-- `requireBearerAuth(options)`
 
 ## Usage
 
-### Create an Express app with localhost DNS rebinding protection
+### Create an Express app (localhost DNS rebinding protection by default)
 
 ```ts
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
@@ -32,52 +37,26 @@ const app = createMcpExpressApp(); // default host is 127.0.0.1; protection enab
 ### Streamable HTTP endpoint (Express)
 
 ```ts
-import { McpServer, NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { McpServer } from '@modelcontextprotocol/server';
 
 const app = createMcpExpressApp();
+const server = new McpServer({ name: 'my-server', version: '1.0.0' });
 
 app.post('/mcp', async (req, res) => {
-    const transport = new NodeStreamableHTTPServerTransport();
-    await transport.handleRequest(req, res, req.body);
+  // Stateless example: create a transport per request.
+  // For stateful mode (sessions), keep a transport instance around and reuse it.
+  const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  await server.connect(transport);
+  await transport.handleRequest(req, res, req.body);
 });
 ```
 
-### OAuth routes (Express)
-
-`@modelcontextprotocol/server` provides Web-standard auth handlers; this package wraps them as Express routers.
+### Host header validation (DNS rebinding protection)
 
 ```ts
-import { mcpAuthRouter } from '@modelcontextprotocol/express';
-import type { OAuthServerProvider } from '@modelcontextprotocol/server';
-import express from 'express';
+import { hostHeaderValidation } from '@modelcontextprotocol/express';
 
-const provider: OAuthServerProvider = /* ... */;
-const app = express();
-app.use(express.json());
-
-// MUST be mounted at the app root
-app.use(
-  mcpAuthRouter({
-    provider,
-    issuerUrl: new URL('https://auth.example.com'),
-    // Optional rate limiting (implemented via express-rate-limit)
-    rateLimit: { windowMs: 60_000, max: 60 }
-  })
-);
-```
-
-### Bearer auth middleware (Express)
-
-`requireBearerAuth` validates the `Authorization: Bearer ...` header and sets `req.auth` on success.
-
-```ts
-import { requireBearerAuth } from '@modelcontextprotocol/express';
-import type { OAuthTokenVerifier } from '@modelcontextprotocol/server';
-
-const verifier: OAuthTokenVerifier = /* ... */;
-
-app.post('/protected', requireBearerAuth({ verifier }), (req, res) => {
-  res.json({ clientId: req.auth?.clientId });
-});
+app.use(hostHeaderValidation(['localhost', '127.0.0.1', '[::1]']));
 ```
