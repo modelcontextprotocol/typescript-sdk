@@ -43,11 +43,10 @@
         "test": "vitest run",
         "test:watch": "vitest"
     },
-    "dependencies": {
-        "express": "catalog:runtimeServerOnly"
-    },
+    "dependencies": {},
     "peerDependencies": {
-        "@modelcontextprotocol/server": "workspace:^"
+        "@modelcontextprotocol/server": "workspace:^",
+        "express": "catalog:runtimeServerOnly"
     },
     "devDependencies": {
         "@modelcontextprotocol/server": "workspace:^",

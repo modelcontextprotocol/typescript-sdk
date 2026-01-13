@@ -43,11 +43,10 @@
         "test": "vitest run",
         "test:watch": "vitest"
     },
-    "dependencies": {
-        "hono": "catalog:runtimeServerOnly"
-    },
+    "dependencies": {},
     "peerDependencies": {
-        "@modelcontextprotocol/server": "workspace:^"
+        "@modelcontextprotocol/server": "workspace:^",
+        "hono": "catalog:runtimeServerOnly"
     },
     "devDependencies": {
         "@modelcontextprotocol/server": "workspace:^",
