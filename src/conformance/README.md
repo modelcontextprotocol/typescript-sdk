@@ -45,7 +45,7 @@ Then run tests as above.
 
 Start the server manually:
 ```bash
-npx tsx src/conformance/everything-server.ts
+pnpm run test:conformance:server:run
 ```
 
 In another terminal, run specific tests:
