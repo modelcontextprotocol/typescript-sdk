@@ -32,7 +32,11 @@
         "test:all": "pnpm -r test",
         "test:conformance:client": "conformance client --command 'npx tsx src/conformance/everything-client.ts'",
         "test:conformance:client:all": "conformance client --command 'npx tsx src/conformance/everything-client.ts' --suite all",
-        "test:conformance:client:run": "npx tsx src/conformance/everything-client.ts"
+        "test:conformance:client:run": "npx tsx src/conformance/everything-client.ts",
+        "test:conformance:server": "scripts/run-server-conformance.sh",
+        "test:conformance:server:all": "scripts/run-server-conformance.sh --suite all",
+        "test:conformance:server:run": "npx tsx src/conformance/everything-server.ts",
+        "test:conformance:all": "pnpm run test:conformance:client:all && pnpm run test:conformance:server:all"
     },
     "devDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
@@ -41,6 +45,7 @@
         "@eslint/js": "catalog:devTools",
         "@modelcontextprotocol/client": "workspace:^",
         "@modelcontextprotocol/conformance": "0.1.9",
+        "@modelcontextprotocol/server": "workspace:^",
         "@types/content-type": "catalog:devTools",
         "@types/cors": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",
@@ -51,9 +56,11 @@
         "@types/supertest": "catalog:devTools",
         "@types/ws": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
+        "cors": "catalog:runtimeServerOnly",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",
         "eslint-plugin-n": "catalog:devTools",
+        "express": "catalog:runtimeServerOnly",
         "prettier": "catalog:devTools",
         "supertest": "catalog:devTools",
         "tsdown": "catalog:devTools",
