@@ -146,6 +146,9 @@ importers:
       '@modelcontextprotocol/conformance':
         specifier: 0.1.9
         version: 0.1.9(@cfworker/json-schema@4.1.1)(hono@4.11.3)
+      '@modelcontextprotocol/node':
+        specifier: workspace:^
+        version: link:packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:packages/server

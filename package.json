@@ -46,6 +46,7 @@
         "@modelcontextprotocol/client": "workspace:^",
         "@modelcontextprotocol/conformance": "0.1.9",
         "@modelcontextprotocol/server": "workspace:^",
+        "@modelcontextprotocol/node": "workspace:^",
         "@types/content-type": "catalog:devTools",
         "@types/cors": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",

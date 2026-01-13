@@ -24,10 +24,10 @@ import {
     SetLevelRequestSchema,
     McpServer,
     ResourceTemplate,
-    StreamableHTTPServerTransport,
     SubscribeRequestSchema,
     UnsubscribeRequestSchema
 } from '@modelcontextprotocol/server';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { Request, Response } from 'express';
 import cors from 'cors';
 import express from 'express';
@@ -38,7 +38,7 @@ const resourceSubscriptions = new Set<string>();
 const watchedResourceContent = 'Watched resource content';
 
 // Session management
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
 const servers: { [sessionId: string]: McpServer } = {};
 
 // In-memory event store for SEP-1699 resumability
@@ -920,7 +920,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     try {
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
 
         if (sessionId && transports[sessionId]) {
             // Reuse existing transport for established sessions
@@ -929,7 +929,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
             // Create new transport for initialization requests
             const mcpServer = createMcpServer();
 
-            transport = new StreamableHTTPServerTransport({
+            transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
                 retryInterval: 5000, // 5 second retry interval for SEP-1699
