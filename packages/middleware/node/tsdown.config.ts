@@ -27,8 +27,5 @@ export default defineConfig({
                 '@modelcontextprotocol/core': ['../core/src/index.ts']
             }
         }
-    },
-    // 5. Vendoring Strategy - Bundle the code for this specific package into the output,
-    //    but treat all other dependencies as external (require/import).
-    noExternal: ['@modelcontextprotocol/core']
+    }
 });

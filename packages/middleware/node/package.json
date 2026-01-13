@@ -46,34 +46,24 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
-        "@hono/node-server": "catalog:runtimeServerOnly",
-        "content-type": "catalog:runtimeServerOnly",
-        "raw-body": "catalog:runtimeServerOnly",
-        "@modelcontextprotocol/core": "workspace:^"
+        "@hono/node-server": "catalog:runtimeServerOnly"
     },
     "peerDependencies": {
         "@modelcontextprotocol/server": "workspace:^"
     },
     "devDependencies": {
         "@modelcontextprotocol/server": "workspace:^",
+        "@modelcontextprotocol/core": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/test-helpers": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@eslint/js": "catalog:devTools",
-        "@types/content-type": "catalog:devTools",
-        "@types/cors": "catalog:devTools",
-        "@types/cross-spawn": "catalog:devTools",
-        "@types/eventsource": "catalog:devTools",
-        "@types/express": "catalog:devTools",
-        "@types/express-serve-static-core": "catalog:devTools",
-        "@types/supertest": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",
         "eslint-plugin-n": "catalog:devTools",
         "prettier": "catalog:devTools",
-        "supertest": "catalog:devTools",
         "tsdown": "catalog:devTools",
         "tsx": "catalog:devTools",
         "typescript": "catalog:devTools",

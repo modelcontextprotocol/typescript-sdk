@@ -14,10 +14,8 @@ export default defineConfig({
         compilerOptions: {
             baseUrl: '.',
             paths: {
-                '@modelcontextprotocol/server': ['../server/src/index.ts'],
-                '@modelcontextprotocol/core': ['../core/src/index.ts']
+                '@modelcontextprotocol/server': ['../server/src/index.ts']
             }
         }
-    },
-    noExternal: ['@modelcontextprotocol/server', '@modelcontextprotocol/core']
+    }
 });

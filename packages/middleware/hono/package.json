@@ -44,10 +44,13 @@
         "test:watch": "vitest"
     },
     "dependencies": {
-        "@modelcontextprotocol/server": "workspace:^",
         "hono": "catalog:runtimeServerOnly"
     },
+    "peerDependencies": {
+        "@modelcontextprotocol/server": "workspace:^"
+    },
     "devDependencies": {
+        "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",

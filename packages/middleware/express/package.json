@@ -44,24 +44,24 @@
         "test:watch": "vitest"
     },
     "dependencies": {
-        "@modelcontextprotocol/server": "workspace:^",
-        "express": "catalog:runtimeServerOnly",
-        "@remix-run/node-fetch-server": "catalog:runtimeServerOnly"
+        "express": "catalog:runtimeServerOnly"
+    },
+    "peerDependencies": {
+        "@modelcontextprotocol/server": "workspace:^"
     },
     "devDependencies": {
+        "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@eslint/js": "catalog:devTools",
         "@types/express": "catalog:devTools",
         "@types/express-serve-static-core": "catalog:devTools",
-        "@types/supertest": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",
         "eslint-plugin-n": "catalog:devTools",
         "prettier": "catalog:devTools",
-        "supertest": "catalog:devTools",
         "tsdown": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",

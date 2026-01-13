@@ -89,9 +89,6 @@ catalogs:
     '@hono/node-server':
       specifier: ^1.19.7
       version: 1.19.7
-    '@remix-run/node-fetch-server':
-      specifier: ^0.13.0
-      version: 0.13.0
     content-type:
       specifier: ^1.0.5
       version: 1.0.5
@@ -591,12 +588,6 @@ importers:
 
   packages/middleware/express:
     dependencies:
-      '@modelcontextprotocol/server':
-        specifier: workspace:^
-        version: link:../../server
-      '@remix-run/node-fetch-server':
-        specifier: catalog:runtimeServerOnly
-        version: 0.13.0
       express:
         specifier: catalog:runtimeServerOnly
         version: 5.2.1
@@ -607,6 +598,9 @@ importers:
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../../common/eslint-config
+      '@modelcontextprotocol/server':
+        specifier: workspace:^
+        version: link:../../server
       '@modelcontextprotocol/tsconfig':
         specifier: workspace:^
         version: link:../../../common/tsconfig
@@ -655,9 +649,6 @@ importers:
 
   packages/middleware/hono:
     dependencies:
-      '@modelcontextprotocol/server':
-        specifier: workspace:^
-        version: link:../../server
       hono:
         specifier: catalog:runtimeServerOnly
         version: 4.11.3
@@ -668,6 +659,9 @@ importers:
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../../common/eslint-config
+      '@modelcontextprotocol/server':
+        specifier: workspace:^
+        version: link:../../server
       '@modelcontextprotocol/tsconfig':
         specifier: workspace:^
         version: link:../../../common/tsconfig
@@ -1346,9 +1340,6 @@ packages:
 
   '@quansync/fs@1.0.0':
     resolution: {integrity: sha512-4TJ3DFtlf1L5LDMaM6CanJ/0lckGNtJcMjQ1NAV6zDmA0tEHKZtxNKin8EgPaVX1YzljbxckyT2tJrpQKAtngQ==}
-
-  '@remix-run/node-fetch-server@0.13.0':
-    resolution: {integrity: sha512-1EsNo0ZpgXu/90AWoRZf/oE3RVTUS80tiTUpt+hv5pjtAkw7icN4WskDwz/KdAw5ARbJLMhZBrO1NqThmy/McA==}
 
   '@rolldown/binding-android-arm64@1.0.0-beta.57':
     resolution: {integrity: sha512-GoOVDy8bjw9z1K30Oo803nSzXJS/vWhFijFsW3kzvZCO8IZwFnNa6pGctmbbJstKl3Fv6UBwyjJQN6msejW0IQ==}
@@ -4392,8 +4383,6 @@ snapshots:
   '@quansync/fs@1.0.0':
     dependencies:
       quansync: 1.0.0
-
-  '@remix-run/node-fetch-server@0.13.0': {}
 
   '@rolldown/binding-android-arm64@1.0.0-beta.57':
     optional: true
