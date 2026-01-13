@@ -10,7 +10,7 @@ This document outlines how to contribute effectively to the TypeScript SDK.
 
 **Please open an issue before starting work on new features or significant changes.** This gives us a chance to align on approach and save you time if we see potential issues.
 
-We'll close PRs for undiscussed features—not because we don't appreciate the effort, but because every merged feature becomes an ongoing maintenance burden for our small team of volunteer maintainers. Talking first helps us figure out together whether something belongs in the SDK.
+We'll close PRs for undiscussed features—not because we don't appreciate the effort, but because every merged feature becomes an ongoing maintenance burden for our small team of maintainers. Talking first helps us figure out together whether something belongs in the SDK.
 
 Straightforward bug fixes (a few lines of code with tests demonstrating the fix) can skip this step. For complex bugs that need significant changes, consider opening an issue first.
 
