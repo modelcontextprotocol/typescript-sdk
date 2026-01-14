@@ -73,5 +73,10 @@
     },
     "resolutions": {
         "strip-ansi": "6.0.1"
+    },
+    "pnpm": {
+        "overrides": {
+            "qs": "6.14.1"
+        }
     }
 }
