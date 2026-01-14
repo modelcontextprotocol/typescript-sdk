@@ -262,7 +262,7 @@ describe('Task Lifecycle Integration Tests', () => {
             // Verify result is stored
             const result = await taskStore.getTaskResult(taskId);
             expect(result).toBeDefined();
-            expect(result.content).toEqual([{ type: 'text', text: 'Completed after 500ms' }]);
+            expect(result.content).toStrictEqual([{ type: 'text', text: 'Completed after 500ms' }]);
 
             await transport.close();
         });
@@ -304,7 +304,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
             // Verify error result is stored
             const result = await taskStore.getTaskResult(taskId);
-            expect(result.content).toEqual([{ type: 'text', text: 'Task failed as requested' }]);
+            expect(result.content).toStrictEqual([{ type: 'text', text: 'Task failed as requested' }]);
             expect(result.isError).toBe(true);
 
             await transport.close();
@@ -561,7 +561,7 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(receivedMessages[2]!.message).toBe('Request 3 of 3');
 
             // Verify final result includes all responses
-            expect(result.content).toEqual([{ type: 'text', text: 'Received responses: Response 1, Response 2, Response 3' }]);
+            expect(result.content).toStrictEqual([{ type: 'text', text: 'Received responses: Response 1, Response 2, Response 3' }]);
 
             // Verify task is completed
             const task = await client.request(
@@ -677,10 +677,10 @@ describe('Task Lifecycle Integration Tests', () => {
 
             // Verify the elicitation request had related-task metadata
             expect(elicitationRequestMeta).toBeDefined();
-            expect(elicitationRequestMeta?.[RELATED_TASK_META_KEY]).toEqual({ taskId });
+            expect(elicitationRequestMeta?.[RELATED_TASK_META_KEY]).toStrictEqual({ taskId });
 
             // Verify final result
-            expect(result.content).toEqual([{ type: 'text', text: 'Hello, TestUser!' }]);
+            expect(result.content).toStrictEqual([{ type: 'text', text: 'Hello, TestUser!' }]);
 
             // Verify task is now completed
             const finalTask = await elicitClient.request(
@@ -1294,7 +1294,7 @@ describe('Task Lifecycle Integration Tests', () => {
             }
 
             // Verify final result is correct
-            expect(result.content).toEqual([{ type: 'text', text: 'Received all responses: Response 1, Response 2, Response 3' }]);
+            expect(result.content).toStrictEqual([{ type: 'text', text: 'Received all responses: Response 1, Response 2, Response 3' }]);
 
             // Verify task is now completed
             task = await client.request(
@@ -1474,7 +1474,7 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(receivedMessages[1]!.message).toBe('Quick message 2 of 2');
 
             // Verify final result is correct
-            expect(result.content).toEqual([{ type: 'text', text: 'Task completed quickly' }]);
+            expect(result.content).toStrictEqual([{ type: 'text', text: 'Task completed quickly' }]);
 
             // Verify queue is cleaned up - calling tasks/result again should only return the result
             receivedMessages.length = 0; // Clear the array
@@ -1489,7 +1489,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
             // No messages should be delivered on second call (queue was cleaned up)
             expect(receivedMessages.length).toBe(0);
-            expect(result2.content).toEqual([{ type: 'text', text: 'Task completed quickly' }]);
+            expect(result2.content).toStrictEqual([{ type: 'text', text: 'Task completed quickly' }]);
 
             await transport.close();
         }, 10000);
@@ -1656,7 +1656,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
             // Verify result content
             const result = lastMessage.result as { content: Array<{ type: string; text: string }> };
-            expect(result.content).toEqual([{ type: 'text', text: 'Hello, StreamUser!' }]);
+            expect(result.content).toStrictEqual([{ type: 'text', text: 'Hello, StreamUser!' }]);
 
             await transport.close();
         }, 15000);
