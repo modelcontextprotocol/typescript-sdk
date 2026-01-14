@@ -86,7 +86,7 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
-        "@hono/node-server": "^1.19.7",
+        "@hono/node-server": "^1.19.9",
         "ajv": "^8.17.1",
         "ajv-formats": "^3.0.1",
         "content-type": "^1.0.5",
@@ -94,9 +94,9 @@
         "cross-spawn": "^7.0.5",
         "eventsource": "^3.0.2",
         "eventsource-parser": "^3.0.0",
-        "express": "^5.0.1",
-        "express-rate-limit": "^7.5.0",
-        "jose": "^6.1.1",
+        "express": "^5.2.1",
+        "express-rate-limit": "^8.2.1",
+        "jose": "^6.1.3",
         "json-schema-typed": "^8.0.2",
         "pkce-challenge": "^5.0.0",
         "raw-body": "^3.0.0",
@@ -141,5 +141,8 @@
     },
     "resolutions": {
         "strip-ansi": "6.0.1"
+    },
+    "overrides": {
+        "qs": "6.14.1"
     }
 }
