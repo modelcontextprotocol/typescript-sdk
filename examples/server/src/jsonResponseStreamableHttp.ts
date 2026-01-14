@@ -105,9 +105,21 @@ app.post('/mcp', async (req: Request, res: Response) => {
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
         let transport: StreamableHTTPServerTransport;
 
-        if (sessionId && transports[sessionId]) {
-            // Reuse existing transport
-            transport = transports[sessionId];
+        if (sessionId) {
+            if (transports[sessionId]) {
+                // Reuse existing transport
+                transport = transports[sessionId];
+            } else {
+                res.status(404).json({
+                    jsonrpc: '2.0',
+                    error: {
+                        code: -32000,
+                        message: 'Not Found: Invalid session ID'
+                    },
+                    id: null
+                });
+                return;
+            }
         } else if (!sessionId && isInitializeRequest(req.body)) {
             // New initialization request - use JSON response mode
             transport = new StreamableHTTPServerTransport({
@@ -132,7 +144,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
                 jsonrpc: '2.0',
                 error: {
                     code: -32000,
-                    message: 'Bad Request: No valid session ID provided'
+                    message: 'Bad Request: No session ID provided'
                 },
                 id: null
             });
