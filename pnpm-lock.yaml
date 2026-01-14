@@ -311,6 +311,9 @@ importers:
       tsdown:
         specifier: catalog:devTools
         version: 0.18.0(@typescript/native-preview@7.0.0-dev.20251218.3)(typescript@5.9.3)
+      vitest:
+        specifier: catalog:devTools
+        version: 4.0.9(@types/node@24.10.3)(tsx@4.20.6)
 
   examples/server:
     dependencies:
