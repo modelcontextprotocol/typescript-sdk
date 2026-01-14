@@ -21,9 +21,16 @@ import {
 } from '@modelcontextprotocol/server';
 import type { OAuthTokenVerifier, AuthInfo } from '@modelcontextprotocol/server';
 import { z } from 'zod';
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
+
+// Extend Express Request type to include auth info from SDK middleware
+declare module 'express' {
+  interface Request {
+    auth?: AuthInfo;
+  }
+}
 
 // Check for required environment variable
 const AUTH_SERVER_URL = process.env.MCP_CONFORMANCE_AUTH_SERVER_URL;
@@ -82,6 +89,23 @@ function createMcpServer(): McpServer {
     async () => {
       return {
         content: [{ type: 'text', text: 'test' }]
+      };
+    }
+  );
+
+  // Privileged tool requiring 'admin' scope - for step-up auth testing
+  mcpServer.tool(
+    'admin-action',
+    'A privileged action that requires admin scope - used for step-up auth testing',
+    {
+      action: z.string().optional().describe('The admin action to perform')
+    },
+    async (args: { action?: string }) => {
+      const action = args.action || 'default-admin-action';
+      return {
+        content: [
+          { type: 'text', text: `Admin action performed: ${action}` }
+        ]
       };
     }
   );
@@ -154,6 +178,67 @@ function isInitializeRequest(body: unknown): boolean {
   );
 }
 
+// Helper to check if request is a tools/call for admin-action
+function isAdminToolCall(body: unknown): boolean {
+  if (
+    typeof body !== 'object' ||
+    body === null ||
+    !('method' in body) ||
+    !('params' in body)
+  ) {
+    return false;
+  }
+  const { method, params } = body as { method: string; params: unknown };
+  if (method !== 'tools/call') {
+    return false;
+  }
+  if (
+    typeof params !== 'object' ||
+    params === null ||
+    !('name' in params)
+  ) {
+    return false;
+  }
+  return (params as { name: string }).name === 'admin-action';
+}
+
+// Scope required for admin-action tool
+const ADMIN_SCOPE = 'admin';
+
+/**
+ * Middleware to check for admin scope on privileged tool calls.
+ * Returns 403 insufficient_scope if the token doesn't have admin scope.
+ */
+function checkAdminScope(prmUrl: string) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    // Only check for tools/call with admin-action
+    if (!isAdminToolCall(req.body)) {
+      return next();
+    }
+
+    // req.auth is set by requireBearerAuth middleware
+    const scopes = req.auth?.scopes || [];
+
+    if (!scopes.includes(ADMIN_SCOPE)) {
+      // Return 403 with insufficient_scope error
+      res.setHeader(
+        'WWW-Authenticate',
+        `Bearer error="insufficient_scope", ` +
+          `scope="${ADMIN_SCOPE}", ` +
+          `resource_metadata="${prmUrl}", ` +
+          `error_description="The admin-action tool requires admin scope"`
+      );
+      res.status(403).json({
+        error: 'insufficient_scope',
+        error_description: 'The admin-action tool requires admin scope'
+      });
+      return;
+    }
+
+    next();
+  };
+}
+
 // ===== EXPRESS APP =====
 
 async function startServer() {
@@ -186,6 +271,9 @@ async function startServer() {
     resourceMetadataUrl: prmUrl
   });
 
+  // Create scope-checking middleware for privileged tools
+  const adminScopeCheck = checkAdminScope(prmUrl);
+
   const app = express();
   app.use(express.json());
 
@@ -209,13 +297,15 @@ async function startServer() {
     (_req: Request, res: Response) => {
       res.json({
         resource: getBaseUrl(),
-        authorization_servers: [AUTH_SERVER_URL]
+        authorization_servers: [AUTH_SERVER_URL],
+        // List supported scopes for step-up auth testing
+        scopes_supported: [ADMIN_SCOPE]
       });
     }
   );
 
-  // Handle POST requests to /mcp with bearer auth
-  app.post('/mcp', bearerAuth, async (req: Request, res: Response) => {
+  // Handle POST requests to /mcp with bearer auth and scope checking
+  app.post('/mcp', bearerAuth, adminScopeCheck, async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     try {
