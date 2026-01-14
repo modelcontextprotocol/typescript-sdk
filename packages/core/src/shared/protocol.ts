@@ -102,6 +102,20 @@ export type ProtocolOptions = {
      * appropriately (e.g., by failing the task, dropping messages, etc.).
      */
     maxTaskQueueSize?: number;
+    /**
+     * Optional hooks for customizing task request handling.
+     * If a hook is provided, it fully owns the behavior (no fallback to TaskStore).
+     */
+    taskHandlerHooks?: {
+        /**
+         * Called when tasks/get is received. If provided, must return the task.
+         */
+        getTask?: (taskId: string, extra: RequestHandlerExtra<Request, Notification>) => Promise<GetTaskResult>;
+        /**
+         * Called when tasks/payload needs to retrieve the final result. If provided, must return the result.
+         */
+        getTaskResult?: (taskId: string, extra: RequestHandlerExtra<Request, Notification>) => Promise<Result>;
+    };
 };
 
 /**
@@ -387,6 +401,16 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._taskMessageQueue = _options?.taskMessageQueue;
         if (this._taskStore) {
             this.setRequestHandler(GetTaskRequestSchema, async (request, extra) => {
+                // Use hook if provided, otherwise fall back to TaskStore
+                if (_options?.taskHandlerHooks?.getTask) {
+                    const hookResult = await _options.taskHandlerHooks.getTask(
+                        request.params.taskId,
+                        extra as unknown as RequestHandlerExtra<Request, Notification>
+                    );
+                    // @ts-expect-error SendResultT cannot contain GetTaskResult
+                    return hookResult as SendResultT;
+                }
+
                 const task = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
                 if (!task) {
                     throw new McpError(ErrorCode.InvalidParams, 'Failed to retrieve task: Task not found');
@@ -466,7 +490,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                     // If task is terminal, return the result
                     if (isTerminal(task.status)) {
-                        const result = await this._taskStore!.getTaskResult(taskId, extra.sessionId);
+                        // Use hook if provided, otherwise fall back to TaskStore
+                        const result = this._options?.taskHandlerHooks?.getTaskResult
+                            ? await this._options.taskHandlerHooks.getTaskResult(
+                                  taskId,
+                                  extra as unknown as RequestHandlerExtra<Request, Notification>
+                              )
+                            : await this._taskStore!.getTaskResult(taskId, extra.sessionId);
 
                         this._clearTaskQueue(taskId);
 
