@@ -1958,7 +1958,7 @@ describe('outputSchema validation', () => {
         // Set up server handlers
         server.setRequestHandler(InitializeRequestSchema, async request => ({
             protocolVersion: request.params.protocolVersion,
-            capabilities: {},
+            capabilities: { tools: {} },
             serverInfo: {
                 name: 'test-server',
                 version: '1.0.0'
@@ -2050,7 +2050,7 @@ describe('outputSchema validation', () => {
         // Set up server handlers
         server.setRequestHandler(InitializeRequestSchema, async request => ({
             protocolVersion: request.params.protocolVersion,
-            capabilities: {},
+            capabilities: { tools: {} },
             serverInfo: {
                 name: 'test-server',
                 version: '1.0.0'
@@ -2343,7 +2343,7 @@ describe('outputSchema validation', () => {
         // Set up server handlers
         server.setRequestHandler(InitializeRequestSchema, async request => ({
             protocolVersion: request.params.protocolVersion,
-            capabilities: {},
+            capabilities: { tools: {} },
             serverInfo: {
                 name: 'test-server',
                 version: '1.0.0'
