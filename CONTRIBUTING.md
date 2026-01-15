@@ -183,4 +183,6 @@ Please review our [Security Policy](SECURITY.md) for reporting security vulnerab
 
 ### License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your code contributions will be licensed under
+the Apache License 2.0. Documentation contributions (excluding specifications)
+are licensed under CC-BY 4.0. See the [LICENSE](LICENSE) file for details.
