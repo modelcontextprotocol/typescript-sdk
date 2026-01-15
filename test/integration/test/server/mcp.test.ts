@@ -1707,25 +1707,68 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request(
-                {
-                    method: 'tools/call',
-                    params: {
-                        name: 'nonexistent-tool'
-                    }
-                },
-                CallToolResultSchema
-            );
+            // Unknown tool should return a JSON-RPC protocol error per MCP spec.
+            await expect(
+                client.request(
+                    {
+                        method: 'tools/call',
+                        params: {
+                            name: 'nonexistent-tool'
+                        }
+                    },
+                    CallToolResultSchema
+                )
+            ).rejects.toMatchObject({
+                code: ErrorCode.InvalidParams,
+                message: expect.stringContaining('nonexistent-tool')
+            });
+        });
 
-            expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
-                expect.arrayContaining([
+        /***
+         * Test: McpError for Disabled Tool
+         */
+        test('should throw McpError for disabled tool', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const tool = mcpServer.tool('test-tool', async () => ({
+                content: [
                     {
                         type: 'text',
-                        text: expect.stringContaining('Tool nonexistent-tool not found')
+                        text: 'Test response'
                     }
-                ])
-            );
+                ]
+            }));
+
+            // Disable the tool
+            tool.disable();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            // Disabled tool should return a JSON-RPC protocol error per MCP spec.
+            await expect(
+                client.request(
+                    {
+                        method: 'tools/call',
+                        params: {
+                            name: 'test-tool'
+                        }
+                    },
+                    CallToolResultSchema
+                )
+            ).rejects.toMatchObject({
+                code: ErrorCode.InvalidParams,
+                message: expect.stringContaining('disabled')
+            });
         });
 
         /***
@@ -2753,7 +2796,56 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     },
                     ReadResourceResultSchema
                 )
-            ).rejects.toThrow(/Resource test:\/\/nonexistent not found/);
+            ).rejects.toMatchObject({
+                code: ErrorCode.ResourceNotFound,
+                message: expect.stringContaining('not found')
+            });
+        });
+
+        /***
+         * Test: McpError for Disabled Resource
+         */
+        test('should throw McpError for disabled resource', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const resource = mcpServer.resource('test', 'test://resource', async () => ({
+                contents: [
+                    {
+                        uri: 'test://resource',
+                        text: 'Test content'
+                    }
+                ]
+            }));
+
+            // Disable the resource
+            resource.disable();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            // Disabled resource should return a JSON-RPC protocol error.
+            await expect(
+                client.request(
+                    {
+                        method: 'resources/read',
+                        params: {
+                            uri: 'test://resource'
+                        }
+                    },
+                    ReadResourceResultSchema
+                )
+            ).rejects.toMatchObject({
+                code: ErrorCode.InvalidParams,
+                message: expect.stringContaining('disabled')
+            });
         });
 
         /***
@@ -3667,7 +3759,10 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     },
                     GetPromptResultSchema
                 )
-            ).rejects.toThrow(/Prompt nonexistent-prompt not found/);
+            ).rejects.toMatchObject({
+                code: ErrorCode.InvalidParams,
+                message: expect.stringContaining('not found')
+            });
         });
 
         /***

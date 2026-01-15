@@ -229,6 +229,7 @@ export enum ErrorCode {
     // SDK error codes
     ConnectionClosed = -32000,
     RequestTimeout = -32001,
+    ResourceNotFound = -32002,
 
     // Standard JSON-RPC error codes
     ParseError = -32700,
