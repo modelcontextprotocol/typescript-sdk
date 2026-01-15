@@ -81,6 +81,7 @@ export function requireBearerAuth(
  */
 export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): URL {
     const metadataUrl = new URL(serverUrl);
-    metadataUrl.pathname = `${serverUrl.pathname}/.well-known/oauth-protected-resource`.replace(/\/+/g, '/');
+    // Insert well-known between host and path per RFC 9728 Section 3
+    metadataUrl.pathname = `/.well-known/oauth-protected-resource${serverUrl.pathname}`;
     return metadataUrl;
 }
