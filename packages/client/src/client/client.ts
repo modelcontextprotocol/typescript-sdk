@@ -43,6 +43,7 @@ import {
     CompleteResultSchema,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
+    CreateMessageResultWithToolsSchema,
     CreateTaskResultSchema,
     ElicitRequestSchema,
     ElicitResultSchema,
@@ -458,8 +459,9 @@ export class Client<
                     return taskValidationResult.data;
                 }
 
-                // For non-task requests, validate against CreateMessageResultSchema
-                const validationResult = safeParse(CreateMessageResultSchema, result);
+                // For non-task requests, validate against appropriate schema
+                const schema = params.tools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
+                const validationResult = safeParse(schema, result);
                 if (!validationResult.success) {
                     const errorMessage =
                         validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
