@@ -41,6 +41,7 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     isTaskAugmentedRequestParams,
+    ListGroupsResultSchema,
     ListTasksRequestSchema,
     ListTasksResultSchema,
     McpError,
@@ -1264,6 +1265,17 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     protected async listTasks(params?: { cursor?: string }, options?: RequestOptions): Promise<SchemaOutput<typeof ListTasksResultSchema>> {
         // @ts-expect-error SendRequestT cannot directly contain ListTasksRequest, but we ensure all type instantiations contain it anyways
         return this.request({ method: 'tasks/list', params }, ListTasksResultSchema, options);
+    }
+
+    /**
+     * Lists groups offered by the server.
+     */
+    protected async listGroups(
+        params?: { cursor?: string },
+        options?: RequestOptions
+    ): Promise<SchemaOutput<typeof ListGroupsResultSchema>> {
+        // @ts-expect-error SendRequestT cannot directly contain ListGroupsRequest, but we ensure all type instantiations contain it anyway
+        return this.request({ method: 'groups/list', params }, ListGroupsResultSchema, options);
     }
 
     /**

@@ -2,7 +2,7 @@
 /* eslint-disable no-constant-binary-expression */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 import { Client, getSupportedElicitationModes } from '@modelcontextprotocol/client';
-import type { Prompt, Resource, Tool, Transport } from '@modelcontextprotocol/core';
+import type { Group, Prompt, Resource, Tool, Transport } from '@modelcontextprotocol/core';
 import {
     CallToolRequestSchema,
     CallToolResultSchema,
@@ -14,6 +14,7 @@ import {
     InitializeRequestSchema,
     InMemoryTransport,
     LATEST_PROTOCOL_VERSION,
+    ListGroupsResultSchema,
     ListPromptsRequestSchema,
     ListResourcesRequestSchema,
     ListRootsRequestSchema,
@@ -1290,6 +1291,120 @@ test('should handle tool list changed notification with auto refresh', async () 
     expect(notifications[0]![0]).toBeNull();
     expect(notifications[0]![1]).toHaveLength(2);
     expect(notifications[0]![1]?.[1]!.name).toBe('test-tool');
+});
+
+/***
+ * Test: Handle Group List Changed Notifications with Manual Refresh
+ */
+test('should handle group list changed notification with manual refresh', async () => {
+    // List changed notifications
+    const notifications: [Error | null, Group[] | null][] = [];
+
+    const server = new McpServer({
+        name: 'test-server',
+        version: '1.0.0'
+    });
+
+    // Configure listChanged handler in constructor
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            listChanged: {
+                groups: {
+                    autoRefresh: false,
+                    onChanged: (err, groups) => {
+                        notifications.push([err, groups]);
+                    }
+                }
+            }
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    // Register initial group - this sets up the capability and handlers
+    server.registerGroup('initial-group', {
+        description: 'Initial group'
+    });
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    // Register another group - this triggers listChanged notification
+    server.registerGroup('test-group', {
+        description: 'A test group'
+    });
+
+    // Wait for the debounced notifications to be processed
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Should be 1 notification with null groups because autoRefresh is false
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]![0]).toBeNull();
+    expect(notifications[0]![1]).toBeNull();
+
+    // Now refresh groups
+    const result = await client.listGroups();
+    expect(result.groups).toHaveLength(2);
+    expect(result.groups.find(g => g.name === 'test-group')).toBeDefined();
+});
+
+/***
+ * Test: Handle Group List Changed Notifications with Auto Refresh
+ */
+test('should handle group list changed notification with auto refresh', async () => {
+    // List changed notifications
+    const notifications: [Error | null, Group[] | null][] = [];
+
+    const server = new McpServer({
+        name: 'test-server',
+        version: '1.0.0'
+    });
+
+    // Register initial group
+    server.registerGroup('initial-group', {
+        description: 'Initial group'
+    });
+
+    // Configure listChanged handler in constructor
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            listChanged: {
+                groups: {
+                    onChanged: (err, groups) => {
+                        notifications.push([err, groups]);
+                    }
+                }
+            }
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    const result1 = await client.listGroups();
+    expect(result1.groups).toHaveLength(1);
+
+    // Register another group - this triggers listChanged notification
+    server.registerGroup('test-group', {
+        description: 'A test group'
+    });
+
+    // Wait for the debounced notifications to be processed
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Should be 1 notification with 2 groups because autoRefresh is true
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]![0]).toBeNull();
+    expect(notifications[0]![1]).toHaveLength(2);
+    expect(notifications[0]![1]?.[1]!.name).toBe('test-group');
 });
 
 /***

@@ -14,6 +14,7 @@ import type {
     jsonSchemaValidator,
     ListChangedHandlers,
     ListChangedOptions,
+    ListGroupsRequest,
     ListPromptsRequest,
     ListResourcesRequest,
     ListResourceTemplatesRequest,
@@ -50,10 +51,12 @@ import {
     ErrorCode,
     getObjectShape,
     GetPromptResultSchema,
+    GroupListChangedNotificationSchema,
     InitializeResultSchema,
     isZ4Schema,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
+    ListGroupsResultSchema,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListResourceTemplatesResultSchema,
@@ -295,6 +298,13 @@ export class Client<
             this._setupListChangedHandler('resources', ResourceListChangedNotificationSchema, config.resources, async () => {
                 const result = await this.listResources();
                 return result.resources;
+            });
+        }
+
+        if (config.groups && this._serverCapabilities?.groups?.listChanged) {
+            this._setupListChangedHandler('groups', GroupListChangedNotificationSchema, config.groups, async () => {
+                const result = await this.listGroups();
+                return result.groups;
             });
         }
     }
@@ -710,6 +720,13 @@ export class Client<
 
     async listResources(params?: ListResourcesRequest['params'], options?: RequestOptions) {
         return this.request({ method: 'resources/list', params }, ListResourcesResultSchema, options);
+    }
+
+    /**
+     * Lists groups offered by the server.
+     */
+    override async listGroups(params?: ListGroupsRequest['params'], options?: RequestOptions) {
+        return this.request({ method: 'groups/list', params }, ListGroupsResultSchema, options);
     }
 
     async listResourceTemplates(params?: ListResourceTemplatesRequest['params'], options?: RequestOptions) {

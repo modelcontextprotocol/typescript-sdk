@@ -5,9 +5,35 @@ export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = '2025-03-26';
 export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'];
 
 export const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
+export const GROUPS_META_KEY = 'io.modelcontextprotocol/groups';
 
 /* JSON-RPC types */
 export const JSONRPC_VERSION = '2.0';
+
+/**
+ * The sender or recipient of messages and data in a conversation.
+ */
+export const RoleSchema = z.enum(['user', 'assistant']);
+
+/**
+ * Optional annotations providing clients additional context about a resource.
+ */
+export const AnnotationsSchema = z.object({
+    /**
+     * Intended audience(s) for the resource.
+     */
+    audience: z.array(RoleSchema).optional(),
+
+    /**
+     * Importance hint for the resource, from 0 (least) to 1 (most).
+     */
+    priority: z.number().min(0).max(1).optional(),
+
+    /**
+     * ISO 8601 timestamp for the most recent modification.
+     */
+    lastModified: z.iso.datetime({ offset: true }).optional()
+});
 
 /**
  * Information about a validated access token, provided to request handlers.
@@ -415,6 +441,35 @@ export const ImplementationSchema = BaseMetadataSchema.extend({
     description: z.string().optional()
 });
 
+/**
+ * A named collection of MCP primitives.
+ */
+export const GroupSchema = z.object({
+    ...BaseMetadataSchema.shape,
+    ...IconsSchema.shape,
+    /**
+     * A human-readable description of the group.
+     */
+    description: z.string().optional(),
+    /**
+     * Optional additional group information.
+     */
+    annotations: AnnotationsSchema.optional(),
+
+    /**
+     * Optional _meta object that can contain protocol-reserved and custom fields.
+     */
+    _meta: z
+        .object({
+            /**
+             * A list of group names containing this primitive.
+             */
+            [GROUPS_META_KEY]: z.array(z.string()).optional()
+        })
+        .catchall(z.unknown())
+        .optional()
+});
+
 const FormElicitationCapabilitySchema = z.intersection(
     z.object({
         applyDefaults: z.boolean().optional()
@@ -624,6 +679,17 @@ export const ServerCapabilitiesSchema = z.object({
         })
         .optional(),
     /**
+     * Present if the server offers any groups.
+     */
+    groups: z
+        .object({
+            /**
+             * Whether this server supports issuing notifications for changes to the group list.
+             */
+            listChanged: z.boolean().optional()
+        })
+        .optional(),
+    /**
      * Present if the server supports task creation.
      */
     tasks: ServerTasksCapabilitySchema.optional()
@@ -751,7 +817,13 @@ export const TaskSchema = z.object({
     /**
      * Optional diagnostic message for failed tasks or other status information.
      */
-    statusMessage: z.optional(z.string())
+    statusMessage: z.optional(z.string()),
+
+    _meta: z.optional(
+        z.looseObject({
+            [GROUPS_META_KEY]: z.array(z.string()).optional()
+        })
+    )
 });
 
 /**
@@ -836,6 +908,28 @@ export const CancelTaskRequestSchema = RequestSchema.extend({
  */
 export const CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
 
+/**
+ * Sent from the client to request a list of groups the server has.
+ */
+export const ListGroupsRequestSchema = PaginatedRequestSchema.extend({
+    method: z.literal('groups/list')
+});
+
+/**
+ * The server's response to a groups/list request from the client.
+ */
+export const ListGroupsResultSchema = PaginatedResultSchema.extend({
+    groups: z.array(GroupSchema)
+});
+
+/**
+ * An optional notification from the server to the client, informing it that the list of groups it offers has changed. Servers may issue this without any previous subscription from the client.
+ */
+export const GroupListChangedNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/groups/list_changed'),
+    params: NotificationsParamsSchema.optional()
+});
+
 /* Resources */
 /**
  * The contents of a specific resource or sub-resource.
@@ -890,31 +984,6 @@ export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
 });
 
 /**
- * The sender or recipient of messages and data in a conversation.
- */
-export const RoleSchema = z.enum(['user', 'assistant']);
-
-/**
- * Optional annotations providing clients additional context about a resource.
- */
-export const AnnotationsSchema = z.object({
-    /**
-     * Intended audience(s) for the resource.
-     */
-    audience: z.array(RoleSchema).optional(),
-
-    /**
-     * Importance hint for the resource, from 0 (least) to 1 (most).
-     */
-    priority: z.number().min(0).max(1).optional(),
-
-    /**
-     * ISO 8601 timestamp for the most recent modification.
-     */
-    lastModified: z.iso.datetime({ offset: true }).optional()
-});
-
-/**
  * A known resource that the server is capable of reading.
  */
 export const ResourceSchema = z.object({
@@ -946,7 +1015,11 @@ export const ResourceSchema = z.object({
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.optional(z.looseObject({}))
+    _meta: z.optional(
+        z.looseObject({
+            [GROUPS_META_KEY]: z.array(z.string()).optional()
+        })
+    )
 });
 
 /**
@@ -1122,7 +1195,11 @@ export const PromptSchema = z.object({
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.optional(z.looseObject({}))
+    _meta: z.optional(
+        z.looseObject({
+            [GROUPS_META_KEY]: z.array(z.string()).optional()
+        })
+    )
 });
 
 /**
@@ -1443,7 +1520,11 @@ export const ToolSchema = z.object({
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on _meta usage.
      */
-    _meta: z.record(z.string(), z.unknown()).optional()
+    _meta: z.optional(
+        z.looseObject({
+            [GROUPS_META_KEY]: z.array(z.string()).optional()
+        })
+    )
 });
 
 /**
@@ -1613,6 +1694,10 @@ export type ListChangedHandlers = {
      * Handler for resource list changes.
      */
     resources?: ListChangedOptions<Resource>;
+    /**
+     * Handler for group list changes.
+     */
+    groups?: ListChangedOptions<Group>;
 };
 
 /* Logging */
@@ -2261,6 +2346,7 @@ export const ClientRequestSchema = z.union([
     UnsubscribeRequestSchema,
     CallToolRequestSchema,
     ListToolsRequestSchema,
+    ListGroupsRequestSchema,
     GetTaskRequestSchema,
     GetTaskPayloadRequestSchema,
     ListTasksRequestSchema,
@@ -2306,6 +2392,7 @@ export const ServerNotificationSchema = z.union([
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
     PromptListChangedNotificationSchema,
+    GroupListChangedNotificationSchema,
     TaskStatusNotificationSchema,
     ElicitationCompleteNotificationSchema
 ]);
@@ -2321,6 +2408,7 @@ export const ServerResultSchema = z.union([
     ReadResourceResultSchema,
     CallToolResultSchema,
     ListToolsResultSchema,
+    ListGroupsResultSchema,
     GetTaskResultSchema,
     ListTasksResultSchema,
     CreateTaskResultSchema
@@ -2634,6 +2722,12 @@ export type Root = Infer<typeof RootSchema>;
 export type ListRootsRequest = Infer<typeof ListRootsRequestSchema>;
 export type ListRootsResult = Infer<typeof ListRootsResultSchema>;
 export type RootsListChangedNotification = Infer<typeof RootsListChangedNotificationSchema>;
+
+/* Groups */
+export type Group = Infer<typeof GroupSchema>;
+export type ListGroupsRequest = Infer<typeof ListGroupsRequestSchema>;
+export type ListGroupsResult = Infer<typeof ListGroupsResultSchema>;
+export type GroupListChangedNotification = Infer<typeof GroupListChangedNotificationSchema>;
 
 /* Client messages */
 export type ClientRequest = Infer<typeof ClientRequestSchema>;

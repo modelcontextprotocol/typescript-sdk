@@ -673,4 +673,11 @@ export class Server<
     async sendPromptListChanged() {
         return this.notification({ method: 'notifications/prompts/list_changed' });
     }
+
+    /**
+     * Sends a notification to the client that the group list has changed.
+     */
+    async sendGroupListChanged() {
+        return this.notification({ method: 'notifications/groups/list_changed' });
+    }
 }
