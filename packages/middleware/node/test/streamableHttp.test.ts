@@ -12,13 +12,13 @@ import type {
     JSONRPCResultResponse,
     RequestId
 } from '@modelcontextprotocol/core';
+import type { EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { NodeStreamableHTTPServerTransport } from '../src/streamableHttp.js';
-import { McpServer } from '@modelcontextprotocol/server';
-import type { EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
-import { describe, expect, beforeEach, afterEach, it } from 'vitest';
 
 async function getFreePort() {
     return new Promise(res => {
@@ -402,10 +402,15 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 'A simple test tool with request info',
                 { name: z.string().describe('Name to greet') },
                 async ({ name }, { requestInfo }): Promise<CallToolResult> => {
+                    // Convert Headers object to plain object for JSON serialization
+                    // Headers is a Web API class that doesn't serialize with JSON.stringify
+                    const serializedRequestInfo = {
+                        headers: Object.fromEntries(requestInfo?.headers ?? new Headers())
+                    };
                     return {
                         content: [
                             { type: 'text', text: `Hello, ${name}!` },
-                            { type: 'text', text: `${JSON.stringify(requestInfo)}` }
+                            { type: 'text', text: `${JSON.stringify(serializedRequestInfo)}` }
                         ]
                     };
                 }
