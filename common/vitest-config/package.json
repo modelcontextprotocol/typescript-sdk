@@ -23,6 +23,7 @@
     "version": "2.0.0",
     "devDependencies": {
         "@modelcontextprotocol/tsconfig": "workspace:^",
-        "vite-tsconfig-paths": "catalog:devTools"
+        "vite-tsconfig-paths": "catalog:devTools",
+        "vitest-sonar-reporter": "^3.0.0"
     }
 }

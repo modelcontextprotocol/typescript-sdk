@@ -56,7 +56,12 @@ jobs:
 
             - run: pnpm install
 
-            - run: pnpm test:all
+            - run: pnpm test:coverage:all
+
+            - name: SonarQube Scan
+              uses: SonarSource/sonarqube-scan-action@v6
+              env:
+                SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
     publish:
         runs-on: ubuntu-latest
