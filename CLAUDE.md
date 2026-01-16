@@ -64,10 +64,14 @@ Transports (`packages/core/src/shared/transport.ts`) provide the communication l
 ### Client-Side Features
 
 - **Auth**: OAuth client support in `packages/client/src/client/auth.ts` and `packages/client/src/client/auth-extensions.ts`
-- **Middleware**: Request middleware in `packages/client/src/client/middleware.ts`
+- **Client middleware**: Request middleware in `packages/client/src/client/middleware.ts` (unrelated to the framework adapter packages below)
 - **Sampling**: Clients can handle `sampling/createMessage` requests from servers (LLM completions)
 - **Elicitation**: Clients can handle `elicitation/create` requests for user input (form or URL mode)
 - **Roots**: Clients can expose filesystem roots to servers via `roots/list`
+
+### Middleware packages (framework/runtime adapters)
+
+The repo also ships “middleware” packages under `packages/middleware/` (e.g. `@modelcontextprotocol/express`, `@modelcontextprotocol/hono`, `@modelcontextprotocol/node`). These are thin integration layers for specific frameworks/runtimes and should not add new MCP functionality.
 
 ### Experimental Features
 
@@ -224,7 +228,8 @@ mcpServer.tool('tool-name', { param: z.string() }, async ({ param }, extra) => {
 
 ```typescript
 // Server
-const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
+// (Node.js IncomingMessage/ServerResponse wrapper; exported by @modelcontextprotocol/node)
+const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
 await server.connect(transport);
 
 // Client

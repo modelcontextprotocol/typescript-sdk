@@ -292,14 +292,14 @@ export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT 
 
     /**
      * Closes the SSE stream for this request, triggering client reconnection.
-     * Only available when using StreamableHTTPServerTransport with eventStore configured.
+     * Only available when using a StreamableHTTPServerTransport with eventStore configured.
      * Use this to implement polling behavior during long-running operations.
      */
     closeSSEStream?: () => void;
 
     /**
      * Closes the standalone GET SSE stream, triggering client reconnection.
-     * Only available when using StreamableHTTPServerTransport with eventStore configured.
+     * Only available when using a StreamableHTTPServerTransport with eventStore configured.
      * Use this to implement polling behavior for server-initiated notifications.
      */
     closeStandaloneSSEStream?: () => void;
