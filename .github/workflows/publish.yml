@@ -38,4 +38,6 @@ jobs:
               run: pnpm run build:all
 
             - name: Publish preview packages
-              run: pnpm dlx pkg-pr-new publish --packageManager=npm --pnpm './packages/server' './packages/client'
+              run:
+                  pnpm dlx pkg-pr-new publish --packageManager=npm --pnpm './packages/server' './packages/client'
+                  './packages/middleware/express' './packages/middleware/hono' './packages/middleware/node'
