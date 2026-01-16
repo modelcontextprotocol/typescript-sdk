@@ -70,7 +70,7 @@ For more detailed patterns (stateless vs stateful, JSON response mode, CORS, DNS
 MCP servers running on localhost are vulnerable to DNS rebinding attacks. Use `createMcpExpressApp()` to create an Express app with DNS rebinding protection enabled by default:
 
 ```typescript
-import { createMcpExpressApp } from '@modelcontextprotocol/server';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
 
 // Protection auto-enabled (default host is 127.0.0.1)
 const app = createMcpExpressApp();
@@ -85,7 +85,7 @@ const app = createMcpExpressApp({ host: '0.0.0.0' });
 When binding to `0.0.0.0` / `::`, provide an allow-list of hosts:
 
 ```typescript
-import { createMcpExpressApp } from '@modelcontextprotocol/server';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
 
 const app = createMcpExpressApp({
     host: '0.0.0.0',

@@ -9,19 +9,16 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { setupAuthServer } from '@modelcontextprotocol/examples-shared';
-import type { CallToolResult, ElicitRequestURLParams, ElicitResult, OAuthMetadata } from '@modelcontextprotocol/server';
 import {
-    checkResourceAllowed,
-    createMcpExpressApp,
+    createProtectedResourceMetadataRouter,
     getOAuthProtectedResourceMetadataUrl,
-    isInitializeRequest,
-    mcpAuthMetadataRouter,
-    McpServer,
     requireBearerAuth,
-    StreamableHTTPServerTransport,
-    UrlElicitationRequiredError
-} from '@modelcontextprotocol/server';
+    setupAuthServer
+} from '@modelcontextprotocol/examples-shared';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import type { CallToolResult, ElicitRequestURLParams, ElicitResult } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer, UrlElicitationRequiredError } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';
@@ -238,63 +235,17 @@ let authMiddleware = null;
 const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}/mcp`);
 const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
-const oauthMetadata: OAuthMetadata = setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: true });
+setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: true, demoMode: true });
 
-const tokenVerifier = {
-    verifyAccessToken: async (token: string) => {
-        const endpoint = oauthMetadata.introspection_endpoint;
-
-        if (!endpoint) {
-            throw new Error('No token verification endpoint available in metadata');
-        }
-
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: new URLSearchParams({
-                token: token
-            }).toString()
-        });
-
-        if (!response.ok) {
-            const text = await response.text().catch(() => null);
-            throw new Error(`Invalid or expired token: ${text}`);
-        }
-
-        const data = (await response.json()) as { aud: string; client_id: string; scope: string; exp: number };
-
-        if (!data.aud) {
-            throw new Error(`Resource Indicator (RFC8707) missing`);
-        }
-        if (!checkResourceAllowed({ requestedResource: data.aud, configuredResource: mcpServerUrl })) {
-            throw new Error(`Expected resource indicator ${mcpServerUrl}, got: ${data.aud}`);
-        }
-
-        // Convert the response to AuthInfo format
-        return {
-            token,
-            clientId: data.client_id,
-            scopes: data.scope ? data.scope.split(' ') : [],
-            expiresAt: data.exp
-        };
-    }
-};
-// Add metadata routes to the main MCP server
-app.use(
-    mcpAuthMetadataRouter({
-        oauthMetadata,
-        resourceServerUrl: mcpServerUrl,
-        scopesSupported: ['mcp:tools'],
-        resourceName: 'MCP Demo Server'
-    })
-);
+// Add protected resource metadata route to the MCP server
+// This allows clients to discover the auth server
+app.use(createProtectedResourceMetadataRouter());
 
 authMiddleware = requireBearerAuth({
-    verifier: tokenVerifier,
     requiredScopes: [],
-    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
+    strictResource: true,
+    expectedResource: mcpServerUrl
 });
 
 /**
@@ -594,7 +545,7 @@ app.post('/confirm-payment', express.urlencoded(), (req: Request, res: Response)
 });
 
 // Map to store transports by session ID
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
 
 // Interface for a function that can send an elicitation request
 type ElicitationSender = (params: ElicitRequestURLParams) => Promise<ElicitResult>;
@@ -613,7 +564,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
     console.debug(`Received MCP POST for session: ${sessionId || 'unknown'}`);
 
     try {
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
         if (sessionId && transports[sessionId]) {
             // Reuse existing transport
             transport = transports[sessionId];
@@ -621,7 +572,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             const server = getServer();
             // New initialization request
             const eventStore = new InMemoryEventStore();
-            transport = new StreamableHTTPServerTransport({
+            transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore, // Enable resumability
                 onsessioninitialized: sessionId => {
