@@ -2253,8 +2253,8 @@ describe('Task-based execution', () => {
             },
             {
                 async createTask(_args, extra) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                    const task = await extra.task!.store.createTask({
+                        ttl: extra.task?.requestedTtl
                     });
 
                     // Simulate some async work
@@ -2263,20 +2263,20 @@ describe('Task-based execution', () => {
                         const result = {
                             content: [{ type: 'text', text: 'Tool executed successfully!' }]
                         };
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
                     return { task };
                 },
                 async getTask(_args, extra) {
-                    const task = await extra.taskStore.getTask(extra.taskId);
+                    const task = await extra.task!.store.getTask(extra.task!.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.taskId} not found`);
+                        throw new Error(`Task ${extra.task!.id} not found`);
                     }
                     return task;
                 },
                 async getTaskResult(_args, extra) {
-                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    const result = await extra.task!.store.getTaskResult(extra.task!.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -2448,9 +2448,9 @@ describe('Task-based execution', () => {
             let taskId: string | undefined;
 
             // Check if task creation is requested
-            if (request.params.task && extra.taskStore) {
-                const createdTask = await extra.taskStore.createTask({
-                    ttl: extra.taskRequestedTtl
+            if (request.params.task && extra.task!.store) {
+                const createdTask = await extra.task!.store.createTask({
+                    ttl: extra.task?.requestedTtl
                 });
                 taskId = createdTask.taskId;
             }
@@ -2475,8 +2475,8 @@ describe('Task-based execution', () => {
             },
             {
                 async createTask(_args, extra) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                    const task = await extra.task!.store.createTask({
+                        ttl: extra.task?.requestedTtl
                     });
 
                     // Perform async work that makes a nested request
@@ -2508,20 +2508,20 @@ describe('Task-based execution', () => {
                                 }
                             ]
                         };
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
                     return { task };
                 },
                 async getTask(_args, extra) {
-                    const task = await extra.taskStore.getTask(extra.taskId);
+                    const task = await extra.task!.store.getTask(extra.task!.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.taskId} not found`);
+                        throw new Error(`Task ${extra.task!.id} not found`);
                     }
                     return task;
                 },
                 async getTaskResult(_args, extra) {
-                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    const result = await extra.task!.store.getTaskResult(extra.task!.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -2605,11 +2605,11 @@ describe('Task-based execution', () => {
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && extra.task!.store) {
+                    const task = await extra.task!.store.createTask({
+                        ttl: extra.task?.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2686,11 +2686,11 @@ describe('Task-based execution', () => {
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && extra.task!.store) {
+                    const task = await extra.task!.store.createTask({
+                        ttl: extra.task?.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2765,11 +2765,11 @@ describe('Task-based execution', () => {
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && extra.task!.store) {
+                    const task = await extra.task!.store.createTask({
+                        ttl: extra.task?.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2846,11 +2846,11 @@ describe('Task-based execution', () => {
                 };
 
                 // Check if task creation is requested
-                if (request.params.task && extra.taskStore) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                if (request.params.task && extra.task!.store) {
+                    const task = await extra.task!.store.createTask({
+                        ttl: extra.task?.requestedTtl
                     });
-                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                    await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
                     // Return CreateTaskResult when task creation is requested
                     return { task };
                 }
@@ -2954,8 +2954,8 @@ describe('Task-based execution', () => {
             },
             {
                 async createTask({ delay, taskNum }, extra) {
-                    const task = await extra.taskStore.createTask({
-                        ttl: extra.taskRequestedTtl
+                    const task = await extra.task!.store.createTask({
+                        ttl: extra.task?.requestedTtl
                     });
 
                     // Simulate async work
@@ -2964,20 +2964,20 @@ describe('Task-based execution', () => {
                         const result = {
                             content: [{ type: 'text', text: `Completed task ${taskNum || 'unknown'}` }]
                         };
-                        await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+                        await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
                     })();
 
                     return { task };
                 },
                 async getTask(_args, extra) {
-                    const task = await extra.taskStore.getTask(extra.taskId);
+                    const task = await extra.task!.store.getTask(extra.task!.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.taskId} not found`);
+                        throw new Error(`Task ${extra.task!.id} not found`);
                     }
                     return task;
                 },
                 async getTaskResult(_args, extra) {
-                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    const result = await extra.task!.store.getTaskResult(extra.task!.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -3189,11 +3189,11 @@ test('should respect client task capabilities', async () => {
         };
 
         // Check if task creation is requested
-        if (request.params.task && extra.taskStore) {
-            const task = await extra.taskStore.createTask({
-                ttl: extra.taskRequestedTtl
+        if (request.params.task && extra.task!.store) {
+            const task = await extra.task!.store.createTask({
+                ttl: extra.task?.requestedTtl
             });
-            await extra.taskStore.storeTaskResult(task.taskId, 'completed', result);
+            await extra.task!.store.storeTaskResult(task.taskId, 'completed', result);
             // Return CreateTaskResult when task creation is requested
             return { task };
         }

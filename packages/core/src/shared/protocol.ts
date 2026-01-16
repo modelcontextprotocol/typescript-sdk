@@ -236,6 +236,18 @@ export interface RequestTaskStore {
 }
 
 /**
+ * Context for task-related operations in request handlers.
+ */
+export interface TaskContext {
+    /** The related task identifier (present when operating on existing task) */
+    id?: string;
+    /** Task store for managing task state */
+    store: RequestTaskStore;
+    /** Requested TTL in milliseconds (from client's task creation params) */
+    requestedTtl?: number;
+}
+
+/**
  * Extra data given to request handlers.
  */
 export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT extends Notification> = {
@@ -265,11 +277,11 @@ export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT 
      */
     requestId: RequestId;
 
-    taskId?: string;
-
-    taskStore?: RequestTaskStore;
-
-    taskRequestedTtl?: number | null;
+    /**
+     * Task context for task-related operations.
+     * Present when the server has task storage enabled.
+     */
+    task?: TaskContext;
 
     /**
      * The original HTTP request.
@@ -749,9 +761,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             authInfo: extra?.authInfo,
             requestId: request.id,
             requestInfo: extra?.requestInfo,
-            taskId: relatedTaskId,
-            taskStore: taskStore,
-            taskRequestedTtl: taskCreationParams?.ttl,
+            task: taskStore
+                ? {
+                      id: relatedTaskId,
+                      store: taskStore,
+                      requestedTtl: taskCreationParams?.ttl
+                  }
+                : undefined,
             closeSSEStream: extra?.closeSSEStream,
             closeStandaloneSSEStream: extra?.closeStandaloneSSEStream
         };

@@ -65,7 +65,7 @@ describe('Task Lifecycle Integration Tests', () => {
             },
             {
                 async createTask({ duration, shouldFail }, extra) {
-                    const task = await extra.taskStore.createTask({
+                    const task = await extra.task.store.createTask({
                         ttl: 60000,
                         pollInterval: 100
                     });
@@ -76,12 +76,12 @@ describe('Task Lifecycle Integration Tests', () => {
 
                         try {
                             if (shouldFail) {
-                                await extra.taskStore.storeTaskResult(task.taskId, 'failed', {
+                                await extra.task.store.storeTaskResult(task.taskId, 'failed', {
                                     content: [{ type: 'text', text: 'Task failed as requested' }],
                                     isError: true
                                 });
                             } else {
-                                await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                await extra.task.store.storeTaskResult(task.taskId, 'completed', {
                                     content: [{ type: 'text', text: `Completed after ${duration}ms` }]
                                 });
                             }
@@ -93,14 +93,14 @@ describe('Task Lifecycle Integration Tests', () => {
                     return { task };
                 },
                 async getTask(_args, extra) {
-                    const task = await extra.taskStore.getTask(extra.taskId);
+                    const task = await extra.task.store.getTask(extra.task.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.taskId} not found`);
+                        throw new Error(`Task ${extra.task.id} not found`);
                     }
                     return task;
                 },
                 async getTaskResult(_args, extra) {
-                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    const result = await extra.task.store.getTaskResult(extra.task.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -118,7 +118,7 @@ describe('Task Lifecycle Integration Tests', () => {
             },
             {
                 async createTask({ userName }, extra) {
-                    const task = await extra.taskStore.createTask({
+                    const task = await extra.task.store.createTask({
                         ttl: 60000,
                         pollInterval: 100
                     });
@@ -154,7 +154,7 @@ describe('Task Lifecycle Integration Tests', () => {
                                     ? elicitationResult.content.userName
                                     : 'Unknown';
                             try {
-                                await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                await extra.task.store.storeTaskResult(task.taskId, 'completed', {
                                     content: [{ type: 'text', text: `Hello, ${name}!` }]
                                 });
                             } catch {
@@ -163,7 +163,7 @@ describe('Task Lifecycle Integration Tests', () => {
                         } else {
                             // Complete immediately if userName was provided
                             try {
-                                await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                await extra.task.store.storeTaskResult(task.taskId, 'completed', {
                                     content: [{ type: 'text', text: `Hello, ${userName}!` }]
                                 });
                             } catch {
@@ -175,14 +175,14 @@ describe('Task Lifecycle Integration Tests', () => {
                     return { task };
                 },
                 async getTask(_args, extra) {
-                    const task = await extra.taskStore.getTask(extra.taskId);
+                    const task = await extra.task.store.getTask(extra.task.id);
                     if (!task) {
-                        throw new Error(`Task ${extra.taskId} not found`);
+                        throw new Error(`Task ${extra.task.id} not found`);
                     }
                     return task;
                 },
                 async getTaskResult(_args, extra) {
-                    const result = await extra.taskStore.getTaskResult(extra.taskId);
+                    const result = await extra.task.store.getTaskResult(extra.task.id);
                     return result as { content: Array<{ type: 'text'; text: string }> };
                 }
             }
@@ -422,7 +422,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 },
                 {
                     async createTask({ requestCount }, extra) {
-                        const task = await extra.taskStore.createTask({
+                        const task = await extra.task.store.createTask({
                             ttl: 60000,
                             pollInterval: 100
                         });
@@ -461,7 +461,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
                             // Complete with all responses
                             try {
-                                await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                await extra.task.store.storeTaskResult(task.taskId, 'completed', {
                                     content: [{ type: 'text', text: `Received responses: ${responses.join(', ')}` }]
                                 });
                             } catch {
@@ -472,14 +472,14 @@ describe('Task Lifecycle Integration Tests', () => {
                         return { task };
                     },
                     async getTask(_args, extra) {
-                        const task = await extra.taskStore.getTask(extra.taskId);
+                        const task = await extra.task.store.getTask(extra.task.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.taskId} not found`);
+                            throw new Error(`Task ${extra.task.id} not found`);
                         }
                         return task;
                     },
                     async getTaskResult(_args, extra) {
-                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        const result = await extra.task.store.getTaskResult(extra.task.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -911,7 +911,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 },
                 {
                     async createTask({ messageCount }, extra) {
-                        const task = await extra.taskStore.createTask({
+                        const task = await extra.task.store.createTask({
                             ttl: 60000,
                             pollInterval: 100
                         });
@@ -961,14 +961,14 @@ describe('Task Lifecycle Integration Tests', () => {
                         return { task };
                     },
                     async getTask(_args, extra) {
-                        const task = await extra.taskStore.getTask(extra.taskId);
+                        const task = await extra.task.store.getTask(extra.task.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.taskId} not found`);
+                            throw new Error(`Task ${extra.task.id} not found`);
                         }
                         return task;
                     },
                     async getTaskResult(_args, extra) {
-                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        const result = await extra.task.store.getTaskResult(extra.task.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -1109,7 +1109,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 },
                 {
                     async createTask({ messageCount, delayBetweenMessages }, extra) {
-                        const task = await extra.taskStore.createTask({
+                        const task = await extra.task.store.createTask({
                             ttl: 60000,
                             pollInterval: 100
                         });
@@ -1155,7 +1155,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
                                 // Complete with all responses
                                 try {
-                                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                    await extra.task.store.storeTaskResult(task.taskId, 'completed', {
                                         content: [{ type: 'text', text: `Received all responses: ${responses.join(', ')}` }]
                                     });
                                 } catch {
@@ -1164,7 +1164,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             } catch (error) {
                                 // Handle errors
                                 try {
-                                    await extra.taskStore.storeTaskResult(task.taskId, 'failed', {
+                                    await extra.task.store.storeTaskResult(task.taskId, 'failed', {
                                         content: [{ type: 'text', text: `Error: ${error}` }],
                                         isError: true
                                     });
@@ -1177,14 +1177,14 @@ describe('Task Lifecycle Integration Tests', () => {
                         return { task };
                     },
                     async getTask(_args, extra) {
-                        const task = await extra.taskStore.getTask(extra.taskId);
+                        const task = await extra.task.store.getTask(extra.task.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.taskId} not found`);
+                            throw new Error(`Task ${extra.task.id} not found`);
                         }
                         return task;
                     },
                     async getTaskResult(_args, extra) {
-                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        const result = await extra.task.store.getTaskResult(extra.task.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
@@ -1325,7 +1325,7 @@ describe('Task Lifecycle Integration Tests', () => {
                 },
                 {
                     async createTask({ messageCount }, extra) {
-                        const task = await extra.taskStore.createTask({
+                        const task = await extra.task.store.createTask({
                             ttl: 60000,
                             pollInterval: 100
                         });
@@ -1364,7 +1364,7 @@ describe('Task Lifecycle Integration Tests', () => {
 
                                 // Complete the task after all messages are queued
                                 try {
-                                    await extra.taskStore.storeTaskResult(task.taskId, 'completed', {
+                                    await extra.task.store.storeTaskResult(task.taskId, 'completed', {
                                         content: [{ type: 'text', text: 'Task completed quickly' }]
                                     });
                                 } catch {
@@ -1373,7 +1373,7 @@ describe('Task Lifecycle Integration Tests', () => {
                             } catch (error) {
                                 // Handle errors
                                 try {
-                                    await extra.taskStore.storeTaskResult(task.taskId, 'failed', {
+                                    await extra.task.store.storeTaskResult(task.taskId, 'failed', {
                                         content: [{ type: 'text', text: `Error: ${error}` }],
                                         isError: true
                                     });
@@ -1386,14 +1386,14 @@ describe('Task Lifecycle Integration Tests', () => {
                         return { task };
                     },
                     async getTask(_args, extra) {
-                        const task = await extra.taskStore.getTask(extra.taskId);
+                        const task = await extra.task.store.getTask(extra.task.id);
                         if (!task) {
-                            throw new Error(`Task ${extra.taskId} not found`);
+                            throw new Error(`Task ${extra.task.id} not found`);
                         }
                         return task;
                     },
                     async getTaskResult(_args, extra) {
-                        const result = await extra.taskStore.getTaskResult(extra.taskId);
+                        const result = await extra.task.store.getTaskResult(extra.task.id);
                         return result as { content: Array<{ type: 'text'; text: string }> };
                     }
                 }
