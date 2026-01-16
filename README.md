@@ -30,6 +30,7 @@ This repository contains the TypeScript SDK implementation of the MCP specificat
 
 - MCP **server** libraries (tools/resources/prompts, Streamable HTTP, stdio, auth helpers)
 - MCP **client** libraries (transports, high-level helpers, OAuth helpers)
+- Optional **middleware packages** for specific runtimes/frameworks (Express, Hono, Node.js HTTP)
 - Runnable **examples** (under [`examples/`](examples/))
 
 ## Packages
@@ -40,6 +41,16 @@ This monorepo publishes split packages:
 - **`@modelcontextprotocol/client`**: build MCP clients
 
 Both packages have a **required peer dependency** on `zod` for schema validation. The SDK internally imports from `zod/v4`, but remains compatible with projects using Zod v3.25+.
+
+### Middleware packages (optional)
+
+The SDK also publishes small “middleware” packages under [`packages/middleware/`](packages/middleware/) that help you **wire MCP into a specific runtime or web framework**.
+
+They are intentionally thin adapters: they should not introduce new MCP functionality or business logic. See [`packages/middleware/README.md`](packages/middleware/README.md) for details.
+
+- **`@modelcontextprotocol/node`**: Node.js Streamable HTTP transport wrapper for `IncomingMessage` / `ServerResponse`
+- **`@modelcontextprotocol/express`**: Express helpers (app defaults + Host header validation)
+- **`@modelcontextprotocol/hono`**: Hono helpers (app defaults + JSON body parsing hook + Host header validation)
 
 ## Installation
 
@@ -53,6 +64,23 @@ npm install @modelcontextprotocol/server zod
 
 ```bash
 npm install @modelcontextprotocol/client zod
+```
+
+### Optional middleware packages
+
+The SDK also publishes optional “middleware” packages that help you **wire MCP into a specific runtime or web framework** (for example Express, Hono, or Node.js `http`).
+
+These packages are intentionally thin adapters and should not introduce additional MCP features or business logic. See [`packages/middleware/README.md`](packages/middleware/README.md) for details.
+
+```bash
+# Node.js HTTP (IncomingMessage/ServerResponse) Streamable HTTP transport:
+npm install @modelcontextprotocol/node
+
+# Express integration:
+npm install @modelcontextprotocol/express express
+
+# Hono integration:
+npm install @modelcontextprotocol/hono hono
 ```
 
 ## Quick Start (runnable examples)

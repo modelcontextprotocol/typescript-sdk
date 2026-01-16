@@ -1,26 +1,27 @@
 import { Client } from '@modelcontextprotocol/client';
-import { getDisplayName, InMemoryTaskStore, InMemoryTransport, UriTemplate } from '@modelcontextprotocol/core';
+import type { CallToolResult, Notification, TextContent } from '@modelcontextprotocol/core';
 import {
-    type CallToolResult,
     CallToolResultSchema,
     CompleteResultSchema,
     ElicitRequestSchema,
     ErrorCode,
+    getDisplayName,
     GetPromptResultSchema,
+    InMemoryTaskStore,
+    InMemoryTransport,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListResourceTemplatesResultSchema,
     ListToolsResultSchema,
     LoggingMessageNotificationSchema,
-    type Notification,
     ReadResourceResultSchema,
-    type TextContent,
+    UriTemplate,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/core';
-
-import { completable } from '../../../../packages/server/src/server/completable.js';
-import { McpServer, ResourceTemplate } from '../../../../packages/server/src/server/mcp.js';
-import { type ZodMatrixEntry, zodTestMatrix } from '../../../../packages/server/test/server/__fixtures__/zodTestMatrix.js';
+import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
+import { zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 function createLatch() {
     let latch = false;

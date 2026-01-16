@@ -30,7 +30,9 @@ import {
     SetLevelRequestSchema,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
-import { createMcpExpressApp, InMemoryTaskMessageQueue, InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { InMemoryTaskStore, McpServer, Server } from '@modelcontextprotocol/server';
+import type { Request, Response } from 'express';
 import supertest from 'supertest';
 import * as z3 from 'zod/v3';
 import * as z4 from 'zod/v4';
@@ -2066,7 +2068,7 @@ describe('createMcpExpressApp', () => {
 
     test('should parse JSON bodies', async () => {
         const app = createMcpExpressApp({ host: '0.0.0.0' }); // Disable host validation for this test
-        app.post('/test', (req, res) => {
+        app.post('/test', (req: Request, res: Response) => {
             res.json({ received: req.body });
         });
 
@@ -2078,7 +2080,7 @@ describe('createMcpExpressApp', () => {
 
     test('should reject requests with invalid Host header by default', async () => {
         const app = createMcpExpressApp();
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2097,7 +2099,7 @@ describe('createMcpExpressApp', () => {
 
     test('should allow requests with localhost Host header', async () => {
         const app = createMcpExpressApp();
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2109,7 +2111,7 @@ describe('createMcpExpressApp', () => {
 
     test('should allow requests with 127.0.0.1 Host header', async () => {
         const app = createMcpExpressApp();
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2121,7 +2123,7 @@ describe('createMcpExpressApp', () => {
 
     test('should not apply host validation when host is 0.0.0.0', async () => {
         const app = createMcpExpressApp({ host: '0.0.0.0' });
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2134,7 +2136,7 @@ describe('createMcpExpressApp', () => {
 
     test('should apply host validation when host is explicitly localhost', async () => {
         const app = createMcpExpressApp({ host: 'localhost' });
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2146,7 +2148,7 @@ describe('createMcpExpressApp', () => {
 
     test('should allow requests with IPv6 localhost Host header', async () => {
         const app = createMcpExpressApp();
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2158,7 +2160,7 @@ describe('createMcpExpressApp', () => {
 
     test('should apply host validation when host is ::1 (IPv6 localhost)', async () => {
         const app = createMcpExpressApp({ host: '::1' });
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2185,7 +2187,7 @@ describe('createMcpExpressApp', () => {
     test('should use custom allowedHosts when provided', async () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['myapp.local', 'localhost'] });
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 
@@ -2205,7 +2207,7 @@ describe('createMcpExpressApp', () => {
     test('should override default localhost validation when allowedHosts is provided', async () => {
         // Even though host is localhost, we're using custom allowedHosts
         const app = createMcpExpressApp({ host: 'localhost', allowedHosts: ['custom.local'] });
-        app.post('/test', (_req, res) => {
+        app.post('/test', (_req: Request, res: Response) => {
             res.json({ success: true });
         });
 

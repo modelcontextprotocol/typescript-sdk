@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/sdk",
-    "version": "1.25.1",
+    "version": "2.0.0-alpha.0",
     "description": "Model Context Protocol implementation for TypeScript",
     "license": "SEE LICENSE IN LICENSE",
     "author": "Model Context Protocol a Series of LF Projects, LLC.",
@@ -15,7 +15,7 @@
         "node": ">=20",
         "pnpm": ">=10.24.0"
     },
-    "packageManager": "pnpm@10.24.0",
+    "packageManager": "pnpm@10.26.1",
     "keywords": [
         "modelcontextprotocol",
         "mcp"
@@ -46,6 +46,7 @@
         "@modelcontextprotocol/client": "workspace:^",
         "@modelcontextprotocol/conformance": "0.1.9",
         "@modelcontextprotocol/server": "workspace:^",
+        "@modelcontextprotocol/node": "workspace:^",
         "@types/content-type": "catalog:devTools",
         "@types/cors": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",

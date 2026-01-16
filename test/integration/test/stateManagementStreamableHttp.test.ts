@@ -1,18 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import type { Server } from 'node:http';
+import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import {
     CallToolResultSchema,
     LATEST_PROTOCOL_VERSION,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListToolsResultSchema,
-    McpServer,
-    StreamableHTTPServerTransport
+    McpServer
 } from '@modelcontextprotocol/server';
-import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
-import { type ZodMatrixEntry, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
+import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
+import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;
@@ -68,7 +69,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             // Create transport with or without session management
-            const serverTransport = new StreamableHTTPServerTransport({
+            const serverTransport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: withSessionManagement
                     ? () => randomUUID() // With session management, generate UUID
                     : undefined // Without session management, return undefined
@@ -89,7 +90,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         describe('Stateless Mode', () => {
             let server: Server;
             let mcpServer: McpServer;
-            let serverTransport: StreamableHTTPServerTransport;
+            let serverTransport: NodeStreamableHTTPServerTransport;
             let baseUrl: URL;
 
             beforeEach(async () => {
@@ -253,7 +254,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         describe('Stateful Mode', () => {
             let server: Server;
             let mcpServer: McpServer;
-            let serverTransport: StreamableHTTPServerTransport;
+            let serverTransport: NodeStreamableHTTPServerTransport;
             let baseUrl: URL;
 
             beforeEach(async () => {
