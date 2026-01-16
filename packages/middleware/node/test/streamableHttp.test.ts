@@ -2291,6 +2291,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const { done } = await Promise.race([readPromise, timeoutPromise]);
             expect(done).toBe(true);
 
+            // Wait a bit to ensure the next notification gets a different timestamp.
+            // The eventStore uses Date.now() in event IDs, and if two events have the same
+            // timestamp, the UUID suffix ordering is random and may not preserve creation order.
+            await new Promise(resolve => setTimeout(resolve, 5));
+
             // Send a notification while client is disconnected
             await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Missed while disconnected' });
 
