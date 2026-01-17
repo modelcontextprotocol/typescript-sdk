@@ -36,6 +36,7 @@ Most clients expect a server to be running. Start one from [`../server/README.md
 | Client credentials (M2M)                            | Machine-to-machine OAuth client credentials example.                                      | [`src/simpleClientCredentials.ts`](src/simpleClientCredentials.ts)                         |
 | URL elicitation client                              | Drives URL-mode elicitation flows (sensitive input in a browser).                         | [`src/elicitationUrlExample.ts`](src/elicitationUrlExample.ts)                             |
 | Task interactive client                             | Demonstrates task-based execution + interactive server→client requests.                   | [`src/simpleTaskInteractiveClient.ts`](src/simpleTaskInteractiveClient.ts)                 |
+| Primitive groups filtering client                   | CLI client that fetches groups/tools/resources/prompts and filters locally by group.      | [`src/groupsExampleClient.ts`](src/groupsExampleClient.ts)                                 |
 
 ## URL elicitation example (server + client)
 
@@ -49,4 +50,12 @@ Then run the client:
 
 ```bash
 pnpm --filter @modelcontextprotocol/examples-client exec tsx src/elicitationUrlExample.ts
+```
+
+## Primitive groups example (server + client)
+
+Run the client (it spawns the matching stdio server by default):
+
+```bash
+pnpm --filter @modelcontextprotocol/examples-client exec tsx src/groupsExampleClient.ts
 ```
