@@ -214,7 +214,7 @@ async function run(): Promise<void> {
     printHelp();
 
     while (true) {
-        let input = await question('\nEnter groups to filter by (or "all", "help", "quit"): ');
+        let input = await question('\nEnter a command or a list of groups to filter by: ');
         if (!input) {
             input = 'groups';
         }
