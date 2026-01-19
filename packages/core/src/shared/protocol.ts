@@ -61,6 +61,17 @@ import type { Transport, TransportSendOptions } from './transport.js';
 export type ProgressCallback = (progress: Progress) => void;
 
 /**
+ * A JSON-RPC message that can be transformed by middleware.
+ */
+export type JSONRPCMessageLike = JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCResultResponse | JSONRPCErrorResponse;
+
+/**
+ * Middleware function for transforming JSON-RPC messages.
+ * Can be sync (returns message) or async (returns Promise<message>).
+ */
+export type MessageMiddleware = (message: JSONRPCMessageLike) => JSONRPCMessageLike | Promise<JSONRPCMessageLike>;
+
+/**
  * Additional initialization options.
  */
 export type ProtocolOptions = {
@@ -102,6 +113,16 @@ export type ProtocolOptions = {
      * appropriately (e.g., by failing the task, dropping messages, etc.).
      */
     maxTaskQueueSize?: number;
+    /**
+     * Middleware functions to apply to outgoing messages before sending.
+     * Middleware is applied in order, with each function receiving the output of the previous.
+     */
+    sendMiddleware?: MessageMiddleware[];
+    /**
+     * Middleware functions to apply to incoming messages after receiving.
+     * Middleware is applied in order, with each function receiving the output of the previous.
+     */
+    receiveMiddleware?: MessageMiddleware[];
 };
 
 /**
@@ -604,6 +625,25 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     }
 
     /**
+     * Applies a list of middleware functions to a message.
+     * Middleware is applied in order, with each function receiving the output of the previous.
+     */
+    private async _applyMiddleware<T extends JSONRPCMessageLike>(
+        message: T,
+        middlewareList: MessageMiddleware[] | undefined
+    ): Promise<T> {
+        if (!middlewareList || middlewareList.length === 0) {
+            return message;
+        }
+
+        let result: JSONRPCMessageLike = message;
+        for (const middleware of middlewareList) {
+            result = await middleware(result);
+        }
+        return result as T;
+    }
+
+    /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
      * The Protocol object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
@@ -625,15 +665,21 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const _onmessage = this._transport?.onmessage;
         this._transport.onmessage = (message, extra) => {
             _onmessage?.(message, extra);
-            if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
-                this._onresponse(message);
-            } else if (isJSONRPCRequest(message)) {
-                this._onrequest(message, extra);
-            } else if (isJSONRPCNotification(message)) {
-                this._onnotification(message);
-            } else {
-                this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
-            }
+
+            // Apply receive middleware and then route the message
+            this._applyMiddleware(message, this._options?.receiveMiddleware)
+                .then(transformedMessage => {
+                    if (isJSONRPCResultResponse(transformedMessage) || isJSONRPCErrorResponse(transformedMessage)) {
+                        this._onresponse(transformedMessage);
+                    } else if (isJSONRPCRequest(transformedMessage)) {
+                        this._onrequest(transformedMessage, extra);
+                    } else if (isJSONRPCNotification(transformedMessage)) {
+                        this._onnotification(transformedMessage);
+                    } else {
+                        this._onerror(new Error(`Unknown message type: ${JSON.stringify(transformedMessage)}`));
+                    }
+                })
+                .catch(error => this._onerror(new Error(`Receive middleware error: ${error}`)));
         };
 
         await this._transport.start();
@@ -1211,23 +1257,38 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 };
                 this._requestResolvers.set(messageId, responseResolver);
 
-                this._enqueueTaskMessage(relatedTaskId, {
-                    type: 'request',
-                    message: jsonrpcRequest,
-                    timestamp: Date.now()
-                }).catch(error => {
-                    this._cleanupTimeout(messageId);
-                    reject(error);
-                });
+                // Apply send middleware before queuing
+                this._applyMiddleware(jsonrpcRequest, this._options?.sendMiddleware)
+                    .then(transformedRequest => {
+                        this._enqueueTaskMessage(relatedTaskId, {
+                            type: 'request',
+                            message: transformedRequest as JSONRPCRequest,
+                            timestamp: Date.now()
+                        }).catch(error => {
+                            this._cleanupTimeout(messageId);
+                            reject(error);
+                        });
+                    })
+                    .catch(error => {
+                        this._cleanupTimeout(messageId);
+                        reject(error);
+                    });
 
                 // Don't send through transport - queued messages are delivered via tasks/result only
                 // This prevents duplicate delivery for bidirectional transports
             } else {
-                // No related task - send through transport normally
-                this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
-                    this._cleanupTimeout(messageId);
-                    reject(error);
-                });
+                // No related task - apply send middleware and send through transport normally
+                this._applyMiddleware(jsonrpcRequest, this._options?.sendMiddleware)
+                    .then(transformedRequest => {
+                        this._transport!.send(transformedRequest as JSONRPCRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
+                            this._cleanupTimeout(messageId);
+                            reject(error);
+                        });
+                    })
+                    .catch(error => {
+                        this._cleanupTimeout(messageId);
+                        reject(error);
+                    });
             }
         });
     }
@@ -1302,9 +1363,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
             };
 
+            // Apply send middleware before queuing
+            const transformedNotification = await this._applyMiddleware(jsonrpcNotification, this._options?.sendMiddleware);
+
             await this._enqueueTaskMessage(relatedTaskId, {
                 type: 'notification',
-                message: jsonrpcNotification,
+                message: transformedNotification as JSONRPCNotification,
                 timestamp: Date.now()
             });
 
@@ -1358,9 +1422,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     };
                 }
 
-                // Send the notification, but don't await it here to avoid blocking.
+                // Apply send middleware and send the notification.
                 // Handle potential errors with a .catch().
-                this._transport?.send(jsonrpcNotification, options).catch(error => this._onerror(error));
+                this._applyMiddleware(jsonrpcNotification, this._options?.sendMiddleware)
+                    .then(transformedNotification => {
+                        this._transport?.send(transformedNotification as JSONRPCNotification, options).catch(error => this._onerror(error));
+                    })
+                    .catch(error => this._onerror(error));
             });
 
             // Return immediately.
@@ -1386,7 +1454,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             };
         }
 
-        await this._transport.send(jsonrpcNotification, options);
+        // Apply send middleware before sending
+        const transformedNotification = await this._applyMiddleware(jsonrpcNotification, this._options?.sendMiddleware);
+        await this._transport.send(transformedNotification as JSONRPCNotification, options);
     }
 
     /**
