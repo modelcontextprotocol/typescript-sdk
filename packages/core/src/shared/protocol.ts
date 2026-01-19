@@ -663,20 +663,26 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this._transport.onmessage = (message, extra) => {
             _onmessage?.(message, extra);
 
-            // Apply receive middleware and then route the message
-            this._applyMiddleware(message, this._options?.receiveMiddleware)
-                .then(transformedMessage => {
-                    if (isJSONRPCResultResponse(transformedMessage) || isJSONRPCErrorResponse(transformedMessage)) {
-                        this._onresponse(transformedMessage);
-                    } else if (isJSONRPCRequest(transformedMessage)) {
-                        this._onrequest(transformedMessage, extra);
-                    } else if (isJSONRPCNotification(transformedMessage)) {
-                        this._onnotification(transformedMessage);
-                    } else {
-                        this._onerror(new Error(`Unknown message type: ${JSON.stringify(transformedMessage)}`));
-                    }
-                })
-                .catch(error => this._onerror(new Error(`Receive middleware error: ${error}`)));
+            // Route the message, applying receive middleware if configured
+            const routeMessage = (msg: JSONRPCMessageLike) => {
+                if (isJSONRPCResultResponse(msg) || isJSONRPCErrorResponse(msg)) {
+                    this._onresponse(msg);
+                } else if (isJSONRPCRequest(msg)) {
+                    this._onrequest(msg, extra);
+                } else if (isJSONRPCNotification(msg)) {
+                    this._onnotification(msg);
+                } else {
+                    this._onerror(new Error(`Unknown message type: ${JSON.stringify(msg)}`));
+                }
+            };
+
+            if (this._options?.receiveMiddleware && this._options.receiveMiddleware.length > 0) {
+                this._applyMiddleware(message, this._options.receiveMiddleware)
+                    .then(routeMessage)
+                    .catch(error => this._onerror(new Error(`Receive middleware error: ${error}`)));
+            } else {
+                routeMessage(message);
+            }
         };
 
         await this._transport.start();
@@ -1158,8 +1164,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             };
         }
 
-        // Apply send middleware before sending
-        jsonrpcRequest = (await this._applyMiddleware(jsonrpcRequest, this._options?.sendMiddleware)) as JSONRPCRequest;
+        // Apply send middleware before sending (only await if there's middleware)
+        if (this._options?.sendMiddleware && this._options.sendMiddleware.length > 0) {
+            jsonrpcRequest = (await this._applyMiddleware(jsonrpcRequest, this._options.sendMiddleware)) as JSONRPCRequest;
+        }
 
         // Send the request
         return new Promise<SchemaOutput<T>>((resolve, reject) => {
@@ -1349,12 +1357,18 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
             };
 
-            // Apply send middleware before queuing
-            const transformedNotification = await this._applyMiddleware(jsonrpcNotification, this._options?.sendMiddleware);
+            // Apply send middleware before queuing (only if there's middleware)
+            let notificationToQueue: JSONRPCNotification = jsonrpcNotification;
+            if (this._options?.sendMiddleware && this._options.sendMiddleware.length > 0) {
+                notificationToQueue = (await this._applyMiddleware(
+                    jsonrpcNotification,
+                    this._options.sendMiddleware
+                )) as JSONRPCNotification;
+            }
 
             await this._enqueueTaskMessage(relatedTaskId, {
                 type: 'notification',
-                message: transformedNotification as JSONRPCNotification,
+                message: notificationToQueue,
                 timestamp: Date.now()
             });
 
@@ -1410,11 +1424,17 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                 // Apply send middleware and send the notification.
                 // Handle potential errors with a .catch().
-                this._applyMiddleware(jsonrpcNotification, this._options?.sendMiddleware)
-                    .then(transformedNotification => {
-                        this._transport?.send(transformedNotification as JSONRPCNotification, options).catch(error => this._onerror(error));
-                    })
-                    .catch(error => this._onerror(error));
+                if (this._options?.sendMiddleware && this._options.sendMiddleware.length > 0) {
+                    this._applyMiddleware(jsonrpcNotification, this._options.sendMiddleware)
+                        .then(transformedNotification => {
+                            this._transport
+                                ?.send(transformedNotification as JSONRPCNotification, options)
+                                .catch(error => this._onerror(error));
+                        })
+                        .catch(error => this._onerror(error));
+                } else {
+                    this._transport?.send(jsonrpcNotification, options).catch(error => this._onerror(error));
+                }
             });
 
             // Return immediately.
@@ -1440,9 +1460,16 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             };
         }
 
-        // Apply send middleware before sending
-        const transformedNotification = await this._applyMiddleware(jsonrpcNotification, this._options?.sendMiddleware);
-        await this._transport.send(transformedNotification as JSONRPCNotification, options);
+        // Apply send middleware before sending (only if there's middleware)
+        if (this._options?.sendMiddleware && this._options.sendMiddleware.length > 0) {
+            const transformedNotification = (await this._applyMiddleware(
+                jsonrpcNotification,
+                this._options.sendMiddleware
+            )) as JSONRPCNotification;
+            await this._transport.send(transformedNotification, options);
+        } else {
+            await this._transport.send(jsonrpcNotification, options);
+        }
     }
 
     /**
