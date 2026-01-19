@@ -34,17 +34,22 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
+        "@modelcontextprotocol/core": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
+        "@modelcontextprotocol/express": "workspace:^",
+        "better-auth": "1.4.7",
+        "better-sqlite3": "^12.4.1",
         "express": "catalog:runtimeServerOnly"
     },
     "devDependencies": {
-        "@modelcontextprotocol/tsconfig": "workspace:^",
+        "@eslint/js": "catalog:devTools",
         "@modelcontextprotocol/eslint-config": "workspace:^",
-        "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/test-helpers": "workspace:^",
+        "@modelcontextprotocol/tsconfig": "workspace:^",
+        "@modelcontextprotocol/vitest-config": "workspace:^",
+        "@types/better-sqlite3": "^7.6.13",
         "@types/express": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
-        "@eslint/js": "catalog:devTools",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",
         "eslint-plugin-n": "catalog:devTools",

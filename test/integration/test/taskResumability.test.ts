@@ -1,14 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import type { Server } from 'node:http';
+import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import {
-    CallToolResultSchema,
-    LoggingMessageNotificationSchema,
-    McpServer,
-    StreamableHTTPServerTransport
-} from '@modelcontextprotocol/server';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { EventStore, JSONRPCMessage } from '@modelcontextprotocol/server';
+import { CallToolResultSchema, LoggingMessageNotificationSchema, McpServer } from '@modelcontextprotocol/server';
 import type { ZodMatrixEntry } from '@modelcontextprotocol/test-helpers';
 import { listenOnRandomPort, zodTestMatrix } from '@modelcontextprotocol/test-helpers';
 
@@ -51,7 +48,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     describe('Transport resumability', () => {
         let server: Server;
         let mcpServer: McpServer;
-        let serverTransport: StreamableHTTPServerTransport;
+        let serverTransport: NodeStreamableHTTPServerTransport;
         let baseUrl: URL;
         let eventStore: InMemoryEventStore;
 
@@ -117,7 +114,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
 
             // Create a transport with the event store
-            serverTransport = new StreamableHTTPServerTransport({
+            serverTransport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore
             });
