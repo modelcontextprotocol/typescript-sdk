@@ -1,5 +1,7 @@
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, GetPromptResult, ReadResourceResult } from '@modelcontextprotocol/server';
-import { createMcpExpressApp, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
@@ -103,7 +105,7 @@ const app = createMcpExpressApp();
 app.post('/mcp', async (req: Request, res: Response) => {
     const server = getServer();
     try {
-        const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
+        const transport: NodeStreamableHTTPServerTransport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: undefined
         });
         await server.connect(transport);

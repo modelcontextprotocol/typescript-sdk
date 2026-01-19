@@ -1,6 +1,9 @@
 # MCP TypeScript SDK Examples (Server)
 
-This directory contains runnable MCP **server** examples built with `@modelcontextprotocol/server`.
+This directory contains runnable MCP **server** examples built with `@modelcontextprotocol/server` plus framework adapters:
+
+- `@modelcontextprotocol/express`
+- `@modelcontextprotocol/hono`
 
 For client examples, see [`../client/README.md`](../client/README.md). For guided docs, see [`../../docs/server.md`](../../docs/server.md).
 
@@ -68,7 +71,7 @@ When deploying MCP servers in a horizontally scaled environment (multiple server
 
 ### Stateless mode
 
-To enable stateless mode, configure the `StreamableHTTPServerTransport` with:
+To enable stateless mode, configure the `NodeStreamableHTTPServerTransport` with:
 
 ```typescript
 sessionIdGenerator: undefined;

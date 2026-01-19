@@ -6,6 +6,7 @@
         "paths": {
             "*": ["./*"],
             "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
+            "@modelcontextprotocol/express": ["./node_modules/@modelcontextprotocol/express/src/index.ts"],
             "@modelcontextprotocol/core": [
                 "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core/src/index.ts"
             ],
