@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { ReadResourceResult } from '@modelcontextprotocol/server';
-import { createMcpExpressApp, isInitializeRequest, McpServer, StreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 
 // Create an MCP server with implementation details
@@ -11,7 +13,7 @@ const server = new McpServer({
 });
 
 // Store transports by session ID to send notifications
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
 
 const addResource = (name: string, content: string) => {
     const uri = `https://mcp-example.com/dynamic/${encodeURIComponent(name)}`;
@@ -41,14 +43,14 @@ app.post('/mcp', async (req: Request, res: Response) => {
     try {
         // Check for existing session ID
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
 
         if (sessionId && transports[sessionId]) {
             // Reuse existing transport
             transport = transports[sessionId];
         } else if (!sessionId && isInitializeRequest(req.body)) {
             // New initialization request
-            transport = new StreamableHTTPServerTransport({
+            transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 onsessioninitialized: sessionId => {
                     // Store the transport by session ID when session is initialized

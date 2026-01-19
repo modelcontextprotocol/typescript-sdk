@@ -284,5 +284,32 @@ describe('UriTemplate', () => {
             vars[longName] = 'value';
             expect(() => template.expand(vars)).not.toThrow();
         });
+
+        it('should not be vulnerable to ReDoS with exploded path patterns', () => {
+            // Test for ReDoS vulnerability (CVE-2026-0621)
+            // See: https://github.com/modelcontextprotocol/typescript-sdk/issues/965
+            const template = new UriTemplate('{/id*}');
+            const maliciousPayload = '/' + ','.repeat(50);
+
+            const startTime = Date.now();
+            template.match(maliciousPayload);
+            const elapsed = Date.now() - startTime;
+
+            // Should complete in under 100ms, not hang for seconds
+            expect(elapsed).toBeLessThan(100);
+        });
+
+        it('should not be vulnerable to ReDoS with exploded simple patterns', () => {
+            // Test for ReDoS vulnerability with simple exploded operator
+            const template = new UriTemplate('{id*}');
+            const maliciousPayload = ','.repeat(50);
+
+            const startTime = Date.now();
+            template.match(maliciousPayload);
+            const elapsed = Date.now() - startTime;
+
+            // Should complete in under 100ms, not hang for seconds
+            expect(elapsed).toBeLessThan(100);
+        });
     });
 });
