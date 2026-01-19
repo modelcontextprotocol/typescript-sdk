@@ -1120,8 +1120,49 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      *
      * Do not use this method to emit notifications! Use notification() instead.
      */
-    request<T extends AnySchema>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
+    async request<T extends AnySchema>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
+
+        // Build the JSON-RPC request
+        const messageId = this._requestMessageId++;
+        let jsonrpcRequest: JSONRPCRequest = {
+            ...request,
+            jsonrpc: '2.0',
+            id: messageId
+        };
+
+        if (options?.onprogress) {
+            this._progressHandlers.set(messageId, options.onprogress);
+            jsonrpcRequest.params = {
+                ...request.params,
+                _meta: {
+                    ...(request.params?._meta || {}),
+                    progressToken: messageId
+                }
+            };
+        }
+
+        // Augment with task creation parameters if provided
+        if (task) {
+            jsonrpcRequest.params = {
+                ...jsonrpcRequest.params,
+                task: task
+            };
+        }
+
+        // Augment with related task metadata if relatedTask is provided
+        if (relatedTask) {
+            jsonrpcRequest.params = {
+                ...jsonrpcRequest.params,
+                _meta: {
+                    ...(jsonrpcRequest.params?._meta || {}),
+                    [RELATED_TASK_META_KEY]: relatedTask
+                }
+            };
+        }
+
+        // Apply send middleware before sending
+        jsonrpcRequest = await this._applyMiddleware(jsonrpcRequest, this._options?.sendMiddleware) as JSONRPCRequest;
 
         // Send the request
         return new Promise<SchemaOutput<T>>((resolve, reject) => {
@@ -1149,43 +1190,6 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             }
 
             options?.signal?.throwIfAborted();
-
-            const messageId = this._requestMessageId++;
-            const jsonrpcRequest: JSONRPCRequest = {
-                ...request,
-                jsonrpc: '2.0',
-                id: messageId
-            };
-
-            if (options?.onprogress) {
-                this._progressHandlers.set(messageId, options.onprogress);
-                jsonrpcRequest.params = {
-                    ...request.params,
-                    _meta: {
-                        ...(request.params?._meta || {}),
-                        progressToken: messageId
-                    }
-                };
-            }
-
-            // Augment with task creation parameters if provided
-            if (task) {
-                jsonrpcRequest.params = {
-                    ...jsonrpcRequest.params,
-                    task: task
-                };
-            }
-
-            // Augment with related task metadata if relatedTask is provided
-            if (relatedTask) {
-                jsonrpcRequest.params = {
-                    ...jsonrpcRequest.params,
-                    _meta: {
-                        ...(jsonrpcRequest.params?._meta || {}),
-                        [RELATED_TASK_META_KEY]: relatedTask
-                    }
-                };
-            }
 
             const cancel = (reason: unknown) => {
                 this._responseHandlers.delete(messageId);
@@ -1257,38 +1261,23 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 };
                 this._requestResolvers.set(messageId, responseResolver);
 
-                // Apply send middleware before queuing
-                this._applyMiddleware(jsonrpcRequest, this._options?.sendMiddleware)
-                    .then(transformedRequest => {
-                        this._enqueueTaskMessage(relatedTaskId, {
-                            type: 'request',
-                            message: transformedRequest as JSONRPCRequest,
-                            timestamp: Date.now()
-                        }).catch(error => {
-                            this._cleanupTimeout(messageId);
-                            reject(error);
-                        });
-                    })
-                    .catch(error => {
-                        this._cleanupTimeout(messageId);
-                        reject(error);
-                    });
+                this._enqueueTaskMessage(relatedTaskId, {
+                    type: 'request',
+                    message: jsonrpcRequest,
+                    timestamp: Date.now()
+                }).catch(error => {
+                    this._cleanupTimeout(messageId);
+                    reject(error);
+                });
 
                 // Don't send through transport - queued messages are delivered via tasks/result only
                 // This prevents duplicate delivery for bidirectional transports
             } else {
-                // No related task - apply send middleware and send through transport normally
-                this._applyMiddleware(jsonrpcRequest, this._options?.sendMiddleware)
-                    .then(transformedRequest => {
-                        this._transport!.send(transformedRequest as JSONRPCRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
-                            this._cleanupTimeout(messageId);
-                            reject(error);
-                        });
-                    })
-                    .catch(error => {
-                        this._cleanupTimeout(messageId);
-                        reject(error);
-                    });
+                // No related task - send through transport normally
+                this._transport!.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
+                    this._cleanupTimeout(messageId);
+                    reject(error);
+                });
             }
         });
     }
