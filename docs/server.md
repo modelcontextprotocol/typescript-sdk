@@ -99,6 +99,13 @@ const app = createMcpExpressApp({
 
 Tools let MCP clients ask your server to take actions. They are usually the main way that LLMs call into your application.
 
+When your tool list changes at runtime, the server can notify connected clients so they can refresh their cached tool list. `McpServer` automatically emits a tool list changed notification when you register a new tool. You can also send it manually if you update metadata or
+remove tools:
+
+```typescript
+server.sendToolListChanged();
+```
+
 A typical registration with `registerTool` looks like this:
 
 ```typescript
