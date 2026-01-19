@@ -628,10 +628,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * Applies a list of middleware functions to a message.
      * Middleware is applied in order, with each function receiving the output of the previous.
      */
-    private async _applyMiddleware<T extends JSONRPCMessageLike>(
-        message: T,
-        middlewareList: MessageMiddleware[] | undefined
-    ): Promise<T> {
+    private async _applyMiddleware<T extends JSONRPCMessageLike>(message: T, middlewareList: MessageMiddleware[] | undefined): Promise<T> {
         if (!middlewareList || middlewareList.length === 0) {
             return message;
         }
@@ -1162,7 +1159,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         }
 
         // Apply send middleware before sending
-        jsonrpcRequest = await this._applyMiddleware(jsonrpcRequest, this._options?.sendMiddleware) as JSONRPCRequest;
+        jsonrpcRequest = (await this._applyMiddleware(jsonrpcRequest, this._options?.sendMiddleware)) as JSONRPCRequest;
 
         // Send the request
         return new Promise<SchemaOutput<T>>((resolve, reject) => {
