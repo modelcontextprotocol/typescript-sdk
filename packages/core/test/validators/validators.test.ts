@@ -8,9 +8,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { vi } from 'vitest';
 
-import { AjvJsonSchemaValidator } from '../../src/validation/ajv-provider.js';
-import { CfWorkerJsonSchemaValidator } from '../../src/validation/cfworker-provider.js';
-import type { JsonSchemaType } from '../../src/validation/types.js';
+import { AjvJsonSchemaValidator } from '../../src/validators/ajv-provider.js';
+import { CfWorkerJsonSchemaValidator } from '../../src/validators/cfworker-provider.js';
+import type { JsonSchemaType } from '../../src/validators/types.js';
 
 // Test with both AJV and CfWorker validators
 // AJV validator will use default configuration with format validation enabled
@@ -334,8 +334,14 @@ describe('JSON Schema Validators', () => {
             it('validates with allOf', () => {
                 const schema: JsonSchemaType = {
                     allOf: [
-                        { type: 'object', properties: { name: { type: 'string' } } },
-                        { type: 'object', properties: { age: { type: 'number' } } }
+                        {
+                            type: 'object',
+                            properties: { name: { type: 'string' } }
+                        },
+                        {
+                            type: 'object',
+                            properties: { age: { type: 'number' } }
+                        }
                     ]
                 };
                 const validator = provider.getValidator(schema);
@@ -470,7 +476,10 @@ describe('JSON Schema Validators', () => {
                                         type: 'object',
                                         properties: {
                                             name: { type: 'string' },
-                                            quantity: { type: 'integer', minimum: 1 }
+                                            quantity: {
+                                                type: 'integer',
+                                                minimum: 1
+                                            }
                                         },
                                         required: ['name', 'quantity']
                                     }
@@ -553,7 +562,7 @@ describe('Missing dependencies', () => {
             });
 
             // Attempting to import ajv-provider should fail
-            await expect(import('../../src/validation/ajv-provider.js')).rejects.toThrow();
+            await expect(import('../../src/validators/ajv-provider.js')).rejects.toThrow();
         });
 
         it('should be able to import cfworker-provider when ajv is missing', async () => {
@@ -567,7 +576,7 @@ describe('Missing dependencies', () => {
             });
 
             // But cfworker-provider should import successfully
-            const cfworkerModule = await import('../../src/validation/cfworker-provider.js');
+            const cfworkerModule = await import('../../src/validators/cfworker-provider.js');
             expect(cfworkerModule.CfWorkerJsonSchemaValidator).toBeDefined();
 
             // And should work correctly
@@ -594,7 +603,7 @@ describe('Missing dependencies', () => {
             });
 
             // Attempting to import cfworker-provider should fail
-            await expect(import('../../src/validation/cfworker-provider.js')).rejects.toThrow();
+            await expect(import('../../src/validators/cfworker-provider.js')).rejects.toThrow();
         });
 
         it('should be able to import ajv-provider when @cfworker/json-schema is missing', async () => {
@@ -604,7 +613,7 @@ describe('Missing dependencies', () => {
             });
 
             // But ajv-provider should import successfully
-            const ajvModule = await import('../../src/validation/ajv-provider.js');
+            const ajvModule = await import('../../src/validators/ajv-provider.js');
             expect(ajvModule.AjvJsonSchemaValidator).toBeDefined();
 
             // And should work correctly
@@ -615,7 +624,7 @@ describe('Missing dependencies', () => {
         });
 
         it('should document that @cfworker/json-schema is required', () => {
-            const cfworkerProviderPath = join(__dirname, '../../src/validation/cfworker-provider.ts');
+            const cfworkerProviderPath = join(__dirname, '../../src/validators/cfworker-provider.ts');
             const content = readFileSync(cfworkerProviderPath, 'utf-8');
 
             expect(content).toContain('@cfworker/json-schema');
