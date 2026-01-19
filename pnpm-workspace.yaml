@@ -54,7 +54,7 @@ enableGlobalVirtualStore: false
 linkWorkspacePackages: deep
 
 minimumReleaseAge: 10080 # 7 days
-minimumReleaseAgeExclude: 
+minimumReleaseAgeExclude:
     - '@modelcontextprotocol/conformance'
 
 onlyBuiltDependencies:

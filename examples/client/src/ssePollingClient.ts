@@ -106,4 +106,10 @@ async function main(): Promise<void> {
     }
 }
 
-main().catch(console.error);
+try {
+    await main();
+} catch (error) {
+    console.error('Error running MCP client:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
+    process.exit(1);
+}

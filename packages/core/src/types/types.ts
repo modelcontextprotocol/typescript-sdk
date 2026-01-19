@@ -227,18 +227,18 @@ export const isJSONRPCResponse = isJSONRPCResultResponse;
  */
 export enum ErrorCode {
     // SDK error codes
-    ConnectionClosed = -32000,
-    RequestTimeout = -32001,
+    ConnectionClosed = -32_000,
+    RequestTimeout = -32_001,
 
     // Standard JSON-RPC error codes
-    ParseError = -32700,
-    InvalidRequest = -32600,
-    MethodNotFound = -32601,
-    InvalidParams = -32602,
-    InternalError = -32603,
+    ParseError = -32_700,
+    InvalidRequest = -32_600,
+    MethodNotFound = -32_601,
+    InvalidParams = -32_602,
+    InternalError = -32_603,
 
     // MCP-specific error codes
-    UrlElicitationRequired = -32042
+    UrlElicitationRequired = -32_042
 }
 
 /**
@@ -424,10 +424,8 @@ const FormElicitationCapabilitySchema = z.intersection(
 
 const ElicitationCapabilitySchema = z.preprocess(
     value => {
-        if (value && typeof value === 'object' && !Array.isArray(value)) {
-            if (Object.keys(value as Record<string, unknown>).length === 0) {
-                return { form: {} };
-            }
+        if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value as Record<string, unknown>).length === 0) {
+            return { form: {} };
         }
         return value;
     },

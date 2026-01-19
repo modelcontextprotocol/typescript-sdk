@@ -215,8 +215,8 @@ function completeURLElicitation(elicitationId: string) {
     elicitation.completeResolver();
 }
 
-const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 3000;
-const AUTH_PORT = process.env.MCP_AUTH_PORT ? parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
+const MCP_PORT = process.env.MCP_PORT ? Number.parseInt(process.env.MCP_PORT, 10) : 3000;
+const AUTH_PORT = process.env.MCP_AUTH_PORT ? Number.parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;
 
 const app = createMcpExpressApp();
 
@@ -277,15 +277,17 @@ async function sendApiKeyElicitation(
         });
 
         switch (result.action) {
-            case 'accept':
+            case 'accept': {
                 console.log('🔑 URL elicitation demo: Client accepted the API key elicitation (now pending form submission)');
                 // Wait for the API key to be submitted via the form
                 // The form submission will complete the elicitation
                 break;
-            default:
+            }
+            default: {
                 console.log('🔑 URL elicitation demo: Client declined to provide an API key');
                 // In a real app, this might close the connection, but for the demo, we'll continue
                 break;
+            }
         }
     } catch (error) {
         console.error('Error during API key elicitation:', error);
@@ -359,7 +361,7 @@ app.post('/api-key-form', express.urlencoded(), (req: Request, res: Response) =>
     }
 
     // A real app might store this API key to be used later for the user.
-    console.log(`🔑 Received API key \x1b[32m${apiKey}\x1b[0m for session ${sessionId}`);
+    console.log(`🔑 Received API key \u001B[32m${apiKey}\u001B[0m for session ${sessionId}`);
 
     // If we have an elicitationId, complete the elicitation
     completeURLElicitation(elicitationId);
@@ -608,7 +610,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             res.status(400).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32000,
+                    code: -32_000,
                     message: 'Bad Request: No valid session ID provided'
                 },
                 id: null
@@ -625,7 +627,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             res.status(500).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32603,
+                    code: -32_603,
                     message: 'Internal server error'
                 },
                 id: null
@@ -703,6 +705,7 @@ app.delete('/mcp', authMiddleware, mcpDeleteHandler);
 app.listen(MCP_PORT, error => {
     if (error) {
         console.error('Failed to start server:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
         process.exit(1);
     }
     console.log(`MCP Streamable HTTP Server listening on port ${MCP_PORT}`);

@@ -9,8 +9,8 @@ import type * as z4c from 'zod/v4/core';
 import * as z4mini from 'zod/v4-mini';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
-import type { AnyObjectSchema, AnySchema } from './zod-compat.js';
-import { getLiteralValue, getObjectShape, isZ4Schema, safeParse } from './zod-compat.js';
+import type { AnyObjectSchema, AnySchema } from './zodCompat.js';
+import { getLiteralValue, getObjectShape, isZ4Schema, safeParse } from './zodCompat.js';
 
 type JsonSchema = Record<string, unknown>;
 
@@ -53,7 +53,7 @@ export function getMethodLiteral(schema: AnyObjectSchema): string {
 
     const value = getLiteralValue(methodSchema);
     if (typeof value !== 'string') {
-        throw new Error('Schema method literal must be a string');
+        throw new TypeError('Schema method literal must be a string');
     }
 
     return value;

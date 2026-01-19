@@ -167,16 +167,12 @@ export const withLogging = (options: LoggingOptions = {}): Middleware => {
 
         // Add headers to message if requested
         if (includeRequestHeaders && requestHeaders) {
-            const reqHeaders = Array.from(requestHeaders.entries())
-                .map(([key, value]) => `${key}: ${value}`)
-                .join(', ');
+            const reqHeaders = [...requestHeaders.entries()].map(([key, value]) => `${key}: ${value}`).join(', ');
             message += `\n  Request Headers: {${reqHeaders}}`;
         }
 
         if (includeResponseHeaders && responseHeaders) {
-            const resHeaders = Array.from(responseHeaders.entries())
-                .map(([key, value]) => `${key}: ${value}`)
-                .join(', ');
+            const resHeaders = [...responseHeaders.entries()].map(([key, value]) => `${key}: ${value}`).join(', ');
             message += `\n  Response Headers: {${resHeaders}}`;
         }
 
@@ -255,7 +251,11 @@ export const withLogging = (options: LoggingOptions = {}): Middleware => {
  */
 export const applyMiddlewares = (...middleware: Middleware[]): Middleware => {
     return next => {
-        return middleware.reduce((handler, mw) => mw(handler), next);
+        let handler = next;
+        for (const mw of middleware) {
+            handler = mw(handler);
+        }
+        return handler;
     };
 };
 

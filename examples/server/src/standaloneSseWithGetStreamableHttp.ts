@@ -71,7 +71,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
             res.status(400).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32000,
+                    code: -32_000,
                     message: 'Bad Request: No valid session ID provided'
                 },
                 id: null
@@ -87,7 +87,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
             res.status(500).json({
                 jsonrpc: '2.0',
                 error: {
-                    code: -32603,
+                    code: -32_603,
                     message: 'Internal server error'
                 },
                 id: null
@@ -114,6 +114,7 @@ const PORT = 3000;
 app.listen(PORT, error => {
     if (error) {
         console.error('Failed to start server:', error);
+        // eslint-disable-next-line unicorn/no-process-exit
         process.exit(1);
     }
     console.log(`Server listening on port ${PORT}`);

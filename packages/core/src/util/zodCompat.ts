@@ -64,7 +64,7 @@ export function objectFromShape(shape: ZodRawShapeCompat): AnyObjectSchema {
     const values = Object.values(shape);
     if (values.length === 0) return z4mini.object({}); // default to v4 Mini
 
-    const allV4 = values.every(isZ4Schema);
+    const allV4 = values.every(element => isZ4Schema(element));
     const allV3 = values.every(s => !isZ4Schema(s));
 
     if (allV4) return z4mini.object(shape as Record<string, z4.$ZodType>);

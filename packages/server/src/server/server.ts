@@ -248,7 +248,7 @@ export class Server<
         }
 
         if (typeof methodValue !== 'string') {
-            throw new Error('Schema method literal must be a string');
+            throw new TypeError('Schema method literal must be a string');
         }
         const method = methodValue;
 
@@ -302,70 +302,81 @@ export class Server<
 
     protected assertCapabilityForMethod(method: RequestT['method']): void {
         switch (method as ServerRequest['method']) {
-            case 'sampling/createMessage':
+            case 'sampling/createMessage': {
                 if (!this._clientCapabilities?.sampling) {
                     throw new Error(`Client does not support sampling (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'elicitation/create':
+            case 'elicitation/create': {
                 if (!this._clientCapabilities?.elicitation) {
                     throw new Error(`Client does not support elicitation (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'roots/list':
+            case 'roots/list': {
                 if (!this._clientCapabilities?.roots) {
                     throw new Error(`Client does not support listing roots (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'ping':
+            case 'ping': {
                 // No specific capability required for ping
                 break;
+            }
         }
     }
 
     protected assertNotificationCapability(method: (ServerNotification | NotificationT)['method']): void {
         switch (method as ServerNotification['method']) {
-            case 'notifications/message':
+            case 'notifications/message': {
                 if (!this._capabilities.logging) {
                     throw new Error(`Server does not support logging (required for ${method})`);
                 }
                 break;
+            }
 
             case 'notifications/resources/updated':
-            case 'notifications/resources/list_changed':
+            case 'notifications/resources/list_changed': {
                 if (!this._capabilities.resources) {
                     throw new Error(`Server does not support notifying about resources (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'notifications/tools/list_changed':
+            case 'notifications/tools/list_changed': {
                 if (!this._capabilities.tools) {
                     throw new Error(`Server does not support notifying of tool list changes (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'notifications/prompts/list_changed':
+            case 'notifications/prompts/list_changed': {
                 if (!this._capabilities.prompts) {
                     throw new Error(`Server does not support notifying of prompt list changes (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'notifications/elicitation/complete':
+            case 'notifications/elicitation/complete': {
                 if (!this._clientCapabilities?.elicitation?.url) {
                     throw new Error(`Client does not support URL elicitation (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'notifications/cancelled':
+            case 'notifications/cancelled': {
                 // Cancellation notifications are always allowed
                 break;
+            }
 
-            case 'notifications/progress':
+            case 'notifications/progress': {
                 // Progress notifications are always allowed
                 break;
+            }
         }
     }
 
@@ -377,53 +388,60 @@ export class Server<
         }
 
         switch (method) {
-            case 'completion/complete':
+            case 'completion/complete': {
                 if (!this._capabilities.completions) {
                     throw new Error(`Server does not support completions (required for ${method})`);
                 }
                 break;
+            }
 
-            case 'logging/setLevel':
+            case 'logging/setLevel': {
                 if (!this._capabilities.logging) {
                     throw new Error(`Server does not support logging (required for ${method})`);
                 }
                 break;
+            }
 
             case 'prompts/get':
-            case 'prompts/list':
+            case 'prompts/list': {
                 if (!this._capabilities.prompts) {
                     throw new Error(`Server does not support prompts (required for ${method})`);
                 }
                 break;
+            }
 
             case 'resources/list':
             case 'resources/templates/list':
-            case 'resources/read':
+            case 'resources/read': {
                 if (!this._capabilities.resources) {
                     throw new Error(`Server does not support resources (required for ${method})`);
                 }
                 break;
+            }
 
             case 'tools/call':
-            case 'tools/list':
+            case 'tools/list': {
                 if (!this._capabilities.tools) {
                     throw new Error(`Server does not support tools (required for ${method})`);
                 }
                 break;
+            }
 
             case 'tasks/get':
             case 'tasks/list':
             case 'tasks/result':
-            case 'tasks/cancel':
+            case 'tasks/cancel': {
                 if (!this._capabilities.tasks) {
                     throw new Error(`Server does not support tasks capability (required for ${method})`);
                 }
                 break;
+            }
 
             case 'ping':
-            case 'initialize':
+            case 'initialize': {
                 // No specific capability required for these methods
                 break;
+            }
         }
     }
 
@@ -506,21 +524,19 @@ export class Server<
         options?: RequestOptions
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
         // Capability check - only required when tools/toolChoice are provided
-        if (params.tools || params.toolChoice) {
-            if (!this._clientCapabilities?.sampling?.tools) {
-                throw new Error('Client does not support sampling tools capability.');
-            }
+        if ((params.tools || params.toolChoice) && !this._clientCapabilities?.sampling?.tools) {
+            throw new Error('Client does not support sampling tools capability.');
         }
 
         // Message structure validation - always validate tool_use/tool_result pairs.
         // These may appear even without tools/toolChoice in the current request when
         // a previous sampling request returned tool_use and this is a follow-up with results.
         if (params.messages.length > 0) {
-            const lastMessage = params.messages[params.messages.length - 1]!;
+            const lastMessage = params.messages.at(-1)!;
             const lastContent = Array.isArray(lastMessage.content) ? lastMessage.content : [lastMessage.content];
             const hasToolResults = lastContent.some(c => c.type === 'tool_result');
 
-            const previousMessage = params.messages.length > 1 ? params.messages[params.messages.length - 2] : undefined;
+            const previousMessage = params.messages.length > 1 ? params.messages.at(-2) : undefined;
             const previousContent = previousMessage
                 ? Array.isArray(previousMessage.content)
                     ? previousMessage.content
@@ -646,10 +662,8 @@ export class Server<
      * @param sessionId optional for stateless and backward compatibility
      */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
-        if (this._capabilities.logging) {
-            if (!this.isMessageIgnored(params.level, sessionId)) {
-                return this.notification({ method: 'notifications/message', params });
-            }
+        if (this._capabilities.logging && !this.isMessageIgnored(params.level, sessionId)) {
+            return this.notification({ method: 'notifications/message', params });
         }
     }
 
