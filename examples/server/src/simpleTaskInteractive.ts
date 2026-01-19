@@ -11,6 +11,8 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type {
     CallToolResult,
     CreateMessageRequest,
@@ -35,15 +37,13 @@ import type {
 } from '@modelcontextprotocol/server';
 import {
     CallToolRequestSchema,
-    createMcpExpressApp,
     GetTaskPayloadRequestSchema,
     GetTaskRequestSchema,
     InMemoryTaskStore,
     isTerminal,
     ListToolsRequestSchema,
     RELATED_TASK_META_KEY,
-    Server,
-    StreamableHTTPServerTransport
+    Server
 } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 
@@ -642,7 +642,7 @@ const createServer = (): Server => {
 const app = createMcpExpressApp();
 
 // Map to store transports by session ID
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
 
 // Helper to check if request is initialize
 const isInitializeRequest = (body: unknown): boolean => {
@@ -654,12 +654,12 @@ app.post('/mcp', async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     try {
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
 
         if (sessionId && transports[sessionId]) {
             transport = transports[sessionId];
         } else if (!sessionId && isInitializeRequest(req.body)) {
-            transport = new StreamableHTTPServerTransport({
+            transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 onsessioninitialized: sid => {
                     console.log(`Session initialized: ${sid}`);
