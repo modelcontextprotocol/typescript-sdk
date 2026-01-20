@@ -39,7 +39,7 @@ catalogs:
         content-type: ^1.0.5
         cors: ^2.8.5
         express: ^5.2.1
-        hono: ^4.11.1
+        hono: ^4.11.4
         raw-body: ^3.0.0
     runtimeShared:
         '@cfworker/json-schema': ^4.1.1
