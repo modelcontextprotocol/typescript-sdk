@@ -596,7 +596,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             // Build request info from headers
             const requestInfo: RequestInfo = {
-                headers: Object.fromEntries(req.headers.entries())
+                headers: req.headers
             };
 
             let rawMessage;
