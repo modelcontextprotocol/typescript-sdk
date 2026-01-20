@@ -30,7 +30,7 @@ class InMemoryEventStore implements EventStore {
         if (!streamId) return '';
 
         let found = false;
-        const sorted = [...this.events.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        const sorted = [...this.events.entries()].toSorted((a, b) => a[0].localeCompare(b[0]));
         for (const [eventId, { streamId: sid, message }] of sorted) {
             if (sid !== streamId) continue;
             if (eventId === lastEventId) {
@@ -244,11 +244,11 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             // any in-progress requests, which is expected behavior
             await transport1.close();
             // Save the promise so we can catch it after closing
-            const catchPromise = toolPromise.catch(err => {
+            const catchPromise = toolPromise.catch(error => {
                 // This error is expected - the connection was intentionally closed
-                if (err?.code !== -32000) {
+                if (error?.code !== -32_000) {
                     // ConnectionClosed error code
-                    console.error('Unexpected error type during transport close:', err);
+                    console.error('Unexpected error type during transport close:', error);
                 }
             });
 

@@ -2,4 +2,4 @@
 '@modelcontextprotocol/server': patch
 ---
 
-add application/json header for notifications
+reverting application/json in notifications
