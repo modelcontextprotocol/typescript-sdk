@@ -952,6 +952,13 @@ export class McpServer {
     ): RegisteredTool;
 
     /**
+     * Registers a tool with a ZodObject schema (e.g., z.object({ ... })).
+     * The schema's shape will be extracted and used for validation.
+     * @deprecated Use `registerTool` instead.
+     */
+    tool<Schema extends AnyObjectSchema>(name: string, paramsSchema: Schema, cb: ToolCallback<Schema>): RegisteredTool;
+
+    /**
      * Registers a tool `name` (with a description) taking either parameter schema or annotations.
      * This unified overload handles both `tool(name, description, paramsSchema, cb)` and
      * `tool(name, description, annotations, cb)` cases.
@@ -968,6 +975,13 @@ export class McpServer {
     ): RegisteredTool;
 
     /**
+     * Registers a tool with a description and ZodObject schema (e.g., z.object({ ... })).
+     * The schema's shape will be extracted and used for validation.
+     * @deprecated Use `registerTool` instead.
+     */
+    tool<Schema extends AnyObjectSchema>(name: string, description: string, paramsSchema: Schema, cb: ToolCallback<Schema>): RegisteredTool;
+
+    /**
      * Registers a tool with both parameter schema and annotations.
      * @deprecated Use `registerTool` instead.
      */
@@ -976,6 +990,18 @@ export class McpServer {
         paramsSchema: Args,
         annotations: ToolAnnotations,
         cb: ToolCallback<Args>
+    ): RegisteredTool;
+
+    /**
+     * Registers a tool with a ZodObject schema and annotations.
+     * The schema's shape will be extracted and used for validation.
+     * @deprecated Use `registerTool` instead.
+     */
+    tool<Schema extends AnyObjectSchema>(
+        name: string,
+        paramsSchema: Schema,
+        annotations: ToolAnnotations,
+        cb: ToolCallback<Schema>
     ): RegisteredTool;
 
     /**
@@ -988,6 +1014,19 @@ export class McpServer {
         paramsSchema: Args,
         annotations: ToolAnnotations,
         cb: ToolCallback<Args>
+    ): RegisteredTool;
+
+    /**
+     * Registers a tool with description, ZodObject schema, and annotations.
+     * The schema's shape will be extracted and used for validation.
+     * @deprecated Use `registerTool` instead.
+     */
+    tool<Schema extends AnyObjectSchema>(
+        name: string,
+        description: string,
+        paramsSchema: Schema,
+        annotations: ToolAnnotations,
+        cb: ToolCallback<Schema>
     ): RegisteredTool;
 
     /**
@@ -1026,8 +1065,31 @@ export class McpServer {
                     // Or: tool(name, description, paramsSchema, annotations, cb)
                     annotations = rest.shift() as ToolAnnotations;
                 }
+            } else if (typeof firstArg === 'object' && firstArg !== null && isZodSchemaInstance(firstArg)) {
+                // It's a Zod schema instance (like z.object()), extract its shape if it's an object schema
+                const shape = getObjectShape(firstArg as AnyObjectSchema);
+                if (shape) {
+                    // We found an object schema, use its shape
+                    inputSchema = shape;
+                    rest.shift();
+
+                    // Check if the next arg is potentially annotations
+                    if (
+                        rest.length > 1 &&
+                        typeof rest[0] === 'object' &&
+                        rest[0] !== null &&
+                        !isZodRawShapeCompat(rest[0]) &&
+                        !isZodSchemaInstance(rest[0])
+                    ) {
+                        annotations = rest.shift() as ToolAnnotations;
+                    }
+                } else {
+                    // It's a schema but not an object schema, treat as annotations
+                    // (This maintains backward compatibility for edge cases)
+                    annotations = rest.shift() as ToolAnnotations;
+                }
             } else if (typeof firstArg === 'object' && firstArg !== null) {
-                // Not a ZodRawShapeCompat, so must be annotations in this position
+                // Not a ZodRawShapeCompat or Zod schema, so must be annotations in this position
                 // Case: tool(name, annotations, cb)
                 // Or: tool(name, description, annotations, cb)
                 annotations = rest.shift() as ToolAnnotations;
