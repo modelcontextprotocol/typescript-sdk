@@ -305,7 +305,7 @@ describe('createPrivateKeyJwtAuth', () => {
 
         const params = new URLSearchParams();
         await expect(addClientAuth(new Headers(), params, 'https://auth.example.com/token', undefined)).rejects.toThrow(
-            /Invalid character/
+            /cannot be part of a valid base64|Invalid character/
         );
     });
 
