@@ -168,7 +168,7 @@ export class Server<
         if (this._capabilities.logging) {
             this.setRequestHandler(SetLevelRequestSchema, async (request, extra) => {
                 const transportSessionId: string | undefined =
-                    extra.sessionId || (extra.requestInfo?.headers['mcp-session-id'] as string) || undefined;
+                    extra.sessionId || (extra.requestInfo?.headers.get('mcp-session-id') as string) || undefined;
                 const { level } = request.params;
                 const parseResult = LoggingLevelSchema.safeParse(level);
                 if (parseResult.success) {
