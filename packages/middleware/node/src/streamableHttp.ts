@@ -69,6 +69,8 @@ export class NodeStreamableHTTPServerTransport implements Transport {
 
         // Create a request listener that wraps the web standard transport
         // getRequestListener converts Node.js HTTP to Web Standard and properly handles SSE streaming
+        // overrideGlobalObjects: false prevents Hono from overwriting global Response, which would
+        // break frameworks like Next.js whose response classes extend the native Response
         this._requestListener = getRequestListener(async (webRequest: Request) => {
             // Get context if available (set during handleRequest)
             const context = this._requestContext.get(webRequest);
@@ -76,7 +78,7 @@ export class NodeStreamableHTTPServerTransport implements Transport {
                 authInfo: context?.authInfo,
                 parsedBody: context?.parsedBody
             });
-        });
+        }, { overrideGlobalObjects: false });
     }
 
     /**
@@ -157,12 +159,14 @@ export class NodeStreamableHTTPServerTransport implements Transport {
         const authInfo = req.auth;
 
         // Create a custom handler that includes our context
+        // overrideGlobalObjects: false prevents Hono from overwriting global Response, which would
+        // break frameworks like Next.js whose response classes extend the native Response
         const handler = getRequestListener(async (webRequest: Request) => {
             return this._webStandardTransport.handleRequest(webRequest, {
                 authInfo,
                 parsedBody
             });
-        });
+        }, { overrideGlobalObjects: false });
 
         // Delegate to the request listener which handles all the Node.js <-> Web Standard conversion
         // including proper SSE streaming support

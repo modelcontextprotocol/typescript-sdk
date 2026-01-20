@@ -87,8 +87,8 @@ catalogs:
       version: 6.1.3
   runtimeServerOnly:
     '@hono/node-server':
-      specifier: ^1.19.7
-      version: 1.19.7
+      specifier: ^1.19.8
+      version: 1.19.8
     cors:
       specifier: ^2.8.5
       version: 2.8.5
@@ -310,7 +310,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.7(hono@4.11.3)
+        version: 1.19.8(hono@4.11.3)
       '@modelcontextprotocol/examples-shared':
         specifier: workspace:^
         version: link:../shared
@@ -700,7 +700,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.7(hono@4.11.3)
+        version: 1.19.8(hono@4.11.3)
     devDependencies:
       '@eslint/js':
         specifier: catalog:devTools
@@ -1207,6 +1207,12 @@ packages:
 
   '@hono/node-server@1.19.7':
     resolution: {integrity: sha512-vUcD0uauS7EU2caukW8z5lJKtoGMokxNbJtBiwHgpqxEXokaHCBkQUmCHhjFB1VUTWdqj25QoMkMKzgjq+uhrw==}
+    engines: {node: '>=18.14.1'}
+    peerDependencies:
+      hono: ^4
+
+  '@hono/node-server@1.19.8':
+    resolution: {integrity: sha512-0/g2lIOPzX8f3vzW1ggQgvG5mjtFBDBHFAzI5SFAi2DzSqS9luJwqg9T6O/gKYLi+inS7eNxBeIFkkghIPvrMA==}
     engines: {node: '>=18.14.1'}
     peerDependencies:
       hono: ^4
@@ -4222,6 +4228,10 @@ snapshots:
       levn: 0.4.1
 
   '@hono/node-server@1.19.7(hono@4.11.3)':
+    dependencies:
+      hono: 4.11.3
+
+  '@hono/node-server@1.19.8(hono@4.11.3)':
     dependencies:
       hono: 4.11.3
 

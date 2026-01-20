@@ -2933,6 +2933,89 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     });
 });
 
+describe('NodeStreamableHTTPServerTransport global Response preservation', () => {
+    it('should not override the global Response object', () => {
+        // Store reference to the original global Response constructor
+        const OriginalResponse = globalThis.Response;
+
+        // Create a custom class that extends Response (similar to Next.js's NextResponse)
+        class CustomResponse extends Response {
+            customProperty = 'test';
+        }
+
+        // Verify instanceof works before creating transport
+        const customResponseBefore = new CustomResponse('test body');
+        expect(customResponseBefore instanceof Response).toBe(true);
+        expect(customResponseBefore instanceof OriginalResponse).toBe(true);
+
+        // Create the transport - this should NOT override globalThis.Response
+        const transport = new NodeStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID()
+        });
+
+        // Verify the global Response is still the original
+        expect(globalThis.Response).toBe(OriginalResponse);
+
+        // Verify instanceof still works after creating transport
+        const customResponseAfter = new CustomResponse('test body');
+        expect(customResponseAfter instanceof Response).toBe(true);
+        expect(customResponseAfter instanceof OriginalResponse).toBe(true);
+
+        // Verify that instances created before transport initialization still work
+        expect(customResponseBefore instanceof Response).toBe(true);
+
+        // Clean up
+        transport.close();
+    });
+
+    it('should not override the global Response object when calling handleRequest', async () => {
+        // Store reference to the original global Response constructor
+        const OriginalResponse = globalThis.Response;
+
+        // Create a custom class that extends Response
+        class CustomResponse extends Response {
+            customProperty = 'test';
+        }
+
+        const transport = new NodeStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID()
+        });
+
+        // Create a mock server to test handleRequest
+        const port = await getFreePort();
+        const httpServer = createServer(async (req, res) => {
+            await transport.handleRequest(req as IncomingMessage & { auth?: AuthInfo }, res);
+        });
+
+        await new Promise<void>(resolve => {
+            httpServer.listen(port, () => resolve());
+        });
+
+        try {
+            // Make a request to trigger handleRequest
+            await fetch(`http://localhost:${port}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream'
+                },
+                body: JSON.stringify(TEST_MESSAGES.initialize)
+            });
+
+            // Verify the global Response is still the original after handleRequest
+            expect(globalThis.Response).toBe(OriginalResponse);
+
+            // Verify instanceof still works
+            const customResponse = new CustomResponse('test body');
+            expect(customResponse instanceof Response).toBe(true);
+            expect(customResponse instanceof OriginalResponse).toBe(true);
+        } finally {
+            await transport.close();
+            httpServer.close();
+        }
+    });
+});
+
 /**
  * Helper to create test server with DNS rebinding protection options
  */
