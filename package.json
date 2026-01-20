@@ -44,7 +44,7 @@
         "@changesets/cli": "^2.29.8",
         "@eslint/js": "catalog:devTools",
         "@modelcontextprotocol/client": "workspace:^",
-        "@modelcontextprotocol/conformance": "0.1.9",
+        "@modelcontextprotocol/conformance": "0.1.10",
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/node": "workspace:^",
         "@types/content-type": "catalog:devTools",
